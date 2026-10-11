@@ -1,0 +1,4 @@
+# Put your own game disc images (.iso) in this folder (see PLAN.md).
+# Nothing in here is ever committed except this file.
+*
+!.gitignore

@@ -1,0 +1,31 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# `cargo run` at the repository root launches the game.
+default-members = ["crates/openrac"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/manstie/open-rac-engine"
+
+[workspace.dependencies]
+bevy = "0.20"
+
+[workspace.lints.clippy]
+# Bevy systems routinely take many parameters and complex query types.
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+# Bevy's recommended development profile: fully optimise dependencies and lightly
+# optimise our own code so debug builds stay playable without slow rebuilds.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

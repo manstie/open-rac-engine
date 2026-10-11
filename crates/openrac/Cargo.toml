@@ -1,0 +1,19 @@
+[package]
+name = "openrac"
+description = "Open Ratchet & Clank Engine: the game application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+
+[features]
+# Faster incremental builds while developing: `cargo run --features dev`.
+# Never ship a build with this enabled.
+dev = ["bevy/dynamic_linking"]
+
+[lints]
+workspace = true

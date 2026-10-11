@@ -1,0 +1,7 @@
+/target/
+
+# Game discs and anything derived from them are copyrighted: never commit them.
+# Local extraction output goes in /cache (see CLAUDE.md).
+/cache/
+*.iso
+*.ISO

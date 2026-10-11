@@ -1,0 +1,6 @@
+# Pinned so every machine, CI run and Claude session builds with the same compiler
+# and lints. Bump deliberately (see CLAUDE.md), usually together with Bevy.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"
