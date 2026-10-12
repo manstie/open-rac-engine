@@ -5,7 +5,7 @@ written in Rust with the [Bevy](https://bevy.org) game engine.
 
 The aim is to play the original PS2 games natively on Windows and Linux, as a full PC
 remaster, using your own game discs. That covers *Ratchet & Clank* (2002) through
-*Ratchet: Deadlocked* / *Ratchet: Gladiator* (2005). It also adds online co-op to every game.
+*Ratchet: Deadlocked* / *Ratchet: Gladiator* (2005).
 
 > [!IMPORTANT]
 > **Early development:** nothing is playable yet. Right now the repository contains the
@@ -34,8 +34,8 @@ remaster, using your own game discs. That covers *Ratchet & Clank* (2002) throug
   A classic mode keeps the original look for comparison.
 - **Controller, keyboard and mouse support**, with every action remappable.
 - **Two-player online co-op in every game, over a direct IP connection**, with mechanics
-  based on *Ratchet: Gladiator*'s co-op. The newer games' movement and mechanics are also
-  backported to the older games.
+  based on *Ratchet: Gladiator*'s co-op. Every game shares one movement and camera
+  controller with the newer games' feel, while keeping its own abilities and gadgets.
 
 ## Games
 

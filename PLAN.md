@@ -100,7 +100,7 @@ the game itself.**
 | ID | Goal | Done when |
 |---|---|---|
 | **G1** | Rewrite the engine of Ratchet & Clank (2002) through Ratchet: Gladiator (2005) in Rust with Bevy. The first deliverable is an **ISO-free hero kit**: the R&C3/Gladiator player controller, camera and weapons on a **placeholder rig built from primitive shapes**, packaged as Bevy plugins that other projects and game mash-ups can reuse. It comes with a standalone demo level. | The demo is playable for 5–10 minutes on Windows and Linux with no game data. The kit crates work in an unrelated Bevy app (P1.16) and depend on no disc crate. Measured movement matches the originals within agreed tolerances (RE.6). |
-| **G2** | Run each game **natively** on Windows and Linux (DX12 and Vulkan), with users supplying their own ISOs in `./source`. The newer R&C3/Gladiator mechanics are backported to the older games. | Each supported release can be completed start to finish (Phase 5), with no emulator in the shipped path. |
+| **G2** | Run each game **natively** on Windows and Linux (DX12 and Vulkan), with users supplying their own ISOs in `./source`. Every game shares one movement and camera controller with the R&C3/Gladiator feel, while keeping its own abilities. | Each supported release can be completed start to finish (Phase 5), with no emulator in the shipped path. |
 | **G3** | Controller and keyboard+mouse support, with **key remapping**. | Every action can be remapped and the bindings persist. Gamepad and KB+M both work in menus and gameplay. |
 | **G4** | **Direct-IP two-player online co-op in every game**, with mechanics derived from Ratchet: Gladiator. | Two PCs connect by IP address and play a campaign together in every supported game (Phase 6). The demo gets co-op first (P1.18). |
 | **G5** | **A full PC remaster by default** (D4): widescreen and ultrawide, any resolution, high frame rates over a 60 Hz simulation, modern anti-aliasing and post-processing, mouse-first controls and complete settings menus. | Every enhancement is on by default and can be switched off individually. A "classic" mode reproduces the original presentation for comparison. |
@@ -204,7 +204,7 @@ layer:**
 | Engine services: rendering (classic and remaster), audio engine, file and disc I/O, saves, input mapping | **Our Rust code** | Native |
 | Assets: levels, models, textures, animation, collision, sound, video | The user's ISO, **extracted and converted on first run** into a local cache | Native data |
 | Game logic: thousands of per-class update functions, missions, bosses, menus | The user's ISO, **statically recompiled on first run** (R5900 → Cranelift → native code, cached) | Native code, on top of our runtime, which emulates the hardware and IOP services at a high level (HLE) |
-| Rewritten systems: the hero (R&C3/Gladiator mechanics, backported to the older games), camera, weapons, HUD, co-op and netcode | **Our Rust code (the hero kit)**, replacing recompiled functions through hooks | Native |
+| Rewritten systems: the hero and camera (one controller with the R&C3/Gladiator feel for every game, each game keeping its own abilities), weapons, HUD, co-op and netcode | **Our Rust code (the hero kit)**, replacing recompiled functions through hooks | Native |
 
 - **Why it fits:** formats are shared but code isn't. Recompiling scales to 4 engines × ~50
   overlays without hand-porting, and keeps the game logic faithful. Our own code provides
@@ -292,7 +292,7 @@ App
   the community's symbols. PAL releases are supported variants: they need their own
   address maps, languages and handling of data tuned for 50 Hz (RE.8).
 - The hero kit (Phase 1) implements the UYA/DL move set. It is tuned against measurements
-  of both games (RE.3–RE.6), and it is the hero that gets backported to R&C1 and GC.
+  of both games (RE.3–RE.6), and its movement and camera are what R&C1 and GC get too. Their abilities stay their own.
 
 ## 5. Decisions
 
@@ -331,7 +331,7 @@ App
 | 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials, returned per body by `CollisionWorld`. Health is a `Health` component beside the controller: the controller only knows whether a hit is fatal, and reports hazard contact. |
 | 2026-10-12 | Rules the games time by **animation frame** (the ledge grab and climb, the double jump's grab delay) assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts for its move's window of ticks, and only once. |
 | 2026-10-12 | The dev profile builds with **line-table debug info only** (dependencies without any), and heavy cargo commands run at low priority with 4 jobs (CLAUDE.md, "Commands"). Full debug info made the parallel links of the Bevy test binaries exhaust 31 GB and froze the owner's desktop. |
-| 2026-10-12 | **Abilities the games grant as items are flags, never backported** (owner's request). Charge boots, the heli-pack and thruster-pack moves, glide, grind boots and gadgets are per-hero ability flags. Each game sets them from its own item and save state, so an older game only gets what it had (R&C1 never gets charge boots, and GC gets them once bought). The originals gate them the same way: UYA's long and heli jumps need the heli-pack in the back slot. Only the movement itself is backported (D2), and the demo turns every flag on. |
+| 2026-10-12 | **"Backport" means one movement and camera controller for every game; the abilities available in each game stay the same** (owner's clarification of D2). Abilities the games grant as items are flags, never carried across. Charge boots, the heli-pack and thruster-pack moves, glide, grind boots and gadgets are per-hero ability flags. Each game sets them from its own item and save state, so an older game only gets what it had (R&C1 never gets charge boots, and GC gets them once bought). The originals gate them the same way: UYA's long and heli jumps need the heli-pack in the back slot. The demo turns every flag on. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -1070,10 +1070,10 @@ Order: section 4.4.
   - rebinding everywhere.
 - [ ] **P5.6** Compatibility tracker at `docs/compat.md`, listing each release and level
   with its status.
-- [ ] **P5.7** Backport the R&C3/Gladiator mechanics to R&C1 and GC (D2):
+- [ ] **P5.7** Bring the shared movement and camera controller to R&C1 and GC (D2):
   - The native hero replaces the recompiled one.
-  - Only the movement is backported. Abilities each game grants as items stay gated by
-    that game's own items (section 5, 2026-10-12): no charge boots in R&C1.
+  - Only the movement and camera change. Each game keeps its own abilities, gated by its
+    own items (section 5, 2026-10-12): no charge boots in R&C1.
   - Fix individual levels where the new moves break assumptions: sequence breaks, triggers,
     camera volumes.
   - Offer the classic hero as an option (D7).
