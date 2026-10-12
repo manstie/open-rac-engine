@@ -1,0 +1,14 @@
+[package]
+name = "rac_sim"
+description = "Hero kit: fixed 60 Hz simulation clock, system order, render interpolation and seeded RNG"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "libm"] }
+
+[lints]
+workspace = true

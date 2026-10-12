@@ -104,9 +104,10 @@ Development is native, with no container.
 
 | Command | What it does |
 |---|---|
-| `cargo run` | Runs the game. The default workspace member is `crates/openrac`. |
+| `cargo run` | Runs the game: a main menu, then the hero kit's demo level. The default workspace member is `crates/openrac`. |
 | `cargo run --features dev` | Uses Bevy's dynamic linking for faster rebuilds. Never use it for release builds. |
-| `cargo run -- --exit-after-frames 120` | Smoke test. Exits with code 0 after 120 frames. Use it to check rendering works. |
+| `cargo run -- --exit-after-frames 120` | Smoke test. Exits with code 0 after 120 frames. Use it to check rendering works. Add `--demo` to render the level instead of the menu. |
+| `cargo run -- --demo --record-input x.orin`, then `--replay-input x.orin` | Records every tick's input, then replays it into the same simulation. `--settings <file>` keeps test runs out of the real settings file. |
 | `cargo fmt --all` | Formats the code. |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings treated as errors. |
 | `cargo test --workspace` | Runs the tests. |
@@ -116,6 +117,12 @@ Development is native, with no container.
 
 The first full build takes about 7 minutes on the owner's machine. Incremental rebuilds
 of the app take seconds.
+
+**Running the app without the owner's screen:** start `Xvfb :97 -screen 0 1280x800x24
+-nolisten tcp`. Then run the app with `DISPLAY=:97` and
+`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` (Mesa's software Vulkan, which is
+slow but works). Drive it with `xdotool`, and take screenshots with `xwd -root -display :97`
+converted by `ffmpeg`. A plain `cargo run` opens a window on the owner's desktop.
 
 ## Workspace conventions
 
@@ -132,9 +139,11 @@ of the app take seconds.
 - **Keep Bevy out of the core crates:** `rac_iso`, `rac_formats`, `rac_recomp` and the
   runtime core must not depend on it. They should stay usable from tools and tests, and
   survive Bevy upgrades.
-- **The hero kit is ISO-free:** `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and
-  `rac_demo` must never depend on the disc, format, asset or runtime crates.
+- **The hero kit is ISO-free:** `rac_sim`, `rac_input`, `rac_hero`, `rac_combat`,
+  `rac_net` and `rac_demo` must never depend on the disc, format, asset or runtime crates.
   - Other Bevy projects and game mash-ups reuse them as plain plugins (PLAN P1.16).
+  - They ask Bevy only for the features they use: the workspace turns Bevy's default
+    features off, and `openrac` turns them back on.
   - Keep their collision behind the kit's own interface and their configuration in RON
     assets.
 - **Simulation code must be deterministic.** Lockstep and rollback co-op (PLAN §4.2) need

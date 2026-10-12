@@ -1,0 +1,20 @@
+[package]
+name = "rac_input"
+description = "Hero kit: actions, bindings and the per-tick PlayerInput that replays record and the netcode exchanges"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "libm", "serialize", "keyboard", "mouse", "gamepad"] }
+rac_sim.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

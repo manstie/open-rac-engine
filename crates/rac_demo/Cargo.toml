@@ -1,0 +1,16 @@
+[package]
+name = "rac_demo"
+description = "Hero kit: the standalone demo's greybox level, and later its enemies and HUD"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "libm", "bevy_pbr", "bevy_core_pipeline"] }
+rac_input.workspace = true
+rac_sim.workspace = true
+
+[lints]
+workspace = true

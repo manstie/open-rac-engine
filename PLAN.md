@@ -24,10 +24,14 @@ moved (say why).
 
 ## 0. Status (updated 2026-10-12)
 
-**Phase 0 (foundations) is done apart from CI's first run (P0.7). The reverse-engineering
-track has the hero's movement code: constants and models are read from the game itself.**
-- The Linux build dependencies are installed. The workspace builds and runs natively: a
-  Bevy 0.20 window showing a greybox scene.
+**Phase 0 (foundations) is done apart from CI's first run (P0.7). Phase 1 has started: the
+app flow, the 60 Hz simulation core, the input layer and the greybox level are in
+(P1.1–P1.4). The reverse-engineering track has the hero's movement code: constants and
+models are read from the game itself.**
+- The Linux build dependencies are installed. The workspace builds and runs natively.
+  `cargo run` opens a main menu, and "Play the demo" loads the greybox level with a
+  spectator camera. Input can be recorded and replayed (`--record-input`,
+  `--replay-input`).
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
   - R&C3 and Gladiator first;
@@ -70,10 +74,10 @@ track has the hero's movement code: constants and models are read from the game 
    - Most jump moves are now verified on UYA NTSC with our own scripted traces.
 2. **Owner:** push `re/hero-movement` so CI runs (the push needs the owner's
    credentials). Then fix anything Windows-specific it finds (P0.7).
-3. Start the kit's foundations, P1.1–P1.4: app flow, simulation clock, input and a greybox
-   level.
-   - The hero controller (P1.5) can then start from `hero-controller.md`, using the NTSC
-     values at 60 Hz.
+3. The hero controller (P1.5) in a new `rac_hero` crate, starting from
+   `hero-controller.md` with the NTSC values at 60 Hz.
+   - It collides with the greybox level's pieces (`rac_demo::greybox_level`), through the
+     kit's own collision interface (P1.16).
    - It is tuned against the traces through RE.6.
 4. RE.3, continued:
    - wall detection, ledge grab, swimming and grinding, in code;
@@ -247,6 +251,7 @@ All crates live in `crates/`. Libraries are prefixed `rac_*`; the binary is `ope
 
 ```
 ISO-free hero kit: reusable in any Bevy app; never depends on the game-layer crates
+  rac_sim      fixed 60 Hz clock, system order, render interpolation, seeded RNG
   rac_input    actions, bindings, remapping, per-tick input snapshots (G3)
   rac_hero     kinematic controller (R&C3/Gladiator feel), abilities, camera, placeholder rig
   rac_combat   health and damage, melee, weapons, projectiles, pickups, quick-select
@@ -314,6 +319,8 @@ App
 | 2026-10-12 | The hero kit's movement is specified **in per-second units with the NTSC-U values, simulated at 60 Hz**. RE.8 showed that NTSC-U is the native tuning and PAL a conversion. |
 | 2026-10-12 | Ghidra scripts live in `tools/ghidra/` (Java), which is excluded from the Cargo workspace. Decompiled output stays in `cache/`. Only facts in our own words and `re/<serial>/symbols.toml` are committed. |
 | 2026-10-12 | NTSC savestates for static analysis are made headlessly (`tools/pine-probe/boot.sh`: a new game driven with xdotool), using copies of the owner's memory cards and never their live instance. |
+| 2026-10-12 | The hero kit gains a crate, **`rac_sim`**: the fixed 60 Hz clock, the `SimSet` order, `SimTick`, interpolated `SimTransform` and the `SimRng` (PCG32), shared by every kit crate. The workspace turns Bevy's default features off so kit crates ask only for what they use; `openrac` turns them back on. |
+| 2026-10-12 | Settings are **TOML** (`settings.toml` in the platform config directory, via `directories`), since the workspace already uses TOML. `PlayerInput` is a fixed 10-byte encoding (move stick in PS2 counts, look in binary-angle units, held and pressed bits), and input recordings are `.orin` files of those. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -572,18 +579,64 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
   - Prefer crates that don't depend on Bevy, such as `ggrs`, `parry3d` and `igd-next`.
 
 **Tasks:**
-- [ ] **P1.1** App flow:
+
+**How P1.1–P1.4 fit together (done 2026-10-12):**
+- **`rac_sim`**, a new kit crate, is the shared simulation core (section 5):
+  - the 60 Hz clock;
+  - `SimSet`, in the order Input → World → Hero → Particles → Camera. World holds
+    enemies, platforms and other level objects (the games' "mobys");
+  - `SimTick`;
+  - `SimTransform`, which is interpolated into `Transform` for rendering;
+  - `SimRng`, a PCG32 generator.
+- **`rac_input`:**
+  - Devices are sampled once a frame and latched into `PlayerInputs` once a tick, in
+    `SimSet::Input`.
+  - `PlayerInput` is 10 bytes:
+    - the move stick in PS2 counts (i8 per axis);
+    - the look delta in binary-angle units (i16 per axis);
+    - held and pressed button bits.
+- **`rac_demo`:** the greybox level as data, plus a spectator camera driven by
+  `PlayerInput` until the hero exists (P1.5).
+- **`openrac`:**
+  - `AppState` (Boot, MainMenu, InGame) with a `Pause` sub-state. The game clock
+    (`Time<Virtual>`) runs only in game and unpaused.
+  - TOML settings, a focus-list menu, and the flags `--demo`, `--record-input`,
+    `--replay-input` and `--settings`.
+- **Checked in the running app:**
+  - Under Xvfb with lavapipe, driven by xdotool: menu → demo → fly → pause → quit.
+  - A 716-tick recording replays to the identical camera position.
+  - `--exit-after-frames 240 --demo` is clean on the owner's RTX 4070 SUPER (Vulkan).
+
+- [x] **P1.1** App flow:
+  - Done 2026-10-12, in `crates/openrac` (`flow.rs`, `menu.rs`, `settings.rs`).
+  - The settings file is TOML (`settings.toml` in the platform config directory). Missing
+    files are created, and broken ones are kept and ignored.
+  - Disc detection is a stub that always finds none, until P2.1.
   - Bevy `States` (Boot → MainMenu → InGame ⇄ Paused).
   - Settings stored as RON/TOML in the platform config directory (the `directories` crate).
   - No disc → the demo.
   - In dev builds, the cache and data directory is `./cache`.
-- [ ] **P1.2** Simulation clock and determinism:
+- [x] **P1.2** Simulation clock and determinism:
+  - Done 2026-10-12: `crates/rac_sim`, plus the record/replay in `rac_input`.
+  - Bevy's `libm` feature is on.
+  - Still to do: comparing state hashes across operating systems is P1.19.
   - `FixedUpdate` at 60 Hz, with transform interpolation for rendering.
   - System order: input → enemies → hero → particles → camera.
   - Bevy's `libm` feature plus `bevy::math::ops`.
   - One seeded RNG per level, and no reliance on iteration order (section 2).
   - Inputs can be recorded and replayed.
-- [ ] **P1.3** Input layer, `rac_input` (G3):
+- [~] **P1.3** Input layer, `rac_input` (G3):
+  - 2026-10-12: `crates/rac_input` is written and tested. It covers:
+    - the actions, with the UYA pad layout and KB+M defaults;
+    - dead zones, sensitivity, invert and swapped sticks;
+    - TOML-serialisable `InputSettings`, saved in the settings file;
+    - the 10-byte `PlayerInput`, and `ActionState` for menus;
+    - the `.orin` record/replay codec.
+  - Leafwing and enhanced_input are still on Bevy 0.19, so this is our own thin layer.
+  - Still to do:
+    - the rebinding UI, which comes with the settings screens (P1.12);
+    - a check of the full stick curve, because Bevy's own axis processing runs before
+      ours (P1.5).
   - Actions: Move, Look, Jump, Crouch, Melee, Fire, QuickSelect (hold for the ring),
     Strafe/Lock, FirstPerson, Next/PrevWeapon, Map, Pause, and UI navigation.
   - Defaults for a PS-layout gamepad and for KB+M (WASD plus mouse look and aim).
@@ -593,11 +646,21 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
     replays record and what the netcode exchanges.
   - Use leafwing or enhanced_input once they support 0.20. Otherwise write a thin layer of
     our own over `ButtonInput` and `Gamepad`.
-- [ ] **P1.4** Greybox test level built from primitives, containing:
-  - flat ground, slopes and steps;
-  - ledges, walls for wall-jumping and gaps for long jumps;
-  - a high platform and a moving platform;
-  - a grind rail and a swingshot target.
+- [x] **P1.4** Greybox test level built from primitives:
+  - Done 2026-10-12: `crates/rac_demo`.
+  - The level is data, with each piece tagged by what it's for (`Surface`), so P1.5 can
+    build colliders from the same list:
+    - ramps at 15°, 30°, 45° and 60°, and low and high stairs;
+    - ledge blocks at 2, 3 and 4 u;
+    - a wall-jump shaft up to a 12 u platform, with a lift beside it;
+    - a course with 4, 7 and 10 u gaps, sized from `hero-controller.md`;
+    - a shuttle platform, a climbing grind rail, and a swing target over a 14 u gap.
+  - Tests check the gap widths, the ramp angles and that no pieces overlap.
+  - It contains:
+    - flat ground, slopes and steps;
+    - ledges, walls for wall-jumping and gaps for long jumps;
+    - a high platform and a moving platform;
+    - a grind rail and a swingshot target.
 - [ ] **P1.5** Kinematic hero controller (`rac_hero`), a capsule against static colliders,
   implementing the **UYA/DL move set** from RE.3:
   - Ground snapping, slope limits and step-up.
@@ -984,6 +1047,15 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-12 (Phase 1 start):** P1.1, P1.2 and P1.4 are done, and P1.3 is done apart
+  from the rebinding UI.
+  - New crates: `rac_sim`, `rac_input` and `rac_demo`. `openrac` has the states, menus,
+    settings and record/replay flags.
+  - 36 new tests.
+  - Checked in the running app under Xvfb with lavapipe (menus, flying, pause, a replay
+    that matches its recording), and on the owner's GPU.
+  - Next: the hero controller (P1.5).
 
 - **2026-10-12 (recovery):** the previous session hit a usage limit mid-task. Recovered its
   work from the transcript.

@@ -1,11 +1,68 @@
 //! Open Ratchet & Clank Engine: application entry point.
 //!
-//! For now this opens a window with a greybox placeholder scene. The roadmap lives
-//! in `PLAN.md` at the repository root.
+//! With no supported disc (there is no disc support yet) it runs the hero kit's demo. The
+//! roadmap lives in `PLAN.md` at the repository root.
 
-use bevy::{diagnostic::FrameCount, prelude::*, render::RenderPlugin};
+mod flow;
+mod menu;
+mod settings;
 
-fn main() -> AppExit {
+use anyhow::{Context, Result};
+// Named imports: the Bevy prelude's `ContextExt` would clash with anyhow's `Context`.
+use bevy::{
+    diagnostic::FrameCount,
+    prelude::{
+        App, AppExit, DefaultPlugins, MessageWriter, PluginGroup, Res, Resource, Update, Window,
+        WindowPlugin, default, info,
+    },
+    render::RenderPlugin,
+};
+use clap::Parser;
+use rac_input::{InputRecording, InputSource, PlayerInputPlugin};
+use std::path::PathBuf;
+
+use crate::{
+    flow::{FlowOptions, FlowPlugin},
+    menu::MenuPlugin,
+    settings::Paths,
+};
+
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    /// Quit with success after this many frames, so CI and smoke tests can check that the
+    /// app boots and renders without a human present.
+    #[arg(long, value_name = "N")]
+    exit_after_frames: Option<u32>,
+    /// Go straight into the demo, skipping the main menu.
+    #[arg(long)]
+    demo: bool,
+    /// Record every tick's input to FILE (an `.orin` recording).
+    #[arg(long, value_name = "FILE")]
+    record_input: Option<PathBuf>,
+    /// Replay the input recording in FILE instead of reading the devices. Implies --demo.
+    #[arg(long, value_name = "FILE", conflicts_with = "record_input")]
+    replay_input: Option<PathBuf>,
+    /// Use FILE for settings instead of the platform's config directory.
+    #[arg(long, value_name = "FILE")]
+    settings: Option<PathBuf>,
+}
+
+fn main() -> Result<AppExit> {
+    let args = Args::parse();
+    let paths = Paths::resolve(args.settings.clone())?;
+    let settings = settings::load_or_create(&paths.settings_file);
+    let replay = args
+        .replay_input
+        .as_ref()
+        .map(|path| -> Result<InputRecording> {
+            let bytes =
+                std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+            InputRecording::from_bytes(&bytes)
+                .with_context(|| format!("loading the input recording {}", path.display()))
+        })
+        .transpose()?;
+
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -25,31 +82,39 @@ fn main() -> AppExit {
                 ..default()
             }),
     )
-    .add_systems(Startup, spawn_placeholder_scene);
+    // Saved settings go in before the input plugin, which would otherwise use defaults.
+    .insert_resource(settings.input)
+    .add_plugins((
+        rac_sim::SimPlugin,
+        PlayerInputPlugin,
+        rac_demo::DemoPlugin,
+        FlowPlugin,
+        MenuPlugin,
+    ))
+    .insert_resource(FlowOptions {
+        skip_menu: args.demo || replay.is_some(),
+        record_to: args.record_input,
+    });
+    if let Some(recording) = replay {
+        app.insert_resource(InputSource::replay(recording));
+    }
+    info!(
+        "settings: {}; data: {}",
+        paths.settings_file.display(),
+        paths.data_dir.display()
+    );
+    app.insert_resource(paths);
 
-    if let Some(frames) = exit_after_frames_arg() {
+    if let Some(frames) = args.exit_after_frames {
         app.insert_resource(ExitAfterFrames(frames))
             .add_systems(Update, exit_after_frames);
     }
 
-    app.run()
+    Ok(app.run())
 }
 
-/// Quit once this many frames have run. Set with `--exit-after-frames N` so CI and
-/// smoke tests can check that the app boots and renders without a human present.
 #[derive(Resource)]
 struct ExitAfterFrames(u32);
-
-fn exit_after_frames_arg() -> Option<u32> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--exit-after-frames" {
-            let count = args.next().and_then(|n| n.parse().ok());
-            return Some(count.expect("--exit-after-frames needs a frame count, e.g. 120"));
-        }
-    }
-    None
-}
 
 fn exit_after_frames(
     limit: Res<ExitAfterFrames>,
@@ -59,34 +124,4 @@ fn exit_after_frames(
     if frames.0 >= limit.0 {
         exit.write(AppExit::Success);
     }
-}
-
-/// Stand-in until the Phase 1 demo level exists: ground, a capsule "player", a sun
-/// and a camera.
-fn spawn_placeholder_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(40.0, 40.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.35, 0.45, 0.35))),
-    ));
-    // Radius 0.4 + segment 1.0 = 1.8 units tall, so its centre sits at y = 0.9.
-    commands.spawn((
-        Mesh3d(meshes.add(Capsule3d::new(0.4, 1.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.95, 0.6, 0.2))),
-        Transform::from_xyz(0.0, 0.9, 0.0),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            shadow_maps_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 3.0, 8.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
-    ));
 }
