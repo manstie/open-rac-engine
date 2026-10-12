@@ -1,12 +1,13 @@
 //! P1.5's second chunk against `docs/research/hero-controller.md`: the wall jump, ledges,
-//! getting hit, and when each jump can start. These rules are read in UYA's code but not
-//! yet traced, so the tests check the code's numbers.
+//! getting hit, when each jump can start, the charge boots and the ability flags. These
+//! rules are read in UYA's and DL's code but not yet traced, so the tests check the code's
+//! numbers.
 
 use bevy::prelude::*;
 use rac_hero::{
     BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, Material, ParryWorld,
     Side,
-    controller::{self, StepEvents, step},
+    controller::{self, Abilities, StepEvents, TICK, step},
     motor,
 };
 use rac_input::{Action, Buttons, PlayerInput};
@@ -426,4 +427,169 @@ fn the_slope_limit_is_50_degrees() {
     let normal = |degrees: f32| Quat::from_rotation_x(degrees.to_radians()) * Vec3::Y;
     assert!(motor::is_walkable(normal(49.9), &body));
     assert!(!motor::is_walkable(normal(50.1), &body));
+}
+
+// --- Charge boots ----------------------------------------------------------------------
+
+const FORWARD: Option<[i8; 2]> = Some([0, 127]);
+
+/// Walks the hero up to speed, then taps crouch twice, `gap` ticks apart.
+fn double_tap(rig: &mut Rig, gap: usize) {
+    rig.ticks(20, &input(FORWARD, &[], &[]));
+    rig.tick(&input(FORWARD, &[], &[Action::Crouch]));
+    rig.ticks(gap - 1, &input(FORWARD, &[], &[]));
+    rig.tick(&input(FORWARD, &[], &[Action::Crouch]));
+}
+
+#[test]
+fn a_second_crouch_tap_within_15_ticks_charges() {
+    // "Charge boots": R1 pressed again while the 15-frame window from the last press runs.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    double_tap(&mut rig, 15);
+    assert_eq!(rig.hero.state, HeroState::Charge);
+
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    double_tap(&mut rig, 16);
+    assert_ne!(rig.hero.state, HeroState::Charge);
+}
+
+#[test]
+fn a_charge_dashes_at_30_u_s_for_a_second_then_skids() {
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    double_tap(&mut rig, 3);
+    assert_eq!(rig.hero.state, HeroState::Charge);
+    let start = rig.hero.speed;
+    rig.tick(&idle());
+    // Up at 100 u/s² towards 30 u/s, along the facing (-z).
+    assert!((rig.hero.speed - (start + 100.0 * TICK)).abs() < 1e-4);
+    rig.ticks(30, &idle());
+    assert_eq!(rig.hero.speed, 30.0);
+    assert!(rig.hero.velocity.z < -29.9);
+
+    // 61 ticks in all (frames 0-60), the last one heading for 11.5 u/s; the 62nd skids.
+    let rest = rig.until(40, &idle(), |hero| hero.state != HeroState::Charge);
+    assert_eq!(1 + 1 + 30 + rest, 62);
+    assert_eq!(rig.hero.state, HeroState::Skid);
+    assert!((rig.hero.speed - (30.0 - 15.0 * TICK - 27.0 * TICK)).abs() < 1e-3);
+
+    // The skid ignores the controls for 30 ticks, doesn't turn, and brakes at 27 u/s².
+    let (before, yaw) = (rig.hero.speed, rig.hero.yaw);
+    rig.tick(&input(Some([127, 0]), &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Skid);
+    assert_eq!(rig.hero.yaw, yaw);
+    assert!((before - rig.hero.speed - 27.0 * TICK).abs() < 1e-4);
+    let stopped = rig.until(80, &idle(), |hero| hero.state == HeroState::Idle);
+    assert!((60..=68).contains(&stopped), "{stopped}");
+}
+
+#[test]
+fn a_charge_steers_like_a_car_with_the_stick() {
+    // Full right turns right at 70°/s once the 50-tick ramp is over.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    double_tap(&mut rig, 3);
+    let right = input(Some([127, 0]), &[], &[]);
+    rig.ticks(50, &right);
+    let yaw = rig.hero.yaw;
+    rig.tick(&right);
+    let turned = rig.hero.yaw - yaw;
+    assert!((turned + 1.2217305 * TICK).abs() < 1e-5, "{turned}");
+
+    // Early in the charge the same stick turns far less.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    double_tap(&mut rig, 3);
+    let yaw = rig.hero.yaw;
+    rig.ticks(10, &right);
+    assert!((rig.hero.yaw - yaw).abs() < 0.03);
+}
+
+#[test]
+fn a_charge_into_a_wall_bounces_back() {
+    // A wall 12 u ahead (-z).
+    let wall = block(
+        Vec3::new(0.0, 3.0, -12.5),
+        Vec3::new(10.0, 3.0, 0.5),
+        Material::Solid,
+    );
+    let mut rig = Rig::new(&[floor(), wall], Vec3::ZERO, 0.0);
+    double_tap(&mut rig, 3);
+    rig.until(60, &idle(), |hero| hero.state == HeroState::Bounce);
+    // Back at 9 u/s, still facing the wall, slowing at 24 u/s².
+    rig.tick(&idle());
+    assert!((rig.hero.velocity.z - (9.0 - 24.0 * TICK)).abs() < 1e-4);
+    assert_eq!(rig.hero.yaw, 0.0);
+    let spent = rig.until(40, &idle(), |hero| hero.state == HeroState::Idle);
+    assert!((21..=24).contains(&spent), "{spent}");
+}
+
+#[test]
+fn a_charge_off_an_edge_sinks_and_carries_on() {
+    // A 3 u high deck ending 10 u ahead, over the floor.
+    let deck = block(
+        Vec3::new(0.0, 1.5, 5.0),
+        Vec3::new(10.0, 1.5, 15.0),
+        Material::Solid,
+    );
+    let mut rig = Rig::new(&[floor(), deck], Vec3::new(0.0, 3.0, 0.0), 0.0);
+    double_tap(&mut rig, 3);
+    rig.until(30, &idle(), |hero| hero.ground.is_none());
+    // Down to the floor at no more than 7.5 u/s, charging all the way.
+    let mut fastest: f32 = 0.0;
+    while rig.hero.ground.is_none() {
+        assert_eq!(rig.hero.state, HeroState::Charge);
+        rig.tick(&idle());
+        fastest = fastest.min(rig.hero.velocity.y);
+    }
+    assert_eq!(rig.hero.state, HeroState::Charge);
+    assert!(rig.hero.position.y < 0.01);
+    assert!((-7.5 - 1e-3..-7.0).contains(&fastest), "{fastest}");
+}
+
+// --- Ability flags ---------------------------------------------------------------------
+
+#[test]
+fn without_the_boots_a_double_tap_only_crouches() {
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.hero = rig.hero.clone().with_abilities(Abilities {
+        charge_boots: false,
+        ..Abilities::ALL
+    });
+    double_tap(&mut rig, 3);
+    assert_ne!(rig.hero.state, HeroState::Charge);
+}
+
+#[test]
+fn without_the_heli_pack_crouch_jumps_are_plain_and_nothing_glides() {
+    let no_pack = Abilities {
+        heli_pack: false,
+        ..Abilities::ALL
+    };
+    // From a standing crouch: a standing jump, not the heli jump.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.hero = rig.hero.clone().with_abilities(no_pack);
+    rig.tick(&input(None, &[Action::Crouch], &[Action::Crouch]));
+    rig.ticks(7, &input(None, &[Action::Crouch], &[]));
+    rig.tick(&input(None, &[Action::Crouch], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Standing));
+
+    // From a running crouch: no long jump either.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.hero = rig.hero.clone().with_abilities(no_pack);
+    rig.ticks(20, &input(FORWARD, &[], &[]));
+    rig.tick(&input(FORWARD, &[Action::Crouch], &[Action::Crouch]));
+    rig.ticks(6, &input(FORWARD, &[Action::Crouch], &[]));
+    rig.tick(&input(FORWARD, &[Action::Crouch], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Standing));
+
+    // A double jump held all the way down never glides.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.hero = rig.hero.clone().with_abilities(no_pack);
+    let hold = input(None, &[Action::Jump], &[]);
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    rig.ticks(16, &hold);
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::DoubleJump);
+    for _ in 0..80 {
+        rig.tick(&hold);
+        assert_ne!(rig.hero.state, HeroState::Glide);
+    }
 }

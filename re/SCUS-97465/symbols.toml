@@ -59,3 +59,174 @@ address = 0x0021DDFC
 kind = "data"
 confidence = "low"
 note = "frame_dt cubed. Uses not yet seen."
+
+# 2026-10-12, the charge boots (PLAN.md RE.3). DL dispatches the hero's states through three
+# tables of 154 code pointers indexed by the state number.
+
+[[symbol]]
+name = "hero_state_enter_table"
+address = 0x003B0BE0
+kind = "data"
+confidence = "medium"
+note = "Jump table of hero_change_state's switch: the per-state setup on entering a state."
+
+[[symbol]]
+name = "hero_state_update_table"
+address = 0x003B08C0
+kind = "data"
+confidence = "medium"
+note = "Jump table of hero_update_state's switch: each state's per-frame motion."
+
+[[symbol]]
+name = "hero_state_transition_table"
+address = 0x003B0E50
+kind = "data"
+confidence = "medium"
+note = "Jump table of hero_transitions's switch: each state's ways out."
+
+[[symbol]]
+name = "hero_update_state"
+address = 0x00690F18
+kind = "function"
+confidence = "medium"
+note = "Per-frame motion of the current state. State 125 (charge) sets the speed target, steering and ground-hugging spring."
+
+[[symbol]]
+name = "hero_transitions"
+address = 0x0069EA40
+kind = "function"
+confidence = "medium"
+note = "Per-state transitions. Calls hero_common_transitions first."
+
+[[symbol]]
+name = "hero_common_transitions"
+address = 0x006A5248
+kind = "function"
+confidence = "medium"
+note = "Transitions shared by the ground states, including the charge's start: a second R1 press in the 15-frame window, with gadget 0x11 owned."
+
+[[symbol]]
+name = "hero_update_idle"
+address = 0x00695570
+kind = "function"
+confidence = "medium"
+note = "Idle-type update shared by states 0, 1, 3, 4 and others: braking 27 u/s² in the skid state (3) and the crouch, 17.7 otherwise."
+
+[[symbol]]
+name = "hero_update_timers"
+address = 0x00684EF0
+kind = "function"
+confidence = "medium"
+note = "Counts down the hero's frame timers, among them the charge cooldown at hero+0x2E54."
+
+[[symbol]]
+name = "hero_stick_move"
+address = 0x0067C5F8
+kind = "function"
+confidence = "medium"
+note = "Turns the stick into a camera-relative move direction and a target speed (scale × stick length)."
+
+[[symbol]]
+name = "hero_turn_by"
+address = 0x0067CBC0
+kind = "function"
+confidence = "medium"
+note = "Adds an angle to the hero's yaw (the charge's steering), or rotates by a full matrix on magnetic ground."
+
+[[symbol]]
+name = "hero_speed_towards_target"
+address = 0x0067D350
+kind = "function"
+confidence = "medium"
+note = "Moves the speed (hero+0x1784) towards the target (hero+0x1780) by the first argument when rising, the second when falling."
+
+[[symbol]]
+name = "hero_velocity_along"
+address = 0x0067D3A0
+kind = "function"
+confidence = "medium"
+note = "Sets the intended velocity from the speed along a yaw (the facing when given more than π), following the ground's slope."
+
+[[symbol]]
+name = "charge_steer_ease"
+address = 0x0066F408
+kind = "function"
+confidence = "medium"
+note = "Eases two stored values towards minus the stick's x and y by a step a frame, clamped to ±1; the charge steers with the first."
+
+[[symbol]]
+name = "hero_wall_probe"
+address = 0x006708B0
+kind = "function"
+confidence = "low"
+note = "Ray forward from the capsule's front at a given height; true when it hits within a given distance. Cached per frame."
+
+[[symbol]]
+name = "hero_set_animation"
+address = 0x00688C08
+kind = "function"
+confidence = "medium"
+note = "Starts an animation with a blend length in frames (negative: the default). The 8.0, 11.0 and -2.0 next to state changes are blends, not physics."
+
+[[symbol]]
+name = "hero_play_sound"
+address = 0x006835F0
+kind = "function"
+confidence = "low"
+note = "Plays one of the hero's sounds by index."
+
+[[symbol]]
+name = "pad_action_mask"
+address = 0x005BE808
+kind = "function"
+confidence = "medium"
+note = "Pad bits for an action under the control scheme: 8 (R1) stays 8 in the default scheme, 1 (L2) in the other."
+
+[[symbol]]
+name = "gadget_owned"
+address = 0x006BF278
+kind = "function"
+confidence = "medium"
+note = "Whether the gadget box (hero+0x26E4) holds a gadget id: its level byte at +0xA30 + 0x44 × id is not negative."
+
+[[symbol]]
+name = "timer_count_down"
+address = 0x0055D180
+kind = "function"
+confidence = "medium"
+note = "Counts a short timer down to 0; 2 when it just ran out."
+
+[[symbol]]
+name = "approach"
+address = 0x00594AE8
+kind = "function"
+confidence = "medium"
+note = "value += clamp(target - value, -step, step); returns the distance left."
+
+[[symbol]]
+name = "game_spring_rate"
+address = 0x00594A88
+kind = "function"
+confidence = "medium"
+note = "The games' spring: rate clamped to the error, += gain × error - damping × rate, capped, clamped again."
+
+[[symbol]]
+name = "game_spring"
+address = 0x00594D28
+kind = "function"
+confidence = "medium"
+note = "game_spring_rate then value += rate, snapping to the target within 1% of the cap."
+
+[[symbol]]
+name = "frame_rate_scale"
+address = 0x0021DDEC
+kind = "data"
+confidence = "low"
+note = "1.0 on this build; multiplies per-frame spring gains and damping."
+
+[[symbol]]
+name = "charge_mode_flag"
+address = 0x0021E878
+kind = "data"
+confidence = "low"
+note = "0 in single player. When set, the charge heads for 11.5 u/s throughout and hugs the ground with a downward push instead of the spring; probably multiplayer."

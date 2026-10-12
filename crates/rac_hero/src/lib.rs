@@ -25,7 +25,7 @@ use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
 
 pub use camera::FollowCamera;
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
-pub use controller::{HeroMotion, HeroState, JumpKind, Ledge, Side};
+pub use controller::{Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side};
 pub use profile::HeroProfile;
 
 /// A player-controlled hero.

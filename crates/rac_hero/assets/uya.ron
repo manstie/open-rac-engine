@@ -49,6 +49,8 @@
         turn_skidding: (gain: 0.035, damping: 0.13, cap: 0.1949),
         // Letting go of the stick [verified on UYA NTSC].
         skid_brake: 17.0,
+        // The skid state (3) brakes at 0.0075 u per frame, in UYA's and DL's code [code].
+        skid_state_brake: 27.0,
         stop_skid_ticks: 2,
         stop_residual: 1.5,
         stop_brake: 17.7,
@@ -287,6 +289,39 @@
         climb_forward_until_tick: 27,
         climb_forward_stop_tick: 30,
         climb_turn_after_tick: 40,
+    ),
+    // State 125, "Charge boots" [code, DL NTSC; untraced]. UYA's single-player hero code
+    // on Veldin has no charge state, so these are Deadlocked's. DL multiplies its
+    // literals by frame_dt at run time, so they are per second already.
+    charge: (
+        tap_window: 15, // R1 pressed again within 15 frames
+        cooldown_ticks: 30,
+        speed: 30.0,
+        fast_ticks: 60,
+        // DL heads for 11.5 u/s once the fast part is over, which in single player is
+        // the charge's last tick. A global that is 0 in single player makes it the whole
+        // charge's target; probably multiplayer.
+        late_speed: 11.5,
+        accel: 100.0,
+        brake: 15.0,
+        last_tick: 60, // ends when the state's frame count reaches 61
+        turn_rate: 1.2217305, // 70°/s
+        turn_ramp_ticks: 50,
+        turn_min_stick: 0.2,
+        steer_step: 0.17,
+        // DL holds the hero 0.17 u above the ground on this spring; the kit keeps his
+        // feet on the ground and uses it only to sink after running off an edge
+        // [simplified].
+        descent_spring: (gain: 0.04, damping: 0.3),
+        descent_cap: 7.5,
+        end_lock_ticks: 30,
+        blocked_below: 0.75,
+        wall_probe_height: 1.0,
+        wall_probe_reach: 1.25,
+        // State 121, "jump bounce" [code, DL NTSC].
+        bounce_speed: 9.0,
+        bounce_brake: 24.0,
+        bounce_gravity: 25.0,
     ),
     // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].
     hit: (

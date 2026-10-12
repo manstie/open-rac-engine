@@ -33,7 +33,9 @@ the game itself.**
   `cargo run` opens a main menu, and "Play the demo" puts the hero in the greybox level.
   He walks, jumps, double jumps, glides, long jumps, flips and heli jumps with the UYA
   NTSC numbers. Since P1.5's second chunk he also wall jumps, grabs, hangs from, shimmies
-  along and climbs ledges, gets hurt on hazards, dies and comes back at checkpoints.
+  along and climbs ledges, gets hurt on hazards, dies and comes back at checkpoints. He
+  dashes with DL's charge boots (crouch twice), and the moves the games grant as items
+  are gated by per-hero ability flags.
   Input can be recorded and replayed (`--record-input`, `--replay-input`).
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
@@ -71,6 +73,9 @@ the game itself.**
     untraced: Veldin's start has no wall or ledge.
   - **Camera (RE.4):** the follow camera is read in UYA's code and checked against our
     own trace (`docs/research/camera.md`). The kit's camera now works the same way.
+  - **2026-10-12, fourth pass:** DL's charge boots (states 125 and 121) and the skid
+    state's braking, read in DL's code, and which UYA moves need the heli-pack
+    (`hero-controller.md`, "Charge boots", "Moves that need items"). Untraced.
 
 **Next actions, in order:**
 1. **Owner, when convenient:** savestates or recordings of the moves that need a
@@ -85,11 +90,11 @@ the game itself.**
    our trace `uyantsc-veldin-cam-1`. What the camera still lacks is under P1.7 and in
    `camera.md`, "Next steps".
 4. What P1.5 still lacks:
-   - the charge boots, which need DL's code (RE.3);
+   - **Done 2026-10-12:** the charge boots (from DL's code) and the ability flags.
    - strafe speeds and lock-on, with targets from P1.9;
-   - the sharp-turn skid rule.
+   - the sharp-turn skid rule (the walk's skid flag).
 5. RE.3, continued: swimming and grinding in code, and DL NTSC traces by scripted play
-   as for UYA.
+   as for UYA. The first DL trace should be a charge, to check the code's numbers.
 6. RE.2: seed the knowledge base from libuya and libdl (MIT).
 7. In parallel, at lower priority: the disc layer, P2.1–P2.5.
 
@@ -481,8 +486,15 @@ also works: using a GPL tool is fine, copying its code is not.
       frame, not at a fall speed.
     - **Not in UYA's code:** the charge boots. UYA's state 16 is the thruster-pack's dash.
     - Tooling: `tools/ghidra/RefsTo.java` lists every read and write of an address.
-    - **Still to do:** trace a wall and a ledge; read swimming, grinding and DL's charge
-      boots.
+  - 2026-10-12 (fourth pass, DL NTSC):
+    - **Read in DL's code:** the charge boots (state 125) and the bounce off a wall that
+      can end them (121), DL's three state jump tables, and the skid state's 27 u/s²
+      braking (the same in UYA).
+    - **Read in UYA's code:** the moves that need items. The crouch jumps need the
+      heli-pack in the back slot; with no pack a crouch jump is a standing jump.
+    - Tooling: `tools/ghidra/ListingAt.java` disassembles address ranges.
+    - **Still to do:** trace a wall, a ledge and a charge (DL NTSC); read swimming and
+      grinding.
   - The hero's update entry points and its state machine: states, transitions, and the
     input conditions for each.
   - Physics for each state:
@@ -765,12 +777,24 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
           `rac_demo/tests/greybox_moves.rs` plays the shaft and a ledge in the real
           level.
         - **Done 2026-10-12**, checked under Xvfb as well.
-        - Still to do: the charge boots (from DL's code), strafe speeds and lock-on (with
-          P1.9), and the sharp-turn skid rule.
-        - Also still to do: **ability flags** (section 5, 2026-10-12). Every move is
-          available for now; the moves the games grant as items must be gated per hero.
+        - Still to do: strafe speeds and lock-on (with P1.9), and the sharp-turn skid
+          rule.
+        - **Charge boots and ability flags, done 2026-10-12:**
+          - The charge boots are read in DL's code (`hero-controller.md`, "Charge boots"):
+            crouch twice within 15 ticks dashes at 30 u/s for 61 ticks, steering like a
+            car. It ends in a skid with the controls locked for 30 ticks, or bounces off a
+            wall (state 121). Off an edge it sinks at up to 7.5 u/s and carries on.
+          - `Abilities` on `HeroMotion` (`heli_pack`, `charge_boots`), all on by default
+            and in the demo. Without the heli-pack a crouch jump is a standing jump, and
+            there is no long jump or glide (UYA's code). A game sets the flags from its own
+            items. More flags come with their moves (thruster-pack, grind boots, gadgets).
+          - Corrected: the skid state (3), after a long jump's landing or a charge, brakes
+            at 27 u/s² without turning, in UYA's and DL's code. The walk's sharp-turn skid
+            is now a flag in the walk state, as in the games.
+          - 7 new tests in `tests/moves.rs`.
         - Still placeholders: the sharp-turn skid rule, the shimmy speed (untraced), the
-          death's length, the hazard's damage and push, and the starting health.
+          death's length, the hazard's damage and push, the starting health, and the end
+          of the charge's bounce.
         - A small known mismatch: a long jump from a 7-tick crouch leaves at 8.2 u/s in
           the kit and 7.8 u/s in the trace. The game's first crouch frame brakes less,
           and the jump frame brakes once more.
@@ -1188,6 +1212,13 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-12 (charge boots):** P1.5 and RE.3.
+  - DL's charge boots read in Ghidra and implemented, with the per-hero ability flags
+    (heli-pack, charge boots) the games' items need. The skid state corrected to its
+    27 u/s².
+  - 7 new tests (129 in all).
+  - Next: a DL NTSC trace of a charge, or the next P1 task (P1.8 melee).
 
 - **2026-10-12 (camera):** RE.4 and P1.7.
   - UYA's follow camera read in Ghidra, and checked against a trace we made for it

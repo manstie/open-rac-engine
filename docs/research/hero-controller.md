@@ -2,7 +2,8 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-12 (wall jump, ledges, hits and slope limit added).
+(RE.6). Last updated 2026-10-12 (wall jump, ledges, hits and slope limit; then DL's
+charge boots, the skid state's braking and the moves that need items).
 
 ## Status and method
 
@@ -120,11 +121,20 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
   - Walking with the stick pulled back to a lower target speed: 30 u/s², 0.008333 per
     frame (0.012).
   - Crouching: 27 u/s², 0.0075 per frame (0.0108) **[verified on UYA NTSC]**.
-- **Skid [code]:**
-  - When the stick swings far round from the direction of travel, or is released, a skid
-    flag cuts the speed and slows it by 17 u/s² (0.0068).
-  - The details depend on the angle and the speed; not characterised yet.
-  - After a long jump the hero lands in state 3, labelled "skid" by libuya.
+- **Skid [code]:** there are two different skids.
+  - **The walk's skid flag (state 2):** when the stick swings far round from the
+    direction of travel, or is released, a flag in the walk state cuts the speed and slows
+    it by 17 u/s² (0.0068). The details depend on the angle and the speed; not
+    characterised yet.
+  - **The skid state (3):** after a long jump's landing, and after DL's charge. It brakes
+    at **27 u/s²** (0.0075 per frame on UYA, `27 × frame_dt²` on DL), scaled down on
+    slippery ground, and doesn't turn. Read in UYA's and DL's idle-type update, which
+    states 0, 1, 3 and 4 share.
+  - **Ways out of state 3, the same in UYA and DL:**
+    - X pressed this frame: a standing jump (7). R1 held: a crouch (4). Both only while
+      input isn't locked.
+    - Off the ground for 9 frames and more than 0.3 u up: a fall.
+    - The animation ending: idle. Otherwise it brakes until the speed is 0, then idles.
 - **Staying on the ground [verified on both]:**
   - Every frame on the ground the intended velocity gets a −54 u/s² downward push,
     −0.015 per frame (−0.0216). Collision cancels it.
@@ -541,10 +551,86 @@ a found flag.
 - The probe also records the height above the ground (0x1A4F1C, 32 when nothing is
   found) and the slope angle (0x1A4F20), which many rules above read.
 
-## Charge boots
+## Charge boots (state 125) [code, DL NTSC, 2026-10-12]
 
-UYA's hero code on Veldin has no charge-boots state. Deadlocked has charge boots, so they
-will be read from DL's code. Gladiator's code is the other candidate.
+UYA's hero code on Veldin has no charge-boots state, so they were read in Deadlocked's
+(DreadZone Station; addresses in `re/SCUS-97465/symbols.toml`). DL multiplies its literals
+by `frame_dt` at run time, so the values below are per second as written; frame counts
+are at 60 Hz. Not yet traced.
+
+- **Starting a charge** (`hero_common_transitions`):
+  - **Input:** R1 pressed again within 15 frames of the last R1 press. Every R1 press
+    reopens the 15-frame window. In DL's other control scheme the button is L2. R1 is also
+    crouch, so the first press crouches.
+  - **Needs:**
+    - gadget 0x11 in the gadget box: the charge boots;
+    - input not locked, and the 30-frame cooldown over;
+    - not in first person or targeting;
+    - a ground state: idle, walk or skid, crouch, or a jump or fall while still on the
+      ground (its push-off).
+  - **On entry:** the speed carries over from the state before.
+- **Speed:**
+  - It heads for **30 u/s** for the first 60 frames, rising at **100 u/s²** and falling at
+    **15 u/s²**.
+  - From frame 60 the target is 11.5 u/s. In single player that is only the last frame,
+    because the charge ends at frame 61.
+  - A global that is 0 in single player (0x21E878) makes 11.5 u/s the target throughout,
+    and swaps the ground spring below for a downward push. It is probably multiplayer.
+  - The hero moves along his facing, following the ground's slope.
+- **Steering:**
+  - Each frame, a stored value eases towards minus the stick's x by 0.17 and is clamped to
+    ±1. DL never resets it between charges.
+  - When the stick magnitude is over 0.2, the yaw turns by
+    `1.2217 rad/s (70°/s) × frame_dt × magnitude × eased value`.
+  - That turn is scaled by `t / 50` for the first 50 frames, so the start is nearly
+    straight.
+  - So the stick steers like a car (right turns right), rather than pointing the way to
+    go.
+- **Height:** in single player the hero's height follows the ground height plus 0.17 u
+  on a spring: gain 0.04, damping 0.3, at most 7.5 u/s.
+  - So he rides slightly above the ground.
+  - Running off an edge, he keeps charging and sinks towards the ground below at up to
+    7.5 u/s.
+- **Each charge frame** sets the 30-frame cooldown, which the timers update counts down.
+- **Ending (state 125's transitions):**
+  - **At frame 61, on magnetic ground, or on a flag not yet identified:** a skid
+    (state 3) with input locked for 30 frames (`noInput`). It brakes from about 30 u/s at
+    27 u/s², which takes about 65 frames.
+  - **Into a wall:** when the hero is touching a wall (`HeroColl.contact`) and either
+    - he moved less than 75% of the intended velocity, or
+    - a ray from his front at 1.0 u up finds something within 1.25 u,
+
+    he bounces: state 121.
+  - There is no jump out of a charge.
+- **The bounce (state 121, libdl's "jump bounce"):**
+  - On entry he keeps his facing and moves backwards at **9 u/s**, slowing at
+    **24 u/s²**.
+  - Off the ground he falls at 25 u/s².
+  - It ends with its animation (length not read), into another state not read.
+- **Also in the update, but not movement:**
+  - A sphere 0.57 u wide, 3 u ahead, damages mobys it touches. That is how a charge
+    breaks crates and hits enemies.
+  - It sets the lean of the hero's joints and counts charge frames for the player's
+    stats.
+- **In the hero kit (P1.5):**
+  - All of this is implemented, with the hero's feet kept on the ground: the 0.17 u lift
+    is left to the animation [simplified].
+  - The bounce ends when its speed is spent, about 23 ticks [placeholder for the
+    animation].
+
+## Moves that need items [code, UYA NTSC]
+
+The kit gates these with per-hero ability flags (PLAN.md section 5, 2026-10-12).
+- **The crouch jumps** (`hero_crouch_jump`) check the back slot, which is item slot 3:
+  - with Clank's heli-pack (item 2, and a global flag set): the long jump (10) or heli
+    jump (15);
+  - with R&C1's thruster-pack (item 3): the thruster dash (16) or rocket jump (13);
+  - **with neither: a standing jump (7).**
+  - The long jump from a jump's first frames (crouch pressed within 2 frames) needs the
+    same items.
+- **The glide** needs the same global flag, and no item 4 in the back slot.
+- **The charge boots** are DL's gadget 0x11, above. The jumps, double jump, wall jump,
+  ledges and flips need no item.
 
 ## Differences between the games
 
@@ -556,6 +642,7 @@ will be read from DL's code. Gladiator's code is the other candidate.
 | Double-jump cap | 8.75 u/s | 7 u/s |
 | Ledge jump push-off on PAL | 3 frames | 2 frames |
 | Standing jump animation frames (peak, land, game land) | 18, 30, 12 | 18, 27, 19 |
+| Charge boots | no charge state in Veldin's code | state 125, read in DL's code |
 | Everything else read so far | identical | identical |
 
 - **`HeroPlayerConstants`** is a block of per-second constants, pointed to by
@@ -597,6 +684,9 @@ The state numbers match libuya's `PlayerState`, and the types match `PlayerType`
 | 29 | targeting (weapon out) | 0 idle | R&C3, Gladiator |
 | 101 | skid to position (scripted move) | 24 NPC | R&C3 |
 
+Also read in DL's code but not seen in a trace: 121, the bounce off a wall after a charge
+(type 10), and 125, the charge (type 28) [code].
+
 ## Timing [measured]
 
 - **One update per frame, at a fixed step.** Frames that took longer on the host never
@@ -611,10 +701,13 @@ The state numbers match libuya's `PlayerState`, and the types match `PlayerType`
 
 1. **Traces on Deadlocked NTSC.** The UYA approach (`tools/pine-probe/boot.sh` with
    xdotool) works for DL too. It needs a DL NTSC `hero.toml`, which needs a frame counter.
-2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding,
-   swimming and charge boots.
-   - The wall jump, ledges, slope limit and getting hit are now read in code (sections
-     above, 2026-10-12). Grinding and swimming aren't yet. The charge boots need DL's code.
+   - The first thing to trace there is a charge (R1 twice, keyboard E), which would check
+     the 30 u/s, the 61 frames and the steering. Check first that the savestate's gadget
+     box holds gadget 0x11.
+2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
+   swimming.
+   - The wall jump, ledges, slope limit and getting hit are read in UYA's code, and the
+     charge boots in DL's (sections above, 2026-10-12). Grinding and swimming aren't yet.
    - Veldin's starting area has none of them, so they are untraced. A savestate near a
      wall and a ledge (from the owner or a scripted play-through) would let us check the
      probe distances and the shimmy speed.

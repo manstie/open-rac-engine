@@ -28,6 +28,7 @@ pub struct HeroProfile {
     pub glide: GlideProfile,
     pub wall_jump: WallJumpProfile,
     pub ledge: LedgeProfile,
+    pub charge: ChargeProfile,
     pub hit: HitProfile,
     pub death: DeathProfile,
     pub camera: CameraProfile,
@@ -105,7 +106,11 @@ pub struct WalkProfile {
     pub turn_setting_off: ScaledTurnSpring,
     pub turn_moving: TurnSpring,
     pub turn_skidding: TurnSpring,
+    /// The walk's skid: after a sharp turn, and for a couple of ticks after the stick is
+    /// released.
     pub skid_brake: f32,
+    /// The skid state's braking (state 3): after a long jump's landing or a charge.
+    pub skid_state_brake: f32,
     /// Ticks of skid braking after the stick is released.
     pub stop_skid_ticks: u32,
     /// The most speed left when the hero settles into idle.
@@ -352,6 +357,50 @@ pub struct LedgeProfile {
     pub climb_forward_stop_tick: u32,
     /// After this tick of the climb the hero turns like in a jump.
     pub climb_turn_after_tick: u32,
+}
+
+/// The charge boots' dash, state 125, and the bounce off a wall that can end it, state 121
+/// (`hero-controller.md`, "Charge boots").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChargeProfile {
+    /// A crouch press starts a charge when the one before it came at most this many ticks
+    /// earlier.
+    pub tap_window: u32,
+    /// Ticks after a charge before another can start.
+    pub cooldown_ticks: u32,
+    /// The speed heads for `speed` before tick `fast_ticks` and for `late_speed` after,
+    /// rising at `accel` and slowing at `brake`.
+    pub speed: f32,
+    pub fast_ticks: u32,
+    pub late_speed: f32,
+    pub accel: f32,
+    pub brake: f32,
+    /// The charge ends after this tick.
+    pub last_tick: u32,
+    /// Steering: the stick's sideways push, eased by `steer_step` a tick, turns the hero
+    /// at up to `turn_rate` rad/s times the stick's magnitude, ramping up over the first
+    /// `turn_ramp_ticks`. A stick at or under `turn_min_stick` doesn't steer.
+    pub turn_rate: f32,
+    pub turn_ramp_ticks: u32,
+    pub turn_min_stick: f32,
+    pub steer_step: f32,
+    /// Off the ground the hero's height follows the ground below on this spring, sinking
+    /// at most `descent_cap` u/s.
+    pub descent_spring: Spring,
+    pub descent_cap: f32,
+    /// The charge ends in a skid, with the stick and buttons ignored for this long.
+    pub end_lock_ticks: u32,
+    /// Running into a wall bounces off it when the hero moved less than `blocked_below` of
+    /// the way that tick, or a ray `wall_probe_height` up from his front finds the wall
+    /// within `wall_probe_reach`.
+    pub blocked_below: f32,
+    pub wall_probe_height: f32,
+    pub wall_probe_reach: f32,
+    /// The bounce goes back at `bounce_speed`, slowing at `bounce_brake`, and falls at
+    /// `bounce_gravity` off the ground.
+    pub bounce_speed: f32,
+    pub bounce_brake: f32,
+    pub bounce_gravity: f32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").

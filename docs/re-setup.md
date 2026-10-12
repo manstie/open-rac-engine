@@ -146,6 +146,13 @@ ghidra-headless cache/ghidra/proj <name> -process <name>.ee.bin -noanalysis -rea
   are gp-relative or based on the hero's address, so the import's `$gp` must be set.
   - That is how the wall-contact window and the ledge block were found on 2026-10-12.
   - The listing names game addresses only, but still keep it in `cache/`.
+- **`ListingAt.java`** (an output file, then start and end address pairs) writes the
+  disassembly of each range. Use it where the decompiler loses a value: arguments set
+  just before a call through the hero's vtable, or VU0 macro code. It is disassembled game
+  code, so it stays in `cache/` too.
+  - DL's state tables are jump tables of 154 code pointers, indexed by state: entry,
+    update and transitions (`re/SCUS-97465/symbols.toml`). Reading a table entry gives the
+    case for one state where the decompiler only shows its address.
 - **Finding things:**
   - The fastest way in is a value from a trace. For example, find the code that writes a
     measured constant (search the image for the `lui`/`ori` pair that loads it), or the

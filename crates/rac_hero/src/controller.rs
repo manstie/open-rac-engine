@@ -55,8 +55,9 @@ pub enum Side {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HeroState {
     Idle,
+    /// Walking, including the walk's own skid after a sharp turn.
     Walk,
-    /// Braking hard: after a sharp turn, or landing from a long jump.
+    /// Braking to a stop, with no turning: after a long jump's landing or a charge.
     Skid,
     Crouch,
     Fall,
@@ -67,6 +68,10 @@ pub enum HeroState {
     LedgeGrab,
     LedgeHang,
     LedgeShimmy(Side),
+    /// The charge boots' dash.
+    Charge,
+    /// Bounced back off a wall by a charge.
+    Bounce,
     /// Knocked back by a hit.
     Hit,
     Dead,
@@ -97,6 +102,8 @@ impl HeroState {
             HeroState::LedgeShimmy(Side::Right) => 26,
             HeroState::Jump(JumpKind::Ledge) => 27,
             HeroState::Dead => 57,
+            HeroState::Bounce => 121,
+            HeroState::Charge => 125,
         }
     }
 
@@ -113,6 +120,30 @@ impl HeroState {
             HeroState::LedgeGrab | HeroState::LedgeHang | HeroState::LedgeShimmy(_)
         )
     }
+}
+
+/// Moves the games grant as items rather than from the start (PLAN.md section 5,
+/// 2026-10-12). Each game sets them from its own items and save, so a game only gets the
+/// moves it had; the kit's demo turns them all on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Abilities {
+    /// Clank's heli-pack on the hero's back: the long jump, the heli jump and the glide.
+    /// UYA's code checks the back slot for them; without it a jump from a crouch is a
+    /// standing jump.
+    pub heli_pack: bool,
+    /// The charge boots: a double tap of crouch dashes off.
+    pub charge_boots: bool,
+}
+
+impl Abilities {
+    pub const ALL: Abilities = Abilities {
+        heli_pack: true,
+        charge_boots: true,
+    };
+    pub const NONE: Abilities = Abilities {
+        heli_pack: false,
+        charge_boots: false,
+    };
 }
 
 /// A ledge found by [`detect_ledge`].
@@ -215,8 +246,14 @@ pub struct HeroMotion {
     pub ledge: Option<Ledge>,
     /// Ticks left before he can be hurt again.
     pub safe_ticks: u32,
+    /// The moves he has the items for.
+    pub abilities: Abilities,
+    /// Ticks left of ignoring the stick and buttons, as after a charge.
+    pub input_lock: u32,
     /// Walking, but not yet past the setting-off speed.
     setting_off: bool,
+    /// The walk's skid after a sharp turn.
+    skidding: bool,
     /// Ticks of braking done since the stick was released.
     stop_ticks: u32,
     jump: JumpBlock,
@@ -244,6 +281,14 @@ pub struct HeroMotion {
     climb_speed: f32,
     /// The current hit kills him when it ends.
     hit_fatal: bool,
+    /// Ticks left in which a crouch press starts a charge.
+    charge_window: u32,
+    /// Ticks left before a charge can start again.
+    charge_cooldown: u32,
+    /// The charge's eased sideways stick.
+    charge_steer: f32,
+    /// The charge's sinking rate off the ground, u per tick.
+    charge_sink: f32,
 }
 
 impl HeroMotion {
@@ -260,7 +305,10 @@ impl HeroMotion {
             height_above_ground: 0.0,
             ledge: None,
             safe_ticks: 0,
+            abilities: Abilities::ALL,
+            input_lock: 0,
             setting_off: true,
+            skidding: false,
             stop_ticks: 0,
             jump: JumpBlock::default(),
             take_off_height: position.y,
@@ -279,7 +327,17 @@ impl HeroMotion {
             no_grab_ticks: 0,
             climb_speed: 0.0,
             hit_fatal: false,
+            charge_window: 0,
+            charge_cooldown: 0,
+            charge_steer: 0.0,
+            charge_sink: 0.0,
         }
+    }
+
+    /// The hero with only the moves in `abilities`.
+    pub fn with_abilities(mut self, abilities: Abilities) -> Self {
+        self.abilities = abilities;
+        self
     }
 
     pub fn facing(&self) -> Vec3 {
@@ -305,6 +363,7 @@ impl HeroMotion {
         if self.state != state {
             self.state = state;
             self.ticks = 0;
+            self.skidding = false;
         }
     }
 
@@ -361,6 +420,10 @@ fn approach(value: f32, target: f32, step: f32) -> f32 {
 
 fn flat(v: Vec3) -> Vec3 {
     Vec3::new(v.x, 0.0, v.z).normalize_or_zero()
+}
+
+fn flat_length(v: Vec3) -> f32 {
+    Vec3::new(v.x, 0.0, v.z).length()
 }
 
 /// The stick as a direction on the ground, relative to the camera. Its length is the
@@ -537,6 +600,8 @@ pub fn step(
     }
     hero.no_grab_ticks = hero.no_grab_ticks.saturating_sub(1);
     hero.safe_ticks = hero.safe_ticks.saturating_sub(1);
+    hero.input_lock = hero.input_lock.saturating_sub(1);
+    hero.charge_cooldown = hero.charge_cooldown.saturating_sub(1);
 
     // Ride whatever he stands on or hangs from.
     if let Some(ground) = hero.ground {
@@ -552,9 +617,22 @@ pub fn step(
     }
     hero.height_above_ground = height_above_ground(world, hero.position);
 
+    // The charge boots: a crouch press within the window the previous one opened dashes
+    // off.
+    let crouch_tap = input.pressed(Action::Crouch);
+    if crouch_tap && hero.charge_window > 0 && can_charge(hero, profile) {
+        start_charge(hero);
+    }
+    hero.charge_window = hero.charge_window.saturating_sub(1);
+    if crouch_tap {
+        hero.charge_window = profile.charge.tap_window;
+    }
+
     match hero.state {
         HeroState::Dead => dead_tick(hero, profile),
         HeroState::Hit => hit_tick(hero, profile),
+        HeroState::Charge => charge_tick(hero, &stick, profile),
+        HeroState::Bounce => bounce_tick(hero, profile),
         state if state.is_on_ledge() => ledge_tick(hero, input, &stick, wish, profile, world),
         state if state.is_airborne() => air_tick(hero, input, &stick, wish, profile),
         _ => ground_tick(hero, input, &stick, wish, camera_yaw, profile),
@@ -584,11 +662,18 @@ fn move_hero(
     let state = hero.state;
     let on_ground = !state.is_airborne() && !state.is_on_ledge();
     let pushing_off = hero.pushing_off_ground(profile);
-    // Hits and deaths keep to the ground while they are on it.
+    // Hits, deaths, bounces and charges keep to the ground while they are on it.
+    let keeps_to_ground = matches!(
+        state,
+        HeroState::Hit | HeroState::Dead | HeroState::Bounce | HeroState::Charge
+    );
     let grounded = match state {
-        HeroState::Hit | HeroState::Dead => hero.ground.is_some() && hero.velocity.y <= 0.0,
+        // A charge runs up slopes too.
+        HeroState::Charge => hero.ground.is_some(),
+        _ if keeps_to_ground => hero.ground.is_some() && hero.velocity.y <= 0.0,
         _ => on_ground || pushing_off,
     };
+    let start = hero.position;
     let outcome = motor::move_body(
         world,
         &profile.body,
@@ -603,12 +688,19 @@ fn move_hero(
         hero.ground = None;
         return;
     }
-    if matches!(state, HeroState::Hit | HeroState::Dead) {
-        if outcome.ground.is_some() && hero.velocity.y <= 0.0 {
+    if keeps_to_ground {
+        if outcome.ground.is_some() && (grounded || hero.velocity.y <= 0.0) {
             hero.velocity.y = 0.0;
             hero.ground = outcome.ground;
         } else {
             hero.ground = None;
+        }
+        if state == HeroState::Charge && outcome.hit_wall {
+            let intended = flat_length(hero.velocity * TICK);
+            let moved = flat_length(hero.position - start);
+            if moved < profile.charge.blocked_below * intended || wall_ahead(hero, profile, world) {
+                start_bounce(hero, profile);
+            }
         }
         return;
     }
@@ -680,6 +772,24 @@ fn ground_tick(
     let walk = &profile.walk;
     let wish_direction = wish.normalize_or_zero();
 
+    if hero.state == HeroState::Skid {
+        // The skid state brakes to a stop without turning. Once the controls are back, a
+        // jump press jumps and holding crouch crouches (UYA's and DL's state 3).
+        let free = hero.input_lock == 0;
+        if free && hero.jump_press.within(1) {
+            hero.jump_press.used = true;
+            start_jump(hero, JumpKind::Standing, profile);
+            air_tick(hero, input, stick, wish, profile);
+            return;
+        }
+        if free && input.held(Action::Crouch) {
+            hero.set_state(HeroState::Crouch);
+        } else {
+            skid_to_a_stop(hero, profile);
+            return;
+        }
+    }
+
     let jump_buffer = if hero.state == HeroState::Walk {
         walk.jump_buffer_walk
     } else {
@@ -713,7 +823,9 @@ fn ground_tick(
             && hero.jump_press.within(long.press_window)
         {
             hero.jump_press.used = true;
-            let kind = if stick.magnitude > long.min_stick && hero.speed > long.min_speed {
+            let kind = if !hero.abilities.heli_pack {
+                JumpKind::Standing
+            } else if stick.magnitude > long.min_stick && hero.speed > long.min_speed {
                 JumpKind::Long
             } else {
                 JumpKind::Heli
@@ -743,6 +855,7 @@ fn ground_tick(
         // aren't read yet, so this reuses the walk's [placeholder].
         hero.set_state(HeroState::Walk);
         hero.stop_ticks = 0;
+        hero.skidding = false;
         turn(hero, camera_yaw, walk.turn_moving);
         let target = wish_direction * walk.speed * stick.magnitude;
         let current = hero.horizontal_velocity();
@@ -766,14 +879,14 @@ fn ground_tick(
             && error > walk.skid_angle
             && hero.speed > walk.skid_above
         {
-            hero.set_state(HeroState::Skid);
+            hero.skidding = true;
         }
-        if hero.state == HeroState::Skid {
+        if hero.skidding {
             hero.speed = approach(hero.speed, 0.0, walk.skid_brake * TICK);
             turn(hero, target_yaw, walk.turn_skidding);
             if error < 0.5 || hero.speed < 1.0 {
                 hero.setting_off = hero.speed < walk.setting_off_below;
-                hero.set_state(HeroState::Walk);
+                hero.skidding = false;
             }
         } else {
             if hero.state != HeroState::Walk {
@@ -798,6 +911,7 @@ fn ground_tick(
             hero.speed = approach(hero.speed, target, rate * TICK);
         }
     } else {
+        hero.skidding = false;
         match hero.state {
             HeroState::Walk if hero.stop_ticks < walk.stop_skid_ticks => {
                 // Letting go: a couple of ticks of skid braking...
@@ -808,12 +922,6 @@ fn ground_tick(
                 // ...then idle, with what little speed is left.
                 hero.speed = hero.speed.min(walk.stop_residual);
                 hero.set_state(HeroState::Idle);
-            }
-            HeroState::Skid => {
-                hero.speed = approach(hero.speed, 0.0, walk.skid_brake * TICK);
-                if hero.speed <= 0.0 {
-                    hero.set_state(HeroState::Idle);
-                }
             }
             _ => {
                 hero.set_state(HeroState::Idle);
@@ -1161,6 +1269,137 @@ fn brake_and_fall(hero: &mut HeroMotion, rate: f32, profile: &HeroProfile) {
     }
 }
 
+/// Brakes the skid state towards a stop, without turning, and idles once stopped.
+fn skid_to_a_stop(hero: &mut HeroMotion, profile: &HeroProfile) {
+    hero.speed = approach(hero.speed, 0.0, profile.walk.skid_state_brake * TICK);
+    if hero.speed <= 0.0 {
+        hero.set_state(HeroState::Idle);
+    }
+    let facing = hero.facing();
+    hero.set_horizontal_velocity(facing * hero.speed);
+    hero.velocity.y = 0.0;
+}
+
+/// Whether a charge can start now: with the boots, the controls free, the last charge
+/// cooled down, and on the ground (`hero-controller.md`, "Charge boots").
+fn can_charge(hero: &HeroMotion, profile: &HeroProfile) -> bool {
+    let on_ground = match hero.state {
+        HeroState::Idle | HeroState::Walk | HeroState::Skid | HeroState::Crouch => true,
+        // A jump still pushing off counts as on the ground.
+        HeroState::Jump(_) => hero.pushing_off_ground(profile),
+        _ => false,
+    };
+    on_ground && hero.abilities.charge_boots && hero.input_lock == 0 && hero.charge_cooldown == 0
+}
+
+fn start_charge(hero: &mut HeroMotion) {
+    // The speed carries over. So does the eased steering, which DL never resets.
+    hero.speed = hero.horizontal_velocity().length();
+    hero.velocity.y = 0.0;
+    hero.charge_sink = 0.0;
+    hero.set_state(HeroState::Charge);
+}
+
+/// One tick of the charge boots' dash (state 125).
+fn charge_tick(hero: &mut HeroMotion, stick: &Stick, profile: &HeroProfile) {
+    let charge = &profile.charge;
+    let t = hero.ticks;
+    if t > charge.last_tick {
+        // Over: a skid, with the controls ignored for a moment.
+        hero.input_lock = charge.end_lock_ticks;
+        hero.set_state(HeroState::Skid);
+        if hero.ground.is_some() {
+            skid_to_a_stop(hero, profile);
+        }
+        return;
+    }
+    hero.charge_cooldown = charge.cooldown_ticks;
+
+    let target = if t < charge.fast_ticks {
+        charge.speed
+    } else {
+        charge.late_speed
+    };
+    let rate = if hero.speed < target {
+        charge.accel
+    } else {
+        charge.brake
+    };
+    hero.speed = approach(hero.speed, target, rate * TICK);
+
+    // The stick steers like a car: its sideways push, eased, turns the hero, gently at
+    // first.
+    hero.charge_steer =
+        approach(hero.charge_steer, -stick.vector.x, charge.steer_step).clamp(-1.0, 1.0);
+    if stick.magnitude > charge.turn_min_stick {
+        let ramp = (t as f32 / charge.turn_ramp_ticks as f32).min(1.0);
+        let turn = charge.turn_rate * TICK * stick.magnitude * hero.charge_steer * ramp;
+        hero.yaw = wrap(hero.yaw + turn);
+    }
+    hero.yaw_rate = 0.0;
+    let facing = hero.facing();
+
+    if let Some(ground) = hero.ground {
+        // Along the slope, so a fast charge keeps to the ground going downhill.
+        let along = (facing - ground.normal * facing.dot(ground.normal)).normalize_or_zero();
+        hero.velocity = along * hero.speed;
+        hero.charge_sink = 0.0;
+    } else {
+        hero.set_horizontal_velocity(facing * hero.speed);
+        // Off an edge the charge goes on, sinking towards the ground below.
+        let error = -hero.height_above_ground;
+        let spring = charge.descent_spring;
+        let cap = charge.descent_cap * TICK;
+        hero.charge_sink = hero.charge_sink.clamp(-error.abs(), error.abs());
+        hero.charge_sink += spring.gain * error - spring.damping * hero.charge_sink;
+        hero.charge_sink = hero
+            .charge_sink
+            .clamp(-cap, cap)
+            .clamp(-error.abs(), error.abs());
+        hero.velocity.y = hero.charge_sink / TICK;
+    }
+}
+
+/// Something ahead at chest height, close enough to bounce off (DL's check before a
+/// charge's bounce).
+fn wall_ahead(hero: &HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) -> bool {
+    let charge = &profile.charge;
+    let facing = hero.facing();
+    let origin =
+        hero.position + Vec3::Y * charge.wall_probe_height + facing * (profile.body.radius - 0.02);
+    world
+        .cast_ray(origin, facing * charge.wall_probe_reach)
+        .is_some()
+}
+
+fn start_bounce(hero: &mut HeroMotion, profile: &HeroProfile) {
+    hero.speed = profile.charge.bounce_speed;
+    let back = -hero.facing() * hero.speed;
+    hero.set_horizontal_velocity(back);
+    hero.set_state(HeroState::Bounce);
+}
+
+/// Back off the wall a charge ran into, still facing it (state 121). The game ends the
+/// bounce with its animation, which isn't read; the kit ends it when the speed is spent
+/// [placeholder].
+fn bounce_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
+    let charge = &profile.charge;
+    if hero.speed <= 0.0 {
+        hero.set_horizontal_velocity(Vec3::ZERO);
+        hero.set_state(HeroState::Idle);
+        return;
+    }
+    hero.speed = approach(hero.speed, 0.0, charge.bounce_brake * TICK);
+    let back = -hero.facing() * hero.speed;
+    hero.set_horizontal_velocity(back);
+    if hero.ground.is_none() {
+        hero.velocity.y =
+            (hero.velocity.y - charge.bounce_gravity * TICK).max(-profile.air.fall_speed_cap);
+    } else {
+        hero.velocity.y = 0.0;
+    }
+}
+
 fn air_tick(
     hero: &mut HeroMotion,
     input: &PlayerInput,
@@ -1196,7 +1435,8 @@ fn air_tick(
                     hero.velocity.y += heli.thrust * TICK;
                 }
                 let glide = &profile.glide;
-                if input.held(Action::Jump)
+                if hero.abilities.heli_pack
+                    && input.held(Action::Jump)
                     && t > glide.after_heli_jump_tick
                     && hero.height_above_ground > glide.heli_jump_min_height
                 {
@@ -1335,6 +1575,7 @@ fn jump_transition(
     let t = hero.ticks;
     let long = &profile.long_jump;
     if matches!(kind, JumpKind::Standing | JumpKind::Run)
+        && hero.abilities.heli_pack
         && t < long.from_jump_before_tick
         && hero.crouch_press.within(long.crouch_window)
         && hero.horizontal_velocity().length() > long.min_speed
@@ -1440,7 +1681,8 @@ fn double_jump_tick(
     let glide = &profile.glide;
     let air = &profile.air;
     let t = hero.ticks;
-    if input.held(Action::Jump)
+    if hero.abilities.heli_pack
+        && input.held(Action::Jump)
         && t > glide.after_double_jump_tick
         && hero.height_above_ground > glide.double_jump_min_height
     {
