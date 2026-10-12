@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
     ui_widgets::{Activate, Button, observe},
 };
+use rac_demo::DemoSettings;
 use rac_input::{Action, ActionState};
 
 use crate::flow::{AppState, Pause};
@@ -84,7 +85,21 @@ fn spawn_pause_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
     ));
 }
 
-fn spawn_controls_hint(mut commands: Commands) {
+const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick. Pause: Esc / Start.\n\
+    Jump: Space / Cross. Again in the air: double jump; keep holding: glide.\n\
+    Crouch: Ctrl / R1. Then jump: heli jump, or a long jump while running.\n\
+    Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.";
+
+const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
+    Up: Space / Cross. Down: Ctrl / R1. Faster: right mouse / L2 or R2.\n\
+    Pause: Esc / Start.";
+
+fn spawn_controls_hint(mut commands: Commands, demo: Res<DemoSettings>) {
+    let text = if demo.spectator {
+        SPECTATOR_CONTROLS
+    } else {
+        HERO_CONTROLS
+    };
     commands.spawn((
         DespawnOnExit(AppState::InGame),
         Node {
@@ -94,11 +109,7 @@ fn spawn_controls_hint(mut commands: Commands) {
             ..default()
         },
         children![(
-            Text::new(
-                "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
-                 Up: Space / Cross. Down: Ctrl / R1. Faster: right mouse / L2 or R2.\n\
-                 Pause: Esc / Start."
-            ),
+            Text::new(text),
             TextFont {
                 font_size: FontSize::Px(16.0),
                 ..default()

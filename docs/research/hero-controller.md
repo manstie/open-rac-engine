@@ -186,6 +186,28 @@ In the traces, R&C3, Gladiator and UYA all reproduce this exactly.
 - The "take-off speed 0.1640625" measured earlier is this derived value: it depends on
   how long X is held.
 
+### Jump heights [verified on UYA NTSC, 2026-10-12]
+
+The hero kit's controller (`crates/rac_hero`) implements the model above. Its apex
+heights match our own UYA NTSC trace `uyantsc-veldin-moves-1` to 0.001 u. Hold length is
+the number of steps the jump block's target height took in the trace (the press counts
+as one):
+
+| Jump (trace frame) | Hold | Target height reached | Apex above take-off |
+|---|---|---|---|
+| Standing, held fully (165) | 17 | 2.7 | 1.8867 |
+| Standing, tapped (82) | 3 | 1.6459 | 1.3115 |
+| Heli jump (619) | 3 | 1.68 | 3.4327, with the thrust |
+| Long jump (1158) | 5 | 1.9179 | 1.42717, from the game's intended vertical velocity |
+
+- **The target height is not the apex.** The lift arrives over the hold time while gravity
+  acts, so a fully held standing jump peaks at 1.89 u, not 2.7.
+- **The long jump's trace is bumpy.** The trace's actual height reached 1.70 u because
+  the capsule rode up uneven ground mid-flight: on frames 7–12 the actual vertical speed
+  exceeds the intended one. The intended velocity follows the model exactly.
+- **On push-off frames the intended vertical velocity is −0.01333.** The actual
+  displacement is about zero, because the hero stays on the ground.
+
 ### Jump parameters by state
 
 These are UYA NTSC values. In the frame columns PAL is in brackets.
@@ -283,8 +305,11 @@ Most jump-type states steer the same way after push-off:
   - UYA NTSC climbs by +0.033417 per frame (0.041667 − 0.00825) to 0.145833. PAL
     climbs by +0.0481 per frame to 0.175.
   - It is 7 u/s with no 1.25 factor in Gladiator/DL, hence the measured 0.140.
-  - After the boost window the speed is held for two or three frames, then gravity
-    takes over.
+  - After the boost window the speed is held for one frame, then gravity takes over
+    **[verified on UYA NTSC]**. In the moves-1 trace (frame 406) the cap is reached on
+    frame 4 and kept by the boost until frame 7. Frame 8 holds it. From frame 9 it drops
+    by 0.00825 per frame: 0.10458 on frame 13. That is the "two or three frames" seen
+    earlier.
 - **Less boost when already high [code]:**
   - The cap is multiplied by 0.7 when Ratchet is more than 2.2 u above where the first
     jump took off, and by 0.47 above 2.8 u.
@@ -303,6 +328,11 @@ Most jump-type states steer the same way after push-off:
 ### Glide (state 8) [verified on UYA NTSC for the sink rate]
 
 - **Entry:** holding X while falling after a double jump.
+  - In the moves-1 trace the glide began on the double jump's 31st frame. The vertical
+    speed was −0.0439 u per frame, having passed zero about 5 frames earlier.
+  - So the entry looks like a fall-speed threshold of about −0.04 u per frame (2.4 u/s)
+    **[measured, one sample; the rule isn't read in code]**.
+  - After entry, the speed eases to the −0.036 sink within about 14 frames.
 - **Sink rate:** the vertical speed eases on a spring towards a sink of `3 u/s × 0.72` =
   2.16 u/s, 0.036 per frame, and holds it. The 0.72 can be overridden by a global.
 - **Spring [code]:** gain 0.036, damping 0.432, cap 0.34 (PAL per frame).

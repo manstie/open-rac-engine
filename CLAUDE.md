@@ -106,7 +106,7 @@ Development is native, with no container.
 |---|---|
 | `cargo run` | Runs the game: a main menu, then the hero kit's demo level. The default workspace member is `crates/openrac`. |
 | `cargo run --features dev` | Uses Bevy's dynamic linking for faster rebuilds. Never use it for release builds. |
-| `cargo run -- --exit-after-frames 120` | Smoke test. Exits with code 0 after 120 frames. Use it to check rendering works. Add `--demo` to render the level instead of the menu. |
+| `cargo run -- --exit-after-frames 120` | Smoke test. Exits with code 0 after 120 frames. Use it to check rendering works. Add `--demo` to start in the level instead of the menu, and `--spectator` to fly a free camera instead of playing the hero. |
 | `cargo run -- --demo --record-input x.orin`, then `--replay-input x.orin` | Records every tick's input, then replays it into the same simulation. `--settings <file>` keeps test runs out of the real settings file. |
 | `cargo fmt --all` | Formats the code. |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings treated as errors. |

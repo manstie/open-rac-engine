@@ -46,6 +46,9 @@ struct Args {
     /// Use FILE for settings instead of the platform's config directory.
     #[arg(long, value_name = "FILE")]
     settings: Option<PathBuf>,
+    /// Fly a free camera round the demo level instead of playing the hero.
+    #[arg(long)]
+    spectator: bool,
 }
 
 fn main() -> Result<AppExit> {
@@ -91,6 +94,9 @@ fn main() -> Result<AppExit> {
         FlowPlugin,
         MenuPlugin,
     ))
+    .insert_resource(rac_demo::DemoSettings {
+        spectator: args.spectator,
+    })
     .insert_resource(FlowOptions {
         skip_menu: args.demo || replay.is_some(),
         record_to: args.record_input,

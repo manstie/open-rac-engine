@@ -21,7 +21,8 @@ pub const ANGLE_UNITS_PER_TURN: f32 = 65_536.0;
 pub struct PlayerInput {
     /// The movement stick: x to the right, y forward. In PS2 stick counts (−127..=127 from
     /// centre), which is what the games' own stick code works on
-    /// (`docs/research/hero-controller.md`, "Stick"). Keys give full tilt.
+    /// (`docs/research/hero-controller.md`, "Input"). The range is square, as on a PS2
+    /// stick: keys and a pad pushed fully diagonally give 127 on both axes.
     pub move_stick: [i8; 2],
     /// How far to turn the view this tick, in binary angle units ([`ANGLE_UNITS_PER_TURN`]
     /// per turn): x turns right, y looks up. The player's sensitivity and invert settings

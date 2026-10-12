@@ -1,13 +1,15 @@
-//! The hero kit's standalone demo (PLAN.md Phase 1): for now, the greybox test level
-//! (P1.4) and a spectator camera to look round it with.
+//! The hero kit's standalone demo (PLAN.md Phase 1): the greybox test level (P1.4) with
+//! the hero (P1.5) and his camera, or a spectator camera to look round it with.
 //!
 //! The app decides when the demo exists: it runs [`spawn_demo`] when gameplay starts and
-//! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems.
+//! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems, and
+//! the hero's if the app hasn't.
 
 mod level;
 mod spectator;
 
 use bevy::prelude::*;
+use rac_hero::{Collider, FollowCamera, HeroPlugin, hero_bundle};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
 pub use level::{GAP_WIDTHS, Mover, Piece, Shape, Surface, greybox_level};
@@ -20,15 +22,32 @@ pub struct DemoEntity;
 /// Moves the level's platforms and flies the spectator camera, both in the simulation.
 pub struct DemoPlugin;
 
+/// How the demo is set up when it spawns.
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct DemoSettings {
+    /// Fly a free camera instead of playing the hero.
+    pub spectator: bool,
+}
+
+/// Where the hero starts, on the floor facing down the level.
+const HERO_SPAWN: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+/// Falling this far below the floor puts the hero back at the start.
+const RESPAWN_BELOW: f32 = -20.0;
+
 impl Plugin for DemoPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
+        if !app.is_plugin_added::<HeroPlugin>() {
+            app.add_plugins(HeroPlugin);
+        }
+        app.init_resource::<DemoSettings>()
+            .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera));
     }
 }
 
 /// Spawns the greybox level, its lights and the spectator camera.
 pub fn spawn_demo(
+    settings: Res<DemoSettings>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -72,6 +91,10 @@ pub fn spawn_demo(
             Mesh3d(mesh),
             MeshMaterial3d(material),
         ));
+        // Boxes are solid; the rail and the swing target are not.
+        if let Shape::Box { half_extents } = piece.shape {
+            entity.insert(Collider::Cuboid { half_extents });
+        }
         match piece.mover {
             Some(mover) => {
                 entity.insert((
@@ -96,12 +119,49 @@ pub fn spawn_demo(
         },
         Transform::from_xyz(30.0, 60.0, 20.0).looking_at(Vec3::new(0.0, 0.0, -40.0), Vec3::Y),
     ));
+    if settings.spectator {
+        commands.spawn((
+            Name::new("spectator camera"),
+            DemoEntity,
+            Camera3d::default(),
+            SpectatorCamera::default(),
+            SimTransform::from_xyz(0.0, 6.0, 12.0),
+        ));
+        return;
+    }
+
+    // A stand-in for the hero's model until the placeholder rig (P1.17): a body 1.5 u
+    // tall, the height of the collision capsule, and a nose to show which way he faces.
+    let body = meshes.add(Capsule3d::new(0.4, 0.7));
+    let nose = meshes.add(Cuboid::new(0.24, 0.14, 0.3));
+    let fur = materials.add(Color::srgb(0.85, 0.65, 0.3));
+    let trim = materials.add(Color::srgb(0.3, 0.3, 0.35));
     commands.spawn((
-        Name::new("spectator camera"),
+        Name::new("hero"),
+        DemoEntity,
+        hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW),
+        Visibility::default(),
+        children![
+            (
+                Mesh3d(body),
+                MeshMaterial3d(fur),
+                Transform::from_xyz(0.0, 0.75, 0.0),
+            ),
+            (
+                Mesh3d(nose),
+                MeshMaterial3d(trim),
+                Transform::from_xyz(0.0, 1.15, -0.4),
+            ),
+        ],
+    ));
+    let camera = FollowCamera::for_player(0, 0.0);
+    let (translation, rotation) = camera.placement(HERO_SPAWN);
+    commands.spawn((
+        Name::new("hero camera"),
         DemoEntity,
         Camera3d::default(),
-        SpectatorCamera::default(),
-        SimTransform::from_xyz(0.0, 6.0, 12.0),
+        camera,
+        SimTransform::from_translation(translation).with_rotation(rotation),
     ));
 }
 

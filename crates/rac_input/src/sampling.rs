@@ -185,11 +185,11 @@ pub(crate) fn sample_devices(
         axis(move_keys.right, move_keys.left),
         axis(move_keys.forward, move_keys.back),
     );
-    // Keys give full tilt, and a diagonal is as far as a stick can reach, not √2.
+    // Keys push each axis fully, like a PS2 stick pressed into a corner.
     let movement = if key_move != Vec2::ZERO {
-        key_move.normalize()
+        key_move
     } else {
-        pad_move
+        circle_to_square(pad_move)
     };
     sampler.move_stick = [to_stick_counts(movement.x), to_stick_counts(movement.y)];
 
@@ -204,6 +204,20 @@ pub(crate) fn sample_devices(
         look.y = -look.y;
     }
     sampler.look += look;
+}
+
+/// Stretches a stick reading from a round range to a square one, keeping its direction.
+///
+/// Modern pads report a circle, so a full diagonal reads about 0.71 on each axis. The
+/// games' stick code (`docs/research/hero-controller.md`, "Input") gives full speed only
+/// when the larger axis or the average of it and the length reaches 1, as a PS2 stick does
+/// when pushed into a corner, so an unstretched diagonal would run at two-thirds speed.
+fn circle_to_square(stick: Vec2) -> Vec2 {
+    let largest_axis = stick.x.abs().max(stick.y.abs());
+    if largest_axis <= f32::EPSILON {
+        return Vec2::ZERO;
+    }
+    stick * (stick.length().min(1.0) / largest_axis)
 }
 
 fn to_stick_counts(axis: f32) -> i8 {
@@ -276,6 +290,17 @@ pub fn reset_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round_sticks_become_square() {
+        let diagonal = Vec2::new(1.0, 1.0).normalize();
+        let square = circle_to_square(diagonal);
+        assert!((square - Vec2::ONE).length() < 1e-6, "{square}");
+        assert_eq!(circle_to_square(Vec2::new(0.5, 0.0)), Vec2::new(0.5, 0.0));
+        let half_diagonal = circle_to_square(diagonal * 0.5);
+        assert!((half_diagonal - Vec2::splat(0.5)).length() < 1e-6);
+        assert_eq!(circle_to_square(Vec2::ZERO), Vec2::ZERO);
+    }
 
     #[test]
     fn stick_counts() {

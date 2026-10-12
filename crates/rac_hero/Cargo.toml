@@ -1,0 +1,20 @@
+[package]
+name = "rac_hero"
+description = "Hero kit: the R&C3/UYA-style kinematic hero controller, its collision interface and camera"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "libm", "bevy_camera"] }
+parry3d.workspace = true
+rac_input.workspace = true
+rac_sim.workspace = true
+ron.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

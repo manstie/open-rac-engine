@@ -26,12 +26,13 @@ moved (say why).
 
 **Phase 0 (foundations) is done apart from CI's first run (P0.7). Phase 1 has started: the
 app flow, the 60 Hz simulation core, the input layer and the greybox level are in
-(P1.1–P1.4). The reverse-engineering track has the hero's movement code: constants and
+(P1.1–P1.4), and the hero controller plays (P1.5, first chunk). The reverse-engineering track has the hero's movement code: constants and
 models are read from the game itself.**
 - The Linux build dependencies are installed. The workspace builds and runs natively.
-  `cargo run` opens a main menu, and "Play the demo" loads the greybox level with a
-  spectator camera. Input can be recorded and replayed (`--record-input`,
-  `--replay-input`).
+  `cargo run` opens a main menu, and "Play the demo" puts the hero in the greybox level.
+  He walks, jumps, double jumps, glides, long jumps, flips and heli jumps with the UYA
+  NTSC numbers (P1.5, first chunk). Input can be recorded and replayed
+  (`--record-input`, `--replay-input`).
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
   - R&C3 and Gladiator first;
@@ -74,11 +75,10 @@ models are read from the game itself.**
    - Most jump moves are now verified on UYA NTSC with our own scripted traces.
 2. **Owner:** push `re/hero-movement` so CI runs (the push needs the owner's
    credentials). Then fix anything Windows-specific it finds (P0.7).
-3. The hero controller (P1.5) in a new `rac_hero` crate, starting from
-   `hero-controller.md` with the NTSC values at 60 Hz.
-   - It collides with the greybox level's pieces (`rac_demo::greybox_level`), through the
-     kit's own collision interface (P1.16).
-   - It is tuned against the traces through RE.6.
+3. P1.5, second chunk: wall jump, ledge grab, charge boots, strafe/lock-on, knockback
+   and death. Read in the game code (with scripted UYA NTSC traces to check) whatever
+   `hero-controller.md` doesn't cover yet: wall and ledge detection, and the slope limit.
+   - Then the camera's lag and recentring (RE.4 → P1.7).
 4. RE.3, continued:
    - wall detection, ledge grab, swimming and grinding, in code;
    - DL NTSC traces, by scripted play as for UYA.
@@ -321,6 +321,8 @@ App
 | 2026-10-12 | NTSC savestates for static analysis are made headlessly (`tools/pine-probe/boot.sh`: a new game driven with xdotool), using copies of the owner's memory cards and never their live instance. |
 | 2026-10-12 | The hero kit gains a crate, **`rac_sim`**: the fixed 60 Hz clock, the `SimSet` order, `SimTick`, interpolated `SimTransform` and the `SimRng` (PCG32), shared by every kit crate. The workspace turns Bevy's default features off so kit crates ask only for what they use; `openrac` turns them back on. |
 | 2026-10-12 | Settings are **TOML** (`settings.toml` in the platform config directory, via `directories`), since the workspace already uses TOML. `PlayerInput` is a fixed 10-byte encoding (move stick in PS2 counts, look in binary-angle units, held and pressed bits), and input recordings are `.orin` files of those. |
+| 2026-10-12 | Hero collision uses **`parry3d` 0.31** (Apache-2.0) behind the kit's own `CollisionWorld` interface, with its `alloc` and `enhanced-determinism` features. It shares Bevy's glam version, so there is no conversion. The hero's origin is at his feet, and his capsule is libdl's (radius 0.45, sphere centres 0.7/0.5 and 1.05), floating over a ground probe. |
+| 2026-10-12 | `rac_input` maps pad sticks from **circle to square**, and keys send full counts on both axes. The games' stick code expects a PS2 stick's square range, so without this a modern pad's diagonal would run at two-thirds speed. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -511,7 +513,12 @@ also works: using a GPL tool is fine, copying its code is not.
     frame from PCSX2.
   - Combined with PCSX2 input recordings, it gives repeatable move tests: running, each
     jump type, flips, gliding, and so on.
-- [ ] **RE.6** **Feel-matching harness:**
+- [~] **RE.6** **Feel-matching harness:**
+  - 2026-10-12, started: `crates/rac_hero/tests/feel.rs` drives the kit's controller and
+    checks the figures in `hero-controller.md`, including four apex heights measured in
+    our UYA NTSC trace (all within 0.001 u).
+  - Still to do: replaying whole recorded traces through the kit and comparing them frame
+    by frame.
   - Replay the same input sequences in the hero kit and compare the trajectories with the
     reference measurements: apex height, time to apex, run speed, acceleration and turn
     times, and air control.
@@ -661,7 +668,61 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
     - ledges, walls for wall-jumping and gaps for long jumps;
     - a high platform and a moving platform;
     - a grind rail and a swingshot target.
-- [ ] **P1.5** Kinematic hero controller (`rac_hero`), a capsule against static colliders,
+- [~] **P1.5** Kinematic hero controller (`rac_hero`), a capsule against static colliders.
+  - **First chunk done 2026-10-12.** The hero plays in the demo (`cargo run`, "Play the
+    demo"). The second chunk is next. The design and progress notes:
+    - **Collision:**
+      - A narrow `CollisionWorld` interface (P1.16): capsule and sphere casts that return
+        the fraction, normal and body hit.
+      - A brute-force `parry3d` backend (0.31, with `enhanced-determinism`). Its glam is
+        the same version as Bevy's, so no conversion is needed.
+      - `rac_demo` gives each solid greybox piece a `Collider`, and moving platforms
+        update theirs every tick.
+    - **Body:**
+      - The hero's origin is at his feet.
+      - The capsule is libdl's (`hero-controller.md`, "Differences"): radius 0.45, sphere
+        centres at 0.7 and 1.05, and a bottom at 0.5 while airborne.
+      - The capsule floats 0.25 above the ground, so a sphere probe snaps him down and
+        steps up to 0.25 u are climbed without code.
+      - The slope limit is 50°. That's a placeholder: it hasn't been read from the game.
+    - **Controller:**
+      - It's a pure step function over (state, input, camera yaw, profile, collision), so
+        tests can drive it without an app.
+      - It uses the NTSC values at 60 Hz from a RON profile (`assets/uya.ron`), with each
+        value's source in a comment.
+      - The stick model is the game's: a 48/76 per-axis dead zone, the 0.25 cut-off and
+        the `(max + length) / 2` magnitude.
+    - **First chunk:**
+      - idle, walk (turning springs, the stop sequence) and crouch;
+      - jump, run jump, double jump, long jump, flips, heli jump, glide and fall;
+      - air control, moving platforms, and respawn after a fall.
+      - A basic follow camera starts P1.7.
+    - **Second chunk:** wall jump, ledge grab, charge boots, strafe/lock-on, knockback and
+      death.
+    - `rac_input` now squares round pad sticks and sends keys at (127, 127), because the
+      game's magnitude formula expects a PS2-style square range.
+    - **Progress:**
+      - Done and tested: the profile (`assets/uya.ron`), the collision interface with
+        the parry backend, the stick model and the capsule mover.
+      - Gotchas found:
+        - parry needs its `alloc` feature for convex casts.
+        - parry's `normal2` is in the obstacle's local frame, so we use `-normal1`.
+        - Grounded sweeps need a 2 cm lift so 0.25 u steps don't jam.
+      - Done and tested: `controller.rs`, with idle, walk, skid, crouch, the jumps
+        (standing, run, long, flip, heli), the double jump, glide, fall, air control,
+        platforms and respawn. There's also the follow camera.
+      - `tests/feel.rs` checks the documented figures. Four apex heights match our UYA
+        NTSC trace to 0.001 u.
+      - The trace also corrected two details, now in `hero-controller.md`: the double
+        jump holds for 1 frame, and the glide's entry threshold.
+      - Wired into the demo: greybox boxes have `Collider`s, and the hero has a
+        placeholder body. `--spectator` brings back the free camera. Tried under Xvfb:
+        walking and jumping work in the running app.
+      - **Next (second chunk):**
+        - wall jump, ledge grab and climb, charge boots, and strafe/lock-on details;
+        - knockback, death, and checkpoints beyond the respawn floor;
+        - the run jump's extra push-off, and the slope limit and sharp-turn skid, from
+          the game code (they are placeholders now).
   implementing the **UYA/DL move set** from RE.3:
   - Ground snapping, slope limits and step-up.
   - Running with acceleration and deceleration.
@@ -674,7 +735,10 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
   - Movement is defined by **profiles** (UYA, DL, and the backport profile for the older
     games) stored in RON, each value recording its source. The RE.6 tests must pass.
 - [-] **P1.6** Movement feel reference. Moved to RE.3, RE.5 and RE.6.
-- [ ] **P1.7** Third-person camera (`rac_hero`) following RE.4:
+- [~] **P1.7** Third-person camera (`rac_hero`) following RE.4:
+  - 2026-10-12, started: `FollowCamera` runs in the simulation (the hero reads its yaw).
+    It rests at RE.4's 4.64 u behind and 2.0 u above, and orbits with the look input.
+  - Still to do: lag, recentring, collision and the other modes.
   - Follows with lag and recentres automatically behind the hero.
   - Right stick or mouse orbit, and collision via sphere casts.
   - Strafe/lock mode and first-person mode.
@@ -718,7 +782,12 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
   - After each NVIDIA driver or wgpu update, re-test Bevy's default parallel compilation:
     run `openrac --exit-after-frames 120` ten times. If it passes every time, drop the
     workaround.
-- [ ] **P1.16** Make the kit ready for mash-ups:
+- [~] **P1.16** Make the kit ready for mash-ups:
+  - 2026-10-12, started:
+    - The controller sees collision only through `rac_hero::CollisionWorld`.
+    - Kit crates enable only the Bevy features they need.
+    - Still to do: the system that gathers `Collider`s is tied to the parry backend.
+      Making it pluggable, and the `cargo tree` CI check, remain.
   - The kit crates depend on no disc, format or runtime crate. A CI check on `cargo tree`
     enforces this.
   - Collision goes through a narrow backend interface, so the kit works with any level
@@ -1047,6 +1116,14 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-12 (hero controller):** P1.5's first chunk.
+  - New crate `rac_hero`: the profile, collision (parry), the capsule mover and the
+    controller (walk, jumps, double jump, glide, long jump, flips, heli jump, fall). Also
+    the follow camera (P1.7), and the hero in the demo.
+  - 33 new tests. `tests/feel.rs` matches four apex heights from our UYA NTSC trace to
+    0.001 u. The trace also corrected the double jump's hold and found the glide's entry.
+  - Next: P1.5's second chunk (wall jump, ledges, charge boots, combat reactions).
 
 - **2026-10-12 (Phase 1 start):** P1.1, P1.2 and P1.4 are done, and P1.3 is done apart
   from the rebinding UI.

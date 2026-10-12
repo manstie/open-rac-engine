@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 bevy = { workspace = true, features = ["std", "libm", "bevy_pbr", "bevy_core_pipeline"] }
+rac_hero.workspace = true
 rac_input.workspace = true
 rac_sim.workspace = true
 

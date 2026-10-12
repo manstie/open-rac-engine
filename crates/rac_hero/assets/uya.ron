@@ -1,0 +1,176 @@
+// Ratchet's movement in Ratchet & Clank: Up Your Arsenal (NTSC-U, SCUS-97353), the hero
+// kit's default tuning.
+//
+// Units: u/s and u/s², frame counts at 60 Hz. Turning springs are per tick (= per NTSC
+// frame). Sources are sections of docs/research/hero-controller.md, with its labels:
+// [verified] read in code and reproduced by traces, [code] read in code only,
+// [measured] from traces only, [reported] from libuya/libdl. [placeholder] means not yet
+// found in the game: a guess to be replaced.
+(
+    name: "UYA NTSC-U",
+    body: (
+        // "Differences between the games": libdl's HeroPlayerConstants capsule, which
+        // Gladiator/DL read in their collision code [code].
+        radius: 0.45,
+        bottom: 0.7,
+        bottom_airborne: 0.5,
+        top: 1.05,
+        slope_limit_degrees: 50.0, // [placeholder]
+        ground_snap: 0.3, // [placeholder]
+    ),
+    stick: (
+        // "Input": per-axis dead zone and range [verified on R&C3 PAL], and the cut-off
+        // below which the stick is ignored [verified on R&C3 PAL, code on UYA NTSC].
+        dead_zone: 48.0,
+        live_range: 76.0,
+        cut_off: 0.25,
+    ),
+    walk: (
+        // "Ground movement" [verified on UYA NTSC and R&C3 PAL].
+        speed: 6.17,
+        accel: 37.0,
+        brake: 30.0, // stick pulled back to a lower target [code]
+        setting_off_below: 2.5, // "about 2.5 u/s" [verified on R&C3 PAL]
+        // Turning springs, UYA per-frame values [verified on R&C3 PAL, whose values are
+        // these × 1.44 for gains and damping and × 1.2 for caps].
+        turn_setting_off: (
+            gain_per_m: 0.02,
+            gain_min: 0.01,
+            gain_max: 0.022,
+            damping: 0.27,
+            cap_per_m: 0.064,
+            cap_min: 0.032,
+            cap_max: 0.0931,
+        ),
+        turn_moving: (gain: 0.037, damping: 0.13, cap: 0.2036),
+        // Skidding: gain and cap [code]; damping not read, taken from moving [placeholder].
+        turn_skidding: (gain: 0.035, damping: 0.13, cap: 0.1949),
+        // Letting go of the stick [verified on UYA NTSC].
+        skid_brake: 17.0,
+        stop_skid_ticks: 2,
+        stop_residual: 1.5,
+        stop_brake: 17.7,
+        // When a sharp turn skids: "not characterised yet" [placeholder].
+        skid_angle: 2.36,
+        skid_above: 3.0,
+        crouch_brake: 27.0, // [verified on UYA NTSC]
+    ),
+    air: (
+        // "Vertical model" and "Jump parameters by state" defaults [verified, apart from
+        // the push-off speeds, which are code].
+        pushoff_press: 48.0,
+        pushoff_towards_cap: 20.0,
+        pushoff_brake: 11.0,
+        fall_speed_cap: 50.0,
+        // "Air control" [verified on R&C3 PAL].
+        control_accel: 20.0,
+        control_factor_min: 1.0,
+        control_factor_max: 3.0,
+        release_below: 0.2,
+        release_brake: 8.0,
+        apex_below: 0.06, // 0.001 u per frame
+        // Facing in the air: R&C3 PAL's gain 0.0576 and damping 0.288 ÷ 1.44 [code], and
+        // the jump block's 0.25016 rad per frame cap [code].
+        turn: (gain: 0.04, damping: 0.2, cap: 0.25016),
+    ),
+    fall: (
+        // "Falling": gravity [measured on Gladiator PAL, code on R&C3 PAL], braking with
+        // the stick released [code]. The fall's air speed is not read [placeholder].
+        gravity: 22.0,
+        air_speed: 6.17,
+        release_brake: 7.0,
+    ),
+    // "Jump parameters by state", state 7 [verified on UYA NTSC].
+    jump: (
+        height_min: 1.42,
+        height_max: 2.7,
+        hold_ticks: 17,
+        pushoff_ticks: 1,
+        gravity: 29.7,
+        apex_gravity_factor: 1.17,
+        air_speed: 6.17,
+    ),
+    // State 9 [verified on UYA NTSC]. Its extra forward push during push-off is not
+    // characterised and is left out.
+    run_jump: (
+        height_min: 1.42,
+        height_max: 2.7,
+        hold_ticks: 17,
+        pushoff_ticks: 1,
+        gravity: 29.7,
+        apex_gravity_factor: 1.0,
+        air_speed: 6.17,
+    ),
+    // State 10, "Long jump" [verified on UYA NTSC]. No air control: air_speed is unused.
+    long_jump: (
+        params: (
+            height_min: 1.9,
+            height_max: 1.95,
+            hold_ticks: 14,
+            pushoff_ticks: 5,
+            gravity: 11.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 0.0,
+        ),
+        min_speed: 2.5, // [placeholder]
+        forward_push: 0.88332, // 0.014722 u per frame per push-off frame
+    ),
+    // State 11, "Flips" [verified on UYA NTSC and Gladiator PAL].
+    flip: (
+        params: (
+            height_min: 3.2,
+            height_max: 3.25,
+            hold_ticks: 14,
+            pushoff_ticks: 1,
+            gravity: 29.7,
+            apex_gravity_factor: 1.0,
+            air_speed: 5.5,
+        ),
+        speed: 5.5,
+        min_speed: 2.0,
+        start_speed: 5.0,
+        accel: 47.0,
+    ),
+    // State 15, "Heli jump thrust" [verified on UYA NTSC].
+    heli_jump: (
+        params: (
+            height_min: 1.65,
+            height_max: 1.7,
+            hold_ticks: 5,
+            pushoff_ticks: 9,
+            gravity: 29.7,
+            apex_gravity_factor: 1.0,
+            air_speed: 3.3,
+        ),
+        thrust: 49.0,
+        thrust_from_tick: 35,
+        thrust_to_tick: 70,
+    ),
+    // State 14, "Double jump" [verified on UYA NTSC; the height factors are code]. The
+    // speed holds for one tick after the boost: in the moves-1 trace gravity resumes on
+    // the double jump's 10th frame.
+    double_jump: (
+        gravity: 29.7,
+        boost_accel: 150.0,
+        cap: 8.75,
+        boost_ticks: 8,
+        hold_ticks: 1,
+        air_speed: 4.75,
+        high_above: 2.2,
+        high_factor: 0.7,
+        higher_above: 2.8,
+        higher_factor: 0.47,
+    ),
+    // State 8, "Glide": the sink [verified on UYA NTSC]; the spring is R&C3 PAL's gain
+    // and damping ÷ 1.44, with its cap ÷ 1.2 and in u/s [code]; the forward motion [code].
+    glide: (
+        // Entered once falling faster than this while X is held: 0.04 u per frame, from
+        // the one glide in the moves-1 trace [measured; the rule isn't read in code].
+        enter_below: 2.4,
+        sink: 2.16,
+        spring: (gain: 0.025, damping: 0.3, cap: 17.0),
+        speed: 3.0,
+        accel: 15.0,
+        brake: 7.0,
+    ),
+)

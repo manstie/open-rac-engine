@@ -47,7 +47,7 @@ pub(crate) fn fly(
         camera.pitch = (camera.pitch + look.y).clamp(-PITCH_LIMIT, PITCH_LIMIT);
         transform.rotation = Quat::from_euler(EulerRot::YXZ, camera.yaw, camera.pitch, 0.0);
 
-        let stick = input.move_vector();
+        let stick = input.move_vector().clamp_length_max(1.0);
         let forward = transform.rotation * Vec3::NEG_Z;
         let right = transform.rotation * Vec3::X;
         let vertical = f32::from(i8::from(input.held(Action::Jump)))

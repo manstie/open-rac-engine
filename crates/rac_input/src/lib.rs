@@ -101,8 +101,8 @@ mod tests {
         let input = local_input(&app);
         assert!(input.held(Action::Jump));
         assert!(input.pressed(Action::Jump));
-        // A diagonal is normalised: 127 / √2 rounds to 90.
-        assert_eq!(input.move_stick, [90, 90]);
+        // Keys push both axes fully, like a PS2 stick in a corner.
+        assert_eq!(input.move_stick, [127, 127]);
         assert!(
             app.world()
                 .resource::<ActionState>()
