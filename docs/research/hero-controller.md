@@ -122,10 +122,29 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
     frame (0.012).
   - Crouching: 27 u/s², 0.0075 per frame (0.0108) **[verified on UYA NTSC]**.
 - **Skid [code]:** there are two different skids.
-  - **The walk's skid flag (state 2):** when the stick swings far round from the
-    direction of travel, or is released, a flag in the walk state cuts the speed and slows
-    it by 17 u/s² (0.0068). The details depend on the angle and the speed; not
-    characterised yet.
+  - **The walk's skid flag (state 2) [code, UYA NTSC `hero_update_state`]:** with
+    `err` the angle between the stick's direction and the facing, and a full stick:
+    - **Starts** when the hero is slower than 1.7 u/s and `err` is over 120°, or when the
+      stick's direction swung more than 110° in the last 6 frames and `err` is over 70°.
+      - The pad keeps the stick's angle for each of the last 30 frames (`atan2`, with 0
+        for a released stick, which is "right").
+      - So a stick pushed left from neutral counts as a 180° swing.
+    - **While it is set:**
+      - the target speed is at most `6.17 − err × 5.5/π` u/s;
+      - it is then scaled by `clamp(150° − err in radians, 0.2, 1)`;
+      - it brakes at 17 u/s² (0.0047222 per frame) instead of 30;
+      - it turns with gain 0.035, damping 0.27 and cap 0.1949 rad.
+    - **Ends** when `err` is under 4°.
+    - **Letting go of the stick** sets it too, only after the walk has seen a full stick
+      under a condition on the hand slot not yet understood. That is the release braking
+      above.
+  - **Moving the stick's way [code]:** under 1.7 u/s the walk moves in the stick's
+    direction rather than along the facing, until the facing is within 5° of it. A skid's
+    start sets this too.
+  - **Part-pushed stick [code]:**
+    - under 0.75 of the stick and more than 35° round, the target speed is cut by
+      `1 − 0.4 × err` (floored at 0);
+    - under 0.9 and more than 45° round, the speed doesn't rise, so the hero turns first.
   - **The skid state (3):** after a long jump's landing, and after DL's charge. It brakes
     at **27 u/s²** (0.0075 per frame on UYA, `27 × frame_dt²` on DL), scaled down on
     slippery ground, and doesn't turn. Read in UYA's and DL's idle-type update, which
@@ -148,7 +167,12 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
   The walk state uses two sets of values. While setting off from a standstill (substate 0,
   until the speed passes about 2.5 u/s, which takes 4–6 frames), they scale with the stick
   magnitude m. Once moving (substate 1, and straight away when landing from a jump) they
-  are fixed:
+  are fixed. UYA's walk animation code switches the substate by speed **[code]**:
+  - to moving above 2.35 u/s, and back to setting off below 1.9 u/s;
+  - only after the walk's 4th frame.
+
+  The kit keeps a single 2.5 u/s threshold, which gives the same frame from a standstill.
+  The two sets:
 
   | | UYA NTSC, per frame | R&C3 PAL, per frame |
   |---|---|---|
@@ -156,7 +180,10 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
   | setting off: damping | 0.27 | 0.3888 |
   | setting off: rate cap | `clamp(0.064 m, 0.032, 0.0931)` rad | `clamp(0.0768 m, 0.0384, 0.1117)` rad |
   | moving: gain, damping, rate cap | 0.037, 0.13, 0.2036 rad (12.2 rad/s) | 0.0533, 0.1872, 0.2443 rad |
-  | skidding: gain, rate cap | 0.035, 0.1949 rad | 0.0504, 0.2339 rad |
+  | skidding: gain, damping, rate cap | 0.035, 0.27, 0.1949 rad [code] | 0.0504, 0.3888, 0.2339 rad |
+
+  Skidding keeps the setting-off damping; that is read in UYA's code, and PAL's is
+  assumed to follow its own setting-off value.
 
   This reproduces all 724 non-strafe walking frames of the R&C3 traces exactly
   **[verified on R&C3 PAL]**. While strafing the hero faces the camera direction instead

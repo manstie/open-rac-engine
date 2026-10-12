@@ -319,3 +319,75 @@ address = 0x001DF980
 kind = "data"
 confidence = "medium"
 note = "Camera 0's active volume index, -1 for none."
+
+# 2026-10-12, the walk's skid and the moves that need items (PLAN.md RE.3).
+
+[[symbol]]
+name = "pad_update"
+address = 0x0045D5C8
+kind = "function"
+confidence = "medium"
+note = "Per-frame pad update: the dead zone, the button edges, and a 30-frame ring of button presses (+0x1E0), stick lengths (+0x2D0) and stick angles (+0x258)."
+
+[[symbol]]
+name = "pad_stick_angle_back"
+address = 0x0045D488
+kind = "function"
+confidence = "medium"
+note = "The left stick's angle n frames back in the pad's ring (1 is this frame). The walk compares 1 and 7 to spot a stick swung round."
+
+[[symbol]]
+name = "atan2"
+address = 0x0040C490
+kind = "function"
+confidence = "medium"
+note = "Polynomial atan2(y, x) with an octant table at 0x1D9D40; 0 for (0, 0)."
+
+[[symbol]]
+name = "angle_between"
+address = 0x0040CFB0
+kind = "function"
+confidence = "medium"
+note = "Absolute difference of two angles, the short way round."
+
+[[symbol]]
+name = "hero_walk_stick_target"
+address = 0x004EADD0
+kind = "function"
+confidence = "medium"
+note = "The walk's stick direction, its angle from the facing, and the target speed walk_speed × stick magnitude."
+
+[[symbol]]
+name = "hero_speed_towards_target"
+address = 0x004EB350
+kind = "function"
+confidence = "medium"
+note = "Moves the speed towards the target by the first argument when rising, the second when falling."
+
+[[symbol]]
+name = "hero_velocity_along"
+address = 0x004EB3A0
+kind = "function"
+confidence = "medium"
+note = "Sets the intended velocity from the speed along a yaw: the facing when given more than π, else the stick's direction while the walk slides."
+
+[[symbol]]
+name = "walk_substate_speeds"
+address = 0x001DBE40
+kind = "data"
+confidence = "medium"
+note = "Per walk substate, 16 bytes: the speeds below and above which the animation code changes substate (setting off 0-2.35 u/s, moving 1.9-10)."
+
+[[symbol]]
+name = "hero_item_in_slot"
+address = 0x004E5470
+kind = "function"
+confidence = "medium"
+note = "The item in an item slot when it is equipped, else -1. Slot 3 is the back: 2 the heli-pack, 3 the thruster-pack."
+
+[[symbol]]
+name = "hero_skid_exit"
+address = 0x00503310
+kind = "function"
+confidence = "low"
+note = "Called from the skid state's transitions; picks an idle animation for the hand item when the skid ends."

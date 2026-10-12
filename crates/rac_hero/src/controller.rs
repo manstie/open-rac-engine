@@ -27,6 +27,9 @@ pub const TICK: f32 = 1.0 / 60.0;
 /// How far down [`step`] looks for the ground under an airborne hero, as the games do.
 const GROUND_SEARCH: f32 = 32.0;
 
+/// Ticks of stick history kept, as many as UYA's pad keeps.
+const STICK_HISTORY: usize = 30;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JumpKind {
     /// From standing.
@@ -254,6 +257,12 @@ pub struct HeroMotion {
     setting_off: bool,
     /// The walk's skid after a sharp turn.
     skidding: bool,
+    /// The walk moves the way the stick points, not the way he faces.
+    sliding: bool,
+    /// The stick's angle over the last ticks, newest at `stick_newest`, as the games keep
+    /// it to spot a stick swung round.
+    stick_angles: [f32; STICK_HISTORY],
+    stick_newest: usize,
     /// Ticks of braking done since the stick was released.
     stop_ticks: u32,
     jump: JumpBlock,
@@ -309,6 +318,9 @@ impl HeroMotion {
             input_lock: 0,
             setting_off: true,
             skidding: false,
+            sliding: false,
+            stick_angles: [0.0; STICK_HISTORY],
+            stick_newest: 0,
             stop_ticks: 0,
             jump: JumpBlock::default(),
             take_off_height: position.y,
@@ -364,7 +376,21 @@ impl HeroMotion {
             self.state = state;
             self.ticks = 0;
             self.skidding = false;
+            self.sliding = false;
         }
+    }
+
+    fn record_stick(&mut self, stick: &Stick) {
+        self.stick_newest = (self.stick_newest + 1) % STICK_HISTORY;
+        // The games' atan2 gives 0 for a released stick, and so does this one.
+        self.stick_angles[self.stick_newest] = ops::atan2(stick.vector.y, stick.vector.x);
+    }
+
+    /// How far the stick's direction turned over the last `ticks`.
+    fn stick_swing(&self, ticks: usize) -> f32 {
+        let ticks = ticks.min(STICK_HISTORY - 1);
+        let then = (self.stick_newest + STICK_HISTORY - ticks) % STICK_HISTORY;
+        wrap(self.stick_angles[self.stick_newest] - self.stick_angles[then]).abs()
     }
 
     fn horizontal_velocity(&self) -> Vec3 {
@@ -591,6 +617,7 @@ pub fn step(
 ) -> StepEvents {
     let stick = read_stick(input.move_stick, &profile.stick);
     let wish = stick_on_ground(stick.vector, camera_yaw);
+    hero.record_stick(&stick);
 
     hero.jump_press.update(input.pressed(Action::Jump));
     hero.crouch_press.update(input.pressed(Action::Crouch));
@@ -874,44 +901,81 @@ fn ground_tick(
         let target_yaw = yaw_of(wish_direction);
         let error = wrap(target_yaw - hero.yaw).abs();
         hero.stop_ticks = 0;
-        if hero.state == HeroState::Walk
-            && !hero.setting_off
-            && error > walk.skid_angle
-            && hero.speed > walk.skid_above
+        if hero.state != HeroState::Walk {
+            hero.setting_off = hero.speed < walk.setting_off_below;
+            hero.set_state(HeroState::Walk);
+        }
+        if hero.setting_off && hero.speed >= walk.setting_off_below {
+            hero.setting_off = false;
+        }
+
+        // When the walk skids, and when it moves the way the stick points rather than the
+        // way he faces (`hero-controller.md`, "Ground movement").
+        let full = stick.magnitude >= 1.0;
+        if hero.speed < walk.slide_below {
+            hero.sliding = true;
+            if full && error > walk.skid_slow_degrees.to_radians() {
+                hero.skidding = true;
+            }
+        }
+        if full
+            && hero.stick_swing(walk.skid_swing_ticks) > walk.skid_swing_degrees.to_radians()
+            && error > walk.skid_swing_error_degrees.to_radians()
         {
+            hero.sliding = true;
             hero.skidding = true;
         }
-        if hero.skidding {
-            hero.speed = approach(hero.speed, 0.0, walk.skid_brake * TICK);
-            turn(hero, target_yaw, walk.turn_skidding);
-            if error < 0.5 || hero.speed < 1.0 {
-                hero.setting_off = hero.speed < walk.setting_off_below;
-                hero.skidding = false;
-            }
-        } else {
-            if hero.state != HeroState::Walk {
-                hero.setting_off = hero.speed < walk.setting_off_below;
-                hero.set_state(HeroState::Walk);
-            }
-            if hero.setting_off && hero.speed >= walk.setting_off_below {
-                hero.setting_off = false;
-            }
-            let spring = if hero.setting_off {
-                walk.turn_setting_off.at(stick.magnitude)
-            } else {
-                walk.turn_moving
-            };
-            turn(hero, target_yaw, spring);
-            let target = walk.speed * stick.magnitude;
-            let rate = if hero.speed < target {
-                walk.accel
-            } else {
-                walk.brake
-            };
-            hero.speed = approach(hero.speed, target, rate * TICK);
+        if error < walk.slide_until_degrees.to_radians() {
+            hero.sliding = false;
         }
+        if hero.skidding && error < walk.skid_until_degrees.to_radians() {
+            hero.skidding = false;
+            hero.setting_off = hero.speed < walk.setting_off_below;
+        }
+
+        let spring = if hero.skidding {
+            walk.turn_skidding
+        } else if hero.setting_off {
+            walk.turn_setting_off.at(stick.magnitude)
+        } else {
+            walk.turn_moving
+        };
+        turn(hero, target_yaw, spring);
+
+        let mut target = walk.speed * stick.magnitude;
+        let mut brake = walk.brake;
+        if hero.skidding {
+            let most = (walk.speed - error * walk.skid_speed_loss / PI).max(0.0);
+            let scale =
+                (walk.skid_scale_degrees.to_radians() - error).clamp(walk.skid_scale_min, 1.0);
+            target = target.min(most) * scale;
+            brake = walk.skid_brake;
+        }
+        if stick.magnitude < walk.turn_slow_stick && error > walk.turn_slow_degrees.to_radians() {
+            target *= (1.0 - error * walk.turn_slow_per_radian).max(0.0);
+        }
+        // A part-pushed stick far round from the facing turns him without speeding up.
+        let accel = if stick.magnitude < walk.turn_stall_stick
+            && error > walk.turn_stall_degrees.to_radians()
+        {
+            0.0
+        } else {
+            walk.accel
+        };
+        let rate = if hero.speed < target { accel } else { brake };
+        hero.speed = approach(hero.speed, target, rate * TICK);
+
+        let direction = if hero.sliding {
+            wish_direction
+        } else {
+            hero.facing()
+        };
+        hero.set_horizontal_velocity(direction * hero.speed);
+        hero.velocity.y = 0.0;
+        return;
     } else {
         hero.skidding = false;
+        hero.sliding = false;
         match hero.state {
             HeroState::Walk if hero.stop_ticks < walk.stop_skid_ticks => {
                 // Letting go: a couple of ticks of skid braking...

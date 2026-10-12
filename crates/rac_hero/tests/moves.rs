@@ -429,6 +429,56 @@ fn the_slope_limit_is_50_degrees() {
     assert!(!motor::is_walkable(normal(50.1), &body));
 }
 
+// --- Walking: skids and slides --------------------------------------------------------
+
+#[test]
+fn reversing_the_stick_at_a_run_skids_at_17() {
+    // "Ground movement", the walk's skid: a full stick swung more than 110° in 6 ticks,
+    // more than 70° from the facing, brakes at 17 u/s² instead of 30 while he turns.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.ticks(30, &input(FORWARD, &[], &[]));
+    assert!((rig.hero.speed - 6.17).abs() < 1e-4);
+    let back = input(Some([0, -127]), &[], &[]);
+    rig.tick(&back);
+    assert!((rig.hero.speed - (6.17 - 17.0 * TICK)).abs() < 1e-4);
+    // Turned round, he runs the other way.
+    rig.ticks(90, &back);
+    assert!(rig.hero.velocity.z > 6.0, "{}", rig.hero.velocity);
+
+    // Pulling the stick back only halfway is no skid: the speed falls at 30 u/s².
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.ticks(30, &input(FORWARD, &[], &[]));
+    rig.tick(&input(Some([0, 86]), &[], &[]));
+    assert!((rig.hero.speed - (6.17 - 30.0 * TICK)).abs() < 1e-4);
+}
+
+#[test]
+fn a_slow_hero_moves_the_way_the_stick_points() {
+    // Under 1.7 u/s the walk goes the stick's way while he turns to face it.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.tick(&input(Some([127, 0]), &[], &[]));
+    let velocity = rig.hero.velocity;
+    assert!(velocity.x > 0.0 && velocity.z.abs() < 1e-6, "{velocity}");
+    assert!(rig.hero.yaw.abs() < 0.2);
+}
+
+#[test]
+fn a_part_pushed_stick_far_round_turns_before_speeding_up() {
+    // Under 0.9 of the stick and more than 45° round, the speed doesn't rise.
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    let half_right = input(Some([86, 0]), &[], &[]);
+    rig.tick(&half_right);
+    assert_eq!(rig.hero.speed, 0.0);
+    let waited = rig.until(60, &half_right, |hero| hero.speed > 0.0);
+    // By then he faces within 45° of the stick (yaw −π/2).
+    assert!(
+        (rig.hero.yaw + FRAC_PI_2).abs() <= 45f32.to_radians(),
+        "{}",
+        rig.hero.yaw
+    );
+    assert!(waited > 3, "{waited}");
+}
+
 // --- Charge boots ----------------------------------------------------------------------
 
 const FORWARD: Option<[i8; 2]> = Some([0, 127]);

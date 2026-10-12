@@ -90,9 +90,9 @@ the game itself.**
    our trace `uyantsc-veldin-cam-1`. What the camera still lacks is under P1.7 and in
    `camera.md`, "Next steps".
 4. What P1.5 still lacks:
-   - **Done 2026-10-12:** the charge boots (from DL's code) and the ability flags.
-   - strafe speeds and lock-on, with targets from P1.9;
-   - the sharp-turn skid rule (the walk's skid flag).
+   - **Done 2026-10-12:** the charge boots (from DL's code), the ability flags, and the
+     walk's sharp-turn skid (from UYA's code).
+   - strafe speeds and lock-on, with targets from P1.9.
 5. RE.3, continued: swimming and grinding in code, and DL NTSC traces by scripted play
    as for UYA. The first DL trace should be a charge, to check the code's numbers.
 6. RE.2: seed the knowledge base from libuya and libdl (MIT).
@@ -490,8 +490,11 @@ also works: using a GPL tool is fine, copying its code is not.
     - **Read in DL's code:** the charge boots (state 125) and the bounce off a wall that
       can end them (121), DL's three state jump tables, and the skid state's 27 u/s²
       braking (the same in UYA).
-    - **Read in UYA's code:** the moves that need items. The crouch jumps need the
-      heli-pack in the back slot; with no pack a crouch jump is a standing jump.
+    - **Read in UYA's code:**
+      - the moves that need items: the crouch jumps need the heli-pack in the back slot,
+        and with no pack a crouch jump is a standing jump;
+      - the walk's sharp-turn skid and its stick-angle history, and moving the stick's
+        way when slow.
     - Tooling: `tools/ghidra/ListingAt.java` disassembles address ranges.
     - **Still to do:** trace a wall, a ledge and a charge (DL NTSC); read swimming and
       grinding.
@@ -777,8 +780,7 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
           `rac_demo/tests/greybox_moves.rs` plays the shaft and a ledge in the real
           level.
         - **Done 2026-10-12**, checked under Xvfb as well.
-        - Still to do: strafe speeds and lock-on (with P1.9), and the sharp-turn skid
-          rule.
+        - Still to do: strafe speeds and lock-on (with P1.9).
         - **Charge boots and ability flags, done 2026-10-12:**
           - The charge boots are read in DL's code (`hero-controller.md`, "Charge boots"):
             crouch twice within 15 ticks dashes at 30 u/s for 61 ticks, steering like a
@@ -792,9 +794,18 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
             at 27 u/s² without turning, in UYA's and DL's code. The walk's sharp-turn skid
             is now a flag in the walk state, as in the games.
           - 7 new tests in `tests/moves.rs`.
-        - Still placeholders: the sharp-turn skid rule, the shimmy speed (untraced), the
-          death's length, the hazard's damage and push, the starting health, and the end
-          of the charge's bounce.
+        - **The walk's sharp-turn skid, done 2026-10-12** (`hero-controller.md`, "Ground
+          movement"):
+          - It starts when a full stick swings more than 110° in 6 ticks or turns more
+            than 120° under 1.7 u/s, then brakes at 17 u/s² towards a target cut by the
+            angle, with its own turning spring.
+          - Under 1.7 u/s the walk moves the way the stick points.
+          - A part-pushed stick far round turns before speeding up.
+          - The hero keeps the last 30 ticks of stick angles, as UYA's pad does.
+          - 3 new tests.
+        - Still placeholders: the shimmy speed (untraced), the death's length, the
+          hazard's damage and push, the starting health, and the end of the charge's
+          bounce.
         - A small known mismatch: a long jump from a 7-tick crouch leaves at 8.2 u/s in
           the kit and 7.8 u/s in the trace. The game's first crouch frame brakes less,
           and the jump frame brakes once more.
@@ -1217,7 +1228,8 @@ Newest first. One or two lines per session: what was done, and what's next.
   - DL's charge boots read in Ghidra and implemented, with the per-hero ability flags
     (heli-pack, charge boots) the games' items need. The skid state corrected to its
     27 u/s².
-  - 7 new tests (129 in all).
+  - Then UYA's sharp-turn skid rule, which replaces a placeholder.
+  - 10 new tests (132 in all).
   - Next: a DL NTSC trace of a charge, or the next P1 task (P1.8 melee).
 
 - **2026-10-12 (camera):** RE.4 and P1.7.

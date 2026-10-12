@@ -116,10 +116,34 @@ pub struct WalkProfile {
     /// The most speed left when the hero settles into idle.
     pub stop_residual: f32,
     pub stop_brake: f32,
-    /// A stick this far round from the facing (radians) at more than `skid_above` u/s
-    /// starts a skid.
-    pub skid_angle: f32,
-    pub skid_above: f32,
+    /// Under `slide_below` u/s the walk moves the way the stick points, until he faces
+    /// within `slide_until_degrees` of it.
+    pub slide_below: f32,
+    pub slide_until_degrees: f32,
+    /// A full stick starts the walk's skid when it is more than `skid_slow_degrees` round
+    /// from the facing under `slide_below`, or when it swung more than
+    /// `skid_swing_degrees` in the last `skid_swing_ticks` and is more than
+    /// `skid_swing_error_degrees` round. The skid lasts until he faces within
+    /// `skid_until_degrees`.
+    pub skid_slow_degrees: f32,
+    pub skid_swing_degrees: f32,
+    pub skid_swing_ticks: usize,
+    pub skid_swing_error_degrees: f32,
+    pub skid_until_degrees: f32,
+    /// While skidding the target speed is at most the walk speed less `skid_speed_loss`
+    /// per half turn of error, scaled by `skid_scale_degrees` (as radians) less the error,
+    /// clamped to `skid_scale_min..=1`.
+    pub skid_speed_loss: f32,
+    pub skid_scale_degrees: f32,
+    pub skid_scale_min: f32,
+    /// A stick under `turn_slow_stick` more than `turn_slow_degrees` round cuts the target
+    /// speed by `turn_slow_per_radian` of it per radian; under `turn_stall_stick` and more
+    /// than `turn_stall_degrees` round, the speed doesn't rise.
+    pub turn_slow_stick: f32,
+    pub turn_slow_degrees: f32,
+    pub turn_slow_per_radian: f32,
+    pub turn_stall_stick: f32,
+    pub turn_stall_degrees: f32,
     pub crouch_brake: f32,
     /// A jump from walking is a run jump when the stick is past this.
     pub run_jump_stick: f32,

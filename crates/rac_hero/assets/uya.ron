@@ -45,8 +45,8 @@
             cap_max: 0.0931,
         ),
         turn_moving: (gain: 0.037, damping: 0.13, cap: 0.2036),
-        // Skidding: gain and cap [code]; damping not read, taken from moving [placeholder].
-        turn_skidding: (gain: 0.035, damping: 0.13, cap: 0.1949),
+        // Skidding: the setting-off spring's damping with its own gain and cap [code].
+        turn_skidding: (gain: 0.035, damping: 0.27, cap: 0.1949),
         // Letting go of the stick [verified on UYA NTSC].
         skid_brake: 17.0,
         // The skid state (3) brakes at 0.0075 u per frame, in UYA's and DL's code [code].
@@ -54,9 +54,22 @@
         stop_skid_ticks: 2,
         stop_residual: 1.5,
         stop_brake: 17.7,
-        // When a sharp turn skids: "not characterised yet" [placeholder].
-        skid_angle: 2.36,
-        skid_above: 3.0,
+        // The walk's skid and slide, "Ground movement" [code, UYA NTSC; untraced].
+        slide_below: 1.7, // 0.028333 u per frame
+        slide_until_degrees: 5.0, // 0.08726646 rad
+        skid_slow_degrees: 120.0, // 2.0943952 rad
+        skid_swing_degrees: 110.0, // 1.9198622 rad, stick angle now against 6 frames ago
+        skid_swing_ticks: 6,
+        skid_swing_error_degrees: 70.0, // 1.2217305 rad
+        skid_until_degrees: 4.0, // 0.06981317 rad
+        skid_speed_loss: 5.5, // 0.091667 u per frame per π
+        skid_scale_degrees: 150.0, // 2.6179938 rad
+        skid_scale_min: 0.2,
+        turn_slow_stick: 0.75,
+        turn_slow_degrees: 35.0, // 0.61086524 rad
+        turn_slow_per_radian: 0.4,
+        turn_stall_stick: 0.9,
+        turn_stall_degrees: 45.0,
         crouch_brake: 27.0, // [verified on UYA NTSC]
         // "Long jump", run or standing jump: picked by the stick, not the speed [code].
         run_jump_stick: 0.85,
