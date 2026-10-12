@@ -209,8 +209,11 @@ xdotool key F1    # savestate  -> cache/pcsx2/boot/<name>/xdg/PCSX2/sstates/
     5. Start skips the intro.
     6. DreadZone Station loads, and an in-engine cutscene plays.
 - **Saving:** a savestate taken during a level's opening cutscene already holds that
-  level's overlay. Copy it out of the boot folder (for example to
-  `cache/pcsx2/ntsc-states/`) before the next boot overwrites it.
+  level's overlay. Copy it out of the boot folder straight away, before the next boot
+  overwrites it.
+  - Copy it to `source/<game>/<release>-<level>-<what>.p2s`, which is where files worth
+    keeping live.
+  - Make a working copy in `cache/pcsx2/ntsc-states/` if you need one.
 - **Coming back:** `boot.sh` keeps `cache/pcsx2/boot/<name>/` between runs. After
   booting, F3 loads savestate slot 1, so a saved gameplay state skips the menus.
 
@@ -238,6 +241,11 @@ target/release/pine-probe capture --layout re/SCUS-97353/hero.toml --slot 28013 
 - **Keyboard limits:** the keys give full stick tilt only, so stick-response tests still
   need a real controller or a recording.
 - **Capture in gameplay only:** UYA's frame counter runs faster on the title screen.
+- **Keep the script and the trace together.** Write the key sequence as a script, not
+  ad-hoc commands, and save it as `source/<game>/<trace name>.sh`.
+  - Give it a header saying which savestate and boot it ran from.
+  - Copy the trace beside it. xdotool timing isn't reproducible, so the trace is the only
+    exact record of what happened.
 
 ## Captures from the owner
 
@@ -252,10 +260,14 @@ stays out of the repository.
 | R&C3 PAL | `source/Ratchet & Clank 3/save-state-{5,6}-inputs` plus `_SaveState.p2s` | Input recordings of free play from the cliff edge: 1,823 and 1,383 frames of running, jumps, double jumps, crouch jumps, wrench combos and firing. |
 | Gladiator PAL (SCES-53285), DreadZone Station | `~/.config/PCSX2/sstates/SCES-53285 (D697D204).0{1..5}.p2s` | 1: open floor. 2: next to a wall. 3: hanging from a ledge (state 24). 4 and 5: another open area. |
 | Gladiator PAL | `source/Ratchet Gladiator/save-state-{4,5}-inputs` plus `_SaveState.p2s` | Input recordings of free play: 2,512 and 2,329 frames. |
-| UYA NTSC-U (SCUS-97353), Veldin | `cache/pcsx2/ntsc-states/uyantsc-veldin-intro.p2s` | Not from the owner: a headless new game (`tools/pine-probe/boot.sh`), saved during Veldin's opening cutscene. Used for static analysis; no recording. |
-| Deadlocked NTSC-U (SCUS-97465), DreadZone Station | `cache/pcsx2/ntsc-states/dlntsc-dreadzone-intro.p2s` | The same, saved during DreadZone Station's opening cutscene. |
-| UYA NTSC-U, Veldin gameplay | `cache/pcsx2/ntsc-states/uyantsc-veldin-play.p2s` | Headless, at the start of Veldin's gameplay (enemies ahead). The starting point for the traces below. |
-| UYA NTSC-U traces | `cache/pcsx2/traces/uyantsc-veldin-moves-{1,2,3}.trace` | Self-made with scripted keyboard play: 1, jumps (tapped and held), double jump, glide, heli jump, walk and stop, run jump and long jump; 2, wrench combo, jump attack and L1 look; 3, strafe walk, side and back flips. 2,069, 1,195 and 1,075 frames. |
+| UYA NTSC-U (SCUS-97353), Veldin | `source/Ratchet & Clank 3/uyantsc-veldin-intro.p2s` | Not from the owner: a headless new game (`tools/pine-probe/boot.sh`), saved during Veldin's opening cutscene. Used for static analysis; no recording. |
+| Deadlocked NTSC-U (SCUS-97465), DreadZone Station | `source/Ratchet Gladiator/dlntsc-dreadzone-intro.p2s` | The same, saved during DreadZone Station's opening cutscene. |
+| UYA NTSC-U, Veldin gameplay | `source/Ratchet & Clank 3/uyantsc-veldin-play.p2s` and `uyantsc-veldin-play-2.p2s` | Headless, at the start of Veldin's gameplay (enemies ahead). The second was taken 76 frames later, standing still, to find the frame counter. The first is the starting point for the traces below. |
+| UYA NTSC-U traces | `source/Ratchet & Clank 3/uyantsc-veldin-moves-{1,2,3}.trace`, each with the `.sh` input script that drove it | Self-made with scripted keyboard play: 1, jumps (tapped and held), double jump, glide, heli jump, walk and stop, run jump and long jump; 2, wrench combo, jump attack and L1 look; 3, strafe walk, side and back flips. 2,069, 1,195 and 1,075 frames. |
+| R&C3 PAL camera trace | `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace`, layout `source/Ratchet & Clank 3/rc3pal-veldin-5-cam.toml` | A replay of the owner's recording 5 with the camera block added (RE.4, `docs/research/camera.md`). It can be regenerated from the layout. |
+
+Working copies of the self-made savestates and traces are also in `cache/pcsx2/ntsc-states/`
+and `cache/pcsx2/traces/`.
 
 For the replay harness, copies live in `cache/pcsx2/recordings/` as
 `<release>-<level>-<n>.p2m2` with `<name>.p2m2_SaveState.p2s` beside them (PCSX2 looks for

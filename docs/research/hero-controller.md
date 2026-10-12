@@ -414,6 +414,6 @@ The state numbers match libuya's `PlayerState`, and the types match `PlayerType`
    - The Gladiator traces already hold ledge grabs to compare.
 3. **Half-tilt stick on NTSC:** keyboard input only gives full tilt, so the pad layer's
    dead zone is verified on PAL only.
-4. **Camera (RE.4).**
+4. **Camera (RE.4):** started in [camera.md](camera.md).
 5. **Constants for the kit:** write the tables above into the hero kit's RON profiles
    (P1.5) and use them as the RE.6 tolerance tests' expected values.

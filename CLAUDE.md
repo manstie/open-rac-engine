@@ -16,6 +16,23 @@ How to work in this repository, for Claude sessions and for people.
 3. Do what the owner asks. If they don't name anything, take the next unchecked task in
    PLAN.md order.
 
+**As you go.** A session can end without warning: a usage limit, a dropped remote-control
+connection, a closed terminal. Anything that exists only in the conversation, `cache/` or
+the scratchpad is then lost, so:
+1. Write ongoing work down while you do it, not only at the end.
+   - Put findings into `docs/research/` as soon as they are checked, with their status
+     label.
+   - Put the state of unfinished work into PLAN.md, under its task and in §0: what is
+     done, what is half done, and the exact next step.
+2. Save every savestate, input recording, input script and capture layout you make into
+   `source/<game>/` as soon as it exists.
+   - Name each file `<release>-<level>-<what>`, for example `uyantsc-veldin-play.p2s`.
+   - Copy there any trace that can't be regenerated, such as one from scripted play, and
+     keep it beside the script that drove it.
+   - List each file in the catalogue in `docs/re-setup.md`.
+   - `source/` is gitignored and is where files worth keeping live. `cache/` and the
+     scratchpad hold working copies and may be wiped.
+
 **At the end:**
 1. In PLAN.md, tick or annotate the tasks you touched (refer to them by ID, e.g. `P2.4`),
    update §0 if the status changed, and add one line to the session log in §9.
@@ -30,8 +47,11 @@ The repository is public, so everything committed here is published.
 **Where the discs and derived data live:**
 - The owner's game discs are in `source/` and are ignored by `source/.gitignore`. Keep it
   that way.
-- Put anything derived from a disc in `/cache/` (gitignored) or a temp directory outside the
-  repo, nowhere else.
+- Put anything derived from a disc in one of these places, nowhere else. All of them are
+  outside git.
+  - `source/<game>/`: savestates, recordings and traces worth keeping (see "As you go").
+  - `/cache/`: working copies, and anything that can be regenerated.
+  - A temp directory outside the repo.
 - Before every commit, check `git status` for stray data files.
 
 **Never commit:**
@@ -201,6 +221,8 @@ The six discs and their identifying hashes are listed in
     with a `_SaveState.p2s`) arrive in `source/<game>/` and are copied to
     `cache/pcsx2/recordings/` as `<release>-<level>-<n>.p2m2`. The catalogue of what exists
     is in `docs/re-setup.md`.
+  - Savestates, input scripts and scripted-play traces that sessions make also go in
+    `source/<game>/` (see "As you go").
 - **Tools:**
   - PCSX2 2.8+ with its debugger, and PINE IPC at `$XDG_RUNTIME_DIR/pcsx2.sock`, slot
     28011, for live memory.
@@ -228,7 +250,8 @@ The six discs and their identifying hashes are listed in
   logs the hero's memory every frame. `pine-probe export` turns the trace into CSV.
   - Where the hero lives per release: `re/<serial>/hero.toml`.
   - Results so far: `docs/research/hero-controller.md`.
-  - Raw traces stay in `cache/pcsx2/traces/`.
+  - Raw traces stay in `cache/pcsx2/traces/`. A trace that can't be regenerated is also
+    copied to `source/<game>/`.
   - Commit only the derived constants and tolerances.
 - **Recording results:**
   - Findings go in `docs/research/*.md`, marked as verified or reported.

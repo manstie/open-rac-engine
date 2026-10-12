@@ -11,6 +11,10 @@ project owner and for every Claude session that picks this work up.
   - [disc-layout.md](docs/research/disc-layout.md): our own inspection of the six discs.
   - [engine-notes.md](docs/research/engine-notes.md): what is known about the engine.
   - [prior-art.md](docs/research/prior-art.md): other projects, tools and their licences.
+  - [hero-controller.md](docs/research/hero-controller.md): how Ratchet moves (RE.3).
+  - [camera.md](docs/research/camera.md): how the camera follows him (RE.4, started).
+- How to set up and run the reverse-engineering tools, and the catalogue of savestates,
+  recordings and traces: [docs/re-setup.md](docs/re-setup.md).
 
 Task IDs (for example `P2.4` or `RE.3`) are stable, so refer to them in commits and session
 logs. Status markers: `[x]` done, `[~]` in progress, `[ ]` not started, `[-]` dropped or
@@ -32,6 +36,8 @@ track has the hero's movement code: constants and models are read from the game 
   - a public repository.
 - CI and the data-hygiene guard are written (P0.7, P0.12). CI runs for the first time on
   the next push.
+- All work so far is committed and signed on branch `re/hero-movement`, which isn't pushed
+  yet.
 - **Reverse engineering:**
   - The owner captured savestates and input recordings of the **PAL** releases (R&C3,
     Gladiator).
@@ -53,13 +59,17 @@ track has the hero's movement code: constants and models are read from the game 
     - **RE.8 is answered:** both engines are tuned in per-second units at 60 Hz, and each
       PAL release is a conversion that keeps the real-time behaviour. So the kit uses the
       NTSC values at 60 Hz.
+  - **Camera (RE.4) has started:** the camera struct's address and the default follow
+    distance and height are in `docs/research/camera.md`. A camera trace is recorded but
+    not analysed yet.
 
 **Next actions, in order:**
 1. **Owner, when convenient:** savestates or recordings of the moves that need a
    particular place (wall jump, ledges, grinding, swimming, charge boots), and a half-tilt
    stick recording on an NTSC disc (`docs/re-setup.md`, "Still wanted").
    - Most jump moves are now verified on UYA NTSC with our own scripted traces.
-2. Push the branch so CI runs, and fix anything Windows-specific it finds (P0.7).
+2. **Owner:** push `re/hero-movement` so CI runs (the push needs the owner's
+   credentials). Then fix anything Windows-specific it finds (P0.7).
 3. Start the kit's foundations, P1.1–P1.4: app flow, simulation clock, input and a greybox
    level.
    - The hero controller (P1.5) can then start from `hero-controller.md`, using the NTSC
@@ -69,7 +79,8 @@ track has the hero's movement code: constants and models are read from the game 
    - wall detection, ledge grab, swimming and grinding, in code;
    - DL NTSC traces, by scripted play as for UYA.
 
-   Then the camera (RE.4).
+   Then the camera (RE.4). Start by fitting the follow lag from
+   `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace` (`camera.md`, "Next steps").
 5. RE.2: seed the knowledge base from libuya and libdl (MIT).
 6. In parallel, at lower priority: the disc layer, P2.1–P2.5.
 
@@ -303,6 +314,7 @@ App
 | 2026-10-12 | The hero kit's movement is specified **in per-second units with the NTSC-U values, simulated at 60 Hz**. RE.8 showed that NTSC-U is the native tuning and PAL a conversion. |
 | 2026-10-12 | Ghidra scripts live in `tools/ghidra/` (Java), which is excluded from the Cargo workspace. Decompiled output stays in `cache/`. Only facts in our own words and `re/<serial>/symbols.toml` are committed. |
 | 2026-10-12 | NTSC savestates for static analysis are made headlessly (`tools/pine-probe/boot.sh`: a new game driven with xdotool), using copies of the owner's memory cards and never their live instance. |
+| 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
 
@@ -457,7 +469,15 @@ also works: using a GPL tool is fine, copying its code is not.
       seconds at 60 Hz, and the differences between UYA and DL.
     - `re/<release>/hero.toml`.
   - Feeds P1.5.
-- [ ] **RE.4** **Camera:**
+- [~] **RE.4** **Camera:**
+  - 2026-10-12, started (`docs/research/camera.md`):
+    - `GameCamera` is at 0x1E2A40 on R&C3 PAL and UYA NTSC. libuya's layout holds for
+      the fields the code uses.
+    - The default follow is 4.64 u behind and 2.0 u above, eased with `approach` (read
+      in code, seen in savestates). There is also a swing case.
+    - A camera trace of R&C3 PAL recording 5 is captured.
+    - **Next:** fit the follow lag from that trace, then read the recentring code and
+      the NTSC steps.
   - Following and recentring.
   - Strafe/lock and first-person modes.
   - Camera collision.
@@ -964,6 +984,16 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-12 (recovery):** the previous session hit a usage limit mid-task. Recovered its
+  work from the transcript.
+  - Committed it (signed): CI and hygiene (P0.7, P0.10–P0.12), then the RE.2/3/5/8 work.
+  - Wrote up the unrecorded camera findings as `docs/research/camera.md` (RE.4 started).
+  - Copied the headless NTSC savestates, the scripted-play input scripts and traces, and
+    the camera layout into `source/<game>/`.
+  - CLAUDE.md now says to write work down as it happens and to keep such files in
+    `source/` (section 5).
+  - Next: the owner pushes the branch for CI, then the camera trace (RE.4).
 
 - **2026-10-12 (second update):** RE.3 continued without new recordings from the owner.
   - Read air control, flips, the long jump, glide, falling, attacks and ledges in code.
