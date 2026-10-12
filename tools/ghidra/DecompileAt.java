@@ -1,5 +1,6 @@
 // Decompiles the functions that contain the given addresses and writes them to one file,
-// with each function's callers. Run it as a -postScript on an analysed import.
+// with each function's callers. Run it as a -postScript on an analysed import. An address
+// no function contains gets a new function starting there (not saved with -readOnly).
 //
 // The output is decompiled game code: write it under cache/ (gitignored), never into the
 // repository (CLAUDE.md, "Legal rules").
@@ -35,6 +36,12 @@ public class DecompileAt extends GhidraScript {
             for (int i = 1; i < args.length; i++) {
                 Address at = space.getAddress(Long.parseLong(args[i], 16));
                 Function f = getFunctionContaining(at);
+                if (f == null) {
+                    // Functions reached only through pointer tables (camera modes, for
+                    // example) aren't found by analysis; make one where asked.
+                    disassemble(at);
+                    f = createFunction(at, null);
+                }
                 if (f == null) {
                     out.println("== no function contains " + at);
                     continue;

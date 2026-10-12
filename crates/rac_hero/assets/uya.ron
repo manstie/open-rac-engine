@@ -307,4 +307,30 @@
     death: (
         ticks: 120, // [placeholder]: the death state's timing isn't read yet
     ),
+    // camera.md, "How the follow camera works" [verified on UYA NTSC against
+    // uyantsc-veldin-cam-1 where noted, otherwise code].
+    camera: (
+        distance: 4.64, // [verified]
+        height: 2.0,
+        look_height: 1.5,
+        distance_spring: (gain: 0.003, damping: 0.2), // [verified]
+        height_spring: (gain: 0.003, damping: 0.2),
+        look_spring: (gain: 0.015, damping: 0.2), // [verified]
+        look_spring_vertical: (gain: 0.0125, damping: 0.2),
+        drag: 0.85, // [verified]
+        arm_spring: (gain: 0.015, damping: 0.2), // yaw [verified]
+        arm_length_spring: (gain: 0.02, damping: 0.2),
+        arm_length_spring_approach: (gain: 0.04, damping: 0.3),
+        approach_distance: 6.0,
+        approach_full_speed: 4.2, // 0.07 u per frame
+        approach_facing: -0.3,
+        pitch_limit_degrees: 40.0, // 0.6981 rad
+        pitch_step: 0.030543,
+        // The game blends heights through a state machine not read yet; 0.1 u per frame
+        // is its fastest blend rate [placeholder].
+        landing_catch_up: 6.0,
+        // The game pushes the camera out of geometry with a 0.25 u sphere; the kit casts
+        // that sphere from the aim point instead [simplified].
+        collision_radius: 0.25,
+    ),
 )

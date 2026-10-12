@@ -88,6 +88,14 @@ Development is native, with no container.
   `sudo apt install build-essential pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev`.
   - Optional, for reverse engineering: `binutils-mips-linux-gnu`, then
     `mips-linux-gnu-objdump -m mips:5900 -D <elf>`.
+  - Optional, for much faster links: `mold` and `clang`, enabled per machine in
+    `~/.cargo/config.toml` (not in the repo, so CI and contributors don't need them):
+    ```toml
+    [target.x86_64-unknown-linux-gnu]
+    linker = "clang"
+    rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+    ```
+    The owner's machine has this since 2026-10-12.
   - **If the packages are missing and you can't use sudo, ask the owner to install them.**
   - For a verification-only build, you can `apt download` the `-dev` packages plus
     `libffi-dev`, unpack them with `dpkg -x` into a temp sysroot, repoint the unversioned
@@ -117,6 +125,15 @@ Development is native, with no container.
 
 The first full build takes about 7 minutes on the owner's machine. Incremental rebuilds
 of the app take seconds.
+
+**Keep builds from starving the desktop.** The workspace links about 20 test binaries
+that each contain Bevy. On 2026-10-12 an unrestricted clippy-plus-tests run froze the
+owner's machine (8 cores, 31 GB) and crashed VS Code. So:
+- Run heavy commands at low priority with fewer jobs, for example
+  `nice -n 19 ionice -c 3 cargo test --workspace -j 4`.
+- Run clippy and the tests as separate commands, not chained.
+- The dev profile keeps line tables only for the same reason (`Cargo.toml`). Set
+  `debug = true` locally when you need a debugger.
 
 **Running the app without the owner's screen:** start `Xvfb :97 -screen 0 1280x800x24
 -nolisten tcp`. Then run the app with `DISPLAY=:97` and

@@ -197,3 +197,125 @@ address = 0x001A57F8
 kind = "data"
 confidence = "low"
 note = "The current animation's frame, as a float; the ledge and get-hit transitions and the ledge jump's forward speed are timed by it."
+
+# Added 2026-10-12 while reading the follow camera (RE.4); checked against the trace
+# uyantsc-veldin-cam-1 where docs/research/camera.md says so.
+
+[[symbol]]
+name = "camera_mode_table"
+address = 0x002F7700
+kind = "data"
+confidence = "medium"
+note = "Camera modes: entries of a mode number and four functions (mode 0: 0x3E8810, init 0x3E52D0, update 0x3E8850, 0x3E8B20), ended by -1."
+
+[[symbol]]
+name = "camera_follow_update"
+address = 0x003E8850
+kind = "function"
+confidence = "high"
+note = "Mode 0 (normal follow) per-frame update: sets the orbit speed from the camera-speed option, then calls the platform ride, parameter, motion, arm and end-of-frame functions below."
+
+[[symbol]]
+name = "camera_follow_init"
+address = 0x003E52D0
+kind = "function"
+confidence = "medium"
+note = "Mode 0 init: distance 4.64, height 2.0, look height 1.5, spring gains, and the arm from the camera's position."
+
+[[symbol]]
+name = "camera_follow_params"
+address = 0x003E42C0
+kind = "function"
+confidence = "medium"
+note = "Per-frame overrides of the follow parameters by hero state and camera volumes; holds the sharp-turn recentring, disabled by the global at 0x1DF6C4."
+
+[[symbol]]
+name = "camera_follow_motion"
+address = 0x003E39E0
+kind = "function"
+confidence = "medium"
+note = "Springs the look point towards the follow point (gain 0.015 / 0.0125, damping 0.2), sets the aim point and the vertical clearance."
+
+[[symbol]]
+name = "camera_arm_drag"
+address = 0x003E7A70
+kind = "function"
+confidence = "high"
+note = "The drag: arm = lerp(arm, last camera position - pivot, 0.85), then its length set to the follow distance less the pull-in. Verified against the trace."
+
+[[symbol]]
+name = "camera_manual_input"
+address = 0x003E7668
+kind = "function"
+confidence = "medium"
+note = "Right stick: yaw at the orbit speed, and a tilt target of up to 40 degrees past a 0.3 dead zone, reached at most 0.0305 rad a frame."
+
+[[symbol]]
+name = "camera_obstacles"
+address = 0x003E64E0
+kind = "function"
+confidence = "low"
+note = "Pull-in, nudges away from some object classes, and the reset after 30 blocked frames."
+
+[[symbol]]
+name = "camera_place"
+address = 0x003E82F8
+kind = "function"
+confidence = "high"
+note = "The actual arm chases the dragged one (yaw and tilt springs 0.015 / 0.2, length spring from 0x3E80A8); camera = look point + height + actual arm, pushed out with a 0.25 sphere."
+
+[[symbol]]
+name = "camera_approach_distance"
+address = 0x003E80A8
+kind = "function"
+confidence = "medium"
+note = "Hero moving against the camera's facing (dot < -0.3): distance target up to 6.0 by speed (full at 0.07 u/frame), and a stiffer arm-length spring."
+
+[[symbol]]
+name = "camera_end_of_frame"
+address = 0x003E4008
+kind = "function"
+confidence = "high"
+note = "Springs the distance (gain 0.003, damping 0.2), height and look height to their targets and resets the per-frame overrides. The distance spring is verified against the trace."
+
+[[symbol]]
+name = "camera_volumes_update"
+address = 0x003F09E0
+kind = "function"
+confidence = "medium"
+note = "Picks the active camera volume of 32 slots at 0x1E5D10 (0x40 bytes each) and applies its overrides."
+
+[[symbol]]
+name = "camera_spring"
+address = 0x003F13A8
+kind = "function"
+confidence = "high"
+note = "Scalar damped spring: rate += gain * error - damping * rate, optional cap, no overshoot."
+
+[[symbol]]
+name = "camera_angle_spring"
+address = 0x003F1438
+kind = "function"
+confidence = "high"
+note = "The angle version of camera_spring."
+
+[[symbol]]
+name = "camera0_update_object"
+address = 0x001E31B0
+kind = "data"
+confidence = "high"
+note = "Camera 0's update object (pointed to by 0x1E2B10): +0x30 the camera position, +0x70 the follow block, +0x94 the camera index."
+
+[[symbol]]
+name = "camera0_follow_block"
+address = 0x001E5590
+kind = "data"
+confidence = "high"
+note = "Follow block: +0x60 follow point, +0xA0 aim point, +0xC0 look point, +0x130 look height, +0x180 dragged arm, +0x190 actual arm, +0x1AC distance, +0x1B0 height, +0x240 pull-in."
+
+[[symbol]]
+name = "camera_active_volume"
+address = 0x001DF980
+kind = "data"
+confidence = "medium"
+note = "Camera 0's active volume index, -1 for none."

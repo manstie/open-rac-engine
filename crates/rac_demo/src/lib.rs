@@ -177,7 +177,7 @@ pub fn spawn_demo(
         ],
     ));
     let camera = FollowCamera::for_player(0, 0.0);
-    let (translation, rotation) = camera.placement(HERO_SPAWN);
+    let (translation, rotation) = camera.placement(HERO_SPAWN, &tuning.0.camera);
     commands.spawn((
         Name::new("hero camera"),
         DemoEntity,

@@ -30,6 +30,7 @@ pub struct HeroProfile {
     pub ledge: LedgeProfile,
     pub hit: HitProfile,
     pub death: DeathProfile,
+    pub camera: CameraProfile,
 }
 
 /// The collision capsule. The hero's origin is at his feet.
@@ -379,6 +380,49 @@ pub struct HitProfile {
 pub struct DeathProfile {
     /// How long the hero lies dead before he comes back at his checkpoint.
     pub ticks: u32,
+}
+
+/// A damped spring without a cap: each tick the rate gains `gain × error` and loses
+/// `damping × rate`, and never carries the value past its target.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Spring {
+    pub gain: f32,
+    pub damping: f32,
+}
+
+/// The third-person follow camera (`camera.md`, "How the follow camera works").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CameraProfile {
+    /// The follow distance and height at rest, and the height of the aim point above the
+    /// hero's feet.
+    pub distance: f32,
+    pub height: f32,
+    pub look_height: f32,
+    pub distance_spring: Spring,
+    pub height_spring: Spring,
+    /// How the look point trails the hero, horizontally and vertically.
+    pub look_spring: Spring,
+    pub look_spring_vertical: Spring,
+    /// The share of the hero's movement the arm takes up each tick.
+    pub drag: f32,
+    /// The actual arm's yaw and tilt chase the dragged arm with this spring...
+    pub arm_spring: Spring,
+    /// ...and its length with this one, stiffening to `arm_length_spring_approach` when
+    /// the hero runs at the camera at full speed.
+    pub arm_length_spring: Spring,
+    pub arm_length_spring_approach: Spring,
+    /// Running at the camera (motion against its facing beyond `approach_facing`) pushes
+    /// the distance target out to `approach_distance` at `approach_full_speed` u/s.
+    pub approach_distance: f32,
+    pub approach_full_speed: f32,
+    pub approach_facing: f32,
+    /// The arm tilts up or down at most this far, moving at most `pitch_step` rad a tick.
+    pub pitch_limit_degrees: f32,
+    pub pitch_step: f32,
+    /// After a jump ends at another height, the followed height catches up this fast, u/s.
+    pub landing_catch_up: f32,
+    /// The camera stays this far from geometry.
+    pub collision_radius: f32,
 }
 
 #[derive(Debug, Error)]

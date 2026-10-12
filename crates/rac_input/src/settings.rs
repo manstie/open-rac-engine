@@ -59,7 +59,8 @@ pub struct InputSettings {
     pub look_dead_zone: f32,
     /// Radians turned per pixel of mouse movement.
     pub mouse_sensitivity: f32,
-    /// Radians per second turned with the look stick at full tilt.
+    /// Radians per second turned with the look stick at full tilt. The default is UYA's at
+    /// its default camera speed: `0.0218 + 0.0567 × 0.5` rad a frame (`camera.md`, step 4).
     pub stick_look_speed: f32,
     pub invert_look_x: bool,
     pub invert_look_y: bool,
@@ -182,7 +183,7 @@ impl Default for InputSettings {
             move_dead_zone: 0.1,
             look_dead_zone: 0.15,
             mouse_sensitivity: 0.0025,
-            stick_look_speed: 3.0,
+            stick_look_speed: 3.01,
             invert_look_x: false,
             invert_look_y: false,
             swap_sticks: false,

@@ -330,6 +330,7 @@ App
 | 2026-10-12 | `rac_input` maps pad sticks from **circle to square**, and keys send full counts on both axes. The games' stick code expects a PS2 stick's square range, so without this a modern pad's diagonal would run at two-thirds speed. |
 | 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials, returned per body by `CollisionWorld`. Health is a `Health` component beside the controller: the controller only knows whether a hit is fatal, and reports hazard contact. |
 | 2026-10-12 | Rules the games time by **animation frame** (the ledge grab and climb, the double jump's grab delay) assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts for its move's window of ticks, and only once. |
+| 2026-10-12 | The dev profile builds with **line-table debug info only** (dependencies without any), and heavy cargo commands run at low priority with 4 jobs (CLAUDE.md, "Commands"). Full debug info made the parallel links of the Bevy test binaries exhaust 31 GB and froze the owner's desktop. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -785,7 +786,26 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
 - [~] **P1.7** Third-person camera (`rac_hero`) following RE.4:
   - 2026-10-12, started: `FollowCamera` runs in the simulation (the hero reads its yaw).
     It rests at RE.4's 4.64 u behind and 2.0 u above, and orbits with the look input.
-  - Still to do: lag, recentring, collision and the other modes.
+  - 2026-10-12, later: the follow camera is read in UYA's code and checked against our
+    trace `uyantsc-veldin-cam-1` (`camera.md`, "How the follow camera works"):
+    - a drag camera whose arm takes up 85% of the hero's movement;
+    - a lagging look point;
+    - the distance and height springs, and the push-back when the hero runs at the
+      camera;
+    - the vertical hold in jumps.
+
+    Implemented in `rac_hero/src/camera.rs` from a new `camera` section of the RON
+    profile, with 9 tests. Three of them reproduce trace figures: the drag's turn rate, the
+    look point's lag and the distance spring.
+    - Simplified for now:
+      - collision is a 0.25 u sphere cast from the aim point;
+      - the landing catch-up rate is a placeholder;
+      - the pitch the player sets stays put, where the game's pad tilt springs back
+        (mouse-first, G5).
+    - Still to do: the vertical state machine's details, the obstacle pull-in helpers,
+      and the strafe, first-person and volume modes.
+  - The look stick's default speed is UYA's at its default camera speed, 3.01 rad/s.
+  - Still to do: the other modes, and the parts listed above.
   - Follows with lag and recentres automatically behind the hero.
   - Right stick or mouse orbit, and collision via sphere casts.
   - Strafe/lock mode and first-person mode.
@@ -1163,6 +1183,14 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-12 (camera):** RE.4 and P1.7.
+  - UYA's follow camera read in Ghidra, and checked against a trace we made for it
+    (`uyantsc-veldin-cam-1`): a drag camera with a lagging look point and springs.
+  - Implemented in `rac_hero/src/camera.rs`.
+  - Builds are now resource-limited after one froze the owner's machine: line-table
+    debug info, low priority, 4 jobs, and mold linking on the owner's machine.
+  - Next: the camera's remaining modes, or the next P1 task.
 
 - **2026-10-12 (hero controller, second chunk):** P1.5's second chunk, from UYA's code.
   - Read in Ghidra: wall and ledge detection, the wall jump, ledge states, the slope
