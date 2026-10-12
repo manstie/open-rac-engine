@@ -331,6 +331,7 @@ App
 | 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials, returned per body by `CollisionWorld`. Health is a `Health` component beside the controller: the controller only knows whether a hit is fatal, and reports hazard contact. |
 | 2026-10-12 | Rules the games time by **animation frame** (the ledge grab and climb, the double jump's grab delay) assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts for its move's window of ticks, and only once. |
 | 2026-10-12 | The dev profile builds with **line-table debug info only** (dependencies without any), and heavy cargo commands run at low priority with 4 jobs (CLAUDE.md, "Commands"). Full debug info made the parallel links of the Bevy test binaries exhaust 31 GB and froze the owner's desktop. |
+| 2026-10-12 | **Abilities the games grant as items are flags, never backported** (owner's request). Charge boots, the heli-pack and thruster-pack moves, glide, grind boots and gadgets are per-hero ability flags. Each game sets them from its own item and save state, so an older game only gets what it had (R&C1 never gets charge boots, and GC gets them once bought). The originals gate them the same way: UYA's long and heli jumps need the heli-pack in the back slot. Only the movement itself is backported (D2), and the demo turns every flag on. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -766,6 +767,8 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
         - **Done 2026-10-12**, checked under Xvfb as well.
         - Still to do: the charge boots (from DL's code), strafe speeds and lock-on (with
           P1.9), and the sharp-turn skid rule.
+        - Also still to do: **ability flags** (section 5, 2026-10-12). Every move is
+          available for now; the moves the games grant as items must be gated per hero.
         - Still placeholders: the sharp-turn skid rule, the shimmy speed (untraced), the
           death's length, the hazard's damage and push, and the starting health.
         - A small known mismatch: a long jump from a 7-tick crouch leaves at 8.2 u/s in
@@ -1069,6 +1072,8 @@ Order: section 4.4.
   with its status.
 - [ ] **P5.7** Backport the R&C3/Gladiator mechanics to R&C1 and GC (D2):
   - The native hero replaces the recompiled one.
+  - Only the movement is backported. Abilities each game grants as items stay gated by
+    that game's own items (section 5, 2026-10-12): no charge boots in R&C1.
   - Fix individual levels where the new moves break assumptions: sequence breaks, triggers,
     camera volumes.
   - Offer the classic hero as an option (D7).
