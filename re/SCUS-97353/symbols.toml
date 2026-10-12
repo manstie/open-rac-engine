@@ -391,3 +391,54 @@ address = 0x00503310
 kind = "function"
 confidence = "low"
 note = "Called from the skid state's transitions; picks an idle animation for the hand item when the skid ends."
+
+# 2026-10-12, grinding (PLAN.md RE.3).
+
+[[symbol]]
+name = "hero_find_rail"
+address = 0x004E5118
+kind = "function"
+confidence = "medium"
+note = "Every frame: with the grind boots, looks for a rail the hero can get on (feet 0.5 below to 0.57 above the nearest point) and sets the found flag."
+
+[[symbol]]
+name = "rail_nearest"
+address = 0x004E4E00
+kind = "function"
+confidence = "medium"
+note = "The nearest point of any rail in the level list within 0.9 u horizontally (0.3 standing or walking) and 1.5 u vertically, with something solid under it."
+
+[[symbol]]
+name = "spline_advance"
+address = 0x00472C40
+kind = "function"
+confidence = "medium"
+note = "Moves a point along a spline by a distance, updating the segment and parameter; reports the spline's end."
+
+[[symbol]]
+name = "spline_nearest"
+address = 0x00473340
+kind = "function"
+confidence = "medium"
+note = "The nearest point on a spline to a position, within a search range."
+
+[[symbol]]
+name = "rail_list"
+address = 0x001DFD10
+kind = "data"
+confidence = "medium"
+note = "Pointer to the level's rails, 0x20 bytes each: bounding sphere centre and radius, spline, flags. The count is at 0x1DFD14."
+
+[[symbol]]
+name = "grind_speed"
+address = 0x001A51C4
+kind = "data"
+confidence = "medium"
+note = "The grind's speed per frame: the base (0x1A5200, towards 0.2) plus the slope term (0x1A51F4)."
+
+[[symbol]]
+name = "grind_boots_owned"
+address = 0x00142CAE
+kind = "data"
+confidence = "low"
+note = "Byte that hero_find_rail requires before it looks for rails; presumably the grind boots."

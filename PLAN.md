@@ -34,8 +34,8 @@ the game itself.**
   He walks, jumps, double jumps, glides, long jumps, flips and heli jumps with the UYA
   NTSC numbers. Since P1.5's second chunk he also wall jumps, grabs, hangs from, shimmies
   along and climbs ledges, gets hurt on hazards, dies and comes back at checkpoints. He
-  dashes with DL's charge boots (crouch twice), and the moves the games grant as items
-  are gated by per-hero ability flags.
+  dashes with DL's charge boots (crouch twice), grinds rails, and the moves the games
+  grant as items are gated by per-hero ability flags.
   Input can be recorded and replayed (`--record-input`, `--replay-input`).
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
@@ -94,10 +94,10 @@ the game itself.**
    our trace `uyantsc-veldin-cam-1`. What the camera still lacks is under P1.7 and in
    `camera.md`, "Next steps".
 4. What P1.5 still lacks:
-   - **Done 2026-10-12:** the charge boots (from DL's code), the ability flags, and the
-     walk's sharp-turn skid (from UYA's code).
+   - **Done 2026-10-12 and 13:** the charge boots (from DL's code), the ability flags,
+     the walk's sharp-turn skid and grinding (from UYA's code).
    - strafe speeds and lock-on, with targets from P1.9.
-5. RE.3, continued: swimming and grinding in code. DL NTSC traces now work
+5. RE.3, continued: swimming in code (grinding is done). DL NTSC traces now work
    (`re/SCUS-97465/hero.toml`, the charge traces); more DL moves can be traced the same
    way.
 6. RE.2: seed the knowledge base from libuya and libdl (MIT).
@@ -507,7 +507,10 @@ also works: using a GPL tool is fine, copying its code is not.
         0x21DDB8, and the pad that hero+0x2F00 points to;
       - savestates and five scripted charge takes in `source/Ratchet Gladiator/`;
       - the charge verified as above.
-    - **Still to do:** trace a wall and a ledge; read swimming and grinding.
+    - **Still to do:** trace a wall, a ledge and a grind; read swimming.
+  - 2026-10-13: **grinding read in UYA's code**: the rail search and getting on, the
+    speed model, the grind and switch jumps, and the rail's end (`hero-controller.md`,
+    "Grinding"). Untraced: Veldin's start has no rail.
   - The hero's update entry points and its state machine: states, transitions, and the
     input conditions for each.
   - Physics for each state:
@@ -796,6 +799,19 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
           `rac_demo/tests/greybox_moves.rs` plays the shaft and a ledge in the real
           level.
         - **Done 2026-10-12**, checked under Xvfb as well.
+        - **Grinding, done 2026-10-13:** read in UYA's code (`hero-controller.md`,
+          "Grinding") and implemented:
+          - a `rail` module: one-way polylines as `GrindRail` components, gathered with
+            the colliders and reached through `CollisionWorld::rails`;
+          - getting on: standing, walking, falling or past a jump's apex, within 0.9 u
+            across, with the feet 0.5 below to 0.57 above the rail;
+          - the speed: a base towards 12 u/s plus a slope term, up to 24 u/s downhill;
+          - the grind jump, which follows the rail and lands back on it, and the switch
+            jump to a rail 2–4.25 u to the side;
+          - falling off the end, and the `grind_boots` ability.
+          - The greybox rail is ridable. 9 new tests, one of them riding the greybox
+            rail.
+          - Not yet: the grind attack (with P1.8), and auto-jumping rails.
         - Still to do: strafe speeds and lock-on (with P1.9).
         - **Charge boots and ability flags, done 2026-10-12:**
           - The charge boots are read in DL's code (`hero-controller.md`, "Charge boots"):
@@ -1244,6 +1260,14 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-13 (grinding):** RE.3 and P1.5.
+  - UYA's grinding read in Ghidra: getting on, the speed model, the grind and switch
+    jumps, and the rail's end.
+  - Implemented with one-way rails (`rail` module) and the `grind_boots` ability. The
+    greybox rail is ridable.
+  - 9 new tests (142 in all).
+  - Next: swimming in code (RE.3), or P1.8 melee.
 
 - **2026-10-12 (charge boots):** P1.5 and RE.3.
   - DL's charge boots read in Ghidra and implemented, with the per-hero ability flags

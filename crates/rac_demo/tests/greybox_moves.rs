@@ -29,7 +29,11 @@ fn level_world() -> ParryWorld {
             _ => None,
         })
         .collect();
-    ParryWorld::new(&bodies)
+    let rails = greybox_level()
+        .iter()
+        .filter_map(|piece| piece.grind_rail())
+        .collect();
+    ParryWorld::new(&bodies).with_rails(rails)
 }
 
 fn input(stick: Option<[i8; 2]>, held: &[Action], pressed: &[Action]) -> PlayerInput {
@@ -117,4 +121,45 @@ fn the_3_u_block_can_be_grabbed_and_climbed() {
         }
     }
     assert!(hero.position.y > 2.9, "ended at {}", hero.position);
+}
+
+#[test]
+fn the_grind_rail_carries_the_hero_up_to_its_end() {
+    let world = level_world();
+    let profile = HeroProfile::uya();
+    // Under the rail near its low end, which runs along -z at x = 36 from 1.2 u up to 4 u.
+    let mut hero = HeroMotion::new(Vec3::new(36.0, 0.0, -6.0), 0.0);
+    step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+    step(
+        &mut hero,
+        &input(None, &[], &[Action::Jump]),
+        0.0,
+        &profile,
+        &world,
+    );
+    let held = input(None, &[Action::Jump], &[]);
+    let mut ticks = 0;
+    while hero.state != HeroState::Grind {
+        step(&mut hero, &held, 0.0, &profile, &world);
+        ticks += 1;
+        assert!(
+            ticks < 120,
+            "never got on the rail: {:?} at {}",
+            hero.state,
+            hero.position
+        );
+    }
+    let mut highest_grinding = 0.0f32;
+    while hero.state == HeroState::Grind {
+        step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+        if hero.state == HeroState::Grind {
+            highest_grinding = highest_grinding.max(hero.position.y);
+        }
+        ticks += 1;
+        assert!(ticks < 600, "still grinding at {}", hero.position);
+    }
+    // Off the top end, near its 4.08 u.
+    assert!(highest_grinding > 3.9, "{highest_grinding}");
+    assert!(hero.position.z < -43.0, "{}", hero.position);
+    assert_eq!(hero.state, HeroState::Fall);
 }

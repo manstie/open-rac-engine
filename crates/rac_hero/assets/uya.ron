@@ -342,6 +342,54 @@
         bounce_gravity: 25.0,
         bounce_ticks: 54,
     ),
+    // States 39-41, "Grinding" [code, UYA NTSC; untraced]. Per-frame values are given as
+    // the code has them.
+    grind: (
+        reach: 0.9,
+        reach_on_ground: 0.3,
+        reach_vertical: 1.5,
+        below: 0.5,
+        above: 0.57,
+        no_rail_ticks: 8,
+        speed: 12.0, // 0.2 u per frame
+        accel: 15.0, // 0.0041667 u per frame per frame
+        pitch_probe: 0.3,
+        uphill_per_radian: 4.7746483, // 15/π: θ × 1.9098593 × 0.041666668 u per frame
+        downhill_per_radian: 22.918312, // 72/π: θ × 2.864789 × 0.13333334 u per frame
+        slope_rise: 8.0, // 0.0022222 u per frame per frame
+        slope_fall: 2.0, // 0.00055556
+        slope_min: -2.5, // -0.041666668 u per frame
+        slope_max: 12.0, // 0.2 u per frame
+        turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
+        jump_press_window: 7,
+        // States 40 and 41, "Jump parameters by state" [code].
+        jump: (
+            height_min: 2.4,
+            height_max: 2.45,
+            hold_ticks: 17,
+            pushoff_ticks: 5,
+            gravity: 27.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 0.0, // it follows the rail instead
+        ),
+        switch_jump: (
+            height_min: 2.5,
+            height_max: 2.55,
+            hold_ticks: 10,
+            pushoff_ticks: 2,
+            gravity: 24.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 0.0,
+        ),
+        switch_window_ticks: 10,
+        switch_stick: 0.5,
+        switch_degrees: 70.0, // 1.2217305 rad either side of square
+        switch_lookahead_ticks: 48,
+        switch_near: 2.0,
+        switch_far: 4.25,
+        switch_step: 0.75,
+        switch_ticks: 48,
+    ),
     // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].
     hit: (
         max_speed: 7.0, // 0.11667 u per frame

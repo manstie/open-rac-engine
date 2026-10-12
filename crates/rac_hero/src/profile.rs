@@ -29,6 +29,7 @@ pub struct HeroProfile {
     pub wall_jump: WallJumpProfile,
     pub ledge: LedgeProfile,
     pub charge: ChargeProfile,
+    pub grind: GrindProfile,
     pub hit: HitProfile,
     pub death: DeathProfile,
     pub camera: CameraProfile,
@@ -428,6 +429,53 @@ pub struct ChargeProfile {
     pub bounce_brake: f32,
     pub bounce_gravity: f32,
     pub bounce_ticks: u32,
+}
+
+/// Riding grind rails (`hero-controller.md`, "Grinding").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GrindProfile {
+    /// The hero gets on a rail whose nearest point is within `reach` horizontally
+    /// (`reach_on_ground` standing or walking) and `reach_vertical` vertically, with his
+    /// feet at most `below` under it and less than `above` over it.
+    pub reach: f32,
+    pub reach_on_ground: f32,
+    pub reach_vertical: f32,
+    pub below: f32,
+    pub above: f32,
+    /// After leaving a rail's end, rails are ignored this long.
+    pub no_rail_ticks: u32,
+    /// The base speed eases towards `speed` at `accel`.
+    pub speed: f32,
+    pub accel: f32,
+    /// The slope term heads for `uphill_per_radian` less, or `downhill_per_radian` more,
+    /// per radian of the rail's pitch over the next `pitch_probe`; it rises at
+    /// `slope_rise`, falls at `slope_fall` and stays within `slope_min..=slope_max`.
+    pub pitch_probe: f32,
+    pub uphill_per_radian: f32,
+    pub downhill_per_radian: f32,
+    pub slope_rise: f32,
+    pub slope_fall: f32,
+    pub slope_min: f32,
+    pub slope_max: f32,
+    /// Turning to face along the rail.
+    pub turn: TurnSpring,
+    /// A jump press this recent jumps off the rail.
+    pub jump_press_window: u32,
+    /// The grind jump and the switch jump (states 40 and 41).
+    pub jump: JumpParams,
+    pub switch_jump: JumpParams,
+    /// In a grind jump's first `switch_window_ticks`, a stick past `switch_stick` and
+    /// within `switch_degrees` of square to the rail looks for another rail that far to
+    /// the side: `switch_lookahead_ticks` of motion ahead, then from `switch_near` to
+    /// `switch_far` in steps of `switch_step`. The move across takes `switch_ticks`.
+    pub switch_window_ticks: u32,
+    pub switch_stick: f32,
+    pub switch_degrees: f32,
+    pub switch_lookahead_ticks: u32,
+    pub switch_near: f32,
+    pub switch_far: f32,
+    pub switch_step: f32,
+    pub switch_ticks: u32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").

@@ -5,6 +5,7 @@
 //! [`ParryWorld`] is the bundled backend: a list of boxes and balls, queried with
 //! `parry3d`.
 
+use crate::rail::GrindRail;
 use bevy::prelude::*;
 use parry3d::{
     math::Pose,
@@ -72,6 +73,11 @@ pub trait CollisionWorld: Send + Sync {
     /// How far `body` moved during the current tick, so the hero can ride it.
     fn body_motion(&self, body: BodyId) -> Vec3;
     fn material(&self, body: BodyId) -> Material;
+    /// The rails the hero can grind along. A [`crate::rail::RailPoint`] names one by its
+    /// index here.
+    fn rails(&self) -> &[GrindRail] {
+        &[]
+    }
 }
 
 /// The shapes [`ParryWorld`] supports.
@@ -118,12 +124,14 @@ struct Body {
 #[derive(Default)]
 pub struct ParryWorld {
     bodies: Vec<Body>,
+    rails: Vec<GrindRail>,
 }
 
 impl std::fmt::Debug for ParryWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ParryWorld")
             .field("bodies", &self.bodies.len())
+            .field("rails", &self.rails.len())
             .finish()
     }
 }
@@ -133,6 +141,16 @@ impl ParryWorld {
         let mut world = Self::default();
         world.set_bodies(bodies);
         world
+    }
+
+    /// Replaces every rail.
+    pub fn set_rails(&mut self, rails: Vec<GrindRail>) {
+        self.rails = rails;
+    }
+
+    pub fn with_rails(mut self, rails: Vec<GrindRail>) -> Self {
+        self.rails = rails;
+        self
     }
 
     /// Replaces every body. A body's [`BodyId`] is its index in `bodies`.
@@ -266,6 +284,10 @@ impl CollisionWorld for ParryWorld {
         self.bodies
             .get(body.0 as usize)
             .map_or(Material::Solid, |body| body.material)
+    }
+
+    fn rails(&self) -> &[GrindRail] {
+        &self.rails
     }
 }
 

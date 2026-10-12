@@ -5,8 +5,8 @@
 
 use bevy::prelude::*;
 use rac_hero::{
-    BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, Material, ParryWorld,
-    Side,
+    BodyPlacement, Collider, GrindRail, HeroMotion, HeroProfile, HeroState, JumpKind, Material,
+    ParryWorld, Side,
     controller::{self, Abilities, StepEvents, TICK, step},
     motor,
 };
@@ -651,4 +651,145 @@ fn without_the_heli_pack_crouch_jumps_are_plain_and_nothing_glides() {
         rig.tick(&hold);
         assert_ne!(rig.hero.state, HeroState::Glide);
     }
+}
+
+// --- Grinding --------------------------------------------------------------------------
+
+/// The hero falling onto rails from 1 u above the first one's start.
+fn rails(rails: Vec<GrindRail>) -> Rig {
+    let above = rails[0].points[0] + Vec3::new(0.0, 1.0, -1.0);
+    let mut rig = Rig {
+        hero: HeroMotion::new(above, 0.0),
+        profile: HeroProfile::uya(),
+        world: ParryWorld::new(&[floor()]).with_rails(rails),
+    };
+    rig.tick(&idle());
+    rig
+}
+
+fn straight(from: Vec3, to: Vec3) -> GrindRail {
+    GrindRail::new(vec![from, to])
+}
+
+#[test]
+fn a_hero_falling_onto_a_rail_rides_it_at_12_u_s() {
+    // "Grinding": the base speed eases to 12 u/s at 15 u/s²; on a level rail that is all.
+    let mut rig = rails(vec![straight(
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 2.0, -100.0),
+    )]);
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.ticks(60, &idle());
+    assert_eq!(rig.hero.state, HeroState::Grind);
+    assert!((rig.hero.speed - 12.0).abs() < 1e-3, "{}", rig.hero.speed);
+    assert!(
+        (rig.hero.velocity.z + 12.0).abs() < 0.05,
+        "{}",
+        rig.hero.velocity
+    );
+    // Pulled onto the rail.
+    assert!((rig.hero.position.y - 2.0).abs() < 0.01);
+    assert!(rig.hero.position.x.abs() < 0.01);
+}
+
+#[test]
+fn without_grind_boots_the_hero_falls_past_a_rail() {
+    let mut rig = rails(vec![straight(
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 2.0, -100.0),
+    )]);
+    rig.hero = rig.hero.clone().with_abilities(Abilities {
+        grind_boots: false,
+        ..Abilities::ALL
+    });
+    rig.until(60, &idle(), |hero| hero.ground.is_some());
+    assert_ne!(rig.hero.state, HeroState::Grind);
+}
+
+#[test]
+fn slopes_speed_the_grind_up_downhill_and_slow_it_uphill() {
+    // 30° down: the slope term heads for 12 u/s more (72/π per radian), up to 24 in all.
+    let drop = 60.0 * 30f32.to_radians().tan();
+    let mut rig = rails(vec![straight(
+        Vec3::new(0.0, 50.0, 0.0),
+        Vec3::new(0.0, 50.0 - drop, -60.0),
+    )]);
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.ticks(150, &idle());
+    assert_eq!(rig.hero.state, HeroState::Grind);
+    assert!(
+        rig.hero.speed > 23.5 && rig.hero.speed <= 24.0,
+        "{}",
+        rig.hero.speed
+    );
+
+    // 30° up: 15/π per radian less, 2.5 u/s at most.
+    let mut rig = rails(vec![straight(
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 2.0 + drop, -60.0),
+    )]);
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.ticks(150, &idle());
+    assert_eq!(rig.hero.state, HeroState::Grind);
+    assert!((rig.hero.speed - 9.5).abs() < 0.01, "{}", rig.hero.speed);
+}
+
+#[test]
+fn a_jump_off_a_rail_follows_it_and_lands_back_on() {
+    let mut rig = rails(vec![straight(
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 2.0, -200.0),
+    )]);
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.ticks(60, &idle());
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Grind));
+    let (start_z, mut highest, mut ticks) = (rig.hero.position.z, 0.0f32, 0);
+    while rig.hero.state != HeroState::Grind {
+        rig.tick(&input(None, &[Action::Jump], &[]));
+        highest = highest.max(rig.hero.position.y);
+        // Still over the rail all the way.
+        assert!(rig.hero.position.x.abs() < 0.01, "{}", rig.hero.position);
+        ticks += 1;
+        assert!(ticks < 120, "never landed back on the rail");
+    }
+    // A held grind jump aims for 2.45 u, and it carried on along the rail at 12 u/s.
+    assert!(highest > 3.5, "{highest}");
+    assert!(rig.hero.position.z < start_z - 12.0 * TICK * (ticks as f32 - 2.0));
+}
+
+#[test]
+fn a_rails_end_drops_the_hero_with_its_speed() {
+    let mut rig = rails(vec![straight(
+        Vec3::new(0.0, 4.0, 0.0),
+        Vec3::new(0.0, 4.0, -20.0),
+    )]);
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.until(200, &idle(), |hero| hero.state != HeroState::Grind);
+    assert_eq!(rig.hero.state, HeroState::Fall);
+    assert!(rig.hero.velocity.z < -5.0, "{}", rig.hero.velocity);
+    // And it doesn't catch the rail's end again on the way down.
+    rig.ticks(5, &idle());
+    assert_eq!(rig.hero.state, HeroState::Fall);
+}
+
+#[test]
+fn a_sideways_stick_switches_to_the_next_rail() {
+    // Rails at x = 0 and x = 3, both along -z; facing -z, the stick's right is +x.
+    let mut rig = rails(vec![
+        straight(Vec3::new(0.0, 2.0, 0.0), Vec3::new(0.0, 2.0, -200.0)),
+        straight(Vec3::new(3.0, 2.0, 0.0), Vec3::new(3.0, 2.0, -200.0)),
+    ]);
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.ticks(60, &idle());
+    let right = Some([127, 0]);
+    rig.tick(&input(right, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::GrindSwitch));
+    rig.until(120, &idle(), |hero| hero.state == HeroState::Grind);
+    assert_eq!(rig.hero.rail.map(|at| at.rail), Some(1));
+    assert!(
+        (rig.hero.position.x - 3.0).abs() < 0.05,
+        "{}",
+        rig.hero.position
+    );
 }

@@ -8,7 +8,7 @@
 //! Bevy's axes: y is up, and the player starts at the origin looking down −z.
 
 use bevy::prelude::*;
-use rac_hero::Material;
+use rac_hero::{GrindRail, Material};
 
 /// What a piece is for.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -100,6 +100,17 @@ pub struct Piece {
 }
 
 impl Piece {
+    /// What the hero grinds along, for a grind rail: its top, from start to end.
+    pub fn grind_rail(&self) -> Option<GrindRail> {
+        match (self.surface, self.shape) {
+            (Surface::GrindRail, Shape::Rail { start, end, radius }) => Some(GrindRail::new(vec![
+                start + Vec3::Y * radius,
+                end + Vec3::Y * radius,
+            ])),
+            _ => None,
+        }
+    }
+
     fn new(name: impl Into<String>, surface: Surface, shape: Shape, translation: Vec3) -> Self {
         Self {
             name: name.into(),

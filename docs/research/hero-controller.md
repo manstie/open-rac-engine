@@ -681,6 +681,69 @@ so gadget 0x11 was granted by writing its gadget-box entry. These match the code
     slide that stops when the lock ends. The skid then idles at once, rather than
     standing out its animation [simplified].
 
+## Grinding (states 39–42, 62) [code, UYA NTSC, 2026-10-12]
+
+Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rail search
+(`hero_find_rail`, 0x4E5118, and `rail_nearest`, 0x4E4E00). Veldin's start has no rail, so
+it is untraced.
+
+- **Rails** are splines in a level list (0x1DFD10, count at 0x1DFD14). Each entry is
+  0x20 bytes: a bounding sphere, the spline, and a flag word.
+  - **A rail runs one way, along its spline.** The grind always moves in the spline's
+    direction.
+- **Getting on [code, `hero_find_rail`, every frame]:** needs the grind boots (a global
+  flag) and the 8-frame no-rail timer run out. Then:
+  - **The hero must be** standing, walking or falling, or in a jump past its apex.
+  - **The nearest rail point must be:**
+    - within 0.9 u horizontally (0.3 u when standing or walking);
+    - within 1.5 u vertically;
+    - above something solid (a ray from 0.25 u above to 1 u below it).
+  - **The feet must be** at most 0.5 u below that point and less than 0.57 u above it.
+  - Any jump past its apex lands on a rail this way, the grind jump included.
+- **Speed:** each frame the speed is a base plus a slope term, never below 0. The hero is
+  moved along the rail by that distance.
+  - **The base** eases towards **12 u/s at 15 u/s²**.
+  - **Getting on, the base is** the hero's velocity along the rail, which can be
+    negative. Coming from a grind jump, it keeps its value.
+  - **The slope term** depends on the rail's pitch θ over the next 0.3 u:
+    - its target is `−θ × 15/π` u/s uphill, so 2.5 u/s less at 30°;
+    - downhill it is `|θ| × 72/π` u/s, so 12 u/s more at 30°;
+    - it rises at 8 u/s² and falls at 2 u/s², so speed from a descent lingers;
+    - it is clamped to −2.5..12 u/s.
+- **Facing:** the hero turns to the rail's direction with gain 0.015, damping 0.15 and
+  a cap of 0.1047 rad per frame. The stick only leans him (up to 45°, for the
+  animation).
+- **Ways off:**
+  - **X pressed within 7 frames:** the grind jump (40). It is 2.4–2.45 u, hold 17,
+    push-off 5, gravity 27.
+  - **Square within 10 frames:** the grind attack (42), a wrench swing on the rail.
+  - **The rail's end:** 6 frames after the spline runs out, the hero falls (state 6). He
+    keeps his velocity, and rails are ignored for 8 frames.
+  - The hero also falls when he is more than 1.07 u above the ground under the rail for
+    6 frames, once 30 frames into the grind. That is a rail with nothing under it.
+- **Jumps from a rail (40, 41) follow it:**
+  - The hero's horizontal position keeps tracking the rail, moving along at the speed
+    he left with. Only the height jumps.
+  - The rail's own rise is added to the height.
+- **Switching rails:** in the grind jump's first 10 frames, a stick past 0.5 that points
+  20°–160° away from the rail's direction looks for another rail to that side.
+  - **The search:** probe points are 48 frames of the current velocity ahead, then 2.0,
+    2.75, 3.5 or 4.25 u to the side, each checked with the getting-on search.
+  - **The first rail found** starts the switch jump (41): 2.5–2.55 u, hold 10, push-off
+    2, gravity 24.
+  - **Moving across:** the horizontal position blends from the old rail to the nearest
+    point on the new one over 48 frames, with both moving along.
+- **Not modelled yet:** the grind attack, rails that jump the hero over a gap
+  automatically (flags at 0x1A520C/0x1A5210), and the grind hit (62).
+- **In the hero kit (P1.5):** rails are one-way polylines (`GrindRail`), and the
+  getting-on rule, speed model, grind jump, switch jump and rail end are as above. The
+  pull onto the rail uses the game's spring (gain 0.03, damping 0.3, up to 7 u/s).
+  **[simplified]:**
+  - nothing collides while grinding;
+  - the hero falls as soon as the rail ends, not 6 frames later;
+  - no solid ground is needed under a rail;
+  - the fall from a rail with nothing under it isn't there.
+
 ## Moves that need items [code, UYA NTSC]
 
 The kit gates these with per-hero ability flags (PLAN.md section 5, 2026-10-12).
@@ -692,6 +755,8 @@ The kit gates these with per-hero ability flags (PLAN.md section 5, 2026-10-12).
   - The long jump from a jump's first frames (crouch pressed within 2 frames) needs the
     same items.
 - **The glide** needs the same global flag, and no item 4 in the back slot.
+- **Grinding** needs the grind boots: `hero_find_rail` checks a global flag
+  (0x142CAE) before looking for a rail.
 - **The charge boots** are DL's gadget 0x11, above. The jumps, double jump, wall jump,
   ledges and flips need no item.
 

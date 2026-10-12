@@ -5,7 +5,7 @@
 //! - [`controller::step`] is the whole controller as one pure function; the plugin runs it
 //!   for every [`Hero`] each tick in `rac_sim::SimSet::Hero`.
 //! - Solid geometry comes from [`Collider`] components, with an optional [`Material`],
-//!   gathered into a [`CollisionScene`] each tick. The controller itself only sees the
+//!   gathered into a [`CollisionScene`] each tick, together with [`GrindRail`]s. The controller itself only sees the
 //!   narrow [`CollisionWorld`] interface.
 //! - [`HeroTuning`] holds the movement profile, UYA NTSC-U's unless the app sets another.
 //! - Health, hits ([`HurtHero`]), death and [`Checkpoint`]s are handled here, around the
@@ -17,6 +17,7 @@ pub mod collision;
 pub mod controller;
 pub mod motor;
 pub mod profile;
+pub mod rail;
 pub mod stick;
 
 use bevy::prelude::*;
@@ -27,6 +28,7 @@ pub use camera::FollowCamera;
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
 pub use controller::{Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side};
 pub use profile::HeroProfile;
+pub use rail::GrindRail;
 
 /// A player-controlled hero.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
@@ -128,7 +130,8 @@ impl Plugin for HeroPlugin {
     }
 }
 
-/// Rebuilds the [`CollisionScene`] from every [`Collider`]. Colliders with a
+/// Rebuilds the [`CollisionScene`] from every [`Collider`] and [`GrindRail`] (rails in
+/// world space). Colliders with a
 /// `SimTransform` may move, and the hero rides them; others are placed by their
 /// `Transform`. They are ordered by entity so every peer builds the same list.
 fn gather_colliders(
@@ -139,8 +142,17 @@ fn gather_colliders(
         Option<&Material>,
         Option<(&SimTransform, &PreviousSimTransform)>,
     )>,
+    rails: Query<(Entity, &GrindRail)>,
     mut scene: ResMut<CollisionScene>,
 ) {
+    let mut rail_list: Vec<(Entity, GrindRail)> = rails
+        .iter()
+        .map(|(entity, rail)| (entity, rail.clone()))
+        .collect();
+    rail_list.sort_by_key(|(entity, _)| *entity);
+    scene
+        .0
+        .set_rails(rail_list.into_iter().map(|(_, rail)| rail).collect());
     let mut bodies: Vec<(Entity, BodyPlacement)> = colliders
         .iter()
         .map(|(entity, collider, transform, material, simulated)| {

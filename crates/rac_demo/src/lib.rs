@@ -75,6 +75,7 @@ pub fn spawn_demo(
 
     for (index, piece) in greybox_level().into_iter().enumerate() {
         let material = material_for(piece.surface, index);
+        let rail = piece.grind_rail();
         let (mesh, rotation) = match piece.shape {
             // A checkpoint shows as a pad on the ground at its spawn point.
             Shape::Box { half_extents } if piece.surface == Surface::Checkpoint => (
@@ -103,6 +104,9 @@ pub fn spawn_demo(
             Mesh3d(mesh),
             MeshMaterial3d(material),
         ));
+        if let Some(rail) = rail {
+            entity.insert(rail);
+        }
         if let Shape::Box { half_extents } = piece.shape {
             match piece.surface {
                 Surface::Checkpoint => {

@@ -18,6 +18,7 @@ use crate::{
     collision::{BodyId, CollisionWorld, Material},
     motor::{self, Ground},
     profile::{HeroProfile, JumpParams, TurnSpring},
+    rail::{GrindRail, RailPoint},
     stick::{Stick, read_stick},
 };
 
@@ -46,6 +47,10 @@ pub enum JumpKind {
     Wall,
     /// Up from hanging on a ledge.
     Ledge,
+    /// Off a grind rail, still following it.
+    Grind,
+    /// Across to another rail.
+    GrindSwitch,
 }
 
 /// Which way a shimmy goes, seen from the hero facing the wall.
@@ -71,6 +76,8 @@ pub enum HeroState {
     LedgeGrab,
     LedgeHang,
     LedgeShimmy(Side),
+    /// Riding a rail.
+    Grind,
     /// The charge boots' dash.
     Charge,
     /// Bounced back off a wall by a charge.
@@ -104,6 +111,9 @@ impl HeroState {
             HeroState::LedgeShimmy(Side::Left) => 25,
             HeroState::LedgeShimmy(Side::Right) => 26,
             HeroState::Jump(JumpKind::Ledge) => 27,
+            HeroState::Grind => 39,
+            HeroState::Jump(JumpKind::Grind) => 40,
+            HeroState::Jump(JumpKind::GrindSwitch) => 41,
             HeroState::Dead => 57,
             HeroState::Bounce => 121,
             HeroState::Charge => 125,
@@ -136,16 +146,20 @@ pub struct Abilities {
     pub heli_pack: bool,
     /// The charge boots: a double tap of crouch dashes off.
     pub charge_boots: bool,
+    /// The grind boots: landing on a rail rides it.
+    pub grind_boots: bool,
 }
 
 impl Abilities {
     pub const ALL: Abilities = Abilities {
         heli_pack: true,
         charge_boots: true,
+        grind_boots: true,
     };
     pub const NONE: Abilities = Abilities {
         heli_pack: false,
         charge_boots: false,
+        grind_boots: false,
     };
 }
 
@@ -253,6 +267,8 @@ pub struct HeroMotion {
     pub abilities: Abilities,
     /// Ticks left of ignoring the stick and buttons, as after a charge.
     pub input_lock: u32,
+    /// The rail ridden, or followed by a jump off it.
+    pub rail: Option<RailPoint>,
     /// Walking, but not yet past the setting-off speed.
     setting_off: bool,
     /// The walk's skid after a sharp turn.
@@ -300,6 +316,18 @@ pub struct HeroMotion {
     charge_sink: f32,
     /// The skid after a charge, whose slide stops when the controls come back.
     charge_skid: bool,
+    /// The grind's base speed and slope term, and their sum, u/s.
+    grind_base: f32,
+    grind_slope: f32,
+    grind_speed: f32,
+    /// How far the hero still is from the rail he got on, and how fast he closes it.
+    rail_offset: Vec3,
+    rail_pull: f32,
+    /// The rail a switch jump is leaving, and how far across it is.
+    switch_from: Option<RailPoint>,
+    switch_ticks: u32,
+    /// Ticks left before a rail can be got on again.
+    no_rail_ticks: u32,
 }
 
 impl HeroMotion {
@@ -318,6 +346,7 @@ impl HeroMotion {
             safe_ticks: 0,
             abilities: Abilities::ALL,
             input_lock: 0,
+            rail: None,
             setting_off: true,
             skidding: false,
             sliding: false,
@@ -346,6 +375,14 @@ impl HeroMotion {
             charge_steer: 0.0,
             charge_sink: 0.0,
             charge_skid: false,
+            grind_base: 0.0,
+            grind_slope: 0.0,
+            grind_speed: 0.0,
+            rail_offset: Vec3::ZERO,
+            rail_pull: 0.0,
+            switch_from: None,
+            switch_ticks: 0,
+            no_rail_ticks: 0,
         }
     }
 
@@ -410,7 +447,9 @@ impl HeroMotion {
     /// the wall and a climb's on the ledge, so they don't count.
     fn pushing_off_ground(&self, profile: &HeroProfile) -> bool {
         match self.state {
-            HeroState::Jump(JumpKind::Wall | JumpKind::Ledge) => false,
+            HeroState::Jump(
+                JumpKind::Wall | JumpKind::Ledge | JumpKind::Grind | JumpKind::GrindSwitch,
+            ) => false,
             HeroState::Jump(kind) => self.ticks < jump_params(profile, kind).pushoff_ticks,
             _ => false,
         }
@@ -489,6 +528,8 @@ pub fn jump_params(profile: &HeroProfile, kind: JumpKind) -> &JumpParams {
         JumpKind::Heli => &profile.heli_jump.params,
         JumpKind::Wall => &profile.wall_jump.params,
         JumpKind::Ledge => &profile.ledge.climb,
+        JumpKind::Grind => &profile.grind.jump,
+        JumpKind::GrindSwitch => &profile.grind.switch_jump,
     }
 }
 
@@ -588,6 +629,7 @@ pub fn hurt(hero: &mut HeroMotion, knockback: Vec3, fatal: bool, profile: &HeroP
         return;
     }
     hero.ledge = None;
+    hero.rail = None;
     hero.wall = None;
     hero.velocity = knockback.clamp_length_max(profile.hit.max_speed);
     hero.speed = hero.horizontal_velocity().length();
@@ -608,6 +650,7 @@ pub fn hazard_knockback(hero: &HeroMotion, profile: &HeroProfile) -> Vec3 {
 /// Kills the hero at once.
 pub fn kill(hero: &mut HeroMotion) {
     hero.ledge = None;
+    hero.rail = None;
     hero.set_state(HeroState::Dead);
 }
 
@@ -633,6 +676,7 @@ pub fn step(
     hero.safe_ticks = hero.safe_ticks.saturating_sub(1);
     hero.input_lock = hero.input_lock.saturating_sub(1);
     hero.charge_cooldown = hero.charge_cooldown.saturating_sub(1);
+    hero.no_rail_ticks = hero.no_rail_ticks.saturating_sub(1);
 
     // Ride whatever he stands on or hangs from.
     if let Some(ground) = hero.ground {
@@ -659,16 +703,20 @@ pub fn step(
         hero.charge_window = profile.charge.tap_window;
     }
 
+    try_get_on_rail(hero, profile, world);
+
     match hero.state {
         HeroState::Dead => dead_tick(hero, profile),
         HeroState::Hit => hit_tick(hero, profile),
         HeroState::Charge => charge_tick(hero, &stick, profile),
         HeroState::Bounce => bounce_tick(hero, profile),
+        HeroState::Grind => grind_tick(hero, input, &stick, wish, profile, world),
         state if state.is_on_ledge() => ledge_tick(hero, input, &stick, wish, profile, world),
         state if state.is_airborne() => air_tick(hero, input, &stick, wish, profile),
         _ => ground_tick(hero, input, &stick, wish, camera_yaw, profile),
     }
 
+    follow_rail_in_air(hero, &stick, wish, profile, world);
     move_hero(hero, &stick, profile, world);
 
     let mut events = StepEvents::default();
@@ -691,6 +739,14 @@ fn move_hero(
     world: &dyn CollisionWorld,
 ) {
     let state = hero.state;
+    if state == HeroState::Grind {
+        // The rail carries him; nothing else stops him.
+        hero.position += hero.velocity * TICK;
+        hero.ground = None;
+        hero.ticks += 1;
+        hero.height_above_ground = height_above_ground(world, hero.position);
+        return;
+    }
     let on_ground = !state.is_airborne() && !state.is_on_ledge();
     let pushing_off = hero.pushing_off_ground(profile);
     // Hits, deaths, bounces and charges keep to the ground while they are on it.
@@ -1025,7 +1081,10 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
         past_apex: false,
         blocked: false,
     };
-    if !matches!(kind, JumpKind::Flip | JumpKind::Wall | JumpKind::Ledge) {
+    if !matches!(
+        kind,
+        JumpKind::Flip | JumpKind::Wall | JumpKind::Ledge | JumpKind::Grind | JumpKind::GrindSwitch
+    ) {
         let facing = hero.facing();
         hero.set_horizontal_velocity(facing * hero.speed);
     }
@@ -1477,6 +1536,242 @@ fn bounce_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
     }
 }
 
+/// Gets on a rail in reach, if the hero may (`hero-controller.md`, "Grinding"): with the
+/// grind boots, standing, walking, falling or past a jump's apex.
+fn try_get_on_rail(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
+    if !hero.abilities.grind_boots || hero.no_rail_ticks > 0 || world.rails().is_empty() {
+        return;
+    }
+    let on_ground = matches!(
+        hero.state,
+        HeroState::Idle | HeroState::Walk | HeroState::Skid | HeroState::Crouch
+    );
+    let may = on_ground
+        || match hero.state {
+            HeroState::Fall => true,
+            HeroState::Jump(_) => hero.jump.past_apex,
+            HeroState::DoubleJump | HeroState::Glide => hero.velocity.y <= 0.0,
+            _ => false,
+        };
+    if !may {
+        return;
+    }
+    let grind = &profile.grind;
+    let reach = if on_ground {
+        grind.reach_on_ground
+    } else {
+        grind.reach
+    };
+    let feet = hero.position;
+    for (index, rail) in world.rails().iter().enumerate() {
+        let at = rail.nearest(index, feet);
+        let point = rail.position(at);
+        let across = Vec2::new(point.x - feet.x, point.z - feet.z).length();
+        let rise = feet.y - point.y;
+        if across < reach
+            && rise.abs() < grind.reach_vertical
+            && rise > -grind.below
+            && rise < grind.above
+        {
+            start_grind(hero, rail, at);
+            return;
+        }
+    }
+}
+
+fn start_grind(hero: &mut HeroMotion, rail: &GrindRail, at: RailPoint) {
+    // From a grind jump the speed carries on; otherwise it starts as the hero's velocity
+    // along the rail, which can be backwards.
+    if !matches!(
+        hero.state,
+        HeroState::Jump(JumpKind::Grind | JumpKind::GrindSwitch)
+    ) {
+        hero.grind_base = hero.velocity.dot(rail.direction(at));
+        hero.grind_slope = 0.0;
+    }
+    hero.rail_offset = hero.position - rail.position(at);
+    hero.rail_pull = 0.0;
+    hero.rail = Some(at);
+    hero.switch_from = None;
+    hero.ledge = None;
+    hero.wall = None;
+    hero.ground = None;
+    hero.velocity = Vec3::ZERO;
+    hero.set_state(HeroState::Grind);
+}
+
+/// One tick on a rail (state 39).
+fn grind_tick(
+    hero: &mut HeroMotion,
+    input: &PlayerInput,
+    stick: &Stick,
+    wish: Vec3,
+    profile: &HeroProfile,
+    world: &dyn CollisionWorld,
+) {
+    let grind = &profile.grind;
+    let Some((rail, mut at)) = hero
+        .rail
+        .and_then(|at| world.rails().get(at.rail).map(|rail| (rail, at)))
+    else {
+        leave_rail(hero, Vec3::ZERO);
+        return;
+    };
+    let along = rail.direction(at);
+
+    if hero.jump_press.within(grind.jump_press_window) {
+        hero.jump_press.used = true;
+        hero.set_horizontal_velocity(flat(along) * hero.grind_speed);
+        start_jump(hero, JumpKind::Grind, profile);
+        hero.rail = Some(at);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    }
+
+    // The speed: a base towards 12 u/s, plus a term for the rail's slope.
+    hero.grind_base = approach(hero.grind_base, grind.speed, grind.accel * TICK);
+    let pitch = rail.pitch_ahead(at, grind.pitch_probe);
+    let target = if pitch > 0.0 {
+        -pitch * grind.uphill_per_radian
+    } else {
+        -pitch * grind.downhill_per_radian
+    };
+    let rate = if hero.grind_slope < target {
+        grind.slope_rise
+    } else {
+        grind.slope_fall
+    };
+    hero.grind_slope =
+        approach(hero.grind_slope, target, rate * TICK).clamp(grind.slope_min, grind.slope_max);
+    hero.grind_speed = (hero.grind_base + hero.grind_slope).max(0.0);
+    hero.speed = hero.grind_speed;
+    turn(hero, yaw_of(flat(along)), grind.turn);
+
+    if !rail.advance(&mut at, hero.grind_speed * TICK) {
+        // Off the end, flying on the way the rail went.
+        hero.no_rail_ticks = grind.no_rail_ticks;
+        leave_rail(hero, along * hero.grind_speed);
+        return;
+    }
+    hero.rail = Some(at);
+    // Pulled onto the rail on the games' spring, at most 7 u/s.
+    let gap = hero.rail_offset.length();
+    hero.rail_pull = (hero.rail_pull + 0.03 * gap - 0.3 * hero.rail_pull).clamp(0.0, 7.0 * TICK);
+    hero.rail_offset = hero.rail_offset.normalize_or_zero() * (gap - hero.rail_pull).max(0.0);
+    let target = rail.position(at) + hero.rail_offset;
+    hero.velocity = (target - hero.position) / TICK;
+}
+
+fn leave_rail(hero: &mut HeroMotion, velocity: Vec3) {
+    hero.rail = None;
+    hero.switch_from = None;
+    hero.velocity = velocity;
+    hero.speed = hero.horizontal_velocity().length();
+    hero.take_off_height = hero.position.y;
+    hero.double_jumped = true;
+    hero.set_state(HeroState::Fall);
+}
+
+/// A jump off a rail keeps tracking it underneath: the rail sets where the hero is across
+/// the ground, and the jump only his height. Early in a grind jump the stick can switch
+/// to another rail to the side.
+fn follow_rail_in_air(
+    hero: &mut HeroMotion,
+    stick: &Stick,
+    wish: Vec3,
+    profile: &HeroProfile,
+    world: &dyn CollisionWorld,
+) {
+    let HeroState::Jump(kind @ (JumpKind::Grind | JumpKind::GrindSwitch)) = hero.state else {
+        return;
+    };
+    let grind = &profile.grind;
+    let rails = world.rails();
+    let Some(mut at) = hero.rail.filter(|at| at.rail < rails.len()) else {
+        // Past the rail's end the jump flies on.
+        return;
+    };
+    let along = rails[at.rail].direction(at);
+
+    if kind == JumpKind::Grind
+        && hero.ticks < grind.switch_window_ticks
+        && hero.switch_from.is_none()
+        && stick.magnitude > grind.switch_stick
+        && let Some(next) = find_switch_rail(hero, wish, along, at.rail, profile, rails)
+    {
+        hero.switch_from = Some(at);
+        hero.switch_ticks = 0;
+        start_jump(hero, JumpKind::GrindSwitch, profile);
+        at = next;
+    }
+
+    let rail = &rails[at.rail];
+    let height_before = rail.position(at).y;
+    if !rail.advance(&mut at, hero.grind_speed * TICK) {
+        hero.rail = None;
+        hero.switch_from = None;
+        hero.set_horizontal_velocity(flat(along) * hero.grind_speed);
+        return;
+    }
+    hero.rail = Some(at);
+    let mut target = rail.position(at);
+    hero.position.y += target.y - height_before;
+    if let Some(mut from) = hero.switch_from {
+        let old = &rails[from.rail];
+        old.advance(&mut from, hero.grind_speed * TICK);
+        hero.switch_ticks += 1;
+        let across = (hero.switch_ticks as f32 / grind.switch_ticks as f32).min(1.0);
+        target = old.position(from).lerp(target, across);
+        hero.switch_from = (across < 1.0).then_some(from);
+    }
+    hero.velocity.x = (target.x - hero.position.x) / TICK;
+    hero.velocity.z = (target.z - hero.position.z) / TICK;
+    turn(hero, yaw_of(flat(rail.direction(at))), grind.turn);
+}
+
+/// Another rail to the side the stick points, for a switch jump: looked for that far
+/// ahead of the hero's motion, then a little further out each try.
+fn find_switch_rail(
+    hero: &HeroMotion,
+    wish: Vec3,
+    along: Vec3,
+    current: usize,
+    profile: &HeroProfile,
+    rails: &[GrindRail],
+) -> Option<RailPoint> {
+    let grind = &profile.grind;
+    let rail_yaw = yaw_of(flat(along));
+    let stick_yaw = yaw_of(flat(wish));
+    let off = wrap(stick_yaw - rail_yaw).abs();
+    if (off - FRAC_PI_2).abs() >= grind.switch_degrees.to_radians() {
+        return None;
+    }
+    let side_yaw = if wrap(stick_yaw - (rail_yaw + FRAC_PI_2)).abs() <= FRAC_PI_2 {
+        rail_yaw + FRAC_PI_2
+    } else {
+        rail_yaw - FRAC_PI_2
+    };
+    let side = facing(side_yaw);
+    let ahead =
+        hero.position + hero.horizontal_velocity() * (grind.switch_lookahead_ticks as f32 * TICK);
+    let mut distance = grind.switch_near;
+    while distance <= grind.switch_far + 1e-4 {
+        let probe = ahead + side * distance;
+        for (index, rail) in rails.iter().enumerate() {
+            if index == current {
+                continue;
+            }
+            let point = rail.position(rail.nearest(index, probe));
+            let across = Vec2::new(point.x - probe.x, point.z - probe.z).length();
+            if across < grind.reach && (probe.y - point.y).abs() < grind.reach_vertical {
+                return Some(rail.nearest(index, hero.position));
+            }
+        }
+        distance += grind.switch_step;
+    }
+    None
+}
+
 fn air_tick(
     hero: &mut HeroMotion,
     input: &PlayerInput,
@@ -1537,6 +1832,8 @@ fn air_tick(
                     hero.set_horizontal_velocity(facing * push);
                 }
                 JumpKind::Long => {}
+                // Following a rail, or flying on from its end (`follow_rail_in_air`).
+                JumpKind::Grind | JumpKind::GrindSwitch => {}
                 JumpKind::Flip => {
                     hero.flip_speed =
                         approach(hero.flip_speed, hero.flip_target, profile.flip.accel * TICK);
