@@ -116,6 +116,15 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
   - `lvl.sndvtbl` entries are `{id, fn}`, 8 bytes.
   - The boot ELF has exactly one entry of each size **[verified]**, so the boot ELF probably
     holds placeholders that the overlays replace.
+- **The hero's code is part of each level's overlay** in R&C3, UYA, Gladiator and DL
+  **[verified 2026-10-12]**.
+  - It sits at different addresses per level.
+  - UYA's title-screen level carries none of it.
+  - R&C3/UYA keep the hero itself as a static global at the same address on both regions
+    (0x1A4BE0 in code).
+  - Overlay code regions seen: R&C3/UYA Veldin about 0x2F8000–0x524000; Gladiator/DL
+    DreadZone Station about 0x3C8000–0x6CC000.
+  - Addresses: `re/<serial>/symbols.toml`.
 
 ## Gameplay objects ("mobys")
 
@@ -126,8 +135,12 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
   - Pvars are per-instance structs specific to each class. They live in the gameplay file,
     with link fix-ups and shared sub-structs.
 - **The hero ("Ratchet") and gadgets:**
+  - Measured movement constants, state numbering and where the hero lives in memory on the
+    PAL builds: [hero-controller.md](hero-controller.md) **[verified]**.
   - Horizon's MIT `libdl` documents DL's `Player` struct (matrices, velocity, collision and
     ground state, timers, camera) and `HeroPlayerConstants` (jump and gravity tuning).
+    R&C3's single-player hero follows a similar layout with some blocks shifted
+    **[verified for the fields in `re/SCES-52456/hero.toml`]**.
   - It also documents `GadgetDef` (0xB0 bytes) and weapon and mod IDs.
   - These are a good reference for the Phase 1 controller's parameters.
 
@@ -221,8 +234,23 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
   both.
 - **The other PAL releases (GC, UYA, Gladiator) reportedly have no 60 Hz mode**
   **[unverified, single source]**.
+- **R&C3 PAL and Gladiator PAL update the hero once per 50 Hz frame, at a fixed step**
+  **[verified 2026-10-11 from four replays]**.
+  - Each keeps a `u32` that counts game frames (0x15BC80 and 0x1AF180). It stopped for about
+    18 vsyncs during a scripted event in R&C3, so game frames can be fewer than vsyncs.
   - Some data is stored per frame (for example sky rotation) and must be converted using the
     region's refresh rate.
+- **How the PAL releases keep NTSC speed (RE.8, answered 2026-10-12) [verified on PAL,
+  read in code on NTSC].**
+  - Gameplay constants are written in per-second units for 60 Hz.
+  - UYA/R&C3 fold them into per-frame literals at compile time: 1/60 per frame on NTSC,
+    1/50 on PAL.
+  - DL/Gladiator multiply them at run time by frame-time globals: `frame_dt`, its square,
+    and a frame-rate ratio (50/60 on PAL, 1 on NTSC). Gladiator keeps them at
+    0x21DE78–0x21DE84, DL at 0x21DDF0–0x21DDFC.
+  - Frame counts are reduced to about 5/6 on PAL.
+  - So PAL gameplay runs at NTSC speed in real time. NTSC-U holds the native tuning.
+  - Details: `hero-controller.md`, "Frames and regions".
 - **Concurrency on the original hardware:** VU0 programs started with `VCALLMS` run
   asynchronously from the EE. PCSX2 needs `EETimingHack` for all eight R&C serials.
 - **Our plan:** a fixed 60 Hz simulation with interpolated rendering, which is also what the

@@ -91,14 +91,17 @@ Development is native, with no container.
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings treated as errors. |
 | `cargo test --workspace` | Runs the tests. |
 | `cargo build --release` | Optimised build (thin LTO, one codegen unit). |
+| `tools/check-data-hygiene.sh` | Fails on disc images, dumps, captures or big binaries in the tree (CI runs it). `git config core.hooksPath .githooks` runs it before each commit. |
+| `cargo run -p pine-probe --release -- --help` | The reverse-engineering probe (see "Reverse-engineering workflow"). |
 
 The first full build takes about 7 minutes on the owner's machine. Incremental rebuilds
 of the app take seconds.
 
 ## Workspace conventions
 
-- **Layout:** a virtual workspace whose members are `crates/*`, so new crate directories
-  are picked up automatically.
+- **Layout:** a virtual workspace whose members are `crates/*` and `tools/*`, so new crate
+  directories are picked up automatically. `tools/*` holds reverse-engineering tools that
+  never ship.
   - The binary is `openrac`. Libraries are named `rac_*`; the planned crate map is in
     PLAN.md §4.2.
   - A command-line tool will be `openrac-tool`.
@@ -189,6 +192,15 @@ The six discs and their identifying hashes are listed in
 
 ## Reverse-engineering workflow
 
+- **Setup:** tool locations, launchers and settings are in
+  [docs/re-setup.md](docs/re-setup.md).
+  - The launchers in `~/.local/bin` are `ghidra`, `ghidra-headless` and `pcsx2`. Call them by
+    full path if `~/.local/bin` isn't on `PATH` yet.
+  - The PCSX2 config is `~/.config/PCSX2/inis/PCSX2.ini`.
+  - The owner's savestates are in `~/.config/PCSX2/sstates/`. Their input recordings (each
+    with a `_SaveState.p2s`) arrive in `source/<game>/` and are copied to
+    `cache/pcsx2/recordings/` as `<release>-<level>-<n>.p2m2`. The catalogue of what exists
+    is in `docs/re-setup.md`.
 - **Tools:**
   - PCSX2 2.8+ with its debugger, and PINE IPC at `$XDG_RUNTIME_DIR/pcsx2.sock`, slot
     28011, for live memory.
@@ -199,12 +211,24 @@ The six discs and their identifying hashes are listed in
   (`core.*`, `lvl.*vtbl`, VU overlays). R&C3, UYA, DL and Gladiator ship a stub plus a
   WAD-compressed game. Per-level code lives in overlays.
 - **Getting unpacked UYA/DL code before PLAN P2.5 exists:**
-  - Import a PCSX2 savestate into Ghidra. It holds the whole memory image, including the
-    current level's overlay.
+  - `tools/ghidra/import-savestate.sh <state.p2s> <name> [symbols.toml]` imports a
+    savestate's EE memory into Ghidra, sets `$gp`, seeds functions and analyses it (about
+    3 minutes).
+    - `DecompileAt.java` dumps chosen functions. The output goes in `cache/`, never the
+      repo.
+    - The memory image includes the current level's overlay. Hero code is per level, and
+      the title screen has none.
+    - Ghidra can't open the `.p2s` itself (Zstandard members).
+  - NTSC savestates: `tools/pine-probe/boot.sh` boots a disc headlessly with the keyboard
+    as controller 1. Drive it with xdotool. `docs/re-setup.md` has the menu paths for UYA
+    and DL.
   - Or run `wrenchbuild unpack`. Using a GPL tool is fine; copying its code is not.
-- **Measuring the hero for feel-matching (PLAN RE.5, RE.6):** play back PCSX2 input
-  recordings while `tools/pine-probe` logs the hero's state every frame.
-  - Raw traces stay in `/cache`.
+- **Measuring the hero for feel-matching (PLAN RE.5, RE.6):**
+  `tools/pine-probe/replay.sh` replays an input recording in a headless PCSX2 on Xvfb and
+  logs the hero's memory every frame. `pine-probe export` turns the trace into CSV.
+  - Where the hero lives per release: `re/<serial>/hero.toml`.
+  - Results so far: `docs/research/hero-controller.md`.
+  - Raw traces stay in `cache/pcsx2/traces/`.
   - Commit only the derived constants and tolerances.
 - **Recording results:**
   - Findings go in `docs/research/*.md`, marked as verified or reported.

@@ -1,0 +1,61 @@
+# Ratchet: Deadlocked (NTSC-U, SCUS-97465): named addresses. Format: re/README.md.
+# Found 2026-10-12 by static analysis in Ghidra of a savestate taken headlessly
+# (docs/re-setup.md, "NTSC savestates without a capture session"), by matching each item to
+# its Gladiator PAL counterpart (PLAN.md RE.2, RE.3, RE.8).
+
+release = "SCUS-97465"
+image = "DreadZone Station, a new game just after the intro (headless boot, 2026-10-12)"
+notes = """
+Code addresses are inside DreadZone Station's level overlay, so they only hold for this
+level. $gp is 0x22597F. No trace has been recorded on this release yet, so nothing here is
+checked against the running game: confidence is at most medium.
+"""
+
+[[symbol]]
+name = "hero_change_state"
+address = 0x00699C70
+kind = "function"
+confidence = "medium"
+note = "Counterpart of Gladiator PAL's. Same per-second constants; frame counts scaled by about 6/5 (standing-jump hold 17 frames against 14)."
+
+[[symbol]]
+name = "hero_jump_vertical"
+address = 0x006804C8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of Gladiator PAL's; the double jump runs for 8 frames against 7."
+
+[[symbol]]
+name = "hero_player_constants"
+address = 0x003BD930
+kind = "data"
+confidence = "medium"
+note = "HeroPlayerConstants, pointed to by hero+0x2EEC. Every value is identical to Gladiator PAL's."
+
+[[symbol]]
+name = "frame_rate_ratio"
+address = 0x0021DDF0
+kind = "data"
+confidence = "medium"
+note = "1.0 on this NTSC build (0.8333 on Gladiator PAL)."
+
+[[symbol]]
+name = "frame_dt"
+address = 0x0021DDF4
+kind = "data"
+confidence = "medium"
+note = "Seconds per frame, 1/60."
+
+[[symbol]]
+name = "frame_dt2"
+address = 0x0021DDF8
+kind = "data"
+confidence = "medium"
+note = "frame_dt squared, 1/3600."
+
+[[symbol]]
+name = "frame_dt3"
+address = 0x0021DDFC
+kind = "data"
+confidence = "low"
+note = "frame_dt cubed. Uses not yet seen."

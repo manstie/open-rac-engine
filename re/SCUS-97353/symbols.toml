@@ -1,0 +1,62 @@
+# Ratchet & Clank: Up Your Arsenal (NTSC-U, SCUS-97353): named addresses. Format:
+# re/README.md. Found 2026-10-12 by static analysis in Ghidra of a savestate taken
+# headlessly (docs/re-setup.md, "NTSC savestates without a capture session"), by matching
+# each function to its R&C3 PAL counterpart (PLAN.md RE.2, RE.3, RE.8).
+
+release = "SCUS-97353"
+image = "Veldin, a new game just after the opening cutscene (headless boot, 2026-10-12)"
+notes = """
+Code addresses are inside Veldin's level overlay, so they only hold for this level. The
+hero's data is at the same addresses as in R&C3 PAL (see re/SCES-52456/symbols.toml), and
+$gp is the same 0x1DC8B0. Three self-made traces (scripted keyboard play, 2026-10-12) check
+the jump code; see docs/research/hero-controller.md.
+"""
+
+[[symbol]]
+name = "hero_update"
+address = 0x004EA708
+kind = "function"
+confidence = "medium"
+note = "Per-frame hero entry, the counterpart of R&C3 PAL's: same stick copy, the same 0.25 d-pad fallback, then hero_update_state."
+
+[[symbol]]
+name = "hero_update_state"
+address = 0x004F2090
+kind = "function"
+confidence = "medium"
+note = "Switch on the hero state; counterpart of R&C3 PAL's, with constants folded for 60 Hz."
+
+[[symbol]]
+name = "hero_change_state"
+address = 0x004FC518
+kind = "function"
+confidence = "high"
+note = "Fills the jump block on entering jump-type states. Same heights as PAL; per-frame values folded for 60 Hz (gravity 0.00825 = 29.7/3600) and frame counts scaled by about 6/5 (standing-jump hold 17 frames). The values it writes match the UYA traces."
+
+[[symbol]]
+name = "hero_jump_vertical"
+address = 0x004ED860
+kind = "function"
+confidence = "high"
+note = "Vertical motion of jump-type states, the same algorithm as R&C3 PAL's; double-jump cap 7/60*1.25 u/frame, step 0.041667, for 8 frames. Reproduces the UYA traces (standing, long, flip, heli and double jumps)."
+
+[[symbol]]
+name = "walk_speed"
+address = 0x001DBE58
+kind = "data"
+confidence = "high"
+note = "6.17 world units per second, as on PAL (where it is at 0x1DBE18). Walking at 0.102833 per frame in the traces."
+
+[[symbol]]
+name = "jump_override_table"
+address = 0x001DBD30
+kind = "data"
+confidence = "low"
+note = "The level-0 jump override (min/max height, gravity per second squared), as on PAL at 0x1DBCF0."
+
+[[symbol]]
+name = "hero_walk_turn"
+address = 0x004EB0E8
+kind = "function"
+confidence = "medium"
+note = "Walk turn spring while setting off: gain clamp(0.02 m, 0.01, 0.022), damping 0.27, cap clamp(0.064 m, 0.032, 0.0931); 0.035 and 0.1949 while skidding. The R&C3 PAL counterpart is checked in its traces."

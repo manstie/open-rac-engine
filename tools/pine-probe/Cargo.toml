@@ -1,0 +1,19 @@
+[package]
+name = "pine-probe"
+description = "Reverse-engineering probe: per-frame hero telemetry from PCSX2 over PINE, plus readers for PCSX2 savestates and input recordings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ruzstd.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

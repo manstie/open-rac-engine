@@ -1,0 +1,76 @@
+# Ratchet: Gladiator (PAL, SCES-53285): named addresses. Format: re/README.md.
+# Found 2026-10-12 by static analysis of the save-state-4 recording's savestate in Ghidra,
+# checked against the gladpal-dreadzone-4/5 traces where noted (PLAN.md RE.2, RE.3).
+
+release = "SCES-53285"
+image = "DreadZone Station, the owner's save-state-4 recording savestate"
+notes = """
+Code addresses are inside DreadZone Station's level overlay (about 0x3C8000-0x6CC000), so
+they only hold for this level. Unlike R&C3, the hero code takes the hero as a pointer
+argument (libdl's Player, here at 0x368F60) and scales per-second constants by the
+frame-time globals at run time. $gp is 0x2259FF; it is odd on purpose, and the code's
+gp-relative offsets are odd to match.
+"""
+
+[[symbol]]
+name = "hero_change_state"
+address = 0x0069F008
+kind = "function"
+confidence = "medium"
+note = "(hero, new_state, ...). Switch on the new state through hero_change_state_table; for jump-type states fills the jump block at hero+0x1CC0..0x1DA0 from per-second constants times frame_dt or frame_dt2."
+
+[[symbol]]
+name = "hero_change_state_table"
+address = 0x003B0C20
+kind = "data"
+confidence = "medium"
+note = "Jump table of hero_change_state, one word per state 0-153. Jump-type states share the case at 0x6A0BDC."
+
+[[symbol]]
+name = "hero_jump_vertical"
+address = 0x006857D0
+kind = "function"
+confidence = "high"
+note = "(hero). The R&C3 jump algorithm with run-time scaling: push-off 48 and ground push 54 units/s^2, double jump towards 7 units/s at 150 units/s^2 for 7 frames (no 1.25 factor, hence the measured 0.14 cap)."
+
+[[symbol]]
+name = "hero_player_constants"
+address = 0x003BDAF0
+kind = "data"
+confidence = "high"
+note = "libdl's HeroPlayerConstants, pointed to by hero+0x2EEC: maxWalkSpeed 7.25, jumpMaxHeight 2.3, jumpMinHeight 1.28, jumpMaxUpTime 15, jumpGravity 29.7, jumpMaxXySpeed 5.95, fallGravity 22, maxFallSpeed -50. The walk speed and both gravities match the traces."
+
+[[symbol]]
+name = "frame_rate_ratio"
+address = 0x0021DE78
+kind = "data"
+confidence = "medium"
+note = "0.8333 (50/60) on this PAL build, 1.0 on DL NTSC."
+
+[[symbol]]
+name = "frame_dt"
+address = 0x0021DE7C
+kind = "data"
+confidence = "high"
+note = "Seconds per frame, 0.02 (1/50). Speeds in units per second are multiplied by it; the products match the traces."
+
+[[symbol]]
+name = "frame_dt2"
+address = 0x0021DE80
+kind = "data"
+confidence = "high"
+note = "frame_dt squared, 0.0004. Accelerations in units per second squared are multiplied by it."
+
+[[symbol]]
+name = "frame_dt3"
+address = 0x0021DE84
+kind = "data"
+confidence = "low"
+note = "frame_dt cubed, 8e-6. Uses not yet seen."
+
+[[symbol]]
+name = "hero_air_control"
+address = 0x00685DD0
+kind = "function"
+confidence = "medium"
+note = "(hero). Air control of jump-type states, the counterpart of R&C3's; includes the flip speeds: towards 4.2 u/s at 8 u/s^2, or while strafing towards max(2, 5.5 * stick) u/s at 47 u/s^2. The strafe flip is checked in the gladpal-dreadzone-4 trace."

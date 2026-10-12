@@ -18,35 +18,60 @@ moved (say why).
 
 ---
 
-## 0. Status (updated 2026-10-11)
+## 0. Status (updated 2026-10-12)
 
-**Phase 0 (foundations) is nearly done, and the reverse-engineering track starts now.**
+**Phase 0 (foundations) is done apart from CI's first run (P0.7). The reverse-engineering
+track has the hero's movement code: constants and models are read from the game itself.**
 - The Linux build dependencies are installed. The workspace builds and runs natively: a
   Bevy 0.20 window showing a greybox scene.
-- The discs and the prior art have had a first inspection.
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
   - R&C3 and Gladiator first;
   - direct-IP two-player co-op in every game;
   - a full PC remaster;
   - a public repository.
+- CI and the data-hygiene guard are written (P0.7, P0.12). CI runs for the first time on
+  the next push.
+- **Reverse engineering:**
+  - The owner captured savestates and input recordings of the **PAL** releases (R&C3,
+    Gladiator).
+  - `tools/pine-probe` replays them headlessly and logs the hero every frame (RE.5).
+  - Where the hero lives in memory is in `re/<serial>/hero.toml` (RE.2).
+  - The first measured movement constants are in `docs/research/hero-controller.md`
+    (RE.3): run speed and acceleration, the variable-height jump, double jump, jump attack
+    and falling.
+  - **2026-10-12: static analysis (RE.3).** The hero code was found in Ghidra in all
+    four builds:
+    - the PAL builds from the savestates of the owner's recordings;
+    - UYA and DL NTSC-U from savestates taken by booting a new game headlessly
+      (`tools/pine-probe/boot.sh`).
 
-The scaffolding is committed, and the README is written for visitors on GitHub.
+    Results:
+    - The input, ground and jump models, and every jump-type move's parameters, are in
+      `hero-controller.md`. They reproduce the PAL traces frame for frame.
+    - The addresses are in `re/<serial>/symbols.toml`.
+    - **RE.8 is answered:** both engines are tuned in per-second units at 60 Hz, and each
+      PAL release is a conversion that keeps the real-time behaviour. So the kit uses the
+      NTSC values at 60 Hz.
 
 **Next actions, in order:**
-1. Add CI (P0.7) and a guard against committing data files (P0.12), since the repository
-   is public.
-2. Start the reverse-engineering track on the hero, with UYA and DL first:
-   - RE.1: tools;
-   - RE.2: knowledge base;
-   - RE.3: hero controller;
-   - RE.5: PINE telemetry.
-3. In parallel, start the kit's foundations: P1.1–P1.4 (app flow, simulation clock, input,
-   greybox level).
-4. The hero controller itself (P1.5, P1.7) follows the RE.3 and RE.5 results and is tuned
-   against them (RE.6).
-5. In parallel, at lower priority: the disc layer, P2.1–P2.5. It replaces savestates and
-   Wrench in the reverse-engineering loop.
+1. **Owner, when convenient:** savestates or recordings of the moves that need a
+   particular place (wall jump, ledges, grinding, swimming, charge boots), and a half-tilt
+   stick recording on an NTSC disc (`docs/re-setup.md`, "Still wanted").
+   - Most jump moves are now verified on UYA NTSC with our own scripted traces.
+2. Push the branch so CI runs, and fix anything Windows-specific it finds (P0.7).
+3. Start the kit's foundations, P1.1–P1.4: app flow, simulation clock, input and a greybox
+   level.
+   - The hero controller (P1.5) can then start from `hero-controller.md`, using the NTSC
+     values at 60 Hz.
+   - It is tuned against the traces through RE.6.
+4. RE.3, continued:
+   - wall detection, ledge grab, swimming and grinding, in code;
+   - DL NTSC traces, by scripted play as for UYA.
+
+   Then the camera (RE.4).
+5. RE.2: seed the knowledge base from libuya and libdl (MIT).
+6. In parallel, at lower priority: the disc layer, P2.1–P2.5.
 
 ---
 
@@ -272,6 +297,12 @@ App
 | 2026-10-11 | Rust pinned to **1.99.0** in `rust-toolchain.toml`. Bevy is **0.20** (released 2026-10-08). Virtual workspace in `crates/*`. |
 | 2026-10-11 | Pipelines compile **synchronously** (`RenderPlugin::synchronous_pipeline_compilation`). Bevy's default parallel compilation crashed 8 out of 8 runs on NVIDIA driver 595.91.07 / RTX 4070 SUPER ("NVVM compilation failed: 3" → `DeviceLost` → segfault). Synchronous compilation gave 18 clean runs out of 18. Revisit under P1.15. |
 | 2026-10-11 | Strategy: the hybrid in section 4.1, provisional until the Phase 4 gate. |
+| 2026-10-11 | Reverse-engineering tools live in `tools/*` as workspace members and never ship. `pine-probe` has its own PINE client rather than the `pine-ipc` crate: the protocol is tiny, and we need raw batched reads with our own tear handling. |
+| 2026-10-11 | Hero measurements come from replaying the owner's PCSX2 input recordings in a private, headless PCSX2 (Xvfb, the owner's emulation settings, copied memory cards), never from the owner's live instance. Measured PAL figures are recorded as per-frame values, because the NTSC relationship is unknown (RE.8). |
+| 2026-10-12 | Hero constants come from **static analysis of the game code**, checked against the traces. Recordings of single moves are no longer needed to measure them, only to verify them. |
+| 2026-10-12 | The hero kit's movement is specified **in per-second units with the NTSC-U values, simulated at 60 Hz**. RE.8 showed that NTSC-U is the native tuning and PAL a conversion. |
+| 2026-10-12 | Ghidra scripts live in `tools/ghidra/` (Java), which is excluded from the Cargo workspace. Decompiled output stays in `cache/`. Only facts in our own words and `re/<serial>/symbols.toml` are committed. |
+| 2026-10-12 | NTSC savestates for static analysis are made headlessly (`tools/pine-probe/boot.sh`: a new game driven with xdotool), using copies of the owner's memory cards and never their live instance. |
 
 ## 6. Roadmap
 
@@ -296,23 +327,30 @@ clean, docs are updated, and the task's checkbox is ticked here.
   `docs/research/engine-notes.md`.
 - [x] **P0.6** Work around the NVIDIA parallel pipeline compilation crash (decision in
   section 5).
-- [ ] **P0.7** CI with GitHub Actions on `ubuntu-latest` and `windows-latest`:
+- [~] **P0.7** CI with GitHub Actions on `ubuntu-latest` and `windows-latest`:
   - `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
     `cargo test --workspace`, and a build.
   - Cache with `Swatinem/rust-cache`, and install the apt dependencies on Linux.
   - Optionally, a Linux smoke run under `xvfb-run` with Mesa lavapipe:
     `openrac --exit-after-frames 60`.
+  - 2026-10-11: `.github/workflows/ci.yml` written with everything above except the smoke
+    run. Every step passes locally on Linux. Still to do: its first run on GitHub,
+    especially Windows.
 - [-] **P0.8** Evaluate ReRAC. Moved to P3.16: it only matters for R&C1, which is now later
   in the order (D1, D3).
 - [x] **P0.9** Owner decisions D1–D5, recorded in section 5.
-- [ ] **P0.10** Check the six disc hashes against redump.org and note the result in
-  `disc-layout.md`.
-- [ ] **P0.11** `CONTRIBUTING.md`: the legal rules from CLAUDE.md, a short "how to build",
-  and the definition of done.
-- [ ] **P0.12** Data-hygiene guard, because the repo is public:
+- [x] **P0.10** Check the six disc hashes against redump.org and note the result in
+  `disc-layout.md`. Done 2026-10-11: all six whole-image SHA-1s match their redump entries.
+- [x] **P0.11** `CONTRIBUTING.md`: the legal rules from CLAUDE.md, a short "how to build",
+  and the definition of done. Done 2026-10-11.
+- [x] **P0.12** Data-hygiene guard, because the repo is public:
   - A CI job, plus an optional pre-commit hook, rejects disc-derived file types: `*.iso`,
     `*.wad`, `*.elf`, `*.irx`, `*.vag`, `*.pss`, savestates and memory cards.
   - It also rejects any binary over 1 MB that isn't on an allowlist.
+  - Done 2026-10-11: `tools/check-data-hygiene.sh`, the `data-hygiene` CI job, and
+    `.githooks/pre-commit` (enable with `git config core.hooksPath .githooks`). It also
+    bans `.bin`, input recordings, GS dumps and pine-probe traces. Checked on a staged
+    `.p2s` file and on a 1.1 MB file.
 
 ### Track RE: Reverse engineering and the knowledge base (starts now, runs throughout)
 
@@ -328,17 +366,79 @@ also works: using a GPL tool is fine, copying its code is not.
 - Only facts written by us are committed: names, addresses, layouts and derived constants.
 
 **Tasks:**
-- [ ] **RE.1** Tools and setup, documented in `docs/re-setup.md`:
+- [x] **RE.1** Tools and setup, documented in `docs/re-setup.md`:
   - PCSX2 2.8+ with the debugger, PINE enabled, input recording and savestates.
   - Ghidra 12.1 with ghidra-emotionengine-reloaded.
   - A workflow for importing a savestate of each level.
-- [ ] **RE.2** Machine-readable knowledge base, written by us:
+  - Installed on 2026-10-11:
+    - JDK 21, Ghidra 12.1.4 and extension v2.1.38. A headless ELF import was verified.
+    - PCSX2 2.8.2 with PINE turned on.
+  - The owner installed their BIOS and captured the PAL releases.
+  - Savestate import: Ghidra can't open PCSX2's Zstandard `.p2s` files. Extracting
+    `eeMemory.bin` with `pine-probe` and importing it as a raw binary works (7 s).
+  - 2026-10-12: `tools/ghidra/` imports and analyses a savestate in one step: it sets
+    `$gp` from the savestate's registers, finds the code regions and seeds functions. It
+    also decompiles chosen functions into `cache/` and applies `symbols.toml` names.
+    `docs/re-setup.md` has the workflow and its gotchas.
+- [~] **RE.2** Machine-readable knowledge base, written by us:
+  - Started 2026-10-11: `re/README.md` and `re/<serial>/hero.toml` for R&C3 PAL and
+    Gladiator PAL. They hold the hero struct, its verified fields and a per-frame counter,
+    and pine-probe reads them.
+  - 2026-10-12:
+    - `re/<serial>/symbols.toml` for all four UYA/DL-era builds, R&C3 and Gladiator PAL
+      plus UYA and DL NTSC-U. Each symbol has a confidence and how it was found.
+    - The format is in `re/README.md`. `pine-probe`'s tests check the files, and
+      `tools/ghidra/ApplySymbols.java` applies them.
+    - Both PAL `hero.toml` files gained the jump block, the stick, the state timer and
+      the intended velocity, each checked against the traces.
+    - libuya/libdl seeding, `structs.toml` and the NTSC `hero.toml` files (which need a
+      trace for the frame counter) are still to do.
   - Files: `re/<release>/symbols.toml` (address, name, source, confidence),
     `re/<release>/structs.toml` and `re/<release>/memory-map.md`.
   - Seed UYA and DL NTSC-U from libuya and libdl (MIT, attributed).
   - Map the PAL builds by function hashing.
   - Generators produce a Ghidra import script and the Rust hook tables (P4.7).
-- [ ] **RE.3** **Hero controller, the first priority**, for UYA and DL:
+- [~] **RE.3** **Hero controller, the first priority**, for UYA and DL:
+  - Started 2026-10-11 with the PAL builds: `docs/research/hero-controller.md`, from
+    four replayed recordings.
+    - Measured: run speed and acceleration, stopping, the variable-height jump (take-off,
+      thrust while held, ascent and descent gravity), double jump, crouch jump, jump
+      attack, falling, input latency, and the state numbering.
+    - Still to do: NTSC-U, static analysis, and the moves free play didn't cover.
+  - 2026-10-12: static analysis in Ghidra of R&C3/Gladiator PAL and UYA/DL NTSC-U
+    (`docs/research/hero-controller.md`, `re/<serial>/symbols.toml`).
+    - **Found:** the update entry, the state update, the state-change routine (which
+      fills each jump type's parameters) and the vertical jump function.
+    - **Verified frame for frame against the PAL traces:** the stick pipeline (dead
+      zone, 0.25 d-pad cut-off, magnitude), walking speed and acceleration, the
+      target-height jump model, apex gravity, and the double-jump boost and its cap.
+    - **Read from code but not yet seen in a trace:**
+      - the turn spring and the idle braking;
+      - the parameters of every jump-type state: long jump, flips, rocket, heli, charge,
+        wall, water, ledge, grind and lava;
+      - the heli thrust table;
+      - the double jump's height-dependent cut.
+    - **Still to do:** air control, the long-jump and flip horizontal speeds, glide,
+      wall and ledge detection, swimming and grinding, the jump attack and the fall
+      state.
+  - 2026-10-12 (second pass, with no new recordings from the owner):
+    - **Read in code:** air control, the flip and long-jump horizontal speeds, glide,
+      the fall state, the jump attack, the wrench combo, get hit and the ledge states.
+    - **Verified against the PAL traces:**
+      - the walk turn spring, which has a setting-off and a moving set of values (724
+        of 724 frames);
+      - air control (246 of 256 frames; the rest hit a wall);
+      - the strafe flip (Gladiator) and the jump attack.
+    - **Our own UYA NTSC traces** (`boot.sh` plus scripted xdotool keys, with the pad
+      recorded in the layout) verified the NTSC values of:
+      - walking and stopping;
+      - tapped and held jumps, the run jump and the double jump;
+      - glide, the heli jump and its thrust, and the long jump;
+      - strafe side and back flips, and the jump attack.
+    - **New for the kit:** the long jump keeps its take-off speed with no air control,
+      the stick release goes through the skid path, and the stop residual is 1.5 u/s.
+    - **Still to do:** moves that need a particular place (wall jump, ledges, grinding,
+      swimming, charge boots), half-tilt stick on NTSC, and DL NTSC traces.
   - The hero's update entry points and its state machine: states, transitions, and the
     input conditions for each.
   - Physics for each state:
@@ -364,7 +464,22 @@ also works: using a GPL tool is fine, copying its code is not.
   - The camera volumes and splines that come from level data.
   - Their constants.
   - Feeds P1.7.
-- [ ] **RE.5** **`tools/pine-probe`**, using the `pine-ipc` crate (MIT):
+- [~] **RE.5** **`tools/pine-probe`**, using the `pine-ipc` crate (MIT):
+  - Built 2026-10-11, with our own PINE client instead of `pine-ipc` (section 5). It
+    provides:
+    - per-frame capture driven by `re/<serial>/hero.toml`, which keeps the settled sample
+      of each frame;
+    - readers for savestates and input recordings, CSV export, and the memory-card and
+      config helpers;
+    - `replay.sh`, which runs a recording headlessly on Xvfb.
+  - 2026-10-12, additions:
+    - `savestate-regs` (the EE registers, for Ghidra's `$gp`);
+    - `headless-config --keyboard-pad`;
+    - `boot.sh`, which boots a disc headlessly with the keyboard as controller 1, so
+      xdotool can play it and take savestates. That is how the NTSC savestates were
+      made.
+  - All four PAL recordings replayed with no missing frames. Still to do: camera fields
+    (with RE.4), and pad input read live rather than from the recording.
   - Reads the hero's position, velocity and state, the camera and the pad input every
     frame from PCSX2.
   - Combined with PCSX2 input recordings, it gives repeatable move tests: running, each
@@ -381,7 +496,19 @@ also works: using a GPL tool is fine, copying its code is not.
   - Upgrade and XP tables: UYA V1–V5, and DL V1–V10 with mods.
   - How quick-select behaves, the melee combos, and aim assist and lock-on.
   - Feeds P1.8 and P1.9.
-- [ ] **RE.8** **Timing across regions:**
+- [~] **RE.8** **Timing across regions:**
+  - 2026-10-11: on R&C3 PAL and Gladiator PAL the hero updates once per 50 Hz frame at a
+    fixed step (`docs/research/hero-controller.md`). The NTSC side is still needed.
+  - **2026-10-12, answered for UYA and DL from the code of both regions.**
+    - Constants are per second, tuned at 60 Hz.
+    - R&C3 PAL folds them with 1/50 where UYA uses 1/60, and Gladiator scales them at
+      run time with `frame_dt` = 1/50.
+    - Frame counts are cut to about 5/6 on PAL.
+    - So PAL plays at NTSC speed, and NTSC-U is the native tuning.
+    - Small PAL-only differences: the walk-turn damping and the heli thrust.
+    - Details: `hero-controller.md`, "Frames and regions".
+    - Confirmed on UYA by our own NTSC traces: the same jumps reach the same heights with
+      the 60 Hz values. DL NTSC traces and R&C1/GC are still to do.
   - How R&C3 PAL and Gladiator PAL run at 50 Hz: do they scale per-frame values, or does
     the game simply run slower?
   - Compare RE.5 traces between regions.
@@ -838,6 +965,47 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 
 Newest first. One or two lines per session: what was done, and what's next.
 
+- **2026-10-12 (second update):** RE.3 continued without new recordings from the owner.
+  - Read air control, flips, the long jump, glide, falling, attacks and ledges in code.
+    Verified the walk turn spring and air control against the PAL traces.
+  - Made our own UYA NTSC traces by scripted keyboard play in the headless boot. They
+    verified the NTSC jump, walk, glide, heli, long-jump, flip and jump-attack values.
+    Added UYA's `hero.toml` (frame counter confirmed, pad region) and L2/R2 to the
+    keyboard pad.
+  - The changes are on branch `re/hero-movement`, uncommitted. The owner will commit and
+    sign them.
+  - Next: moves that need particular places, DL NTSC traces, then the camera (RE.4).
+
+- **2026-10-12:** Static analysis of the hero (RE.3) with Ghidra, now that Xvfb is
+  installed.
+  - Found the hero's movement code in R&C3 and Gladiator PAL, and in UYA and DL NTSC-U.
+    The NTSC savestates were booted headlessly with the new `boot.sh`.
+  - Verified the input, walk and jump models frame for frame against the PAL traces, and
+    read every jump type's parameters from code. Rewrote `hero-controller.md`.
+  - Answered RE.8: per-second constants at 60 Hz, which PAL converts.
+  - Added:
+    - `symbols.toml` for four releases, and new `hero.toml` fields (RE.2);
+    - the `tools/ghidra/` scripts;
+    - `pine-probe savestate-regs` and `headless-config --keyboard-pad`.
+  - Next: NTSC and single-move recordings from the owner, CI, then the kit foundations
+    and P1.5 from the code-derived constants.
+
+- **2026-10-11 (fifth update):** The owner supplied PAL savestates and input recordings.
+  - Located the hero and a per-frame counter in R&C3 PAL and Gladiator PAL (RE.2, RE.3).
+  - Built `tools/pine-probe` and the headless replay harness (RE.5). All four recordings
+    were replayed with no missing frames.
+  - Measured the first movement constants (`docs/research/hero-controller.md`).
+  - Finished RE.1 (raw EE-memory import into Ghidra).
+  - Added CI (P0.7, not yet run on GitHub), the data-hygiene guard (P0.12) and
+    CONTRIBUTING.md (P0.11). Checked the disc hashes against redump.org (P0.10).
+  - Next: NTSC-U and single-move captures from the owner, a first CI run, and static
+    analysis of the measured constants.
+
+- **2026-10-11 (fourth update):** Installed the reverse-engineering tools (RE.1), all under
+  `~/.local` without sudo:
+  - JDK 21, Ghidra 12.1.4 with the PS2 extension, and PCSX2 2.8.2 with PINE turned on.
+  - Wrote `docs/re-setup.md`.
+  - Next: the owner's BIOS and capture session, then RE.3 and RE.5.
 - **2026-10-11 (third update):**
   - Rewrote README.md for visitors on GitHub; the original preliminary plan now lives in
     sections 1 and 5.

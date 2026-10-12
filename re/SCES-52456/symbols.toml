@@ -1,0 +1,188 @@
+# Ratchet & Clank 3 (PAL, SCES-52456): named addresses. Format: re/README.md.
+# Found 2026-10-12 by static analysis of the save-state-5 recording's savestate in Ghidra,
+# checked against the rc3pal-veldin-5/6 traces (PLAN.md RE.2, RE.3). Behaviour is described
+# in docs/research/hero-controller.md.
+
+release = "SCES-52456"
+image = "Veldin, the owner's save-state-5 recording savestate"
+notes = """
+Code addresses are inside Veldin's level overlay (about 0x2F8000-0x524000), which carries
+its own build of the game program, so they only hold for this level. Data addresses in
+the resident data (the hero, $gp-relative constants) are the same in every Veldin
+savestate and, for the hero, in UYA NTSC too. $gp is 0x1DC8B0.
+"""
+
+[[symbol]]
+name = "hero_update"
+address = 0x004EE4E0
+kind = "function"
+confidence = "high"
+note = "Per-frame hero entry. Copies the pad's stick floats (falling back to the d-pad below magnitude 0.25), computes the stick magnitude, then calls hero_update_state and the move/collision passes. Stick handling checked against both traces."
+
+[[symbol]]
+name = "hero_update_state"
+address = 0x004F5E98
+kind = "function"
+confidence = "medium"
+note = "Switch on the hero state: per-state movement (walk acceleration 0.0148, idle deceleration 0.00708, air control from the jump block). Read from the code."
+
+[[symbol]]
+name = "hero_change_state"
+address = 0x005003D0
+kind = "function"
+confidence = "high"
+note = "(new_state, flag). Switch on the new state; for jump-type states fills the jump block (heights, hold frames, push-off frames, gravity, air limits). The values it writes match the traces."
+
+[[symbol]]
+name = "hero_jump_vertical"
+address = 0x004F1638
+kind = "function"
+confidence = "high"
+note = "Per-frame vertical motion of jump-type states: push-off, gravity with fall cap, target-height jump while X is held, double-jump approach, heli-jump thrust table. Reproduces the traces frame for frame."
+
+[[symbol]]
+name = "stick_magnitude"
+address = 0x004EE780
+kind = "function"
+confidence = "high"
+note = "Returns (max(|x|,|y|) + length) / 2, clamped to 1, of the hero's stick copy. Matches the traces."
+
+[[symbol]]
+name = "hero_stick_move"
+address = 0x004EE850
+kind = "function"
+confidence = "medium"
+note = "(max_speed, mode). Sets the hero's target speed to max_speed times the stick length and its move direction from the stick rotated by the camera yaw."
+
+[[symbol]]
+name = "hero_walk_target"
+address = 0x004EEBA8
+kind = "function"
+confidence = "high"
+note = "Walk target speed = walk_speed * 0.02 * stick magnitude (0.1234 at full tilt). Matches the traces."
+
+[[symbol]]
+name = "hero_walk_turn"
+address = 0x004EEEC0
+kind = "function"
+confidence = "high"
+note = "Walk turn spring while setting off (substate 0): gain 0.0144-0.03168 by stick magnitude, damping 0.3888, rate cap 0.0384-0.1117 rad/frame; 0.0504 and 0.2339 while skidding. Once moving (substate 1) hero_update_state uses 0.0533, 0.1872 and 0.2443 instead. Both checked on all 724 non-strafe walking frames of the traces."
+
+[[symbol]]
+name = "hero_turn_towards"
+address = 0x004EEDD0
+kind = "function"
+confidence = "medium"
+note = "(gain, damping, rate cap). Turns the yaw towards the move direction as a damped spring: the yaw rate gains gain*error and loses damping*rate each frame, is capped, and never overshoots. Rates are tripled in one special mode."
+
+[[symbol]]
+name = "hero_approach_speed"
+address = 0x004EF128
+kind = "function"
+confidence = "medium"
+note = "(accel, decel). Steps the hero's speed towards its target speed by accel when speeding up and by decel when slowing down."
+
+[[symbol]]
+name = "hero_decay_residual"
+address = 0x004F4730
+kind = "function"
+confidence = "medium"
+note = "(decel). Shortens the residual horizontal velocity by decel per frame and adds it to the intended velocity; this is the short slide when the stick is released."
+
+[[symbol]]
+name = "approach"
+address = 0x004481F8
+kind = "function"
+confidence = "medium"
+note = "(target, step, *value). Moves *value towards target by at most step and returns the remaining distance. Used throughout the game."
+
+[[symbol]]
+name = "hero_air_control"
+address = 0x004F1C88
+kind = "function"
+confidence = "high"
+note = "Air control of jump-type states after push-off (special cases for long jump, flip, wall jump, charge jump); steers with hero_air_steer. Reproduces 246 of 256 airborne frames in the traces."
+
+[[symbol]]
+name = "hero_air_steer"
+address = 0x004F1220
+kind = "function"
+confidence = "high"
+note = "(accel). Moves the horizontal intended velocity towards stick direction * target speed by at most accel * clamp(1.5 * (1 - cos angle), 1, 3); the target is fixed at 0.1 when a push-off probe found an obstacle. Checked in the traces."
+
+[[symbol]]
+name = "hero_flip_kind"
+address = 0x004FF610
+kind = "function"
+confidence = "medium"
+note = "Picks the flip from the stick: while strafing, from the stick quadrant (side, back; forward means an ordinary jump); otherwise from the stick angle against the facing."
+
+[[symbol]]
+name = "angle_spring"
+address = 0x00448728
+kind = "function"
+confidence = "high"
+note = "(target, gain, damping, cap, *angle, *rate, mode). Turns *angle towards target with angle_rate_step and snaps within 1% of the cap; returns the remaining error. Its walk use is checked in the traces."
+
+[[symbol]]
+name = "angle_rate_step"
+address = 0x00448148
+kind = "function"
+confidence = "high"
+note = "(error, gain, damping, cap, *rate). rate is clamped to |error|, gains gain*error - damping*rate, is capped, and is clamped to |error| again. Checked in the traces."
+
+[[symbol]]
+name = "hero"
+address = 0x001A4BE0
+kind = "data"
+confidence = "high"
+note = "Base address the hero code uses (667 references). It is 0x20 past the region base in hero.toml, so code offsets are hero.toml offsets minus 0x20."
+
+[[symbol]]
+name = "hero_state"
+address = 0x001A71A4
+kind = "data"
+confidence = "high"
+note = "Current hero state (hero.toml field state)."
+
+[[symbol]]
+name = "hero_state_timer"
+address = 0x001A4D98
+kind = "data"
+confidence = "high"
+note = "Frames since the current state began; reset by hero_change_state. Checked in the traces."
+
+[[symbol]]
+name = "hero_jump_block"
+address = 0x001A5040
+kind = "data"
+confidence = "high"
+note = "Start of the per-jump parameters hero_change_state fills (hero.toml fields jump_*). Checked in the traces."
+
+[[symbol]]
+name = "walk_speed"
+address = 0x001DBE18
+kind = "data"
+confidence = "high"
+note = "6.17 (world units per second), the full-stick walk speed hero_walk_target scales by the frame time."
+
+[[symbol]]
+name = "jump_override_table"
+address = 0x001DBCF0
+kind = "data"
+confidence = "low"
+note = "Floats 7, 10, 19 that replace the jump min/max height and gravity (per second squared) when level_number is 0. Not seen in play."
+
+[[symbol]]
+name = "level_number"
+address = 0x001D545C
+kind = "data"
+confidence = "low"
+note = "Probably the current level: 1 on Veldin; the jump code special-cases 0 and 0x15."
+
+[[symbol]]
+name = "pad1"
+address = 0x001CD0C0
+kind = "data"
+confidence = "medium"
+note = "Pad state for port 1: raw DualShock bytes from +0 (sticks at +4..+7), processed stick floats at +0x108/+0x10C, held buttons at +0x1A0."

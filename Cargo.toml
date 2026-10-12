@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+# `tools/*` holds reverse-engineering tools (PLAN.md track RE); they never ship.
+members = ["crates/*", "tools/*"]
+# Ghidra scripts (Java), not a crate.
+exclude = ["tools/ghidra"]
 # `cargo run` at the repository root launches the game.
 default-members = ["crates/openrac"]
 
@@ -11,7 +14,13 @@ license = "MIT"
 repository = "https://github.com/manstie/open-rac-engine"
 
 [workspace.dependencies]
+anyhow = "1"
 bevy = "0.20"
+clap = { version = "4", features = ["derive"] }
+ruzstd = "0.8"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "1"
 
 [workspace.lints.clippy]
 # Bevy systems routinely take many parameters and complex query types.

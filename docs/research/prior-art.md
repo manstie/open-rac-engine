@@ -66,7 +66,9 @@ only from the decompilation projects.
   - **libuya** (`horizon-uya-patch/libuya`, MIT) builds for both UYA NTSC and PAL.
     - It defines `MobyClass` and `Moby`.
     - It lists per-map overlay addresses.
-- **Lists of memory addresses:** Programie/RCMemory covers PAL R&C1–3 in PCSX2 format.
+- **Lists of memory addresses:** Programie/RCMemory covers PAL R&C1–3 in PCSX2 format. It
+  has no licence, so we take single addresses from it as facts and re-verify them (its R&C3
+  hero position, 0x1A4C60, checked out on 2026-10-11).
   There is also the "Ratchet & Clank Series Addresses" spreadsheet and CreepNT/MobyViewer.
   RaCMAN covers only the PS3 and RPCS3 versions.
 - **Index of community links:** [rac-modding-resources](https://github.com/RatchetModding) (CC0).
@@ -83,7 +85,14 @@ only from the decompilation projects.
       `$XDG_RUNTIME_DIR/pcsx2.sock`, slot 28011.
     - It can read and write 8, 16, 32 and 64-bit values in EE memory, batched, and can
       save and load states.
-    - A Rust client exists: `pine-ipc` (MIT).
+    - A Rust client exists: `pine-ipc` (MIT). We wrote our own small client in
+      `tools/pine-probe` instead, from the protocol facts in PCSX2's `PINE.cpp`, because we
+      need raw batched reads and the protocol is tiny.
+    - PINE reads run on PCSX2's own thread while the game keeps running, so a batch is not
+      a consistent snapshot. `pine-probe capture` works around this.
+  - **Input recordings** (`.p2m2`) and **savestates** (`.p2s`, zip with Zstandard members)
+    are read by `tools/pine-probe` from format facts in PCSX2's `Recording/` and
+    `SIO/Memcard/` sources (GPL, facts only).
   - **GameDB:** all eight R&C serials need `EETimingHack`. There are also GS fixes, listed
     in [engine-notes.md](engine-notes.md#rendering).
   - **Patches:** widescreen patches exist for every serial except the R&C1 NTSC-U one, which
