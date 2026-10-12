@@ -69,9 +69,8 @@ the game itself.**
   - **2026-10-12, third pass:** the wall jump, ledges, the slope limit, getting hit and
     every jump's entry rules are read in UYA's code (`hero-controller.md`). They are
     untraced: Veldin's start has no wall or ledge.
-  - **Camera (RE.4) has started:** the camera struct's address and the default follow
-    distance and height are in `docs/research/camera.md`. A camera trace is recorded but
-    not analysed yet.
+  - **Camera (RE.4):** the follow camera is read in UYA's code and checked against our
+    own trace (`docs/research/camera.md`). The kit's camera now works the same way.
 
 **Next actions, in order:**
 1. **Owner, when convenient:** savestates or recordings of the moves that need a
@@ -82,8 +81,9 @@ the game itself.**
      ledge would let a scripted trace check their probe distances and the shimmy speed.
 2. **Owner:** push `re/hero-movement` so CI runs (the push needs the owner's
    credentials). Then fix anything Windows-specific it finds (P0.7).
-3. The camera's lag and recentring (RE.4 → P1.7). Start by fitting the follow lag from
-   `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace` (`camera.md`, "Next steps").
+3. **Done 2026-10-12:** the follow camera (RE.4 → P1.7), read in code and checked against
+   our trace `uyantsc-veldin-cam-1`. What the camera still lacks is under P1.7 and in
+   `camera.md`, "Next steps".
 4. What P1.5 still lacks:
    - the charge boots, which need DL's code (RE.3);
    - strafe speeds and lock-on, with targets from P1.9;
