@@ -75,7 +75,11 @@ the game itself.**
     own trace (`docs/research/camera.md`). The kit's camera now works the same way.
   - **2026-10-12, fourth pass:** DL's charge boots (states 125 and 121) and the skid
     state's braking, read in DL's code, and which UYA moves need the heli-pack
-    (`hero-controller.md`, "Charge boots", "Moves that need items"). Untraced.
+    (`hero-controller.md`, "Charge boots", "Moves that need items").
+    - **The first DL NTSC traces:** scripted play on DreadZone Station, with a DL
+      `hero.toml` (frame counter 0x21DDB8). They verify the charge's numbers.
+    - They also found a 0.43 u per frame step limit, the bounce's 54 frames, how the
+      skid after a charge slides, and that DL's default controls charge with L2.
 
 **Next actions, in order:**
 1. **Owner, when convenient:** savestates or recordings of the moves that need a
@@ -93,8 +97,9 @@ the game itself.**
    - **Done 2026-10-12:** the charge boots (from DL's code), the ability flags, and the
      walk's sharp-turn skid (from UYA's code).
    - strafe speeds and lock-on, with targets from P1.9.
-5. RE.3, continued: swimming and grinding in code, and DL NTSC traces by scripted play
-   as for UYA. The first DL trace should be a charge, to check the code's numbers.
+5. RE.3, continued: swimming and grinding in code. DL NTSC traces now work
+   (`re/SCUS-97465/hero.toml`, the charge traces); more DL moves can be traced the same
+   way.
 6. RE.2: seed the knowledge base from libuya and libdl (MIT).
 7. In parallel, at lower priority: the disc layer, P2.1–P2.5.
 
@@ -337,6 +342,7 @@ App
 | 2026-10-12 | Rules the games time by **animation frame** (the ledge grab and climb, the double jump's grab delay) assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts for its move's window of ticks, and only once. |
 | 2026-10-12 | The dev profile builds with **line-table debug info only** (dependencies without any), and heavy cargo commands run at low priority with 4 jobs (CLAUDE.md, "Commands"). Full debug info made the parallel links of the Bevy test binaries exhaust 31 GB and froze the owner's desktop. |
 | 2026-10-12 | **"Backport" means one movement and camera controller for every game; the abilities available in each game stay the same** (owner's clarification of D2). Abilities the games grant as items are flags, never carried across. Charge boots, the heli-pack and thruster-pack moves, glide, grind boots and gadgets are per-hero ability flags. Each game sets them from its own item and save state, so an older game only gets what it had (R&C1 never gets charge boots, and GC gets them once bought). The originals gate them the same way: UYA's long and heli jumps need the heli-pack in the back slot. The demo turns every flag on. |
+| 2026-10-12 | Research instances of PCSX2 (`boot.sh`, `replay.sh`, never the owner's) may have their memory written with `pine-probe poke` to reach a move the level hasn't granted yet. The first use gave DL's charge boots on DreadZone Station. The poke and the savestate it leads to are recorded with the trace (`docs/re-setup.md`). |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -496,8 +502,12 @@ also works: using a GPL tool is fine, copying its code is not.
       - the walk's sharp-turn skid and its stick-angle history, and moving the stick's
         way when slow.
     - Tooling: `tools/ghidra/ListingAt.java` disassembles address ranges.
-    - **Still to do:** trace a wall, a ledge and a charge (DL NTSC); read swimming and
-      grinding.
+    - **DL NTSC traces (RE.5), the same day:**
+      - `re/SCUS-97465/hero.toml`: the hero at Gladiator PAL's address, frame counter
+        0x21DDB8, and the pad that hero+0x2F00 points to;
+      - savestates and five scripted charge takes in `source/Ratchet Gladiator/`;
+      - the charge verified as above.
+    - **Still to do:** trace a wall and a ledge; read swimming and grinding.
   - The hero's update entry points and its state machine: states, transitions, and the
     input conditions for each.
   - Physics for each state:
@@ -547,6 +557,12 @@ also works: using a GPL tool is fine, copying its code is not.
       made.
   - All four PAL recordings replayed with no missing frames. Still to do: camera fields
     (with RE.4), and pad input read live rather than from the recording.
+  - 2026-10-12, later:
+    - `pine-probe poke` writes a byte into the private research instance, for example to
+      grant an item;
+    - the keyboard pad gained the right stick (R, F, D, G), which DL's opening tutorial
+      needs;
+    - a DL NTSC layout.
   - Reads the hero's position, velocity and state, the camera and the pad input every
     frame from PCSX2.
   - Combined with PCSX2 input recordings, it gives repeatable move tests: running, each
@@ -794,6 +810,11 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
             at 27 u/s² without turning, in UYA's and DL's code. The walk's sharp-turn skid
             is now a flag in the walk state, as in the games.
           - 7 new tests in `tests/moves.rs`.
+          - Then checked against our DL NTSC traces, which added three things to the kit:
+            - a step limit of 0.43 u per tick (25.8 u/s), which only the charge reaches;
+            - the bounce's 54 ticks;
+            - the skid after a charge sliding on the capped motion until the input lock
+              ends.
         - **The walk's sharp-turn skid, done 2026-10-12** (`hero-controller.md`, "Ground
           movement"):
           - It starts when a full stick swings more than 110° in 6 ticks or turns more
@@ -1229,7 +1250,9 @@ Newest first. One or two lines per session: what was done, and what's next.
     (heli-pack, charge boots) the games' items need. The skid state corrected to its
     27 u/s².
   - Then UYA's sharp-turn skid rule, which replaces a placeholder.
-  - 10 new tests (132 in all).
+  - Then the first DL NTSC traces (scripted, with the boots poked in), which verified the
+    charge and added its step limit, the bounce's length and the skid's slide.
+  - 11 new tests (133 in all).
   - Next: a DL NTSC trace of a charge, or the next P1 task (P1.8 melee).
 
 - **2026-10-12 (camera):** RE.4 and P1.7.

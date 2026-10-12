@@ -34,6 +34,15 @@ enum Command {
         #[arg(long)]
         wait: Option<f64>,
     },
+    /// Write one byte of the running game's EE memory (private research instances only).
+    Poke {
+        /// The address, in hex (for example 0x1D45B4).
+        #[arg(value_parser = parse_hex)]
+        addr: u32,
+        value: u8,
+        #[arg(long, default_value_t = DEFAULT_SLOT)]
+        slot: u16,
+    },
     /// Print an input recording's header and its per-frame pad input as CSV.
     Recording {
         file: PathBuf,
@@ -114,9 +123,18 @@ enum Command {
     },
 }
 
+fn parse_hex(text: &str) -> Result<u32, String> {
+    let digits = text.trim_start_matches("0x").trim_start_matches("0X");
+    u32::from_str_radix(digits, 16).map_err(|e| e.to_string())
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Status { slot, wait } => status(slot, wait),
+        Command::Poke { addr, value, slot } => {
+            Pine::connect(slot)?.write_u8(addr, value)?;
+            Ok(())
+        }
         Command::Recording {
             file,
             port,

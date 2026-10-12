@@ -19,6 +19,9 @@
         // steep [code].
         slope_limit_degrees: 50.0,
         ground_snap: 0.3, // [placeholder]
+        // "Charge boots": DL caps the intended velocity at the collision radius less 0.02
+        // a frame, 25.8 u/s; only the charge reaches it [measured on DL NTSC].
+        max_step: 0.43,
     ),
     stick: (
         // "Input": per-axis dead zone and range [verified on R&C3 PAL], and the cut-off
@@ -303,7 +306,8 @@
         climb_forward_stop_tick: 30,
         climb_turn_after_tick: 40,
     ),
-    // State 125, "Charge boots" [code, DL NTSC; untraced]. UYA's single-player hero code
+    // State 125, "Charge boots" [verified on DL NTSC, apart from the descent and the wall
+    // probe, which are code]. UYA's single-player hero code
     // on Veldin has no charge state, so these are Deadlocked's. DL multiplies its
     // literals by frame_dt at run time, so they are per second already.
     charge: (
@@ -331,10 +335,12 @@
         blocked_below: 0.75,
         wall_probe_height: 1.0,
         wall_probe_reach: 1.25,
-        // State 121, "jump bounce" [code, DL NTSC].
+        // State 121, "jump bounce" [verified on DL NTSC; its gravity is code]. It lasts as
+        // long as its animation, 54 frames [measured].
         bounce_speed: 9.0,
         bounce_brake: 24.0,
         bounce_gravity: 25.0,
+        bounce_ticks: 54,
     ),
     // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].
     hit: (

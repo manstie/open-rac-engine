@@ -298,6 +298,8 @@ pub struct HeroMotion {
     charge_steer: f32,
     /// The charge's sinking rate off the ground, u per tick.
     charge_sink: f32,
+    /// The skid after a charge, whose slide stops when the controls come back.
+    charge_skid: bool,
 }
 
 impl HeroMotion {
@@ -343,6 +345,7 @@ impl HeroMotion {
             charge_cooldown: 0,
             charge_steer: 0.0,
             charge_sink: 0.0,
+            charge_skid: false,
         }
     }
 
@@ -377,6 +380,7 @@ impl HeroMotion {
             self.ticks = 0;
             self.skidding = false;
             self.sliding = false;
+            self.charge_skid = false;
         }
     }
 
@@ -701,6 +705,9 @@ fn move_hero(
         _ => on_ground || pushing_off,
     };
     let start = hero.position;
+    // A charge would outrun the collision's step limit, so the game caps the velocity.
+    let horizontal = hero.horizontal_velocity();
+    hero.set_horizontal_velocity(horizontal.clamp_length_max(profile.body.max_step / TICK));
     let outcome = motor::move_body(
         world,
         &profile.body,
@@ -812,6 +819,10 @@ fn ground_tick(
         if free && input.held(Action::Crouch) {
             hero.set_state(HeroState::Crouch);
         } else {
+            if hero.charge_skid && free {
+                // After a charge the slide stops when the controls come back.
+                hero.speed = 0.0;
+            }
             skid_to_a_stop(hero, profile);
             return;
         }
@@ -1369,9 +1380,12 @@ fn charge_tick(hero: &mut HeroMotion, stick: &Stick, profile: &HeroProfile) {
     let charge = &profile.charge;
     let t = hero.ticks;
     if t > charge.last_tick {
-        // Over: a skid, with the controls ignored for a moment.
+        // Over: a skid, with the controls ignored for a moment. It slides on the motion it
+        // had, which the step limit kept under the charge's speed.
         hero.input_lock = charge.end_lock_ticks;
+        hero.speed = hero.horizontal_velocity().length();
         hero.set_state(HeroState::Skid);
+        hero.charge_skid = true;
         if hero.ground.is_some() {
             skid_to_a_stop(hero, profile);
         }
@@ -1443,12 +1457,11 @@ fn start_bounce(hero: &mut HeroMotion, profile: &HeroProfile) {
     hero.set_state(HeroState::Bounce);
 }
 
-/// Back off the wall a charge ran into, still facing it (state 121). The game ends the
-/// bounce with its animation, which isn't read; the kit ends it when the speed is spent
-/// [placeholder].
+/// Back off the wall a charge ran into, still facing it (state 121), for as long as the
+/// game's animation.
 fn bounce_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
     let charge = &profile.charge;
-    if hero.speed <= 0.0 {
+    if hero.ticks >= charge.bounce_ticks {
         hero.set_horizontal_velocity(Vec3::ZERO);
         hero.set_state(HeroState::Idle);
         return;

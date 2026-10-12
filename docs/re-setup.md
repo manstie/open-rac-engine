@@ -200,7 +200,7 @@ xdotool key F1    # savestate  -> cache/pcsx2/boot/<name>/xdg/PCSX2/sstates/
   | D-pad | arrow keys | Start, Select | Return, Backspace |
   | Cross, Circle | X, C | Square, Triangle | S, T |
   | L1, R1 | Q, E | L2, R2 | Z, V |
-| Left stick | I, J, K, L | | |
+  | Left stick | I, J, K, L | Right stick | R, F, D, G (up, down, left, right) |
 
 - **Hold each key for about 150 ms** (`keydown`, sleep, `keyup`). A bare `xdotool key`
   can be too short for the game to see.
@@ -220,6 +220,15 @@ xdotool key F1    # savestate  -> cache/pcsx2/boot/<name>/xdg/PCSX2/sstates/
     4. Cross for the default difficulty.
     5. Start skips the intro.
     6. DreadZone Station loads, and an in-engine cutscene plays.
+    7. **The opening tutorial** then ignores the movement buttons until each step is done:
+       look left and right with the right stick, fire (R1), then jump and double jump.
+       After that the charge (L2 twice) works.
+    - DL's default controls keep the hero facing the camera: the left stick strafes, and
+      the right stick turns him.
+    - The charge boots (gadget 0x11) aren't owned yet. For research,
+      `pine-probe poke --slot 28013 0x1D4E44 0` and the same for 0x1D4E45 give them (the
+      gadget box at 0x1D3F90 + 0xA30 + 0x44 × 0x11). Only ever poke the private boot
+      instance.
 - **Saving:** a savestate taken during a level's opening cutscene already holds that
   level's overlay. Copy it out of the boot folder straight away, before the next boot
   overwrites it.
@@ -276,6 +285,8 @@ stays out of the repository.
 | Deadlocked NTSC-U (SCUS-97465), DreadZone Station | `source/Ratchet Gladiator/dlntsc-dreadzone-intro.p2s` | The same, saved during DreadZone Station's opening cutscene. |
 | UYA NTSC-U, Veldin gameplay | `source/Ratchet & Clank 3/uyantsc-veldin-play.p2s` and `uyantsc-veldin-play-2.p2s` | Headless, at the start of Veldin's gameplay (enemies ahead). The second was taken 76 frames later, standing still, to find the frame counter. The first is the starting point for the traces below. |
 | UYA NTSC-U traces | `source/Ratchet & Clank 3/uyantsc-veldin-moves-{1,2,3}.trace`, each with the `.sh` input script that drove it | Self-made with scripted keyboard play: 1, jumps (tapped and held), double jump, glide, heli jump, walk and stop, run jump and long jump; 2, wrench combo, jump attack and L1 look; 3, strafe walk, side and back flips. 2,069, 1,195 and 1,075 frames. |
+| DL NTSC-U, DreadZone Station gameplay | `source/Ratchet Gladiator/dlntsc-dreadzone-play.p2s`, `-boots.p2s`, `-open.p2s` | Headless, 2026-10-12. `play`: just after the opening cutscene. `boots`: after the tutorial's look and fire steps, with the charge boots poked in. `open`: after its jump step too, facing the longest open floor; the start for the charge takes. |
+| DL NTSC-U charge traces | `source/Ratchet Gladiator/dlntsc-dreadzone-charge-1.trace` (script `-charge-1.sh`) and `-charge-3-{1..5}.trace` (script `-charge-3.sh <take>`) | Self-made, 2026-10-12, layout `re/SCUS-97465/hero.toml`. Take 1: three charges that bounce off a nearby block. Takes 3-1 to 3-5: a charge from standing, a steered one, a missed double tap (16 frames apart), single taps, and a full 61-frame charge ending in the skid. |
 | UYA NTSC-U camera trace | `source/Ratchet & Clank 3/uyantsc-veldin-cam-1.trace`, with its script `uyantsc-veldin-cam-1.sh` and layout `uyantsc-veldin-cam.toml` | Self-made, 2026-10-12, for the camera (RE.4): left stick only (runs in each direction and a circle, a held jump, a double jump, a run jump), with the camera, its update object and its follow block captured. The hero ran off the cliff ahead of the start twice and respawned. 2,673 frames. |
 | R&C3 PAL camera trace | `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace`, layout `source/Ratchet & Clank 3/rc3pal-veldin-5-cam.toml` | A replay of the owner's recording 5 with the camera block added (RE.4, `docs/research/camera.md`). It can be regenerated from the layout. |
 

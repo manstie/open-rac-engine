@@ -514,22 +514,30 @@ fn a_charge_dashes_at_30_u_s_for_a_second_then_skids() {
     assert!((rig.hero.speed - (start + 100.0 * TICK)).abs() < 1e-4);
     rig.ticks(30, &idle());
     assert_eq!(rig.hero.speed, 30.0);
-    assert!(rig.hero.velocity.z < -29.9);
+    // The step limit holds the motion to 0.43 u a tick, 25.8 u/s (DL's trace).
+    let max = 0.43 / TICK;
+    assert!(
+        (rig.hero.velocity.z + max).abs() < 1e-3,
+        "{}",
+        rig.hero.velocity
+    );
 
-    // 61 ticks in all (frames 0-60), the last one heading for 11.5 u/s; the 62nd skids.
+    // 61 ticks in all (frames 0-60); the 62nd skids.
     let rest = rig.until(40, &idle(), |hero| hero.state != HeroState::Charge);
     assert_eq!(1 + 1 + 30 + rest, 62);
     assert_eq!(rig.hero.state, HeroState::Skid);
-    assert!((rig.hero.speed - (30.0 - 15.0 * TICK - 27.0 * TICK)).abs() < 1e-3);
+    // The skid slides on the capped motion, braking at 27 u/s².
+    assert!((rig.hero.speed - (max - 27.0 * TICK)).abs() < 1e-3);
 
-    // The skid ignores the controls for 30 ticks, doesn't turn, and brakes at 27 u/s².
+    // It ignores the controls for 30 ticks and doesn't turn...
     let (before, yaw) = (rig.hero.speed, rig.hero.yaw);
     rig.tick(&input(Some([127, 0]), &[], &[Action::Jump]));
     assert_eq!(rig.hero.state, HeroState::Skid);
     assert_eq!(rig.hero.yaw, yaw);
     assert!((before - rig.hero.speed - 27.0 * TICK).abs() < 1e-4);
-    let stopped = rig.until(80, &idle(), |hero| hero.state == HeroState::Idle);
-    assert!((60..=68).contains(&stopped), "{stopped}");
+    // ...and the slide stops when the controls come back, 30 ticks after the charge.
+    let stopped = rig.until(40, &idle(), |hero| hero.state == HeroState::Idle);
+    assert_eq!(2 + stopped, 31);
 }
 
 #[test]
@@ -567,8 +575,9 @@ fn a_charge_into_a_wall_bounces_back() {
     rig.tick(&idle());
     assert!((rig.hero.velocity.z - (9.0 - 24.0 * TICK)).abs() < 1e-4);
     assert_eq!(rig.hero.yaw, 0.0);
-    let spent = rig.until(40, &idle(), |hero| hero.state == HeroState::Idle);
-    assert!((21..=24).contains(&spent), "{spent}");
+    // It lasts its animation's 54 ticks; the 55th idles.
+    let rest = rig.until(60, &idle(), |hero| hero.state == HeroState::Idle);
+    assert_eq!(1 + rest, 55);
 }
 
 #[test]

@@ -51,6 +51,8 @@ pub struct BodyProfile {
     /// How far below his feet ground is still found while walking, so he follows slopes
     /// and steps down instead of taking off.
     pub ground_snap: f32,
+    /// The furthest the hero moves sideways in one tick, whatever his speed.
+    pub max_step: f32,
 }
 
 /// How the movement stick is read.
@@ -420,11 +422,12 @@ pub struct ChargeProfile {
     pub blocked_below: f32,
     pub wall_probe_height: f32,
     pub wall_probe_reach: f32,
-    /// The bounce goes back at `bounce_speed`, slowing at `bounce_brake`, and falls at
-    /// `bounce_gravity` off the ground.
+    /// The bounce goes back at `bounce_speed`, slowing at `bounce_brake`, falls at
+    /// `bounce_gravity` off the ground, and lasts `bounce_ticks`.
     pub bounce_speed: f32,
     pub bounce_brake: f32,
     pub bounce_gravity: f32,
+    pub bounce_ticks: u32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").

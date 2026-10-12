@@ -22,8 +22,9 @@ pub struct HeadlessSettings {
 }
 
 /// Controller 1's keyboard bindings with `keyboard_pad`, as (pad button, key). Return is
-/// Start; none of the keys is one of PCSX2's default hotkeys.
-pub const KEYBOARD_PAD: [(&str, &str); 18] = [
+/// Start; none of the keys is one of PCSX2's default hotkeys. The right stick is R, F, D
+/// and G (up, down, left, right): DL's opening tutorial waits for it.
+pub const KEYBOARD_PAD: [(&str, &str); 22] = [
     ("Up", "Keyboard/Up"),
     ("Down", "Keyboard/Down"),
     ("Left", "Keyboard/Left"),
@@ -42,6 +43,10 @@ pub const KEYBOARD_PAD: [(&str, &str); 18] = [
     ("LDown", "Keyboard/K"),
     ("LLeft", "Keyboard/J"),
     ("LRight", "Keyboard/L"),
+    ("RUp", "Keyboard/R"),
+    ("RDown", "Keyboard/F"),
+    ("RLeft", "Keyboard/D"),
+    ("RRight", "Keyboard/G"),
 ];
 
 fn overrides(s: &HeadlessSettings) -> Vec<(&'static str, &'static str, String)> {
@@ -195,6 +200,7 @@ mod tests {
         assert!(ini.contains("[InputSources]\nKeyboard = true\nSDL = false\n"));
         assert!(ini.contains("Cross = Keyboard/X\n"));
         assert!(ini.contains("Start = Keyboard/Return\n"));
+        assert!(ini.contains("RLeft = Keyboard/D\n"));
         assert_eq!(ini.matches("Cross =").count(), 1);
         assert!(
             ini.contains("R3 = SDL-0/RightStick\n"),

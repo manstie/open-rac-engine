@@ -1,0 +1,310 @@
+# Ratchet: Deadlocked (NTSC-U, SCUS-97465): where the hero lives in EE memory.
+# Format and verification conventions: re/README.md. The hero is at the same address as in
+# Gladiator PAL (re/SCES-53285/hero.toml), with libdl's layout; checked 2026-10-12 against
+# headless DreadZone Station savestates (PLAN.md RE.2, RE.3).
+
+release = "SCUS-97465"
+title = "Ratchet: Deadlocked (USA)"
+refresh_hz = 60
+frame_counter = 0x0021DDB8
+notes = """
+The hero is libdl's `Player` at the same address as Gladiator PAL's, found through the
+HeroPlayerConstants pointer at +0x2EEC (0x3BD930 here). Field notes below were written for
+Gladiator PAL; DL multiplies its per-second constants by frame_dt = 1/60
+(docs/research/hero-controller.md).
+
+frame_counter: not Gladiator's 0x1AF180, which stays 0 here. 0x21DDB8, next to the
+frame_dt globals, advanced exactly as the hero's state timer between three gameplay
+savestates (483, 838 and 219 frames); it starts at 0 with the level. Checked again by
+captures (see docs/re-setup.md).
+
+The pad struct is the one hero+0x2F00 points to (libdl's PAD). On DreadZone Station that
+is 0x1EE600 once the opening tutorial is over (0x397320 before, which then stops
+changing), so check the pointer in the savestate before capturing.
+"""
+
+[[region]]
+name = "hero"
+base = 0x00368F60
+size = 0x3000
+
+[[field]]
+name = "pos"
+region = "hero"
+offset = 0xA0
+type = "vec3"
+key = true
+note = "libdl's PlayerPosition. Verified: follows Gladiator Ratchet in all savestates and is the running sum of `vel`."
+
+[[field]]
+name = "rot"
+region = "hero"
+offset = 0xB0
+type = "vec3"
+note = "libdl's PlayerRotation (roll, pitch, yaw). Not checked."
+
+[[field]]
+name = "move_vel"
+region = "hero"
+offset = 0x130
+type = "vec3"
+note = "libdl's Velocity. It is the intended motion: in the air it equals the actual displacement, but on the ground it holds a constant -0.0216 downward push that collision cancels."
+
+[[field]]
+name = "vel"
+region = "hero"
+offset = 0x150
+type = "vec3"
+key = true
+note = "Actual displacement per frame: equals pos[n] - pos[n-1] on every frame of the gladpal-dreadzone-4 replay."
+
+[[field]]
+name = "state"
+region = "hero"
+offset = 0x25CC
+type = "i32"
+key = true
+note = "libdl's PlayerState. Verified: 24 (ledge idle) in the ledge savestate; transitions line up with the recorded inputs."
+
+[[field]]
+name = "substate"
+region = "hero"
+offset = 0x25D0
+type = "i32"
+note = "libdl's PlayerSubstate. Not checked."
+
+[[field]]
+name = "state_type"
+region = "hero"
+offset = 0x25D4
+type = "i32"
+note = "libdl's PlayerStateType. Verified pairs: walk=1, fall=2, all jump states=4, attacks=6."
+
+[[field]]
+name = "prev_state"
+region = "hero"
+offset = 0x25D8
+type = "i32"
+note = "libdl's PlayerPreviousState: equal to the old state at all 73 transitions in the replay."
+
+[[field]]
+name = "state_timer"
+region = "hero"
+offset = 0x370
+type = "i32"
+note = "Frames since the current state began. Checked in the gladpal-dreadzone-4 trace."
+
+[[field]]
+name = "jump_apex_gravity"
+region = "hero"
+offset = 0x1CC8
+type = "f32"
+note = "Gravity after the apex: jump_gravity * 1.17 for a standing jump. Read in the trace."
+
+[[field]]
+name = "jump_max_fall"
+region = "hero"
+offset = 0x1D10
+type = "f32"
+note = "Fall speed cap per frame: frame_dt * 50. Read in the trace."
+
+[[field]]
+name = "jump_air_max"
+region = "hero"
+offset = 0x1D14
+type = "f32"
+note = "Horizontal speed cap in the air: frame_dt * 7.25 for a standing jump (0.145). Read in the trace."
+
+[[field]]
+name = "jump_height"
+region = "hero"
+offset = 0x1D18
+type = "f32"
+note = "Target jump height, as in R&C3. Checked frame by frame in the trace."
+
+[[field]]
+name = "jump_push_frames"
+region = "hero"
+offset = 0x1D1C
+type = "i16"
+note = "Push-off frames before the jump impulse applies. Checked in the trace."
+
+[[field]]
+name = "jump_pending"
+region = "hero"
+offset = 0x1D20
+type = "f32"
+note = "Upward speed still to add: sqrt(2 * jump_height * jump_gravity) minus jump_given. Checked frame by frame in the trace."
+
+[[field]]
+name = "jump_given"
+region = "hero"
+offset = 0x1D24
+type = "f32"
+note = "Upward speed added so far. Checked frame by frame in the trace."
+
+[[field]]
+name = "jump_air_accel"
+region = "hero"
+offset = 0x1D70
+type = "f32"
+note = "Acceleration of the ground speed towards the air cap during push-off: frame_dt2 * 20. Read in the trace."
+
+[[field]]
+name = "jump_air_decel"
+region = "hero"
+offset = 0x1D74
+type = "f32"
+note = "Braking of the ground speed during push-off: frame_dt2 * 11. Read in the trace."
+
+[[field]]
+name = "jump_min_height"
+region = "hero"
+offset = 0x1D78
+type = "f32"
+note = "Height of a tapped jump (1.42 for a standing jump). Read in the trace."
+
+[[field]]
+name = "jump_max_height"
+region = "hero"
+offset = 0x1D7C
+type = "f32"
+note = "Height of a fully held jump (2.7 for a standing jump). Read in the trace."
+
+[[field]]
+name = "jump_up_frames"
+region = "hero"
+offset = 0x1D88
+type = "i16"
+note = "Frames X can extend the jump (14 on PAL). Read in the trace."
+
+[[field]]
+name = "jump_gravity"
+region = "hero"
+offset = 0x1D90
+type = "f32"
+note = "Gravity per frame: frame_dt2 * 29.7 for a standing jump. Checked frame by frame in the trace."
+
+[[field]]
+name = "player_constants"
+region = "hero"
+offset = 0x2EEC
+type = "u32"
+note = "Pointer to libdl's HeroPlayerConstants (0x3BDAF0 here); see re/SCES-53285/symbols.toml."
+
+[[field]]
+name = "yaw"
+region = "hero"
+offset = 0xB8
+type = "f32"
+note = "The facing's yaw (rot z). The charge turns it directly."
+
+[[field]]
+name = "speed_target"
+region = "hero"
+offset = 0x1780
+type = "f32"
+note = "Target ground speed per frame (30 or 11.5 u/s times frame_dt in a charge)."
+
+[[field]]
+name = "speed"
+region = "hero"
+offset = 0x1784
+type = "f32"
+note = "Ground speed per frame, moved towards speed_target."
+
+[[field]]
+name = "stick_magnitude"
+region = "hero"
+offset = 0x2E08
+type = "f32"
+note = "The stick magnitude the movement code reads."
+
+[[field]]
+name = "stick_x"
+region = "hero"
+offset = 0x120
+type = "f32"
+note = "The stick's x as the movement code reads it (the charge steers with minus this)."
+
+[[field]]
+name = "charge_steer"
+region = "hero"
+offset = 0x1DF8
+type = "f32"
+note = "The charge's eased steering value: towards -stick_x by 0.17 a frame."
+
+[[field]]
+name = "height_above_ground"
+region = "hero"
+offset = 0x2CC
+type = "f32"
+note = "libdl's HeroGround.dist."
+
+[[field]]
+name = "wall_contact"
+region = "hero"
+offset = 0x226
+type = "u8"
+note = "libdl's HeroColl.contact: set when the capsule touched a wall."
+
+[[field]]
+name = "no_input"
+region = "hero"
+offset = 0x3BA
+type = "i16"
+note = "libdl's HeroTimers.noInput: 30 after a charge ends."
+
+[[field]]
+name = "charge_window"
+region = "hero"
+offset = 0x2E50
+type = "i16"
+note = "Frames left in which a second R1 press starts a charge (15 after each press)."
+
+[[field]]
+name = "charge_cooldown"
+region = "hero"
+offset = 0x2E54
+type = "i16"
+note = "30 on every charge frame, counted down by the timers update."
+
+[[region]]
+name = "pad"
+base = 0x001EE600
+size = 0x1B0
+
+[[field]]
+name = "pad_buttons"
+region = "pad"
+offset = 0x2
+type = "u16"
+note = "Raw DualShock button bits, active low (0xFFFF with nothing pressed)."
+
+[[field]]
+name = "pad_lx"
+region = "pad"
+offset = 0x6
+type = "u8"
+note = "Raw left stick x byte (0-255, centre about 127)."
+
+[[field]]
+name = "pad_ly"
+region = "pad"
+offset = 0x7
+type = "u8"
+note = "Raw left stick y byte (0-255, up is 0)."
+
+[[field]]
+name = "pad_held"
+region = "pad"
+offset = 0x1A0
+type = "u32"
+note = "libdl's PAD.bits: held buttons, L2 1, R2 2, L1 4, R1 8, Cross 0x40, Start 0x800."
+
+[[field]]
+name = "pad_pressed"
+region = "pad"
+offset = 0x1A4
+type = "u32"
+note = "libdl's PAD.bitsOn: buttons pressed this frame."

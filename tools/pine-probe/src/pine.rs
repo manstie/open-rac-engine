@@ -35,6 +35,7 @@ mod opcode {
     pub const READ8: u8 = 0x0;
     pub const READ32: u8 = 0x2;
     pub const READ64: u8 = 0x3;
+    pub const WRITE8: u8 = 0x4;
     pub const VERSION: u8 = 0x8;
     pub const SAVE_STATE: u8 = 0x9;
     pub const LOAD_STATE: u8 = 0xA;
@@ -214,6 +215,15 @@ impl Pine {
         Ok(u32::from_le_bytes(reply[..4].try_into().unwrap()))
     }
 
+    /// Writes one byte of EE memory. Only for the private research instances: it changes
+    /// the running game, for example to give the hero an item a level hasn't granted yet.
+    pub fn write_u8(&mut self, addr: u32, value: u8) -> Result<(), PineError> {
+        let mut request = vec![opcode::WRITE8];
+        request.extend_from_slice(&addr.to_le_bytes());
+        request.push(value);
+        self.call(&request).map(drop)
+    }
+
     /// Commands that answer with a length-prefixed, NUL-terminated string.
     fn string_command(&mut self, op: u8) -> Result<String, PineError> {
         let reply = self.call(&[op])?;
@@ -314,7 +324,7 @@ pub(crate) mod tests {
         }
 
         fn answer(&self, request: &[u8]) -> Vec<u8> {
-            let memory = self.memory.lock().unwrap();
+            let mut memory = self.memory.lock().unwrap();
             let mut out = vec![0u8];
             let mut i = 0;
             let mut ok = true;
@@ -333,6 +343,15 @@ pub(crate) mod tests {
                         let n = 1 << op;
                         match memory.get(a..a + n) {
                             Some(bytes) => out.extend_from_slice(bytes),
+                            None => ok = false,
+                        }
+                    }
+                    opcode::WRITE8 => {
+                        let a = addr();
+                        let value = request[i];
+                        i += 1;
+                        match memory.get_mut(a) {
+                            Some(byte) => *byte = value,
                             None => ok = false,
                         }
                     }
@@ -399,6 +418,14 @@ pub(crate) mod tests {
             pine.read_u32(0x40).unwrap(),
             u32::from_le_bytes(mem[0x40..0x44].try_into().unwrap())
         );
+    }
+
+    #[test]
+    fn writes_a_byte() {
+        let mut pine = Pine::from_stream(FakePcsx2::new(memory()));
+        pine.write_u8(0x21, 0xAB).unwrap();
+        assert_eq!(pine.read_bytes(0x20, 3).unwrap()[1], 0xAB);
+        assert!(pine.write_u8(0x10_0000, 1).is_err());
     }
 
     #[test]

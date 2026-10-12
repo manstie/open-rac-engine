@@ -578,12 +578,47 @@ a found flag.
 - The probe also records the height above the ground (0x1A4F1C, 32 when nothing is
   found) and the slope angle (0x1A4F20), which many rules above read.
 
-## Charge boots (state 125) [code, DL NTSC, 2026-10-12]
+## Charge boots (state 125) [code, then verified on DL NTSC, 2026-10-12]
 
 UYA's hero code on Veldin has no charge-boots state, so they were read in Deadlocked's
 (DreadZone Station; addresses in `re/SCUS-97465/symbols.toml`). DL multiplies its literals
 by `frame_dt` at run time, so the values below are per second as written; frame counts
-are at 60 Hz. Not yet traced.
+are at 60 Hz.
+
+**Checked against our own DL NTSC traces** (`dlntsc-dreadzone-charge-*`, scripted
+keyboard play; `docs/re-setup.md`). The boots aren't owned at DreadZone Station's start,
+so gadget 0x11 was granted by writing its gadget-box entry. These match the code:
+- the 15-frame window: presses 15 frames apart charge, 16 apart don't;
+- 100 u/s² up to the 30 u/s target, reached on the 18th frame;
+- 61 frames (0–60), then the skid with `noInput` 30 and the cooldown counting down from
+  30;
+- the last frame heads for 11.5 u/s: the skid's first speed is `0.5 − 15/3600 − 27/3600`
+  u per frame exactly;
+- the 0.17 u rise on the spring;
+- the steering's 0.17 easing and its `t/50` ramp to 0.020362 rad per frame;
+- the bounce off a wall at 9 u/s, slowing at 24 u/s².
+
+**Found in the traces:**
+- **The hero never moves faster than 0.43 u per frame (25.8 u/s).**
+  - The intended velocity (hero+0x130) is capped there, while the speed variable reaches
+    0.5 (30 u/s).
+  - 0.43 is the collision radius less 0.02, the same expression as the wall probe's, so
+    it is probably the collision's step limit. Its code isn't found yet.
+  - Slower moves never reach it.
+- **The bounce lasts 54 frames**, its animation, then the hero idles. Its speed is spent
+  after 23 of them.
+- **The skid after a charge** slides on its own vector:
+  - the motion when the skid began (so 0.43 u per frame), shortened by 27 u/s² each
+    frame (`hero_skid_slide`);
+  - when the 30-frame input lock ends, the motion drops to about 0.02 u per frame and
+    creeps to a stop;
+  - the state lasts 61 frames, its animation, while the speed variable keeps braking
+    unseen.
+- **Controls:** DL's default control scheme (the scheme byte at 0x171DE0 is 1) maps the
+  charge's action to **L2**, and R1 fires. The other scheme uses R1.
+  - DL's default controls keep the hero facing the camera, so the left stick strafes.
+  - The opening tutorial ignores the movement buttons until each step is done: look left
+    and right with the right stick, fire, then jump.
 
 - **Starting a charge** (`hero_common_transitions`):
   - **Input:** R1 pressed again within 15 frames of the last R1 press. Every R1 press
@@ -642,8 +677,9 @@ are at 60 Hz. Not yet traced.
 - **In the hero kit (P1.5):**
   - All of this is implemented, with the hero's feet kept on the ground: the 0.17 u lift
     is left to the animation [simplified].
-  - The bounce ends when its speed is spent, about 23 ticks [placeholder for the
-    animation].
+  - Also from the traces: the 0.43 u step limit, the bounce's 54 ticks, and the skid's
+    slide that stops when the lock ends. The skid then idles at once, rather than
+    standing out its animation [simplified].
 
 ## Moves that need items [code, UYA NTSC]
 
@@ -726,11 +762,10 @@ Also read in DL's code but not seen in a trace: 121, the bounce off a wall after
 
 ## Next steps
 
-1. **Traces on Deadlocked NTSC.** The UYA approach (`tools/pine-probe/boot.sh` with
-   xdotool) works for DL too. It needs a DL NTSC `hero.toml`, which needs a frame counter.
-   - The first thing to trace there is a charge (R1 twice, keyboard E), which would check
-     the 30 u/s, the 61 frames and the steering. Check first that the savestate's gadget
-     box holds gadget 0x11.
+1. **More traces on Deadlocked NTSC.** They work since 2026-10-12
+   (`re/SCUS-97465/hero.toml`, `docs/re-setup.md`), and the charge is verified. Next: DL's
+   jumps, to compare with Gladiator PAL and UYA, and the code behind the 0.43 u step limit
+   and the skid's stop when the input lock ends.
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
    swimming.
    - The wall jump, ledges, slope limit and getting hit are read in UYA's code, and the

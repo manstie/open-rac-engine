@@ -230,3 +230,17 @@ address = 0x0021E878
 kind = "data"
 confidence = "low"
 note = "0 in single player. When set, the charge heads for 11.5 u/s throughout and hugs the ground with a downward push instead of the spring; probably multiplayer."
+
+[[symbol]]
+name = "hero_skid_slide"
+address = 0x006834C8
+kind = "function"
+confidence = "medium"
+note = "The skid's slide: shortens the vector at hero+0x1A0 (the motion when the skid began) by its argument each frame and adds it to the intended velocity. Checked in the DL charge traces."
+
+[[symbol]]
+name = "control_scheme"
+address = 0x00171DE0
+kind = "data"
+confidence = "medium"
+note = "One byte per local player (indexed by hero+0x2F10): 1, the default, maps the crouch and charge action to L2; 0 to R1."
