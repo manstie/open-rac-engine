@@ -104,9 +104,8 @@ in that folder, so they can't be committed by accident.
 
 ## Contributing
 
-If you'd like to help, read [PLAN.md](PLAN.md) for where things stand, and
-[CLAUDE.md](CLAUDE.md) for the ground rules, before opening a pull request. The legal
-rules matter most:
+If you'd like to help, read [CONTRIBUTING.md](CONTRIBUTING.md), and [PLAN.md](PLAN.md) for
+where things stand, before opening a pull request. The legal rules matter most:
 
 - **Never commit game data:** no disc images, nothing extracted from a disc, no savestates.
 - **Never commit decompiled game code.**

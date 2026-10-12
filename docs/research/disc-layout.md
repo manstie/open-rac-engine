@@ -20,7 +20,20 @@ data. Re-verify anything marked *unverified* before you build on it.
 "Mastered" is the primary volume descriptor's creation date. The preparer ID is
 `INSOMNIAC GAMES` on R&C1 and `INSOMNIAC` on the rest. The publisher ID is SCEE for the
 PAL R&C1–3 discs, SCEA for UYA and SONY for Deadlocked and Gladiator. The file names
-follow Redump naming. Checking the hashes below against redump.org is task P0.10 in PLAN.md.
+follow Redump naming.
+
+**All six images are verified good dumps.** On 2026-10-11 each whole-image SHA-1 below was
+looked up with redump.org's quick search, and the matching disc page lists the same SHA-1
+(PLAN.md P0.10):
+
+| Serial | Redump entry | Version |
+|---|---|---|
+| SCES-50916 | [disc 4254](http://redump.org/disc/4254/) | 2.00 |
+| SCES-51607 | [disc 234](http://redump.org/disc/234/) | 1.00 |
+| SCES-52456 | [disc 225](http://redump.org/disc/225/) | 1.00 |
+| SCUS-97353 | [disc 11307](http://redump.org/disc/11307/) | 1.00 |
+| SCUS-97465 | [disc 15053](http://redump.org/disc/15053/) | 1.00 |
+| SCES-53285 | [disc 921](http://redump.org/disc/921/) | 1.00 |
 
 ### Identification hashes (SHA-1)
 
