@@ -141,6 +141,11 @@ ghidra-headless cache/ghidra/proj <name> -process <name>.ee.bin -noanalysis -rea
   file, with each function's callers. **That output is decompiled game code: keep it in
   `cache/`, never in the repository.** What we learn goes into `docs/research/` in our own
   words and into `re/<serial>/symbols.toml`.
+- **`RefsTo.java`** (same arguments: an output file, then addresses) lists every
+  instruction that reads or writes each address, with the function it is in. Hero fields
+  are gp-relative or based on the hero's address, so the import's `$gp` must be set.
+  - That is how the wall-contact window and the ledge block were found on 2026-10-12.
+  - The listing names game addresses only, but still keep it in `cache/`.
 - **Finding things:**
   - The fastest way in is a value from a trace. For example, find the code that writes a
     measured constant (search the image for the `lui`/`ori` pair that loads it), or the

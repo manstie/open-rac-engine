@@ -2,7 +2,7 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-12.
+(RE.6). Last updated 2026-10-12 (wall jump, ledges, hits and slope limit added).
 
 ## Status and method
 
@@ -225,9 +225,9 @@ These are UYA NTSC values. In the frame columns PAL is in brackets.
 | 14 double jump | (own model, below) | 14 (12) | none | 29.7 | 4.75 | |
 | 15 heli jump (UYA's jump from a crouch) | 1.65–1.7 | 5 (4) | 9 (7) | 29.7 | 3.3 | Thrust, below |
 | 16 charge jump | 0.4–0.9 | 1 | 5 (4) | 8.5 | | Air acceleration 44 u/s², braking 50 u/s²; also sets a speed of 11.5 u/s whose use is not traced (probably the boots' forward speed) |
-| 17 wall jump | 1.8–1.85, or 3.3–3.35 in a second mode | 12 (10) | 9 (7) | 29 | | Pushes off the wall at 1.7 u/s; in the second mode 4.9 u/s, scaled up to ×1.7 by another value. The flag that picks the mode is not identified |
+| 17 wall jump | 1.8–1.85, or 3.3–3.35 off a wall-jump surface | 12 (10) | 9 (7) | 29 | 4.9, away from the wall | See "Wall jump". The higher pair is for walls of collision material 15 |
 | 18 water jump | 1.95–1.98 | 10 (8) | 5 (4) | 29.7 | | |
-| 27 ledge jump | 2.0–2.05 | 1 | 4 (3) | 25 | | |
+| 27 ledge jump | 2.0–2.05 | 1 | 4 (3) | 25 | 2, forward | Climbing up from a hang. See "Ledges" |
 | 40 grind jump | 2.4–2.45 | 17 (14) | 5 (4) | 27 | | |
 | 41 grind switch jump | 2.5–2.55 | 10 (8) | 2 (2) | 24 | | |
 | 56 lava jump | 5.5–5.55 | 2 | 5 (4) | 15 | | |
@@ -269,6 +269,18 @@ Most jump-type states steer the same way after push-off:
 
 - **Input:** crouch (R1) while running, then jump. Crouching first brakes at 27 u/s², so
   the timing of the two buttons matters.
+- **Which jump a crouch gives [code, UYA NTSC `hero_crouch_jump`]:**
+  - X counts if it was pressed in the last 9 frames, but only once the crouch is 7
+    frames old. A press early in the crouch is buffered, not lost.
+  - With the stick past 0.7 and the hero still moving faster than 0.9 u/s
+    (0.015 u/frame), it is a long jump. Otherwise it is the heli jump (state 15).
+  - These states need Clank's heli-pack in the back slot (item 2 in slot 3). With item
+    3 (R&C1's thruster-pack) the same inputs give states 16 and 13 instead. So state 16,
+    libuya's "charge jump", is the thruster-pack's dash, not the charge boots.
+  - A second way in: crouch pressed in the 2 frames before a standing or run jump's 3rd
+    frame, while moving faster than 0.9 u/s, turns that jump into a long jump.
+- **Run jump or standing jump [code]:** X from walking gives a run jump (state 9) when
+  the stick is past 0.85, and a standing jump (7) otherwise. The speed doesn't matter.
 - **Push-off (5 frames, PAL 4):**
   - the speed steps towards the 6.17 u/s air cap at 20 u/s²;
   - on top, `t × 0.014722` u/frame (PAL `t × 0.0212`) is added along the facing
@@ -310,6 +322,15 @@ Most jump-type states steer the same way after push-off:
     frame 4 and kept by the boost until frame 7. Frame 8 holds it. From frame 9 it drops
     by 0.00825 per frame: 0.10458 on frame 13. That is the "two or three frames" seen
     earlier.
+- **When it can start [code, UYA NTSC `hero_transitions`; consistent with the traces]:**
+  - From a standing or run jump (7, 9), not before the jump's 15th frame (t > 14).
+  - X counts if it was pressed within the last `t − 4` frames (at least 2, at most 30).
+    So the take-off press doesn't count, and an early second press is buffered until
+    frame 15.
+  - Past the apex, the hero must also be more than 0.7 u above the ground and moving
+    vertically slower than 5.8 u/s.
+  - Both double jumps in the moves-1 trace came on frames 18 and 19, on the frame X was
+    pressed, which fits.
 - **Less boost when already high [code]:**
   - The cap is multiplied by 0.7 when Ratchet is more than 2.2 u above where the first
     jump took off, and by 0.47 above 2.8 u.
@@ -327,11 +348,16 @@ Most jump-type states steer the same way after push-off:
 
 ### Glide (state 8) [verified on UYA NTSC for the sink rate]
 
-- **Entry:** holding X while falling after a double jump.
-  - In the moves-1 trace the glide began on the double jump's 31st frame. The vertical
-    speed was −0.0439 u per frame, having passed zero about 5 frames earlier.
-  - So the entry looks like a fall-speed threshold of about −0.04 u per frame (2.4 u/s)
-    **[measured, one sample; the rule isn't read in code]**.
+- **Entry [code, UYA NTSC `hero_transitions`; matches the moves-1 glide]:**
+  - Holding X in a double jump after its 30th frame (t > 30), when more than 1.5 u above
+    the ground. Entering the double jump sets that 30-frame minimum in its jump block.
+  - Holding X in a heli jump also glides, after its 85th frame and above 0.6 u.
+  - A standing or run jump can't glide: without a fresh X press their transition code
+    skips the glide check. The moves-1 trace's fully held jump (41 frames of X) indeed
+    never glided.
+  - In the moves-1 trace the glide began on the double jump's 31st frame, at −0.0439 u
+    per frame. An earlier reading took that for a fall-speed threshold (2.4 u/s); the
+    code shows it is the frame count.
   - After entry, the speed eases to the −0.036 sink within about 14 frames.
 - **Sink rate:** the vertical speed eases on a spring towards a sink of `3 u/s × 0.72` =
   2.16 u/s, 0.036 per frame, and holds it. The 0.72 can be overridden by a global.
@@ -363,13 +389,162 @@ Most jump-type states steer the same way after push-off:
     frame: about 4.4, 5.7 or 3.7 u/s.
   - It is scaled when an enemy is targeted, and the hero turns towards that enemy.
   - The lunge accelerates at 37 u/s² and brakes at 28 u/s².
-- **Get hit (state 22):** the hero slides and loses speed at 4 u/s² for 9 frames, then
-  10 u/s² (PAL 0.0016 and 0.004 per frame).
-- **Ledge grab and idle (23, 24):** the hero is drawn to the ledge point and turned to
-  face it.
-- **Ledge shimmy (25, 26):** speed comes from a table indexed by animation frame.
+- **Get hit (state 22):** see "Getting hit and dying".
+- **Ledges (23–27):** see "Ledges".
 - The Gladiator traces contain ledge grabs and ledge jumps that we have not yet compared
   with this.
+
+## Wall jump (state 17) [code, UYA NTSC, 2026-10-12]
+
+Read in `hero_detect_wall` (0x4E39B8), the transitions (`hero_transitions`, 0x503B68),
+`hero_change_state` and the air phase (`hero_air_horizontal`, 0x4EDE80). Not yet seen in a
+trace: Veldin's start has no wall to jump from.
+
+- **Wall contact is a 6-frame window.** Every frame the detector may set a countdown to 6
+  (7 during a wall jump), which the per-frame timers then count down. A wall jump can
+  start while it is non-zero.
+- **When the detector looks:**
+  - the hero is at least 0.4 u above the ground and not falling faster than 20 u/s;
+  - he is in a jump-type state, or was one or two states ago;
+  - no ledge is held, and a ledge-grab check at the point where his current trajectory
+    will be 20 frames later finds nothing. If it would find a ledge, the wall is ignored,
+    so ledges win over walls.
+- **What counts as a wall.** All probes start on the hero's axis and point along his
+  facing:
+  1. A horizontal segment at 3.0 u above his feet (1.7 u during a wall jump), from the
+     axis to 1.85 u out (the capsule radius plus 1.4), must hit something. That makes
+     sure the wall is tall.
+  2. The surface must not be of collision materials 10 or 12. It must be steeper than
+     75° from the horizontal, and its normal must point back at the hero within 50°, so
+     he is facing into it.
+  3. The same segment at 0.2 u above his feet must hit within 0.72 u of the axis (0.95
+     during a wall jump), so the wall is at most 0.27 u from the capsule's surface.
+  4. A 10 u probe from his chest along the wall normal measures the open space behind
+     him. It defaults to 5 u when nothing is hit.
+- **Repeating it:**
+  - A chained wall jump must leave from a wall facing at least 170° away from the last
+    one's, so the hero alternates between two facing walls.
+  - On ordinary walls, at most two wall jumps in a row are allowed.
+    - Entering a jump-type state from a wall jump off an ordinary wall bumps a counter.
+    - While the counter is non-zero, ordinary walls are ignored.
+    - So the first wall jump (from a jump) and a second (from the first) work, and a
+      third is refused.
+  - Walls of **material 15** (wall-jump surfaces) reset that counter, so chains on them
+    are unlimited, and they give the higher jump.
+- **Starting it:** X pressed in the last 7 frames, after the current state began, while
+  the window is open, in these cases:
+  - in a standing or run jump (7, 9);
+  - in a wall jump after its 25th frame;
+  - in the first 8 frames of a glide, if the glide came from one of those states or a
+    double jump.
+- **The jump itself:**
+  - Its 9 push-off frames are spent clinging to the wall, pressed down at the usual
+    push-off rate. The standard vertical model then launches it (table above):
+    1.8–1.85 u, or 3.3–3.35 u off material 15, with 29 u/s² gravity and a 12-frame hold.
+  - From frame 9 the horizontal velocity is set every frame to 4.9 u/s (0.081667 u/frame)
+    along the wall's normal. There is no air control.
+  - From frame 10 the hero turns towards the normal's direction with gain 0.042, damping
+    0.2 and cap 0.198 rad/frame.
+  - Entering the state also writes 1.7 u/s, or 4.9 u/s scaled by the open space behind,
+    to a jump-block field that no code in the Veldin overlay reads.
+
+## Ledges (states 23–27) [code, UYA NTSC, 2026-10-12]
+
+Read in `hero_detect_ledge` (0x4E4550), the state update and the transitions. The game
+runs the detector every frame, before the transitions, at the hero's position, and keeps
+its result in a ledge block at 0x1A50E0: the hang point, the lip point, the wall's yaw and
+a found flag.
+
+- **When it looks:**
+  - in a jump-type state once past the apex, or rising slower than 3.5 u/s, and not
+    before the frame after the push-off ends. The jump states' transition code returns
+    early until `t > push-off frames + 1`, which also holds back their wall jumps and
+    double jumps. So a climb doesn't grab the ledge it leaves. Only the crouch that turns
+    a jump into a long jump is checked earlier;
+  - while falling, gliding or shimmying;
+  - not in a double jump before its animation's frame 37;
+  - not while a 10-frame (40 after some drops) no-grab timer runs. Letting go starts it.
+- **What counts as a ledge** (sizes for Ratchet; a second set is for Clank):
+  1. **The top:** a vertical segment from 1.65 u above to 1.15 u below the point at the
+     front of the capsule (the hero's position plus 0.45 along his facing) is cast down.
+     It is tried four times, stepping 0.075 u further out each time. The hit must be
+     flatter than 20°, and of a material other than 0, 9 or 12.
+  2. If the top belongs to a moving object, that object must allow grabbing.
+  3. The top must be between 0.5 and 1.5 u above the hero's feet. It must also be at
+     least 1.8 u above the ground under him, so low ledges are landed on, not grabbed.
+  4. **Clear lip:** a segment 0.005 u above the top, from 1 u back towards the hero to
+     the hit point, must not be blocked, except by the same object.
+  5. **The wall face:** a horizontal segment from the hero's axis to 1 u past the hit,
+     0.7 u below the top, must hit. It is tried 5 times in all, 0.14 u lower each
+     time. The wall's normal, flattened, gives the hanging direction.
+  6. **The lip:** starting from the top's hit point, short vertical probes 0.03 u out
+     from the wall climb it in 0.03 u steps, up to 2.4 u, until one finds nothing. Where
+     it is clear is the lip.
+- **The hang point** is the lip plus 0.5 u along the wall normal and 1.43 u down: the
+  feet hang 1.43 u below the edge, 0.5 u out from the wall.
+  - The detector also notes whether a 0.45 u sphere fits 0.6 u above the lip.
+- **Grab (23):**
+  - The hero moves towards the hang point at up to 4 u/s (0.0667 u/frame).
+  - He turns to face the wall with gain 0.04, damping 0.2 and cap 0.105 rad/frame.
+  - At animation frame 12 he hangs (24).
+- **Hanging (24):**
+  - Losing the ledge drops him into a fall, with the 10-frame no-grab timer.
+  - X (pressed in the last 17 frames) climbs: a ledge jump (27).
+  - R1, or X while pulling the stick more than 135° away from his facing, lets go.
+  - The stick past 0.5 and within 45° of either side shimmies that way (25 or 26), if a
+    ledge is found 0.3 u to that side.
+- **Shimmy (25, 26):**
+  - Each frame the detector runs at a point a short way to the side, and the hero moves
+    towards the hang point it finds.
+  - The step is that offset times a per-animation-frame factor times 0.5. The factors
+    for its 15 frames are 0, 0, 0.025, 0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037,
+    0.037, −0.017, −0.017, −0.035 and −0.035.
+  - The resulting speed hasn't been traced yet.
+  - It returns to hanging when the stick is released, or no ledge continues.
+  - X climbs; X while pulling away lets go (40-frame no-grab timer).
+- **Ledge jump (27):**
+  - Vertically it is the standard model: 2.0–2.05 u, push-off 4 frames, hold 1 frame,
+    gravity 25 u/s².
+  - Its forward speed is tied to the animation. It is 0 until frame 13, eases to 2 u/s at
+    8 u/s² until frame 27, then back towards 0, and is 0 after frame 30.
+  - After 40 frames he turns and steers like a normal jump.
+
+## Getting hit and dying [code, UYA NTSC, 2026-10-12]
+
+- **Get hit (state 22):**
+  - Entering takes the velocity the attacker set, capped at 7 u/s (0.11667 u/frame).
+  - It also starts a 77-frame timer that stops a floor's damage from hitting again.
+  - The speed then shrinks at 4 u/s² for 11 frames on the ground, then 10 u/s². In the
+    air it shrinks at 4 u/s² throughout. PAL has 0.0016 and 0.004 per frame for 9 frames.
+  - After 28 frames on the ground he returns to idle, or dies (57) if health (0x1A7430)
+    is below 1. If he is more than 1 u above the ground after the animation's frame
+    12.5, he falls instead.
+- **Health:** idle or walking with health below 1 also starts the death state.
+- **Floor materials** set by the ground probe trigger states:
+  - Material 17 damages: its amount is a global divided by 8, with a 90-frame repeat
+    timer, and it starts state 177, which shares the get-hit update.
+  - Material 1 (lava) gives the lava jump (56), or death (57) at no health.
+  - Material 3 (water) gives state 106, or the 125 sink when health is 0. In UYA's
+    single-player code, 125 (libuya's "charge") sinks the hero at 1 u/s with the
+    quicksand type.
+  - Material 4 gives the slide (48).
+- **Death (57):** the hero brakes like a landing while the death animation plays. The
+  respawn timing is in the death code, which has not been read yet.
+
+## Slope limit [code, UYA NTSC, 2026-10-12]
+
+- The ground probe (`hero_ground_probe`, 0x4EBA68) casts down from above the hero. Its
+  start is 2.2 × the capsule radius up, or 2.9 × while falling.
+- It counts the hero as standing only when he is within 0.02 u of the hit, and the
+  surface is at most **50°** (0.8727 rad) from the horizontal.
+- Steeper ground leaves him airborne, so he falls and slides down it.
+- The probe also records the height above the ground (0x1A4F1C, 32 when nothing is
+  found) and the slope angle (0x1A4F20), which many rules above read.
+
+## Charge boots
+
+UYA's hero code on Veldin has no charge-boots state. Deadlocked has charge boots, so they
+will be read from DL's code. Gladiator's code is the other candidate.
 
 ## Differences between the games
 
@@ -438,9 +613,11 @@ The state numbers match libuya's `PlayerState`, and the types match `PlayerType`
    xdotool) works for DL too. It needs a DL NTSC `hero.toml`, which needs a frame counter.
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding,
    swimming and charge boots.
-   - Their code is read, but Veldin's starting area doesn't have them.
-   - A savestate near each (from the owner or from a scripted play-through) would let
-     us trace them.
+   - The wall jump, ledges, slope limit and getting hit are now read in code (sections
+     above, 2026-10-12). Grinding and swimming aren't yet. The charge boots need DL's code.
+   - Veldin's starting area has none of them, so they are untraced. A savestate near a
+     wall and a ledge (from the owner or a scripted play-through) would let us check the
+     probe distances and the shimmy speed.
    - The Gladiator traces already hold ledge grabs to compare.
 3. **Half-tilt stick on NTSC:** keyboard input only gives full tilt, so the pad layer's
    dead zone is verified on PAL only.

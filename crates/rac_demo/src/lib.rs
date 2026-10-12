@@ -9,7 +9,7 @@ mod level;
 mod spectator;
 
 use bevy::prelude::*;
-use rac_hero::{Collider, FollowCamera, HeroPlugin, hero_bundle};
+use rac_hero::{Checkpoint, Collider, FollowCamera, HeroPlugin, HeroTuning, hero_bundle};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
 pub use level::{GAP_WIDTHS, Mover, Piece, Shape, Surface, greybox_level};
@@ -48,6 +48,7 @@ impl Plugin for DemoPlugin {
 /// Spawns the greybox level, its lights and the spectator camera.
 pub fn spawn_demo(
     settings: Res<DemoSettings>,
+    tuning: Res<HeroTuning>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -62,6 +63,8 @@ pub fn spawn_demo(
             Surface::Moving => (0.9, 0.8, 0.2),
             Surface::GrindRail => (0.75, 0.75, 0.8),
             Surface::SwingTarget => (0.2, 0.85, 0.35),
+            Surface::Hazard => (0.85, 0.15, 0.1),
+            Surface::Checkpoint => (0.3, 0.9, 0.9),
         };
         materials.add(StandardMaterial {
             base_color: Color::srgb(r * shade, g * shade, b * shade),
@@ -73,6 +76,15 @@ pub fn spawn_demo(
     for (index, piece) in greybox_level().into_iter().enumerate() {
         let material = material_for(piece.surface, index);
         let (mesh, rotation) = match piece.shape {
+            // A checkpoint shows as a pad on the ground at its spawn point.
+            Shape::Box { half_extents } if piece.surface == Surface::Checkpoint => (
+                meshes.add(Cuboid::new(
+                    half_extents.x * 1.2,
+                    0.04,
+                    half_extents.z * 1.2,
+                )),
+                piece.rotation,
+            ),
             Shape::Box { half_extents } => (
                 meshes.add(Cuboid::from_size(half_extents * 2.0)),
                 piece.rotation,
@@ -91,9 +103,19 @@ pub fn spawn_demo(
             Mesh3d(mesh),
             MeshMaterial3d(material),
         ));
-        // Boxes are solid; the rail and the swing target are not.
         if let Shape::Box { half_extents } = piece.shape {
-            entity.insert(Collider::Cuboid { half_extents });
+            match piece.surface {
+                Surface::Checkpoint => {
+                    entity.insert(Checkpoint {
+                        half_extents,
+                        spawn_yaw: 0.0,
+                    });
+                }
+                surface if surface.is_solid() => {
+                    entity.insert((Collider::Cuboid { half_extents }, surface.material()));
+                }
+                _ => {}
+            }
         }
         match piece.mover {
             Some(mover) => {
@@ -139,7 +161,7 @@ pub fn spawn_demo(
     commands.spawn((
         Name::new("hero"),
         DemoEntity,
-        hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW),
+        hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
         Visibility::default(),
         children![
             (

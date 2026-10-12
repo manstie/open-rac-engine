@@ -15,7 +15,9 @@
         bottom: 0.7,
         bottom_airborne: 0.5,
         top: 1.05,
-        slope_limit_degrees: 50.0, // [placeholder]
+        // "Slope limit": the ground probe stands the hero on ground at most 0.8727 rad
+        // steep [code].
+        slope_limit_degrees: 50.0,
         ground_snap: 0.3, // [placeholder]
     ),
     stick: (
@@ -54,6 +56,11 @@
         skid_angle: 2.36,
         skid_above: 3.0,
         crouch_brake: 27.0, // [verified on UYA NTSC]
+        // "Long jump", run or standing jump: picked by the stick, not the speed [code].
+        run_jump_stick: 0.85,
+        // A press in the last 7 frames (idle) or 9 (walking) still jumps [code].
+        jump_buffer_idle: 7,
+        jump_buffer_walk: 9,
     ),
     air: (
         // "Vertical model" and "Jump parameters by state" defaults [verified, apart from
@@ -112,8 +119,15 @@
             apex_gravity_factor: 1.0,
             air_speed: 0.0,
         ),
-        min_speed: 2.5, // [placeholder]
+        // "Which jump a crouch gives" [code; the 7-frame crouch is verified on UYA NTSC:
+        // the moves-1 long jump left a crouch at frame 7].
+        min_speed: 0.9, // 0.015 u per frame
+        min_stick: 0.7,
         forward_push: 0.88332, // 0.014722 u per frame per push-off frame
+        crouch_ticks: 7,
+        press_window: 9,
+        from_jump_before_tick: 3,
+        crouch_window: 2,
     ),
     // State 11, "Flips" [verified on UYA NTSC and Gladiator PAL].
     flip: (
@@ -146,9 +160,9 @@
         thrust_from_tick: 35,
         thrust_to_tick: 70,
     ),
-    // State 14, "Double jump" [verified on UYA NTSC; the height factors are code]. The
-    // speed holds for one tick after the boost: in the moves-1 trace gravity resumes on
-    // the double jump's 10th frame.
+    // State 14, "Double jump" [verified on UYA NTSC; the height factors and when it can
+    // start are code]. The speed holds for one tick after the boost: in the moves-1 trace
+    // gravity resumes on the double jump's 10th frame.
     double_jump: (
         gravity: 29.7,
         boost_accel: 150.0,
@@ -160,17 +174,137 @@
         high_factor: 0.7,
         higher_above: 2.8,
         higher_factor: 0.47,
+        after_tick: 14,
+        press_skip: 4,
+        press_window_min: 2,
+        press_window_max: 30,
+        past_apex_min_height: 0.7,
+        past_apex_max_speed: 5.8, // 0.09667 u per frame
     ),
     // State 8, "Glide": the sink [verified on UYA NTSC]; the spring is R&C3 PAL's gain
     // and damping ÷ 1.44, with its cap ÷ 1.2 and in u/s [code]; the forward motion [code].
     glide: (
-        // Entered once falling faster than this while X is held: 0.04 u per frame, from
-        // the one glide in the moves-1 trace [measured; the rule isn't read in code].
-        enter_below: 2.4,
+        // Entered by holding X: in a double jump after its 30th tick and 1.5 u up, or in a
+        // heli jump after its 85th and 0.6 u up [code; the moves-1 glide began on the
+        // double jump's 31st frame].
+        after_double_jump_tick: 30,
+        double_jump_min_height: 1.5,
+        after_heli_jump_tick: 85,
+        heli_jump_min_height: 0.6,
         sink: 2.16,
         spring: (gain: 0.025, damping: 0.3, cap: 17.0),
         speed: 3.0,
         accel: 15.0,
         brake: 7.0,
+    ),
+    // State 17, "Wall jump" [code, UYA NTSC; untraced]. Ticks stand for the game's frame
+    // counts, compared the way its transitions compare them ("t > 8" is from_tick 9).
+    wall_jump: (
+        params: (
+            height_min: 1.8,
+            height_max: 1.85,
+            hold_ticks: 12,
+            pushoff_ticks: 9, // spent clinging to the wall
+            gravity: 29.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 4.9,
+        ),
+        surface_height_min: 3.3,
+        surface_height_max: 3.35,
+        speed: 4.9, // 0.081667 u per frame along the wall's normal
+        away_from_tick: 9,
+        turn: (gain: 0.042, damping: 0.2, cap: 0.197804),
+        turn_from_tick: 10,
+        window_ticks: 6,
+        press_window: 7,
+        again_after_tick: 25,
+        probe_height: 3.0,
+        probe_height_chained: 1.7,
+        probe_reach: 1.4,
+        foot_probe_height: 0.2,
+        max_distance: 0.72,
+        max_distance_chained: 0.95,
+        min_steepness_degrees: 75.0, // 1.3089969 rad
+        max_facing_degrees: 50.0, // 0.87266463 rad
+        min_turn_degrees: 170.0, // 2.9670596 rad
+        min_height: 0.4,
+        max_fall_speed: 20.0, // 0.33333 u per frame
+        ordinary_chain: 2,
+        ledge_lookahead_ticks: 20,
+    ),
+    // States 23-27, "Ledges" [code, UYA NTSC; untraced]. Rules the game times by
+    // animation frame assume one frame per tick.
+    ledge: (
+        probe_above: 1.65, // 1.5 + 0.15
+        probe_below: 1.15,
+        probe_step: 0.075, // 0.3 × 0.25
+        probe_tries: 4,
+        max_top_slope_degrees: 20.0, // 0.34906584 rad
+        min_rise: 0.5,
+        max_rise: 1.5,
+        min_drop: 1.8,
+        clear_back: 1.0,
+        face_below: 0.7,
+        face_tries: 5,
+        face_step: 0.14, // 0.7 / 5
+        face_reach: 1.0,
+        lip_step: 0.03,
+        lip_search: 2.4,
+        hang_out: 0.5,
+        hang_below: 1.43,
+        grab_rising_below: 3.5, // 0.058333 u per frame
+        double_jump_after_tick: 37, // animation frame 37
+        grab_speed: 4.0, // 0.066667 u per frame
+        grab_turn: (gain: 0.04, damping: 0.2, cap: 0.10472),
+        grab_ticks: 13, // hangs once the grab animation passes frame 12
+        no_grab_ticks: 10,
+        no_grab_ticks_shimmy: 40,
+        climb_press_window: 17,
+        shimmy_climb_press_window: 9,
+        let_go_degrees: 135.0,
+        shimmy_stick: 0.5,
+        shimmy_degrees: 45.0,
+        shimmy_probe: 0.3,
+        // The game steps by a per-animation-frame table whose resulting speed isn't
+        // traced yet [placeholder].
+        shimmy_speed: 1.0,
+        shimmy_turn: (gain: 0.02, damping: 0.2, cap: 0.0785398),
+        // State 27, the ledge jump: 2.0-2.05 u, hold 1, push-off 4, gravity 25 [code].
+        climb: (
+            height_min: 2.0,
+            height_max: 2.05,
+            hold_ticks: 1,
+            pushoff_ticks: 4,
+            gravity: 25.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 6.17,
+        ),
+        // Forward 0 until animation frame 13, then towards 2 u/s at 8 u/s² until 27, back
+        // towards 0 until 30, then 0 [code].
+        climb_forward_speed: 2.0,
+        climb_forward_accel: 8.0,
+        climb_forward_from_tick: 13,
+        climb_forward_until_tick: 27,
+        climb_forward_stop_tick: 30,
+        climb_turn_after_tick: 40,
+    ),
+    // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].
+    hit: (
+        max_speed: 7.0, // 0.11667 u per frame
+        brake: 4.0,
+        brake_later: 10.0,
+        brake_later_from_tick: 11,
+        ticks: 28,
+        safe_ticks: 77,
+        hazard_safe_ticks: 90,
+        // The game's hazard damage is a per-level global, and its push comes from the
+        // attacker; health is UYA's starting nanotech as remembered [placeholder].
+        hazard_damage: 1,
+        hazard_knockback: 4.0,
+        hazard_lift: 6.0,
+        max_health: 10,
+    ),
+    death: (
+        ticks: 120, // [placeholder]: the death state's timing isn't read yet
     ),
 )

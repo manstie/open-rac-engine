@@ -60,3 +60,140 @@ address = 0x004EB0E8
 kind = "function"
 confidence = "medium"
 note = "Walk turn spring while setting off: gain clamp(0.02 m, 0.01, 0.022), damping 0.27, cap clamp(0.064 m, 0.032, 0.0931); 0.035 and 0.1949 while skidding. The R&C3 PAL counterpart is checked in its traces."
+
+# Added 2026-10-12 while reading the wall jump, ledges, hits and slope limit (RE.3). Found
+# by decompiling the callers of hero_change_state and the readers and writers of the hero
+# fields below (tools/ghidra/RefsTo.java). Not yet checked in a trace.
+
+[[symbol]]
+name = "hero_tick"
+address = 0x004DE348
+kind = "function"
+confidence = "medium"
+note = "The hero's per-frame driver in normal play: hero_update, the floor-material check, hero_detect_ledge into the ledge block, then hero_transitions and the collision and animation updates."
+
+[[symbol]]
+name = "hero_transitions"
+address = 0x00503B68
+kind = "function"
+confidence = "medium"
+note = "Switch on the hero state that picks the next state from input and the detectors: jumps, wall jump (needs the wall window and X within 7 frames), ledge grab (when the ledge block's found flag is set), ledge controls, get-hit recovery."
+
+[[symbol]]
+name = "hero_detect_wall"
+address = 0x004E39B8
+kind = "function"
+confidence = "medium"
+note = "Sets the 6-frame wall window: probes along the facing at 3.0 u (1.7 in a wall jump) and 0.2 u above the feet, wall steeper than 75 degrees facing the hero within 50 degrees, at most 0.72 u (0.95) from the axis. Material 15 marks wall-jump surfaces."
+
+[[symbol]]
+name = "hero_detect_ledge"
+address = 0x004E4550
+kind = "function"
+confidence = "medium"
+note = "Ledge search at a given point: flat top (under 20 degrees) 0.5-1.5 u above the feet and 1.8 u above the ground, clear lip, wall face below; writes hang point (lip + 0.5 out, 1.43 down), lip and wall yaw to the block passed in. Returns 1 when found."
+
+[[symbol]]
+name = "hero_air_horizontal"
+address = 0x004EDE80
+kind = "function"
+confidence = "medium"
+note = "Horizontal motion of jump-type states after push-off: air control, plus each move's own rule (long jump keeps its velocity, wall jump 4.9 u/s along the wall normal, ledge jump's animation-timed forward speed)."
+
+[[symbol]]
+name = "hero_ground_probe"
+address = 0x004EBA68
+kind = "function"
+confidence = "medium"
+note = "Casts down for the ground; the hero stands when within 0.02 u of it and the slope is at most 0.8727 rad (50 degrees). Writes the height above ground and the slope angle."
+
+[[symbol]]
+name = "hero_floor_material"
+address = 0x004E3EF0
+kind = "function"
+confidence = "medium"
+note = "Reacts to the ground's collision material: 1 lava, 3 water, 4 slide, 11 and 17 (damage, state 177) and others."
+
+[[symbol]]
+name = "hero_crouch_jump"
+address = 0x00502ED8
+kind = "function"
+confidence = "medium"
+note = "X from a crouch at least 7 frames old: long jump (10) with the stick past 0.7 and speed above 0.9 u/s, otherwise the heli jump (15); with the thruster-pack item, states 16 and 13."
+
+[[symbol]]
+name = "hero_frame_timers"
+address = 0x004FAA68
+kind = "function"
+confidence = "medium"
+note = "Per-frame bookkeeping: increments the state timer at 0x1A4D98 and counts down the hero's short timers, among them the wall window (0x1A4DB4) and the no-grab timer (0x1A4DB0)."
+
+[[symbol]]
+name = "pad_pressed_within"
+address = 0x0045D358
+kind = "function"
+confidence = "high"
+note = "Whether any of a button mask was pressed in the last n frames, from a 30-entry history of each pad; optionally returns how many frames ago."
+
+[[symbol]]
+name = "pad_button_for"
+address = 0x0045E3B8
+kind = "function"
+confidence = "medium"
+note = "Maps a default button mask to the configured one: with the alternate control setup, R1 (8) becomes R2, L1 (4) becomes L2, and X (0x40) also accepts L1."
+
+[[symbol]]
+name = "hero_ledge_block"
+address = 0x001A50E0
+kind = "data"
+confidence = "medium"
+note = "hero_detect_ledge's result for the hero: +0x00 hang point, +0x10 lip point, +0x24 wall yaw, +0x28 found flag, +0x34 flags (bit 0: room above the lip), +0x38 the object grabbed."
+
+[[symbol]]
+name = "hero_wall_window"
+address = 0x001A4DB4
+kind = "data"
+confidence = "medium"
+note = "Wall-contact countdown: 6 (7 in a wall jump) while a wall is in reach, counted down each frame."
+
+[[symbol]]
+name = "hero_wall_normal"
+address = 0x001A5090
+kind = "data"
+confidence = "medium"
+note = "The wall normal found by hero_detect_wall; its yaw is at +0xC. A wall jump copies both to 0x1A50A0 and 0x1A50AC to compare with the next wall."
+
+[[symbol]]
+name = "hero_height_above_ground"
+address = 0x001A4F1C
+kind = "data"
+confidence = "medium"
+note = "Written by hero_ground_probe: distance down to the ground, 32 when none was found."
+
+[[symbol]]
+name = "hero_ground_slope"
+address = 0x001A4F20
+kind = "data"
+confidence = "medium"
+note = "Written by hero_ground_probe: the ground's angle from the horizontal, in radians."
+
+[[symbol]]
+name = "hero_health"
+address = 0x001A7430
+kind = "data"
+confidence = "medium"
+note = "Below 1, idle, walk and get-hit recovery go to the death state (57)."
+
+[[symbol]]
+name = "hero_stick_magnitude"
+address = 0x001A7418
+kind = "data"
+confidence = "medium"
+note = "The stick magnitude m (0..1) the transitions compare with 0.5, 0.7 and 0.85."
+
+[[symbol]]
+name = "hero_anim_frame"
+address = 0x001A57F8
+kind = "data"
+confidence = "low"
+note = "The current animation's frame, as a float; the ledge and get-hit transitions and the ledge jump's forward speed are timed by it."

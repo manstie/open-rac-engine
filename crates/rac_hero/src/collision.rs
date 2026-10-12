@@ -1,13 +1,14 @@
 //! The hero's view of solid geometry (PLAN.md P1.16).
 //!
-//! The controller only asks a [`CollisionWorld`] to sweep capsules and spheres, so a game
-//! or mash-up can put any geometry behind it. [`ParryWorld`] is the bundled backend: a
-//! list of boxes and balls, queried with `parry3d`.
+//! The controller only asks a [`CollisionWorld`] to sweep capsules, spheres and rays, and
+//! what each body's [`Material`] is, so a game or mash-up can put any geometry behind it.
+//! [`ParryWorld`] is the bundled backend: a list of boxes and balls, queried with
+//! `parry3d`.
 
 use bevy::prelude::*;
 use parry3d::{
     math::Pose,
-    query::{ShapeCastOptions, cast_shapes, contact},
+    query::{Ray, ShapeCastOptions, cast_shapes, contact},
     shape::{Ball, Capsule, Cuboid, Shape},
 };
 
@@ -32,6 +33,23 @@ pub struct SweepHit {
     pub body: BodyId,
 }
 
+/// What a surface does to the hero beyond being solid, after the games' collision
+/// materials (`hero-controller.md`, "Wall jump", "Ledges", "Getting hit and dying").
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Material {
+    #[default]
+    Solid,
+    /// A wall-jump surface (the games' material 15): wall jumps off it go higher and can
+    /// be chained without limit.
+    WallJump,
+    /// Can't be grabbed as a ledge or wall-jumped from (the games' materials 9, 10, 12).
+    NoGrab,
+    /// Hurts the hero standing on it (the games' material 17).
+    Hazard,
+    /// Kills the hero standing on it.
+    Deadly,
+}
+
 /// A body the swept shape already overlaps, and how to get out of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Penetration {
@@ -46,10 +64,14 @@ pub trait CollisionWorld: Send + Sync {
     fn cast_capsule(&self, capsule: CapsuleShape, centre: Vec3, motion: Vec3) -> Option<SweepHit>;
     /// The first body hit by a sphere moving from `centre` by `motion`.
     fn cast_sphere(&self, radius: f32, centre: Vec3, motion: Vec3) -> Option<SweepHit>;
+    /// The first body the segment from `origin` to `origin + motion` enters. A segment
+    /// that starts inside a body hits it at fraction 0.
+    fn cast_ray(&self, origin: Vec3, motion: Vec3) -> Option<SweepHit>;
     /// Every body `capsule` overlaps at `centre`.
     fn capsule_penetrations(&self, capsule: CapsuleShape, centre: Vec3) -> Vec<Penetration>;
     /// How far `body` moved during the current tick, so the hero can ride it.
     fn body_motion(&self, body: BodyId) -> Vec3;
+    fn material(&self, body: BodyId) -> Material;
 }
 
 /// The shapes [`ParryWorld`] supports.
@@ -67,6 +89,27 @@ pub struct BodyPlacement {
     pub rotation: Quat,
     /// How far it moved this tick.
     pub motion: Vec3,
+    pub material: Material,
+}
+
+impl BodyPlacement {
+    /// A body that stays put and is plain solid.
+    pub fn fixed(collider: Collider, translation: Vec3, rotation: Quat) -> Self {
+        Self {
+            collider,
+            translation,
+            rotation,
+            motion: Vec3::ZERO,
+            material: Material::Solid,
+        }
+    }
+}
+
+struct Body {
+    pose: Pose,
+    shape: Box<dyn Shape>,
+    motion: Vec3,
+    material: Material,
 }
 
 /// Brute force over a small list of bodies, which suits test levels of a few hundred
@@ -74,7 +117,7 @@ pub struct BodyPlacement {
 /// depend on anything but the list.
 #[derive(Default)]
 pub struct ParryWorld {
-    bodies: Vec<(Pose, Box<dyn Shape>, Vec3)>,
+    bodies: Vec<Body>,
 }
 
 impl std::fmt::Debug for ParryWorld {
@@ -101,11 +144,12 @@ impl ParryWorld {
                     Collider::Cuboid { half_extents } => Box::new(Cuboid::new(half_extents)),
                     Collider::Ball { radius } => Box::new(Ball::new(radius)),
                 };
-                (
-                    Pose::from_parts(body.translation, body.rotation),
+                Body {
+                    pose: Pose::from_parts(body.translation, body.rotation),
                     shape,
-                    body.motion,
-                )
+                    motion: body.motion,
+                    material: body.material,
+                }
             })
             .collect();
     }
@@ -125,14 +169,14 @@ impl ParryWorld {
             compute_impact_geometry_on_penetration: true,
         };
         let mut best: Option<SweepHit> = None;
-        for (index, (body_pose, body_shape, _)) in self.bodies.iter().enumerate() {
+        for (index, body) in self.bodies.iter().enumerate() {
             let Ok(Some(hit)) = cast_shapes(
                 &pose,
                 motion,
                 shape,
-                body_pose,
+                &body.pose,
                 Vec3::ZERO,
-                body_shape.as_ref(),
+                body.shape.as_ref(),
                 options,
             ) else {
                 continue;
@@ -169,14 +213,39 @@ impl CollisionWorld for ParryWorld {
         self.cast(&Ball::new(radius), centre, motion)
     }
 
+    fn cast_ray(&self, origin: Vec3, motion: Vec3) -> Option<SweepHit> {
+        if motion.length_squared() <= f32::EPSILON {
+            return None;
+        }
+        // With the motion as the direction, time 1 is the segment's end.
+        let ray = Ray::new(origin, motion);
+        let mut best: Option<SweepHit> = None;
+        for (index, body) in self.bodies.iter().enumerate() {
+            let Some(hit) = body
+                .shape
+                .cast_ray_and_get_normal(&body.pose, &ray, 1.0, true)
+            else {
+                continue;
+            };
+            if best.is_none_or(|b| hit.time_of_impact < b.fraction) {
+                best = Some(SweepHit {
+                    fraction: hit.time_of_impact,
+                    normal: hit.normal.normalize_or_zero(),
+                    body: BodyId(index as u32),
+                });
+            }
+        }
+        best
+    }
+
     fn capsule_penetrations(&self, capsule: CapsuleShape, centre: Vec3) -> Vec<Penetration> {
         let shape = Capsule::new_y(capsule.half_height, capsule.radius);
         let pose = Pose::from_translation(centre);
         self.bodies
             .iter()
             .enumerate()
-            .filter_map(|(index, (body_pose, body_shape, _))| {
-                let found = contact(&pose, &shape, body_pose, body_shape.as_ref(), 0.0).ok()??;
+            .filter_map(|(index, body)| {
+                let found = contact(&pose, &shape, &body.pose, body.shape.as_ref(), 0.0).ok()??;
                 (found.dist < 0.0).then(|| Penetration {
                     // `normal2` points out of the body, which is the way to push the hero.
                     normal: found.normal2,
@@ -190,7 +259,13 @@ impl CollisionWorld for ParryWorld {
     fn body_motion(&self, body: BodyId) -> Vec3 {
         self.bodies
             .get(body.0 as usize)
-            .map_or(Vec3::ZERO, |(_, _, motion)| *motion)
+            .map_or(Vec3::ZERO, |body| body.motion)
+    }
+
+    fn material(&self, body: BodyId) -> Material {
+        self.bodies
+            .get(body.0 as usize)
+            .map_or(Material::Solid, |body| body.material)
     }
 }
 
@@ -200,21 +275,23 @@ mod tests {
 
     fn floor_and_wall() -> ParryWorld {
         ParryWorld::new(&[
-            BodyPlacement {
-                collider: Collider::Cuboid {
+            BodyPlacement::fixed(
+                Collider::Cuboid {
                     half_extents: Vec3::new(10.0, 0.5, 10.0),
                 },
-                translation: Vec3::new(0.0, -0.5, 0.0),
-                rotation: Quat::IDENTITY,
-                motion: Vec3::ZERO,
-            },
+                Vec3::new(0.0, -0.5, 0.0),
+                Quat::IDENTITY,
+            ),
             BodyPlacement {
-                collider: Collider::Cuboid {
-                    half_extents: Vec3::new(0.5, 2.0, 10.0),
-                },
-                translation: Vec3::new(3.0, 2.0, 0.0),
-                rotation: Quat::IDENTITY,
                 motion: Vec3::new(0.0, 0.0, 0.1),
+                material: Material::WallJump,
+                ..BodyPlacement::fixed(
+                    Collider::Cuboid {
+                        half_extents: Vec3::new(0.5, 2.0, 10.0),
+                    },
+                    Vec3::new(3.0, 2.0, 0.0),
+                    Quat::IDENTITY,
+                )
             },
         ])
     }
@@ -251,19 +328,42 @@ mod tests {
     #[test]
     fn normals_on_a_tilted_ramp_are_in_world_space() {
         let tilt = Quat::from_rotation_x(30f32.to_radians());
-        let world = ParryWorld::new(&[BodyPlacement {
-            collider: Collider::Cuboid {
+        let world = ParryWorld::new(&[BodyPlacement::fixed(
+            Collider::Cuboid {
                 half_extents: Vec3::new(5.0, 0.2, 5.0),
             },
-            translation: Vec3::ZERO,
-            rotation: tilt,
-            motion: Vec3::ZERO,
-        }]);
+            Vec3::ZERO,
+            tilt,
+        )]);
         let hit = world
             .cast_sphere(0.3, Vec3::new(0.0, 3.0, 0.0), Vec3::new(0.0, -6.0, 0.0))
             .unwrap();
         let expected = tilt * Vec3::Y;
         assert!((hit.normal - expected).length() < 1e-3, "{}", hit.normal);
+    }
+
+    #[test]
+    fn rays_hit_the_nearest_face_and_report_its_material() {
+        let world = floor_and_wall();
+        let hit = world
+            .cast_ray(Vec3::new(0.0, 1.0, 0.0), Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        // The wall's face is at x = 2.5.
+        assert!((hit.fraction - 0.5).abs() < 1e-4, "{}", hit.fraction);
+        assert!((hit.normal - Vec3::NEG_X).length() < 1e-4);
+        assert_eq!(world.material(hit.body), Material::WallJump);
+        assert_eq!(world.material(BodyId(0)), Material::Solid);
+        // Too short to reach it.
+        assert!(
+            world
+                .cast_ray(Vec3::new(0.0, 1.0, 0.0), Vec3::new(2.0, 0.0, 0.0))
+                .is_none()
+        );
+        // Starting inside the floor hits it at once.
+        let inside = world
+            .cast_ray(Vec3::new(0.0, -0.2, 0.0), Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(inside.fraction, 0.0);
     }
 
     #[test]

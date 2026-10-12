@@ -26,13 +26,15 @@ moved (say why).
 
 **Phase 0 (foundations) is done apart from CI's first run (P0.7). Phase 1 has started: the
 app flow, the 60 Hz simulation core, the input layer and the greybox level are in
-(P1.1–P1.4), and the hero controller plays (P1.5, first chunk). The reverse-engineering track has the hero's movement code: constants and
-models are read from the game itself.**
+(P1.1–P1.4), and the hero controller plays (P1.5, two chunks done). The
+reverse-engineering track has the hero's movement code: constants and models are read from
+the game itself.**
 - The Linux build dependencies are installed. The workspace builds and runs natively.
   `cargo run` opens a main menu, and "Play the demo" puts the hero in the greybox level.
   He walks, jumps, double jumps, glides, long jumps, flips and heli jumps with the UYA
-  NTSC numbers (P1.5, first chunk). Input can be recorded and replayed
-  (`--record-input`, `--replay-input`).
+  NTSC numbers. Since P1.5's second chunk he also wall jumps, grabs, hangs from, shimmies
+  along and climbs ledges, gets hurt on hazards, dies and comes back at checkpoints.
+  Input can be recorded and replayed (`--record-input`, `--replay-input`).
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
   - R&C3 and Gladiator first;
@@ -64,6 +66,9 @@ models are read from the game itself.**
     - **RE.8 is answered:** both engines are tuned in per-second units at 60 Hz, and each
       PAL release is a conversion that keeps the real-time behaviour. So the kit uses the
       NTSC values at 60 Hz.
+  - **2026-10-12, third pass:** the wall jump, ledges, the slope limit, getting hit and
+    every jump's entry rules are read in UYA's code (`hero-controller.md`). They are
+    untraced: Veldin's start has no wall or ledge.
   - **Camera (RE.4) has started:** the camera struct's address and the default follow
     distance and height are in `docs/research/camera.md`. A camera trace is recorded but
     not analysed yet.
@@ -73,20 +78,20 @@ models are read from the game itself.**
    particular place (wall jump, ledges, grinding, swimming, charge boots), and a half-tilt
    stick recording on an NTSC disc (`docs/re-setup.md`, "Still wanted").
    - Most jump moves are now verified on UYA NTSC with our own scripted traces.
+   - The wall jump and ledges are implemented from code. A savestate near a wall and a
+     ledge would let a scripted trace check their probe distances and the shimmy speed.
 2. **Owner:** push `re/hero-movement` so CI runs (the push needs the owner's
    credentials). Then fix anything Windows-specific it finds (P0.7).
-3. P1.5, second chunk: wall jump, ledge grab, charge boots, strafe/lock-on, knockback
-   and death. Read in the game code (with scripted UYA NTSC traces to check) whatever
-   `hero-controller.md` doesn't cover yet: wall and ledge detection, and the slope limit.
-   - Then the camera's lag and recentring (RE.4 → P1.7).
-4. RE.3, continued:
-   - wall detection, ledge grab, swimming and grinding, in code;
-   - DL NTSC traces, by scripted play as for UYA.
-
-   Then the camera (RE.4). Start by fitting the follow lag from
+3. The camera's lag and recentring (RE.4 → P1.7). Start by fitting the follow lag from
    `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace` (`camera.md`, "Next steps").
-5. RE.2: seed the knowledge base from libuya and libdl (MIT).
-6. In parallel, at lower priority: the disc layer, P2.1–P2.5.
+4. What P1.5 still lacks:
+   - the charge boots, which need DL's code (RE.3);
+   - strafe speeds and lock-on, with targets from P1.9;
+   - the sharp-turn skid rule.
+5. RE.3, continued: swimming and grinding in code, and DL NTSC traces by scripted play
+   as for UYA.
+6. RE.2: seed the knowledge base from libuya and libdl (MIT).
+7. In parallel, at lower priority: the disc layer, P2.1–P2.5.
 
 ---
 
@@ -323,6 +328,8 @@ App
 | 2026-10-12 | Settings are **TOML** (`settings.toml` in the platform config directory, via `directories`), since the workspace already uses TOML. `PlayerInput` is a fixed 10-byte encoding (move stick in PS2 counts, look in binary-angle units, held and pressed bits), and input recordings are `.orin` files of those. |
 | 2026-10-12 | Hero collision uses **`parry3d` 0.31** (Apache-2.0) behind the kit's own `CollisionWorld` interface, with its `alloc` and `enhanced-determinism` features. It shares Bevy's glam version, so there is no conversion. The hero's origin is at his feet, and his capsule is libdl's (radius 0.45, sphere centres 0.7/0.5 and 1.05), floating over a ground probe. |
 | 2026-10-12 | `rac_input` maps pad sticks from **circle to square**, and keys send full counts on both axes. The games' stick code expects a PS2 stick's square range, so without this a modern pad's diagonal would run at two-thirds speed. |
+| 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials, returned per body by `CollisionWorld`. Health is a `Health` component beside the controller: the controller only knows whether a hit is fatal, and reports hazard contact. |
+| 2026-10-12 | Rules the games time by **animation frame** (the ledge grab and climb, the double jump's grab delay) assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts for its move's window of ticks, and only once. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -460,6 +467,20 @@ also works: using a GPL tool is fine, copying its code is not.
       the stick release goes through the skid path, and the stop residual is 1.5 u/s.
     - **Still to do:** moves that need a particular place (wall jump, ledges, grinding,
       swimming, charge boots), half-tilt stick on NTSC, and DL NTSC traces.
+  - 2026-10-12 (third pass, for P1.5's second chunk):
+    - **Read in UYA's code:**
+      - wall detection and the wall jump, including wall-jump surfaces (material 15);
+      - ledge detection, and the grab, hang, shimmy and climb states;
+      - the slope limit (50°);
+      - getting hit and the floor materials;
+      - when the crouch jumps, double jump and glide can start.
+    - **Checked against our existing UYA traces:** the 7-frame crouch before a long jump,
+      the double jumps' timing, and that the glide starts on the double jump's 31st
+      frame, not at a fall speed.
+    - **Not in UYA's code:** the charge boots. UYA's state 16 is the thruster-pack's dash.
+    - Tooling: `tools/ghidra/RefsTo.java` lists every read and write of an address.
+    - **Still to do:** trace a wall and a ledge; read swimming, grinding and DL's charge
+      boots.
   - The hero's update entry points and its state machine: states, transitions, and the
     input conditions for each.
   - Physics for each state:
@@ -718,11 +739,37 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
       - Wired into the demo: greybox boxes have `Collider`s, and the hero has a
         placeholder body. `--spectator` brings back the free camera. Tried under Xvfb:
         walking and jumping work in the running app.
-      - **Next (second chunk):**
-        - wall jump, ledge grab and climb, charge boots, and strafe/lock-on details;
-        - knockback, death, and checkpoints beyond the respawn floor;
-        - the run jump's extra push-off, and the slope limit and sharp-turn skid, from
-          the game code (they are placeholders now).
+      - **Second chunk, started 2026-10-12:**
+        - Read in UYA's code first (`hero-controller.md`, "Wall jump", "Ledges",
+          "Getting hit and dying", "Slope limit", and the long jump's entry rules). New
+          names are in `re/SCUS-97353/symbols.toml`. `tools/ghidra/RefsTo.java` lists the
+          code that reads or writes an address.
+        - Found: the slope limit is 50° (code), the long jump needs 0.9 u/s, not 2.5,
+          and a run jump is chosen by the stick (past 0.85), not by speed.
+        - Charge boots are not in UYA's hero code; they wait for DL's (RE.3). Lock-on
+          waits for targets (P1.9).
+        - Implemented and tested (`tests/moves.rs`, 17 tests):
+          - the wall jump, with its chain rules and wall-jump surfaces;
+          - ledges (grab, hang, shimmy, climb, let go);
+          - getting hit, hazard and deadly surfaces, death, and respawn at a
+            `Checkpoint`;
+          - buffered presses, and the corrected jump, long jump, double jump and glide
+            entry rules. The first chunk's 16 feel tests still pass.
+        - `CollisionWorld` gained ray casts and a per-body `Material`.
+        - The plugin keeps a `Health` per hero, reads `HurtHero` messages, respawns the
+          hero after death, and moves his spawn to any `Checkpoint` he reaches.
+        - The demo's wall-jump shaft was reshaped so its last jump lands on the high
+          platform. It also has a hazard pad and two checkpoints.
+          `rac_demo/tests/greybox_moves.rs` plays the shaft and a ledge in the real
+          level.
+        - **Done 2026-10-12**, checked under Xvfb as well.
+        - Still to do: the charge boots (from DL's code), strafe speeds and lock-on (with
+          P1.9), and the sharp-turn skid rule.
+        - Still placeholders: the sharp-turn skid rule, the shimmy speed (untraced), the
+          death's length, the hazard's damage and push, and the starting health.
+        - A small known mismatch: a long jump from a 7-tick crouch leaves at 8.2 u/s in
+          the kit and 7.8 u/s in the trace. The game's first crouch frame brakes less,
+          and the jump frame brakes once more.
   implementing the **UYA/DL move set** from RE.3:
   - Ground snapping, slope limits and step-up.
   - Running with acceleration and deceleration.
@@ -1116,6 +1163,14 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-12 (hero controller, second chunk):** P1.5's second chunk, from UYA's code.
+  - Read in Ghidra: wall and ledge detection, the wall jump, ledge states, the slope
+    limit, getting hit, and when each jump can start (RE.3).
+  - Implemented: wall jumps, ledges, hits, hazards, death and checkpoints. The demo's
+    shaft now works, and there are 23 new tests, including two that play the greybox
+    level.
+  - Next: the camera (RE.4 → P1.7). The charge boots wait for DL's code.
 
 - **2026-10-12 (hero controller):** P1.5's first chunk.
   - New crate `rac_hero`: the profile, collision (parry), the capsule mover and the

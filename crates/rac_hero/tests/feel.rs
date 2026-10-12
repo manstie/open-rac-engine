@@ -21,14 +21,13 @@ struct Rig {
 
 impl Rig {
     fn new() -> Self {
-        let world = ParryWorld::new(&[BodyPlacement {
-            collider: Collider::Cuboid {
+        let world = ParryWorld::new(&[BodyPlacement::fixed(
+            Collider::Cuboid {
                 half_extents: Vec3::new(200.0, 0.5, 200.0),
             },
-            translation: Vec3::new(0.0, -0.5, 0.0),
-            rotation: Quat::IDENTITY,
-            motion: Vec3::ZERO,
-        }]);
+            Vec3::new(0.0, -0.5, 0.0),
+            Quat::IDENTITY,
+        )]);
         let mut rig = Self {
             hero: HeroMotion::new(Vec3::ZERO, 0.0),
             profile: HeroProfile::uya(),
@@ -57,6 +56,14 @@ impl Rig {
 
     fn horizontal_speed(&self) -> f32 {
         Vec2::new(self.hero.velocity.x, self.hero.velocity.z).length()
+    }
+
+    /// Crouches long enough for a jump from the crouch to go (7 ticks, "Which jump a
+    /// crouch gives").
+    fn crouch(&mut self, stick: Option<[i8; 2]>) {
+        self.tick(&input(stick, &[Action::Crouch], &[Action::Crouch]));
+        self.ticks(6, &input(stick, &[Action::Crouch], &[]));
+        assert_eq!(self.hero.state, HeroState::Crouch);
     }
 }
 
@@ -124,15 +131,24 @@ fn letting_go_skids_two_ticks_then_idles_from_1_5() {
 /// Presses jump, holds it for `hold_ticks` in all (the press counts), then lets go, and
 /// returns the highest the feet got above the start.
 fn jump_apex(rig: &mut Rig, held: &[Action], hold_ticks: usize) -> f32 {
+    jump_apex_with(rig, None, held, hold_ticks)
+}
+
+fn jump_apex_with(
+    rig: &mut Rig,
+    stick: Option<[i8; 2]>,
+    held: &[Action],
+    hold_ticks: usize,
+) -> f32 {
     let start = rig.hero.position.y;
     let mut apex: f32 = 0.0;
-    rig.tick(&input(None, held, &[Action::Jump]));
+    rig.tick(&input(stick, held, &[Action::Jump]));
     for tick in 1..240 {
         let mut keys = held.to_vec();
         if tick < hold_ticks {
             keys.push(Action::Jump);
         }
-        rig.tick(&input(None, &keys, &[]));
+        rig.tick(&input(stick, &keys, &[]));
         apex = apex.max(rig.hero.position.y - start);
         if !rig.hero.state.is_airborne() {
             break;
@@ -179,7 +195,7 @@ fn a_three_frame_tap_peaks_where_the_game_does() {
 #[test]
 fn a_heli_jump_peaks_where_the_game_does() {
     let mut rig = Rig::new();
-    rig.tick(&input(None, &[Action::Crouch], &[Action::Crouch]));
+    rig.crouch(None);
     let apex = jump_apex(&mut rig, &[Action::Crouch], 3);
     assert!((apex - 3.4327).abs() < 0.005, "apex {apex}");
 }
@@ -192,8 +208,8 @@ fn a_long_jump_peaks_where_the_game_does() {
     // at 1.42717 u, which is what the jump model alone gives.
     let mut rig = Rig::new();
     rig.run_up();
-    rig.tick(&input(Some([0, 127]), &[Action::Crouch], &[Action::Crouch]));
-    let apex = jump_apex(&mut rig, &[Action::Crouch], 5);
+    rig.crouch(Some([0, 127]));
+    let apex = jump_apex_with(&mut rig, Some([0, 127]), &[Action::Crouch], 5);
     assert!((apex - 1.42717).abs() < 0.002, "apex {apex}");
 }
 
@@ -214,6 +230,7 @@ fn the_double_jump_climbs_by_0_0334_per_frame_to_8_75() {
     let mut rig = Rig::new();
     rig.tick(&input(None, &[], &[Action::Jump]));
     // Rise to the apex of a tapped jump, where the vertical speed is about zero.
+    rig.ticks(2, &input(None, &[], &[]));
     while rig.hero.velocity.y > 0.0 {
         rig.tick(&input(None, &[], &[]));
     }
@@ -238,15 +255,24 @@ fn the_double_jump_climbs_by_0_0334_per_frame_to_8_75() {
 
 #[test]
 fn holding_after_a_double_jump_glides_down_at_2_16() {
-    // "Glide": the sink eases towards 3 × 0.72 = 2.16 u/s and holds it.
+    // "Glide": entered holding X past the double jump's 30th tick; the sink then eases
+    // towards 3 × 0.72 = 2.16 u/s and holds it.
     let mut rig = Rig::new();
     rig.tick(&input(None, &[], &[Action::Jump]));
-    rig.ticks(10, &input(None, &[Action::Jump], &[]));
+    rig.ticks(16, &input(None, &[Action::Jump], &[]));
+    while rig.hero.velocity.y > 0.5 {
+        rig.tick(&input(None, &[], &[]));
+    }
     rig.tick(&input(None, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::DoubleJump);
     let hold = input(None, &[Action::Jump], &[]);
+    while rig.hero.state == HeroState::DoubleJump {
+        rig.tick(&hold);
+    }
+    assert_eq!(rig.hero.state, HeroState::Glide);
     for _ in 0..200 {
         rig.tick(&hold);
-        if rig.hero.state == HeroState::Glide && rig.hero.ticks > 40 {
+        if rig.hero.state == HeroState::Glide && rig.hero.ticks > 60 {
             break;
         }
     }
@@ -262,11 +288,15 @@ fn holding_after_a_double_jump_glides_down_at_2_16() {
 fn a_long_jump_from_a_full_run_leaves_at_9_7() {
     // "Long jump": from a full run the push-off ends at 0.1617 u per frame (9.7 u/s), and
     // the flight keeps that velocity with no air control.
+    // Jumping and crouching together keeps the run's speed: the run jump turns into a
+    // long jump within its first 3 ticks ("Which jump a crouch gives").
     let mut rig = Rig::new();
     rig.run_up();
-    rig.tick(&input(Some([0, 127]), &[Action::Crouch], &[Action::Crouch]));
-    assert_eq!(rig.hero.state, HeroState::Crouch);
-    rig.tick(&input(Some([0, 127]), &[Action::Crouch], &[Action::Jump]));
+    rig.tick(&input(
+        Some([0, 127]),
+        &[Action::Crouch],
+        &[Action::Jump, Action::Crouch],
+    ));
     assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Long));
     rig.ticks(4, &input(Some([0, 127]), &[Action::Jump], &[]));
     assert!(
@@ -300,7 +330,7 @@ fn a_strafe_flip_moves_sideways_at_5_5() {
 fn the_heli_jump_rises_by_0_00536_per_frame_under_thrust() {
     // "Heli jump thrust": on frames 35–70 the vertical speed rises by 49/3600 − 29.7/3600.
     let mut rig = Rig::new();
-    rig.tick(&input(None, &[Action::Crouch], &[Action::Crouch]));
+    rig.crouch(None);
     rig.tick(&input(None, &[Action::Crouch], &[Action::Jump]));
     assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Heli));
     let hold = input(None, &[Action::Jump], &[]);
@@ -333,14 +363,13 @@ fn air_control_steers_at_20_per_second_squared() {
 #[test]
 fn walking_off_an_edge_falls_at_22_per_second_squared() {
     // "Falling": gravity 22 u/s².
-    let world = ParryWorld::new(&[BodyPlacement {
-        collider: Collider::Cuboid {
+    let world = ParryWorld::new(&[BodyPlacement::fixed(
+        Collider::Cuboid {
             half_extents: Vec3::new(1.0, 5.0, 1.0),
         },
-        translation: Vec3::new(0.0, -5.0, 0.0),
-        rotation: Quat::IDENTITY,
-        motion: Vec3::ZERO,
-    }]);
+        Vec3::new(0.0, -5.0, 0.0),
+        Quat::IDENTITY,
+    )]);
     let profile = HeroProfile::uya();
     let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
     let forward = input(Some([0, 127]), &[], &[]);

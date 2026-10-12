@@ -156,12 +156,7 @@ mod tests {
     };
 
     fn block(centre: Vec3, half_extents: Vec3) -> BodyPlacement {
-        BodyPlacement {
-            collider: Collider::Cuboid { half_extents },
-            translation: centre,
-            rotation: Quat::IDENTITY,
-            motion: Vec3::ZERO,
-        }
+        BodyPlacement::fixed(Collider::Cuboid { half_extents }, centre, Quat::IDENTITY)
     }
 
     fn floor() -> BodyPlacement {

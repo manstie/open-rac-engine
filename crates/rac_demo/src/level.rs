@@ -8,6 +8,7 @@
 //! Bevy's axes: y is up, and the player starts at the origin looking down −z.
 
 use bevy::prelude::*;
+use rac_hero::Material;
 
 /// What a piece is for.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,6 +25,30 @@ pub enum Surface {
     GrindRail,
     /// A point to swing from with the swingshot.
     SwingTarget,
+    /// Hurts the hero who stands on it.
+    Hazard,
+    /// A box that makes its centre the hero's new spawn point when he enters it.
+    Checkpoint,
+}
+
+impl Surface {
+    /// What the hero's collision makes of it.
+    pub fn material(self) -> Material {
+        match self {
+            Surface::WallJump => Material::WallJump,
+            Surface::Hazard => Material::Hazard,
+            _ => Material::Solid,
+        }
+    }
+
+    /// Whether the hero collides with it. Rails and swing targets wait for their moves,
+    /// and checkpoints are only volumes.
+    pub fn is_solid(self) -> bool {
+        !matches!(
+            self,
+            Surface::GrindRail | Surface::SwingTarget | Surface::Checkpoint
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -198,28 +223,43 @@ pub fn greybox_level() -> Vec<Piece> {
         ));
     }
 
-    // A wall-jump shaft: two walls 3 u apart, leading up to the high platform.
-    for (side, x) in [("left", 20.0), ("right", 24.5)] {
-        pieces.push(Piece::block(
-            format!("wall-jump wall {side}"),
-            Surface::WallJump,
-            x,
-            -36.0,
-            Vec3::new(1.5, 12.0, 6.0),
-        ));
-    }
+    // A wall-jump shaft: two wall-jump surfaces 3 u apart. The right one is the high
+    // platform's edge, and the left one stands taller, so the last jump off it carries
+    // the hero over onto the platform.
+    pieces.push(Piece::block(
+        "wall-jump wall left",
+        Surface::WallJump,
+        20.0,
+        -36.0,
+        Vec3::new(1.5, 15.0, 6.0),
+    ));
+    pieces.push(Piece::block(
+        "wall-jump wall right",
+        Surface::WallJump,
+        24.5,
+        -36.0,
+        Vec3::new(1.5, 12.0, 6.0),
+    ));
     pieces.push(Piece::block(
         "high platform",
         Surface::Ground,
-        22.25,
-        -42.0,
-        Vec3::new(10.0, 12.0, 6.0),
+        28.25,
+        -36.0,
+        Vec3::new(6.0, 12.0, 6.0),
+    ));
+    pieces.push(Piece::new(
+        "high platform checkpoint",
+        Surface::Checkpoint,
+        Shape::Box {
+            half_extents: Vec3::new(2.5, 2.0, 2.5),
+        },
+        Vec3::new(28.5, 12.0, -36.0),
     ));
     // A lift to the high platform for the way back up.
     pieces.push(Piece {
         mover: Some(Mover {
-            from: Vec3::new(29.5, 0.25, -42.0),
-            to: Vec3::new(29.5, 12.25, -42.0),
+            from: Vec3::new(33.0, 0.25, -36.0),
+            to: Vec3::new(33.0, 12.25, -36.0),
             period_ticks: 8 * 60,
         }),
         ..Piece::new(
@@ -228,9 +268,19 @@ pub fn greybox_level() -> Vec<Piece> {
             Shape::Box {
                 half_extents: Vec3::new(1.5, 0.25, 1.5),
             },
-            Vec3::new(29.5, 0.25, -42.0),
+            Vec3::new(33.0, 0.25, -36.0),
         )
     });
+
+    // A pad that hurts, to try getting hit.
+    pieces.push(Piece::new(
+        "hazard pad",
+        Surface::Hazard,
+        Shape::Box {
+            half_extents: Vec3::new(2.0, 0.05, 2.0),
+        },
+        Vec3::new(6.0, 0.05, -24.0),
+    ));
 
     // The jump course: 2 u platforms separated by wider and wider gaps.
     let mut z = -50.0;
@@ -253,6 +303,14 @@ pub fn greybox_level() -> Vec<Piece> {
         ));
         z -= 6.0;
     }
+    pieces.push(Piece::new(
+        "course checkpoint",
+        Surface::Checkpoint,
+        Shape::Box {
+            half_extents: Vec3::new(2.0, 2.0, 3.0),
+        },
+        Vec3::new(0.0, 2.0, z + 3.0),
+    ));
 
     // A shuttle across a gap too wide to jump, between two 3 u towers.
     for (end, z) in [("near", -52.0), ("far", -76.0)] {
@@ -355,6 +413,8 @@ mod tests {
             Surface::Moving,
             Surface::GrindRail,
             Surface::SwingTarget,
+            Surface::Hazard,
+            Surface::Checkpoint,
         ] {
             assert!(
                 pieces.iter().any(|p| p.surface == surface),
@@ -417,7 +477,12 @@ mod tests {
         // in the middle of a jump gap.
         let boxes: Vec<_> = greybox_level()
             .into_iter()
-            .filter(|p| p.name != "floor" && p.mover.is_none() && p.rotation == Quat::IDENTITY)
+            .filter(|p| {
+                p.name != "floor"
+                    && p.surface.is_solid()
+                    && p.mover.is_none()
+                    && p.rotation == Quat::IDENTITY
+            })
             .filter_map(|p| match p.shape {
                 Shape::Box { half_extents } => Some((p.name, p.translation, half_extents)),
                 _ => None,
@@ -429,6 +494,26 @@ mod tests {
                 assert!(gap.max_element() > -1e-3, "{name_a} overlaps {name_b}");
             }
         }
+    }
+
+    #[test]
+    fn the_wall_jump_shaft_ends_on_the_high_platform() {
+        let pieces = greybox_level();
+        let left = find(&pieces, "wall-jump wall left");
+        let right = find(&pieces, "wall-jump wall right");
+        let platform = find(&pieces, "high platform");
+        assert!(left.top().unwrap() > right.top().unwrap());
+        assert_eq!(right.top(), platform.top());
+        let half_x = |p: &Piece| match p.shape {
+            Shape::Box { half_extents } => half_extents.x,
+            _ => unreachable!(),
+        };
+        let gap = (right.translation.x - half_x(right)) - (left.translation.x + half_x(left));
+        assert!((gap - 3.0).abs() < 1e-4, "{gap}");
+        // The platform starts where the right wall ends.
+        let joint =
+            (platform.translation.x - half_x(platform)) - (right.translation.x + half_x(right));
+        assert!(joint.abs() < 1e-4, "{joint}");
     }
 
     #[test]

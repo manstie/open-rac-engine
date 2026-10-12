@@ -1,0 +1,120 @@
+//! The greybox level played with the hero controller: each test area can be done with
+//! the moves it is built for (PLAN.md P1.4, P1.5).
+
+use bevy::prelude::*;
+use rac_demo::{Shape, greybox_level};
+use rac_hero::{
+    BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
+    controller::step,
+};
+use rac_input::{Action, Buttons, PlayerInput};
+use std::f32::consts::FRAC_PI_2;
+
+/// Every solid box of the level, with moving ones where they start.
+fn level_world() -> ParryWorld {
+    let bodies: Vec<BodyPlacement> = greybox_level()
+        .into_iter()
+        .filter(|piece| piece.surface.is_solid())
+        .filter_map(|piece| match piece.shape {
+            Shape::Box { half_extents } => Some(BodyPlacement {
+                material: piece.surface.material(),
+                ..BodyPlacement::fixed(
+                    Collider::Cuboid { half_extents },
+                    piece
+                        .mover
+                        .map_or(piece.translation, |mover| mover.position_at(0)),
+                    piece.rotation,
+                )
+            }),
+            _ => None,
+        })
+        .collect();
+    ParryWorld::new(&bodies)
+}
+
+fn input(stick: Option<[i8; 2]>, held: &[Action], pressed: &[Action]) -> PlayerInput {
+    let mut held_buttons = Buttons::NONE;
+    let mut pressed_buttons = Buttons::NONE;
+    for &action in held.iter().chain(pressed) {
+        held_buttons.insert(action);
+    }
+    for &action in pressed {
+        pressed_buttons.insert(action);
+    }
+    PlayerInput {
+        move_stick: stick.unwrap_or([0, 0]),
+        look: [0, 0],
+        held: held_buttons,
+        pressed: pressed_buttons,
+    }
+}
+
+#[test]
+fn the_wall_jump_shaft_leads_onto_the_high_platform() {
+    let world = level_world();
+    let profile = HeroProfile::uya();
+    // At the foot of the taller left wall (its face is at x = 20.75), facing it.
+    let mut hero = HeroMotion::new(Vec3::new(21.25, 0.0, -36.0), FRAC_PI_2);
+    let press = input(None, &[], &[Action::Jump]);
+    let mut wall_jumps = 0;
+    for _ in 0..1500 {
+        step(&mut hero, &press, 0.0, &profile, &world);
+        if hero.state == HeroState::Jump(JumpKind::Wall) && hero.ticks == 1 {
+            wall_jumps += 1;
+        }
+        if wall_jumps > 0 && hero.ground.is_some() {
+            break;
+        }
+    }
+    assert!(
+        hero.position.y > 11.9 && hero.position.x > 23.5,
+        "ended at {} after {wall_jumps} wall jumps",
+        hero.position
+    );
+}
+
+#[test]
+fn the_3_u_block_can_be_grabbed_and_climbed() {
+    let world = level_world();
+    let profile = HeroProfile::uya();
+    // The "3 u ledge" block's front face is at z = −34; stand 0.5 u in front, facing it.
+    let mut hero = HeroMotion::new(Vec3::new(-24.0, 0.0, -33.5), 0.0);
+    step(
+        &mut hero,
+        &input(None, &[], &[Action::Jump]),
+        0.0,
+        &profile,
+        &world,
+    );
+    for _ in 0..60 {
+        step(
+            &mut hero,
+            &input(None, &[Action::Jump], &[]),
+            0.0,
+            &profile,
+            &world,
+        );
+        if hero.state == HeroState::LedgeGrab {
+            break;
+        }
+    }
+    assert_eq!(hero.state, HeroState::LedgeGrab);
+    for _ in 0..30 {
+        step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+    }
+    assert_eq!(hero.state, HeroState::LedgeHang);
+    step(
+        &mut hero,
+        &input(None, &[], &[Action::Jump]),
+        0.0,
+        &profile,
+        &world,
+    );
+    for _ in 0..120 {
+        step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+        if hero.ground.is_some() {
+            break;
+        }
+    }
+    assert!(hero.position.y > 2.9, "ended at {}", hero.position);
+}
