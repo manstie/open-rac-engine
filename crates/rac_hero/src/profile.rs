@@ -30,6 +30,8 @@ pub struct HeroProfile {
     pub ledge: LedgeProfile,
     pub charge: ChargeProfile,
     pub grind: GrindProfile,
+    pub swim: SwimProfile,
+    pub melee: MeleeProfile,
     pub hit: HitProfile,
     pub death: DeathProfile,
     pub camera: CameraProfile,
@@ -476,6 +478,345 @@ pub struct GrindProfile {
     pub switch_far: f32,
     pub switch_step: f32,
     pub switch_ticks: u32,
+}
+
+/// Swimming on and under the water (`hero-controller.md`, "Swimming"). Springs work per
+/// tick, as in the game; speeds are u/s.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SwimProfile {
+    /// A falling hero gets in with his feet `entry_below` under the surface, give or take
+    /// `entry_slack` or `entry_slack_extra` plus a tick of his fall if more, in water more
+    /// than `entry_depth` deep. Any hero gets in with his feet `deep_below` under, and a
+    /// water jump comes back in with them `jump_back_below` under.
+    pub entry_below: f32,
+    pub entry_slack: f32,
+    pub entry_slack_extra: f32,
+    pub entry_depth: f32,
+    pub deep_below: f32,
+    pub jump_back_below: f32,
+    /// Rising under water with his feet less than this under, the hero surfaces.
+    pub surface_below: f32,
+    /// On the surface his feet float this far under it, at a height that follows the
+    /// water's with `surface_follow`.
+    pub float_below: f32,
+    pub surface_follow: Spring,
+    /// Getting in, the bob's rate starts at `bob_entry_scale` × his vertical velocity, at
+    /// most `bob_entry_max` downwards.
+    pub bob_entry_scale: f32,
+    pub bob_entry_max: f32,
+    /// Idle, once `bob_free_ticks` are over, the bob's rate loses `bob_stiffness` × its
+    /// offset + `bob_damping` × itself each tick.
+    pub bob_free_ticks: u32,
+    pub bob_stiffness: f32,
+    pub bob_damping: f32,
+    /// Swimming, the bob springs to rest at up to `bob_swim_cap`, and sinks at `bob_sink`
+    /// from above it.
+    pub bob_swim: Spring,
+    pub bob_swim_cap: f32,
+    pub bob_sink: f32,
+    /// Getting in, his horizontal velocity drifts on, up to `drift_max`, slowing at
+    /// `drift_brake`.
+    pub drift_max: f32,
+    pub drift_brake: f32,
+    /// The surface swim heads for `surface_speed` × the stick, at least
+    /// `surface_min_speed` with the stick held, and the full speed for the first
+    /// `stroke_ticks`; not at all while the stick points more than
+    /// `surface_turn_limit_degrees` from his facing.
+    pub surface_speed: f32,
+    pub surface_min_speed: f32,
+    pub stroke_ticks: u32,
+    pub surface_turn_limit_degrees: f32,
+    pub surface_accel: f32,
+    pub surface_brake: f32,
+    /// The velocity is the speed × this × the stroke factor.
+    pub surface_stroke: f32,
+    /// The stroke animation's rate on the surface.
+    pub surface_stroke_rate: f32,
+    /// Turning towards the stick, on and under the water.
+    pub turn: TurnSpring,
+    /// A jump press this recent jumps out of the water, from idle only after
+    /// `idle_jump_after_tick`.
+    pub jump_press_window: u32,
+    pub idle_jump_after_tick: u32,
+    /// The water jump (state 18).
+    pub jump: JumpParams,
+    /// A melee press this recent dives; from idle a crouch or strafe press does too.
+    pub dive_press_window: u32,
+    /// Swimming stops with the stick under `stop_stick`, and starts with it past
+    /// `start_stick`, from surface idle once `start_after_tick` is past.
+    pub stop_stick: f32,
+    pub start_stick: f32,
+    pub start_after_tick: u32,
+    /// In water shallower than this, the surface swim and idle stand up.
+    pub stand_depth_swimming: f32,
+    pub stand_depth_idle: f32,
+    /// Under water, the pitch (positive nose down) heads for ± `pitch_max` with a melee or
+    /// jump press held, through `pitch_spring` capped at `pitch_cap`, plus
+    /// `pitch_cap_pressed` with one held (rad per tick).
+    pub pitch_max: f32,
+    pub pitch_spring: Spring,
+    pub pitch_cap: f32,
+    pub pitch_cap_pressed: f32,
+    /// Diving from the surface: `dive_ticks` long, pitched down at least
+    /// `dive_min_pitch` × `pitch_max`, heading for `dive_speed`.
+    pub dive_ticks: u32,
+    pub dive_min_pitch: f32,
+    pub dive_speed: f32,
+    /// Speeds under water: the swim, and the fast swim with crouch or strafe held or not.
+    pub under_speed: f32,
+    pub fast_speed: f32,
+    pub fast_coast_speed: f32,
+    /// The target is scaled by the stick, at least `min_scale` (`fast_min_scale` in the
+    /// fast swim) with the stick past `scale_from`.
+    pub scale_from: f32,
+    pub min_scale: f32,
+    pub fast_min_scale: f32,
+    pub under_accel: f32,
+    pub under_brake: f32,
+    pub fast_accel: f32,
+    pub fast_brake: f32,
+    /// The swim's velocity is the speed × this × the stroke factor, at least
+    /// `after_fast_min_speed` for `after_fast_ticks` after a fast swim.
+    pub under_stroke: f32,
+    pub after_fast_ticks: u32,
+    pub after_fast_min_speed: f32,
+    /// The underwater idle slows his drift at `idle_brake`, or `idle_brake_after_fast`.
+    pub idle_brake: f32,
+    pub idle_brake_after_fast: f32,
+    /// The swim turns fast once this far in with crouch or strafe held, and the fast swim
+    /// back with the stick past `fast_to_swim_stick`, or idle under `fast_to_idle_stick`.
+    pub fast_after_tick: u32,
+    pub fast_to_swim_stick: f32,
+    pub fast_to_idle_stick: f32,
+    /// The swim idles below `idle_speed`, between these frames of its stroke.
+    pub idle_speed: f32,
+    pub idle_stroke_from: f32,
+    pub idle_stroke_to: f32,
+    /// The stroke: how hard each frame of the arms' cycle pushes. The animation advances
+    /// `stroke_frames_per_rate` × its rate frames a tick; under water the rate is
+    /// `under_stroke_rate_per_speed` × the speed, within the min and max.
+    pub stroke: Vec<f32>,
+    pub stroke_frames_per_rate: f32,
+    pub under_stroke_rate_per_speed: f32,
+    pub under_stroke_rate_min: f32,
+    pub under_stroke_rate_max: f32,
+}
+
+/// The wrench: the three-swing combo (state 19), the jump attack (20) and the throw (21)
+/// (`hero-controller.md`, "Melee").
+///
+/// The attacks are timed by the game's animation frames. Each attack's animation blends in
+/// for `blend_ticks`, starting at `start_frame`, then advances `frames_per_tick` a tick at
+/// full rate; every window below is in those frames.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeleeProfile {
+    pub frames_per_tick: f32,
+    /// How old a melee press may be to start an attack: standing, walking or skidding;
+    /// crouching (a throw); and in the air, where it waits `air_after_tick` into the jump,
+    /// or longer into a double jump or a flip, which also remember the press longer.
+    pub ground_press_window: u32,
+    pub crouch_press_window: u32,
+    pub air_press_window: u32,
+    pub air_press_window_late: u32,
+    pub air_after_tick: u32,
+    pub double_jump_after_tick: u32,
+    pub flip_after_tick: u32,
+    /// From the air, closer to the ground than this, the attack is a combo swing.
+    pub combo_below_height: f32,
+    /// A press during an attack counts from the attack's `buffer_from` frame, two ticks a
+    /// frame, but at most this many ticks back.
+    pub chain_press_max: u32,
+    /// The combo goes on from where it stopped if it stopped less than this long ago.
+    pub chain_memory_ticks: u32,
+    /// A combo swing or throw walks off past `walk_out_frame` with the stick past
+    /// `walk_out_stick`; once over, it walks with the stick past `end_walk_stick` and
+    /// otherwise idles `end_idle_frames` later.
+    pub walk_out_frame: f32,
+    pub walk_out_stick: f32,
+    pub end_walk_stick: f32,
+    pub end_idle_frames: f32,
+    /// Combo swings and throws reach their lunge speed at `lunge_accel` and slow at
+    /// `lunge_brake`; off the ground they fall at `air_gravity`.
+    pub lunge_accel: f32,
+    pub lunge_brake: f32,
+    pub air_gravity: f32,
+    /// Turning towards the aim: combo swings and the jump attack, and the throw.
+    pub turn: TurnSpring,
+    pub throw_turn: TurnSpring,
+    /// The stick past this sets the attack's direction.
+    pub lock_stick: f32,
+    /// A combo swing on the ground stops short of an edge: it looks this many ticks of
+    /// its motion ahead for ground between `edge_probe_above` and `edge_probe_below`.
+    pub edge_lookahead_ticks: f32,
+    pub edge_probe_above: f32,
+    pub edge_probe_below: f32,
+    pub combo: Vec<AttackProfile>,
+    pub jump_attack: AttackProfile,
+    pub throw: AttackProfile,
+    pub combo_aim: AimProfile,
+    pub jump_aim: AimProfile,
+    pub throw_aim: AimProfile,
+    pub jump: JumpAttackProfile,
+    pub thrown: ThrownWrenchProfile,
+}
+
+/// One attack's timing, motion and hit (a row of UYA's table at 0x2F6310, with the
+/// handler's numbers).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttackProfile {
+    pub start_frame: f32,
+    pub blend_ticks: u32,
+    /// A combo swing started before this frame of this one is the next swing.
+    pub chain_before: f32,
+    /// Presses count from this frame.
+    pub buffer_from: f32,
+    /// A new attack can start from this frame.
+    pub chain_from: f32,
+    /// A jump press past this frame jumps out.
+    pub jump_from: f32,
+    /// The attack is over after this frame.
+    pub end: f32,
+    /// The wrench hits from `hit_from` to `hit_to`.
+    pub hit_from: f32,
+    pub hit_to: f32,
+    /// The lunge: up to each frame, its speed in u/s; it ends at the last frame.
+    pub lunge: Vec<(f32, f32)>,
+    /// With a target, a combo swing lunges harder to reach it.
+    pub reach: Option<LungeReach>,
+    pub damage: f32,
+    /// How hard a hit pushes, as the game's push strength, and which way.
+    pub knockback: f32,
+    pub push: Push,
+    /// The ball round the wrench's head that hits besides its swept shaft.
+    pub head_radius: f32,
+    /// Where the wrench is through the hit window, by frame.
+    pub swing: Vec<SwingKey>,
+}
+
+/// A combo swing's lunge with a target: its scale is `(distance - 0.5 - offset) / 0.9`, at
+/// most `max_scale`, when that is over 1 and the target is within `range + 3` of the
+/// offset.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LungeReach {
+    pub offset: f32,
+    pub range: f32,
+    pub max_scale: f32,
+}
+
+/// Which way a hit pushes: across the wrench's line to the hero's left or right, as it
+/// swings, or the way he faces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Push {
+    Left,
+    Right,
+    Forward,
+}
+
+/// The wrench at one animation frame, relative to the hero's feet: (forward, left, up).
+/// `hand` and `tip` are the ends of the line that hits.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SwingKey {
+    pub frame: f32,
+    pub hand: [f32; 3],
+    pub tip: [f32; 3],
+}
+
+/// Which target an attack turns to: the one within `range` and `cone_degrees` of the aim
+/// with the least distance × (1 + angle off), and within `rise_degrees` up or down (0 for
+/// any).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AimProfile {
+    pub range: f32,
+    pub cone_degrees: f32,
+    pub rise_degrees: f32,
+}
+
+/// The jump attack's own motion (`hero-controller.md`, "Jump attack").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JumpAttackProfile {
+    /// The upward speed it steps to at `rise_accel` until `rise_until_tick`: `rise`, or
+    /// less when already high above the ground.
+    pub rise: f32,
+    pub rise_high: f32,
+    pub high_above: f32,
+    pub rise_higher: f32,
+    pub higher_above: f32,
+    pub rise_accel: f32,
+    pub rise_until_tick: u32,
+    /// After `hold_until_tick` it falls at `gravity`, at most `fall_cap`.
+    pub hold_until_tick: u32,
+    pub gravity: f32,
+    pub fall_cap: f32,
+    /// Horizontally it brakes at `brake`, but keeps `carry_speed` while more than
+    /// `carry_above` up, until `carry_until_tick`. With a target `target_near` to
+    /// `target_far` away it keeps `carry_speed`, changing at `target_accel`.
+    pub brake: f32,
+    pub carry_speed: f32,
+    pub carry_above: f32,
+    pub carry_until_tick: u32,
+    pub target_accel: f32,
+    pub target_near: f32,
+    pub target_far: f32,
+    /// It looks for a target until this frame.
+    pub aim_until_frame: f32,
+    /// The animation runs at `rise_rate` going up, then at the rate that brings
+    /// `strike_frame` to the landing, but not under `low_rate_min` below `low_rate_below`;
+    /// on the ground it runs at `landed_rate` until `strike_frame`.
+    pub rise_rate: f32,
+    pub strike_frame: f32,
+    pub low_rate_below: f32,
+    pub low_rate_min: f32,
+    pub landed_rate: f32,
+    /// Blends in longer right after a flip.
+    pub blend_after_flip: u32,
+    pub after_flip_ticks: u32,
+    /// Coming down past `slam_from_frame`, a ball `slam_below` under his feet hits too.
+    pub slam_from_frame: f32,
+    pub slam_below: f32,
+    pub slam_radius: f32,
+    pub slam_damage: f32,
+    pub slam_knockback: f32,
+}
+
+/// The thrown wrench (`hero-controller.md`, "Throw").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThrownWrenchProfile {
+    /// It leaves the hand, `hand` from his feet (forward, left, up), at this frame.
+    pub release_frame: f32,
+    pub hand: [f32; 3],
+    /// Out at `speed`, slowing harder each tick by `jerk` (u/s³) until it stops; then back,
+    /// speeding up harder each tick by `return_jerk`.
+    pub speed: f32,
+    pub jerk: f32,
+    pub return_jerk: f32,
+    /// Within `height_within` of the ground it keeps `height` above it, rising at `rise`
+    /// and sinking at `sink`.
+    pub height: f32,
+    pub height_within: f32,
+    pub rise: f32,
+    pub sink: f32,
+    /// Hitting a wall sends it back at this share of its speed.
+    pub wall_slow: f32,
+    /// Further than this from the hand it is back at once.
+    pub lost_beyond: f32,
+    pub radius: f32,
+    pub damage: f32,
+    /// Push strength on the way out, and on the way back (towards the hero).
+    pub knockback_out: f32,
+    pub knockback_back: f32,
+    /// The hero's animation holds at `hold_frame` while it is out, and jumps to
+    /// `catch_frame` when it is under `catch_ahead_ticks` from the hand, or
+    /// `catch_after_tick` into the throw.
+    pub hold_frame: f32,
+    pub catch_frame: f32,
+    pub catch_ahead_ticks: f32,
+    pub catch_after_tick: u32,
+    /// Blends in faster when thrown again straight after a throw.
+    pub blend_again: u32,
+    /// Thrown again from a throw past this tick, with crouch held.
+    pub again_after_tick: u32,
+    /// A jump out of a throw counts presses this many ticks back.
+    pub jump_out_window: u32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").

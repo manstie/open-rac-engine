@@ -5,7 +5,7 @@
 //! [`ParryWorld`] is the bundled backend: a list of boxes and balls, queried with
 //! `parry3d`.
 
-use crate::rail::GrindRail;
+use crate::{rail::GrindRail, water::WaterVolume};
 use bevy::prelude::*;
 use parry3d::{
     math::Pose,
@@ -78,6 +78,14 @@ pub trait CollisionWorld: Send + Sync {
     fn rails(&self) -> &[GrindRail] {
         &[]
     }
+    /// The water the hero can swim in.
+    fn water(&self) -> &[WaterVolume] {
+        &[]
+    }
+    /// The points the hero's attacks turn to: whatever can be hit, at its middle.
+    fn targets(&self) -> &[Vec3] {
+        &[]
+    }
 }
 
 /// The shapes [`ParryWorld`] supports.
@@ -125,6 +133,8 @@ struct Body {
 pub struct ParryWorld {
     bodies: Vec<Body>,
     rails: Vec<GrindRail>,
+    water: Vec<WaterVolume>,
+    targets: Vec<Vec3>,
 }
 
 impl std::fmt::Debug for ParryWorld {
@@ -132,6 +142,8 @@ impl std::fmt::Debug for ParryWorld {
         f.debug_struct("ParryWorld")
             .field("bodies", &self.bodies.len())
             .field("rails", &self.rails.len())
+            .field("water", &self.water.len())
+            .field("targets", &self.targets.len())
             .finish()
     }
 }
@@ -150,6 +162,26 @@ impl ParryWorld {
 
     pub fn with_rails(mut self, rails: Vec<GrindRail>) -> Self {
         self.rails = rails;
+        self
+    }
+
+    /// Replaces all the water.
+    pub fn set_water(&mut self, water: Vec<WaterVolume>) {
+        self.water = water;
+    }
+
+    pub fn with_water(mut self, water: Vec<WaterVolume>) -> Self {
+        self.water = water;
+        self
+    }
+
+    /// Replaces every attack target.
+    pub fn set_targets(&mut self, targets: Vec<Vec3>) {
+        self.targets = targets;
+    }
+
+    pub fn with_targets(mut self, targets: Vec<Vec3>) -> Self {
+        self.targets = targets;
         self
     }
 
@@ -288,6 +320,14 @@ impl CollisionWorld for ParryWorld {
 
     fn rails(&self) -> &[GrindRail] {
         &self.rails
+    }
+
+    fn water(&self) -> &[WaterVolume] {
+        &self.water
+    }
+
+    fn targets(&self) -> &[Vec3] {
+        &self.targets
     }
 }
 

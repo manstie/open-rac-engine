@@ -23,14 +23,19 @@ directories = "6"
 # `enhanced-determinism` routes the maths through libm
 # so every platform computes the same contacts (PLAN.md section 2).
 parry3d = { version = "0.31", default-features = false, features = ["required-features", "std", "alloc", "enhanced-determinism"] }
+rac_combat = { path = "crates/rac_combat" }
 rac_demo = { path = "crates/rac_demo" }
+rac_formats = { path = "crates/rac_formats" }
 rac_hero = { path = "crates/rac_hero" }
 rac_input = { path = "crates/rac_input" }
+rac_iso = { path = "crates/rac_iso" }
+rac_rig = { path = "crates/rac_rig" }
 rac_sim = { path = "crates/rac_sim" }
 clap = { version = "4", features = ["derive"] }
 ruzstd = "0.8"
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 toml = "1"
 

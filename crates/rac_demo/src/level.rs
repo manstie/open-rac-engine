@@ -8,7 +8,7 @@
 //! Bevy's axes: y is up, and the player starts at the origin looking down −z.
 
 use bevy::prelude::*;
-use rac_hero::{GrindRail, Material};
+use rac_hero::{GrindRail, Material, Water};
 
 /// What a piece is for.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,6 +29,8 @@ pub enum Surface {
     Hazard,
     /// A box that makes its centre the hero's new spawn point when he enters it.
     Checkpoint,
+    /// Water to swim in, its top the surface.
+    Water,
 }
 
 impl Surface {
@@ -42,11 +44,11 @@ impl Surface {
     }
 
     /// Whether the hero collides with it. Rails and swing targets wait for their moves,
-    /// and checkpoints are only volumes.
+    /// and checkpoints and water are only volumes.
     pub fn is_solid(self) -> bool {
         !matches!(
             self,
-            Surface::GrindRail | Surface::SwingTarget | Surface::Checkpoint
+            Surface::GrindRail | Surface::SwingTarget | Surface::Checkpoint | Surface::Water
         )
     }
 }
@@ -107,6 +109,14 @@ impl Piece {
                 start + Vec3::Y * radius,
                 end + Vec3::Y * radius,
             ])),
+            _ => None,
+        }
+    }
+
+    /// What the hero swims in, for water: the whole box.
+    pub fn water(&self) -> Option<Water> {
+        match (self.surface, self.shape) {
+            (Surface::Water, Shape::Box { half_extents }) => Some(Water { half_extents }),
             _ => None,
         }
     }
@@ -373,6 +383,63 @@ pub fn greybox_level() -> Vec<Piece> {
         ));
     }
 
+    // A raised pool to swim in: water 3.5 u deep inside walls 4 u high, with steps up to
+    // the near wall's top. A water jump clears the walls.
+    let pool = Vec3::new(-50.0, 0.0, -30.0);
+    let (inside, wall) = (12.0, 1.0);
+    let span = inside + 2.0 * wall;
+    for (side, x, z, size) in [
+        (
+            "near",
+            0.0,
+            (inside + wall) / 2.0,
+            Vec3::new(span, 4.0, wall),
+        ),
+        (
+            "far",
+            0.0,
+            -(inside + wall) / 2.0,
+            Vec3::new(span, 4.0, wall),
+        ),
+        (
+            "left",
+            -(inside + wall) / 2.0,
+            0.0,
+            Vec3::new(wall, 4.0, inside),
+        ),
+        (
+            "right",
+            (inside + wall) / 2.0,
+            0.0,
+            Vec3::new(wall, 4.0, inside),
+        ),
+    ] {
+        pieces.push(Piece::block(
+            format!("pool wall {side}"),
+            Surface::Ground,
+            pool.x + x,
+            pool.z + z,
+            size,
+        ));
+    }
+    stairs(
+        &mut pieces,
+        "pool step",
+        pool.x,
+        pool.z + span / 2.0 + 4.8,
+        16,
+        0.25,
+        0.3,
+    );
+    pieces.push(Piece::new(
+        "pool water",
+        Surface::Water,
+        Shape::Box {
+            half_extents: Vec3::new(inside / 2.0, 1.75, inside / 2.0),
+        },
+        Vec3::new(pool.x, 1.75, pool.z),
+    ));
+
     // A swingshot target high over a gap between two 4 u platforms.
     for (end, z) in [("near", -84.0), ("far", -104.0)] {
         pieces.push(Piece::block(
@@ -391,6 +458,55 @@ pub fn greybox_level() -> Vec<Piece> {
     ));
 
     pieces
+}
+
+/// Something in the melee yard to hit.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetKind {
+    /// Solid, and broken by one hit.
+    Crate,
+    /// Pushed about by hits, and back to full health when knocked out.
+    Dummy,
+}
+
+/// A target for the hero's wrench (P1.8), standing on the floor at `position`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Target {
+    pub name: String,
+    pub kind: TargetKind,
+    pub position: Vec3,
+}
+
+/// The crate's half size, and the dummy's radius and height.
+pub const CRATE_HALF: f32 = 0.45;
+pub const DUMMY_RADIUS: f32 = 0.35;
+pub const DUMMY_HEIGHT: f32 = 1.6;
+
+/// The melee yard behind the start: a row of crates and a few training dummies, spaced
+/// for combos, throws and jump attacks.
+pub fn melee_targets() -> Vec<Target> {
+    let mut targets = Vec::new();
+    for i in 0..5 {
+        targets.push(Target {
+            name: format!("crate {i}"),
+            kind: TargetKind::Crate,
+            position: Vec3::new(-4.0 + 2.0 * i as f32, 0.0, 8.0),
+        });
+    }
+    for (i, x) in [-3.0, 0.0, 3.0].into_iter().enumerate() {
+        targets.push(Target {
+            name: format!("dummy {i}"),
+            kind: TargetKind::Dummy,
+            position: Vec3::new(x, 0.0, 14.0),
+        });
+    }
+    // Far off, for the throw.
+    targets.push(Target {
+        name: "far dummy".into(),
+        kind: TargetKind::Dummy,
+        position: Vec3::new(0.0, 0.0, 22.0),
+    });
+    targets
 }
 
 #[cfg(test)]
@@ -426,6 +542,7 @@ mod tests {
             Surface::SwingTarget,
             Surface::Hazard,
             Surface::Checkpoint,
+            Surface::Water,
         ] {
             assert!(
                 pieces.iter().any(|p| p.surface == surface),
@@ -525,6 +642,28 @@ mod tests {
         let joint =
             (platform.translation.x - half_x(platform)) - (right.translation.x + half_x(right));
         assert!(joint.abs() < 1e-4, "{joint}");
+    }
+
+    #[test]
+    fn the_melee_yard_is_clear_of_the_level() {
+        let pieces = greybox_level();
+        for target in melee_targets() {
+            for piece in &pieces {
+                let Shape::Box { half_extents } = piece.shape else {
+                    continue;
+                };
+                if piece.name == "floor" || !piece.surface.is_solid() {
+                    continue;
+                }
+                let gap = (target.position - piece.translation).abs() - half_extents;
+                assert!(
+                    gap.max_element() > 1.0,
+                    "{} is in {}",
+                    target.name,
+                    piece.name
+                );
+            }
+        }
     }
 
     #[test]

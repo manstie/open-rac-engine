@@ -442,3 +442,412 @@ address = 0x00142CAE
 kind = "data"
 confidence = "low"
 note = "Byte that hero_find_rail requires before it looks for rails; presumably the grind boots."
+
+# 2026-10-13, swimming (PLAN.md RE.3).
+
+[[symbol]]
+name = "hero_enter_water"
+address = 0x005010B8
+kind = "function"
+confidence = "medium"
+note = "Called from hero_transitions: puts a hero in water into surface idle (54) when falling with his feet about 0.45 u under in water over 0.8 u deep, or more than 0.8 u under; and surfaces an underwater hero rising within 0.4 u of the top."
+
+[[symbol]]
+name = "hero_surface_float"
+address = 0x00501458
+kind = "function"
+confidence = "medium"
+note = "Sets the hero's height on the surface: a tracked surface height (spring 0.027, 0.3) less 0.12, plus a bobbing offset (0x1A5300, rate 0x1A5304)."
+
+[[symbol]]
+name = "game_spring"
+address = 0x00445168
+kind = "function"
+confidence = "high"
+note = "Scalar spring on a value and its rate: the rate is clamped to the error, gains gain × error, loses damping × rate, is capped when the cap is positive, and clamped again; snaps within 1% of the cap. The rate step is 0x445010; the angle version is 0x4455F0."
+
+[[symbol]]
+name = "hero_turn_to_move_angle"
+address = 0x004EAFF8
+kind = "function"
+confidence = "medium"
+note = "Turns the yaw towards the move angle (0x1A4D80) with the angle spring; returns the angle left in 0x1A4D88. Triples its gain and cap in one control mode."
+
+[[symbol]]
+name = "hero_stick_move_angle"
+address = 0x004EAA78
+kind = "function"
+confidence = "medium"
+note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length."
+
+[[symbol]]
+name = "anim_table_over_step"
+address = 0x004E1368
+kind = "function"
+confidence = "medium"
+note = "A per-frame table weighted over the frames the hero's animation crossed last tick (frame 0x1A57F8, step 0x1A57FC); the swim stroke uses it."
+
+[[symbol]]
+name = "swim_stroke_table"
+address = 0x002F6630
+kind = "data"
+confidence = "medium"
+note = "30 floats: how hard each frame of the swimming stroke pushes, 0.4 rising to 1.0 on frames 8-11 and back to 0.4 by frame 23."
+
+[[symbol]]
+name = "hero_swim_block"
+address = 0x001A5570
+kind = "data"
+confidence = "medium"
+note = "libuya's HeroSwim: +0x10 dive time (the dive lasts 40), +0x14 bank rate, +0x18 pitch rate, +0x1C saved yaw rate, +0x24 minimum swim timer, +0x2C the surface swim's bob spring rate, +0x30 Cross and +0x32 Square hold counts."
+
+[[symbol]]
+name = "hero_water_height"
+address = 0x001A4F30
+kind = "data"
+confidence = "medium"
+note = "Written by hero_ground_probe: the water surface's height under the hero (libuya's HeroGround waterHeight). Quicksand's is at 0x1A4F34."
+
+[[symbol]]
+name = "hero_water_depth"
+address = 0x001A7428
+kind = "data"
+confidence = "medium"
+note = "Water surface less the floor's height; 0.25-0.85 sets the wading flag at 0x1A71CA."
+
+[[symbol]]
+name = "hero_anim_rate"
+address = 0x001A57E0
+kind = "data"
+confidence = "medium"
+note = "Speed of the hero's animation; it advances rate × 0x1A57E4 (0.5 in the Veldin image) frames a tick. Swimming sets it from the speed."
+
+# 2026-10-13, changing level (docs/re-setup.md, "Going straight to a level"). Writing a
+# level number to level_next and 1 to level_change_request in a running game loads that
+# level, checked headlessly (tools/pine-probe/warp.sh).
+
+[[symbol]]
+name = "level_current"
+address = 0x001D545C
+kind = "data"
+confidence = "high"
+note = "The level being played: 1 Veldin, 2 Florana (seen after a warp). The level list is in docs/re-setup.md."
+
+[[symbol]]
+name = "level_next"
+address = 0x001DFBC4
+kind = "data"
+confidence = "high"
+note = "The level the next change loads; -1 leaves for the menus. Other code reuses the word during play, so write it just before the request."
+
+[[symbol]]
+name = "level_change_request"
+address = 0x001D6674
+kind = "data"
+confidence = "high"
+note = "Non-zero makes main_loop save the level's state and call level_change. Set by request_level_change."
+
+[[symbol]]
+name = "game_mode"
+address = 0x001D6694
+kind = "data"
+confidence = "medium"
+note = "libuya's GameMode: 0 normal play, 2 a scene (arrival cutscenes), 6 set while a level change starts."
+
+[[symbol]]
+name = "main_loop"
+address = 0x003EE988
+kind = "function"
+confidence = "medium"
+note = "The per-frame game loop; each frame it first checks level_change_request."
+
+[[symbol]]
+name = "request_level_change"
+address = 0x00417DA0
+kind = "function"
+confidence = "high"
+note = "(level, save): maps some levels (13 to 23 before a story flag, 3 to 6 in one mode), then sets level_next and level_change_request, and with save records the save slot's level."
+
+[[symbol]]
+name = "level_change"
+address = 0x004AC828
+kind = "function"
+confidence = "medium"
+note = "Tears the level down and calls level_switch; on a negative level_next it goes back to the menus."
+
+[[symbol]]
+name = "level_switch"
+address = 0x004D3E20
+kind = "function"
+confidence = "medium"
+note = "Loads level_next through level_load and runs its transition until it finishes."
+
+[[symbol]]
+name = "level_load"
+address = 0x004D3998
+kind = "function"
+confidence = "medium"
+note = "Picks the transition for (current, next) from level_transitions, sets level_current, and starts loading the level's files."
+
+[[symbol]]
+name = "level_transitions"
+address = 0x002F3E58
+kind = "data"
+confidence = "medium"
+note = "51 entries of 16 bytes: from level (-1 for any), to level, handler index into 0x2F3D80 (0x18 bytes each), two arguments. Any level to a planet (1-14, 16-19, 21-24) uses handler 6, the flight in."
+
+# 2026-10-13, melee (docs/research/hero-controller.md, "Melee"). Read in code on Veldin and
+# checked against the traces uyantsc-veldin-moves-2 and uyantsc-veldin-melee-1.
+
+[[symbol]]
+name = "hero_attack_start"
+address = 0x00501678
+kind = "function"
+confidence = "high"
+note = "Runs before hero_transitions' switch: starts the combo, the throw or the jump attack on a buffered Square, and chains the combo."
+
+[[symbol]]
+name = "attack_table"
+address = 0x002F6310
+kind = "data"
+confidence = "high"
+note = "Five rows of 0x2C bytes: the three combo swings, the throw and the jump attack. Words: kind, step, chain_before, buffer_from, chain_from, jump_from, end, hit_from, hit_to, then two unread."
+
+[[symbol]]
+name = "wrench_update"
+address = 0x00338088
+kind = "function"
+confidence = "high"
+note = "The wrench object's update: the swing's sweep points, hits, and the thrown wrench's flight and return."
+
+[[symbol]]
+name = "wrench_throw"
+address = 0x004F1A08
+kind = "function"
+confidence = "high"
+note = "Releases the thrown wrench from the hand at animation frame 33."
+
+[[symbol]]
+name = "mp_wrench_throw"
+address = 0x004F1CE0
+kind = "function"
+confidence = "medium"
+note = "The multiplayer form of wrench_throw."
+
+[[symbol]]
+name = "mp_wrench_update"
+address = 0x00356110
+kind = "function"
+confidence = "medium"
+note = "The multiplayer wrench's object (item 0x7F); it runs the same attack rules."
+
+[[symbol]]
+name = "hero_auto_aim"
+address = 0x004EEA78
+kind = "function"
+confidence = "high"
+note = "Picks the attack's target: scores each candidate by distance × (1 + angle) within the attack's range and cone."
+
+[[symbol]]
+name = "target_search"
+address = 0x004E5BB8
+kind = "function"
+confidence = "medium"
+note = "Walks the target list (0x21E8E0, flag 0x1000) for hero_auto_aim."
+
+[[symbol]]
+name = "target_score"
+address = 0x004E56A8
+kind = "function"
+confidence = "medium"
+note = "Scores one target for hero_auto_aim."
+
+[[symbol]]
+name = "wrench_reach_scale"
+address = 0x00337FD0
+kind = "function"
+confidence = "medium"
+note = "Scales the swing's lunge so it reaches the aimed target."
+
+[[symbol]]
+name = "wrench_sweep_test"
+address = 0x00443AB8
+kind = "function"
+confidence = "high"
+note = "Tests the swing's swept hand-to-tip lines and head ball against targets."
+
+[[symbol]]
+name = "damage_info_fill"
+address = 0x00443628
+kind = "function"
+confidence = "medium"
+note = "Fills the damage record a hit passes to its target: damage, push and attacker."
+
+[[symbol]]
+name = "ball_damage"
+address = 0x003FB1D0
+kind = "function"
+confidence = "medium"
+note = "Damages what a ball touches; the jump attack's slam and the thrown wrench use it."
+
+[[symbol]]
+name = "hero_ticks_to_land"
+address = 0x0050C4A0
+kind = "function"
+confidence = "medium"
+note = "Predicts how many frames until the hero lands; the jump attack times its animation with it."
+
+[[symbol]]
+name = "anim_frame_crossed"
+address = 0x004EAA20
+kind = "function"
+confidence = "medium"
+note = "Whether the hero's animation frame passed a given frame this tick."
+
+[[symbol]]
+name = "hero_edge_stop"
+address = 0x004F14D8
+kind = "function"
+confidence = "medium"
+note = "Stops a lunge at a drop: looks 3.7 frames ahead for ground 0.3 up to 0.35 down."
+
+[[symbol]]
+name = "weapon_table"
+address = 0x002C5640
+kind = "data"
+confidence = "medium"
+note = "One 0xF0-byte row per weapon; the wrench's row holds its damage."
+
+[[symbol]]
+name = "item_weapon_rows"
+address = 0x001425C0
+kind = "data"
+confidence = "medium"
+note = "Byte per item: its row in weapon_table."
+
+[[symbol]]
+name = "hero_attack_fields"
+address = 0x001A57A4
+kind = "data"
+confidence = "medium"
+note = "The hero's attack fields up to 0x1A57BE: attack row, step, serial and the chain buffer."
+
+[[symbol]]
+name = "wrench_thrown"
+address = 0x001A5DFA
+kind = "data"
+confidence = "medium"
+note = "Set while the thrown wrench is out; the hero can't attack again until it is caught."
+
+# 2026-10-13, moby animation (docs/research/moby-format.md). Read in code on Veldin and
+# checked against the image's data: every hero sequence unpacks, and the attached mobys
+# sit on the joints our forward kinematics computes.
+
+[[symbol]]
+name = "hero_anim_set"
+address = 0x0050BB98
+kind = "function"
+confidence = "high"
+note = "(blend ticks, sequence, start keyframe): starts a hero animation, fetching the keyframes it blends between into hero_pose_buffers."
+
+[[symbol]]
+name = "hero_anim_update"
+address = 0x0050BF58
+kind = "function"
+confidence = "high"
+note = "Advances the hero's keyframe time by rate / ticks each frame, steps to the next keyframe at 1, and sets hero_anim_frame from the keyframes' time stamps."
+
+[[symbol]]
+name = "moby_anim_frame"
+address = 0x004DBFE8
+kind = "function"
+confidence = "high"
+note = "(moby, sequence, keyframe, out): copies an uncompressed keyframe, or unpacks a compressed one with anim_frame_unpack."
+
+[[symbol]]
+name = "anim_frame_unpack"
+address = 0x004397F8
+kind = "function"
+confidence = "high"
+note = "(base block, frame, out, joint count): unpacks a compressed keyframe against its sequence's base block."
+
+[[symbol]]
+name = "moby_anim_layer_update"
+address = 0x00436D30
+kind = "function"
+confidence = "medium"
+note = "The generic animation layer update: advances its keyframe time and fetches the keyframes it blends between."
+
+[[symbol]]
+name = "moby_anim_keys"
+address = 0x00436350
+kind = "function"
+confidence = "medium"
+note = "Points a moby's previous and current keyframes (moby + 0x58, + 0x5C) at its sequence's frames."
+
+[[symbol]]
+name = "moby_anim_frame_number"
+address = 0x00436500
+kind = "function"
+confidence = "high"
+note = "The moby's animation frame: the keyframes' time stamps (/16) interpolated by the keyframe time at moby + 0x44."
+
+[[symbol]]
+name = "moby_pose_build"
+address = 0x0043B7D0
+kind = "function"
+confidence = "medium"
+note = "Builds a layer's joint records in scratchpad (0x70000000 + joint × 0x40) from two keyframes, the class's joint offsets and the blend."
+
+[[symbol]]
+name = "hero_pose_buffers"
+address = 0x00252900
+kind = "data"
+confidence = "high"
+note = "Two 0x600-byte buffers: the hero's previous keyframe at 0x252900 and current one at 0x252F00, unpacked."
+
+# 2026-10-13, reading levels from the disc (docs/research/disc-layout.md, "Level data").
+# Checked by unpacking Veldin's core from the disc with our own code and finding the
+# hero class and sequences byte for byte where the Veldin image has them.
+
+[[symbol]]
+name = "wad_decompress"
+address = 0x00433EA0
+kind = "function"
+confidence = "high"
+note = "(src, dst) -> unpacked size: the WAD codec. Streams the packets through scratchpad 0x2000 bytes at a time; a far match of distance 0 is a no-op (length 1) or the end of the block."
+
+[[symbol]]
+name = "level_load_core"
+address = 0x00428750
+kind = "function"
+confidence = "high"
+note = "Copies the core header (data part + [0x08], size [0x0C]), unpacks the core (data part + [0x48]) to 0x91E000 on Veldin, registers every class and fills the level memory map at 0x1EA9C0; fills the hero's sequence table from core header + [0x78]."
+
+[[symbol]]
+name = "moby_class_register"
+address = 0x00424368
+kind = "function"
+confidence = "medium"
+note = "Registers one moby class from the core header's table and relocates it."
+
+[[symbol]]
+name = "moby_class_relocate"
+address = 0x00424048
+kind = "function"
+confidence = "high"
+note = "Turns a packed class's pointers (from the class's start) into addresses: packets, skeleton, joints, sequences and their keyframes; a sequence's trigger pointer counts from the sequence."
+
+[[symbol]]
+name = "hero_sequence_relocate"
+address = 0x00423DB8
+kind = "function"
+confidence = "high"
+note = "(class, sequence): relocates one of the hero's sequences, which the core keeps outside his class; its pointers count from the sequence's own start."
+
+[[symbol]]
+name = "level_memory_map"
+address = 0x001EA9C0
+kind = "data"
+confidence = "medium"
+note = "Start addresses of the level's memory regions: the core at 0x91E000 on Veldin, the moby classes (+0x38), the hero's sequences (+0x44), the mobys, the armor mesh."

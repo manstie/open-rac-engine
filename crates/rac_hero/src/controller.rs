@@ -14,12 +14,17 @@ use bevy::{math::ops, prelude::*};
 use rac_input::{Action, PlayerInput};
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+mod melee;
+
+pub use melee::{Strike, StrikeShape, ThrownWrench, best_target};
+
 use crate::{
     collision::{BodyId, CollisionWorld, Material},
     motor::{self, Ground},
-    profile::{HeroProfile, JumpParams, TurnSpring},
+    profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
     rail::{GrindRail, RailPoint},
     stick::{Stick, read_stick},
+    water,
 };
 
 /// Seconds per tick.
@@ -51,6 +56,8 @@ pub enum JumpKind {
     Grind,
     /// Across to another rail.
     GrindSwitch,
+    /// Out of the water from its surface.
+    Water,
 }
 
 /// Which way a shimmy goes, seen from the hero facing the wall.
@@ -82,6 +89,19 @@ pub enum HeroState {
     Charge,
     /// Bounced back off a wall by a charge.
     Bounce,
+    /// Swimming on the surface, and floating there.
+    SurfaceSwim,
+    SurfaceIdle,
+    /// Swimming under water, drifting there, and the fast swim.
+    UnderwaterSwim,
+    UnderwaterIdle,
+    UnderwaterFast,
+    /// A swing of the wrench combo, 0 to 2.
+    Combo(u8),
+    /// The wrench brought down from a jump.
+    JumpAttack,
+    /// Throwing the wrench, and waiting for it to come back.
+    Throw,
     /// Knocked back by a hit.
     Hit,
     Dead,
@@ -105,6 +125,10 @@ impl HeroState {
             HeroState::DoubleJump => 14,
             HeroState::Jump(JumpKind::Heli) => 15,
             HeroState::Jump(JumpKind::Wall) => 17,
+            HeroState::Jump(JumpKind::Water) => 18,
+            HeroState::Combo(_) => 19,
+            HeroState::JumpAttack => 20,
+            HeroState::Throw => 21,
             HeroState::Hit => 22,
             HeroState::LedgeGrab => 23,
             HeroState::LedgeHang => 24,
@@ -114,6 +138,11 @@ impl HeroState {
             HeroState::Grind => 39,
             HeroState::Jump(JumpKind::Grind) => 40,
             HeroState::Jump(JumpKind::GrindSwitch) => 41,
+            HeroState::UnderwaterSwim => 50,
+            HeroState::UnderwaterIdle => 51,
+            HeroState::UnderwaterFast => 52,
+            HeroState::SurfaceSwim => 53,
+            HeroState::SurfaceIdle => 54,
             HeroState::Dead => 57,
             HeroState::Bounce => 121,
             HeroState::Charge => 125,
@@ -131,6 +160,28 @@ impl HeroState {
         matches!(
             self,
             HeroState::LedgeGrab | HeroState::LedgeHang | HeroState::LedgeShimmy(_)
+        )
+    }
+
+    pub fn is_on_surface(self) -> bool {
+        matches!(self, HeroState::SurfaceSwim | HeroState::SurfaceIdle)
+    }
+
+    pub fn is_underwater(self) -> bool {
+        matches!(
+            self,
+            HeroState::UnderwaterSwim | HeroState::UnderwaterIdle | HeroState::UnderwaterFast
+        )
+    }
+
+    pub fn is_swimming(self) -> bool {
+        self.is_on_surface() || self.is_underwater()
+    }
+
+    pub fn is_attacking(self) -> bool {
+        matches!(
+            self,
+            HeroState::Combo(_) | HeroState::JumpAttack | HeroState::Throw
         )
     }
 }
@@ -233,6 +284,14 @@ impl PressAge {
     }
 }
 
+/// The water around the hero this tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WaterLevel {
+    surface: f32,
+    /// From the surface down to the floor, up to 32 u.
+    depth: f32,
+}
+
 /// What a tick did that the caller may want to act on.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct StepEvents {
@@ -269,6 +328,14 @@ pub struct HeroMotion {
     pub input_lock: u32,
     /// The rail ridden, or followed by a jump off it.
     pub rail: Option<RailPoint>,
+    /// How far his nose points down from level, in radians: swimming under water.
+    pub pitch: f32,
+    /// The thrown wrench, while it is out of his hand.
+    pub thrown: Option<ThrownWrench>,
+    /// What the wrench can hit this tick.
+    pub strikes: Vec<Strike>,
+    /// The state before this one.
+    previous_state: HeroState,
     /// Walking, but not yet past the setting-off speed.
     setting_off: bool,
     /// The walk's skid after a sharp turn.
@@ -328,6 +395,32 @@ pub struct HeroMotion {
     switch_ticks: u32,
     /// Ticks left before a rail can be got on again.
     no_rail_ticks: u32,
+    /// The water he is in or over, found each tick.
+    water: Option<WaterLevel>,
+    /// The pitch's spring rate, radians per tick.
+    pitch_rate: f32,
+    /// On the surface: the height his feet float at follows the water's, and an offset
+    /// bobs about it (u, and u per tick).
+    float_height: f32,
+    float_rate: f32,
+    bob: f32,
+    bob_rate: f32,
+    bob_spring_rate: f32,
+    /// The velocity he got into the water with, drifting on, u/s.
+    drift: Vec3,
+    /// The swimming stroke's animation frame, and how far it moved last tick.
+    stroke_frame: f32,
+    stroke_step: f32,
+    /// Ticks left of a surface stroke that finishes whatever the stick does.
+    stroke_left: u32,
+    /// Ticks left of a dive from the surface.
+    dive_left: u32,
+    melee_press: PressAge,
+    strafe_press: PressAge,
+    /// The attack under way, or the last one.
+    attack: melee::Attack,
+    /// Attacks and throws so far, which number them.
+    attack_serial: u32,
 }
 
 impl HeroMotion {
@@ -347,6 +440,10 @@ impl HeroMotion {
             abilities: Abilities::ALL,
             input_lock: 0,
             rail: None,
+            pitch: 0.0,
+            thrown: None,
+            strikes: Vec::new(),
+            previous_state: HeroState::Idle,
             setting_off: true,
             skidding: false,
             sliding: false,
@@ -383,6 +480,22 @@ impl HeroMotion {
             switch_from: None,
             switch_ticks: 0,
             no_rail_ticks: 0,
+            water: None,
+            pitch_rate: 0.0,
+            float_height: 0.0,
+            float_rate: 0.0,
+            bob: 0.0,
+            bob_rate: 0.0,
+            bob_spring_rate: 0.0,
+            drift: Vec3::ZERO,
+            stroke_frame: 0.0,
+            stroke_step: 0.0,
+            stroke_left: 0,
+            dive_left: 0,
+            melee_press: PressAge::NEVER,
+            strafe_press: PressAge::NEVER,
+            attack: melee::Attack::default(),
+            attack_serial: 0,
         }
     }
 
@@ -413,12 +526,19 @@ impl HeroMotion {
 
     fn set_state(&mut self, state: HeroState) {
         if self.state != state {
-            self.state = state;
-            self.ticks = 0;
-            self.skidding = false;
-            self.sliding = false;
-            self.charge_skid = false;
+            self.restart_state(state);
         }
+    }
+
+    /// Enters `state` afresh, even if he is already in it, as a new attack does.
+    fn restart_state(&mut self, state: HeroState) {
+        self.previous_state = self.state;
+        self.state = state;
+        self.ticks = 0;
+        self.skidding = false;
+        self.sliding = false;
+        self.charge_skid = false;
+        self.dive_left = 0;
     }
 
     fn record_stick(&mut self, stick: &Stick) {
@@ -448,7 +568,11 @@ impl HeroMotion {
     fn pushing_off_ground(&self, profile: &HeroProfile) -> bool {
         match self.state {
             HeroState::Jump(
-                JumpKind::Wall | JumpKind::Ledge | JumpKind::Grind | JumpKind::GrindSwitch,
+                JumpKind::Wall
+                | JumpKind::Ledge
+                | JumpKind::Grind
+                | JumpKind::GrindSwitch
+                | JumpKind::Water,
             ) => false,
             HeroState::Jump(kind) => self.ticks < jump_params(profile, kind).pushoff_ticks,
             _ => false,
@@ -530,6 +654,7 @@ pub fn jump_params(profile: &HeroProfile, kind: JumpKind) -> &JumpParams {
         JumpKind::Ledge => &profile.ledge.climb,
         JumpKind::Grind => &profile.grind.jump,
         JumpKind::GrindSwitch => &profile.grind.switch_jump,
+        JumpKind::Water => &profile.swim.jump,
     }
 }
 
@@ -668,6 +793,8 @@ pub fn step(
 
     hero.jump_press.update(input.pressed(Action::Jump));
     hero.crouch_press.update(input.pressed(Action::Crouch));
+    hero.melee_press.update(input.pressed(Action::Melee));
+    hero.strafe_press.update(input.pressed(Action::Strafe));
     hero.wall_ticks = hero.wall_ticks.saturating_sub(1);
     if hero.wall_ticks == 0 {
         hero.wall = None;
@@ -704,6 +831,12 @@ pub fn step(
     }
 
     try_get_on_rail(hero, profile, world);
+    hero.water = find_water(world, hero.position);
+    enter_water(hero, profile);
+    if hero.state.is_attacking() {
+        melee::advance_frame(hero, profile);
+    }
+    melee::try_attack(hero, input, &stick, wish, profile, world);
 
     match hero.state {
         HeroState::Dead => dead_tick(hero, profile),
@@ -711,13 +844,20 @@ pub fn step(
         HeroState::Charge => charge_tick(hero, &stick, profile),
         HeroState::Bounce => bounce_tick(hero, profile),
         HeroState::Grind => grind_tick(hero, input, &stick, wish, profile, world),
+        state if state.is_on_surface() => surface_tick(hero, input, &stick, wish, profile),
+        state if state.is_underwater() => underwater_tick(hero, input, &stick, wish, profile),
         state if state.is_on_ledge() => ledge_tick(hero, input, &stick, wish, profile, world),
         state if state.is_airborne() => air_tick(hero, input, &stick, wish, profile),
+        state if state.is_attacking() => {
+            melee::attack_tick(hero, input, &stick, wish, camera_yaw, profile, world);
+        }
         _ => ground_tick(hero, input, &stick, wish, camera_yaw, profile),
     }
 
     follow_rail_in_air(hero, &stick, wish, profile, world);
     move_hero(hero, &stick, profile, world);
+    melee::thrown_tick(hero, profile, world);
+    melee::update_strikes(hero, profile);
 
     let mut events = StepEvents::default();
     if let Some(ground) = hero.ground {
@@ -747,13 +887,29 @@ fn move_hero(
         hero.height_above_ground = height_above_ground(world, hero.position);
         return;
     }
+    if state.is_swimming() {
+        // Water holds him up, so he slides along whatever he swims into, the floor too.
+        let outcome = motor::move_body(
+            world,
+            &profile.body,
+            hero.position,
+            hero.velocity * TICK,
+            false,
+        );
+        hero.position = outcome.position;
+        hero.ground = None;
+        hero.ticks += 1;
+        hero.height_above_ground = height_above_ground(world, hero.position);
+        return;
+    }
     let on_ground = !state.is_airborne() && !state.is_on_ledge();
     let pushing_off = hero.pushing_off_ground(profile);
-    // Hits, deaths, bounces and charges keep to the ground while they are on it.
-    let keeps_to_ground = matches!(
-        state,
-        HeroState::Hit | HeroState::Dead | HeroState::Bounce | HeroState::Charge
-    );
+    // Hits, deaths, bounces, charges and attacks keep to the ground while they are on it.
+    let keeps_to_ground = state.is_attacking()
+        || matches!(
+            state,
+            HeroState::Hit | HeroState::Dead | HeroState::Bounce | HeroState::Charge
+        );
     let grounded = match state {
         // A charge runs up slopes too.
         HeroState::Charge => hero.ground.is_some(),
@@ -1081,9 +1237,15 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
         past_apex: false,
         blocked: false,
     };
+    // A water jump keeps the velocity it swam with.
     if !matches!(
         kind,
-        JumpKind::Flip | JumpKind::Wall | JumpKind::Ledge | JumpKind::Grind | JumpKind::GrindSwitch
+        JumpKind::Flip
+            | JumpKind::Wall
+            | JumpKind::Ledge
+            | JumpKind::Grind
+            | JumpKind::GrindSwitch
+            | JumpKind::Water
     ) {
         let facing = hero.facing();
         hero.set_horizontal_velocity(facing * hero.speed);
@@ -1770,6 +1932,455 @@ fn find_switch_rail(
         distance += grind.switch_step;
     }
     None
+}
+
+/// The water at `feet`, as the games' ground probe finds it (`hero-controller.md`,
+/// "Swimming").
+fn find_water(world: &dyn CollisionWorld, feet: Vec3) -> Option<WaterLevel> {
+    let surface = water::surface_at(world.water(), feet)?;
+    let depth = height_above_ground(world, Vec3::new(feet.x, surface, feet.z));
+    Some(WaterLevel { surface, depth })
+}
+
+/// The games' spring (`hero-controller.md`, "Swimming"): the rate, kept within the error,
+/// gains `gain × error` and loses `damping × rate`, is capped at `cap` when that is
+/// positive, and is kept within the error again. Within 1% of the cap of its target, the
+/// value snaps to it.
+fn game_spring(value: f32, target: f32, spring: Spring, cap: f32, rate: &mut f32) -> f32 {
+    let error = target - value;
+    *rate = rate.clamp(-error.abs(), error.abs());
+    *rate += spring.gain * error - spring.damping * *rate;
+    if cap > 0.0 {
+        *rate = rate.clamp(-cap, cap);
+    }
+    *rate = rate.clamp(-error.abs(), error.abs());
+    let next = value + *rate;
+    if (target - next).abs() < cap * 0.01 {
+        *rate = 0.0;
+        return target;
+    }
+    next
+}
+
+/// Swimming fast: R1 or R2 in the games, crouch or strafe here.
+fn fast_swim_held(input: &PlayerInput) -> bool {
+    input.held(Action::Crouch) || input.held(Action::Strafe)
+}
+
+/// Gets the hero into the water, or up to its surface from under it (`hero_enter_water`).
+fn enter_water(hero: &mut HeroMotion, profile: &HeroProfile) {
+    let swim = &profile.swim;
+    let Some(water) = hero.water else {
+        return;
+    };
+    let feet = hero.position.y;
+    let state = hero.state;
+    if state.is_underwater() {
+        if hero.dive_left == 0 && hero.velocity.y > 0.0 && feet > water.surface - swim.surface_below
+        {
+            start_floating(hero, water.surface, profile);
+        }
+        return;
+    }
+    if state.is_on_surface()
+        || state.is_on_ledge()
+        || matches!(state, HeroState::Grind | HeroState::Dead)
+    {
+        return;
+    }
+    // A jump only counts on its way down.
+    let past_apex = match state {
+        HeroState::Jump(_) => hero.jump.past_apex,
+        HeroState::DoubleJump | HeroState::Glide => hero.velocity.y <= 0.0,
+        _ => true,
+    };
+    let mut gets_in = false;
+    if past_apex {
+        let slack = swim
+            .entry_slack
+            .max((hero.velocity.y * TICK).abs() + swim.entry_slack_extra);
+        gets_in = (water.surface - (feet + swim.entry_below)).abs() < slack
+            && water.depth > swim.entry_depth
+            && hero.velocity.y < 0.0;
+        gets_in |= feet < water.surface - swim.deep_below;
+    }
+    if state == HeroState::Jump(JumpKind::Water)
+        && hero.jump.past_apex
+        && feet < water.surface - swim.jump_back_below
+    {
+        gets_in = true;
+    }
+    if gets_in {
+        start_floating(hero, water.surface, profile);
+    }
+}
+
+/// Surface idle (state 54) from in the water or under it: the bob starts from how he
+/// came in, and his horizontal velocity drifts on.
+fn start_floating(hero: &mut HeroMotion, surface: f32, profile: &HeroProfile) {
+    let swim = &profile.swim;
+    hero.set_state(HeroState::SurfaceIdle);
+    hero.ground = None;
+    hero.rail = None;
+    hero.ledge = None;
+    hero.speed = 0.0;
+    hero.stroke_left = 0;
+    hero.bob = hero.position.y - (surface - swim.float_below);
+    hero.bob_rate = (swim.bob_entry_scale * hero.velocity.y).max(-swim.bob_entry_max) * TICK;
+    hero.float_height = surface;
+    hero.float_rate = 0.0;
+    hero.drift = hero.horizontal_velocity().clamp_length_max(swim.drift_max);
+}
+
+/// Stops swimming when the water runs out under him, which the games' levels don't let
+/// happen.
+fn out_of_water(hero: &mut HeroMotion) {
+    hero.pitch = 0.0;
+    hero.pitch_rate = 0.0;
+    hero.take_off_height = hero.position.y;
+    hero.double_jumped = true;
+    hero.set_state(HeroState::Fall);
+}
+
+fn reset_stroke(hero: &mut HeroMotion) {
+    hero.stroke_frame = 0.0;
+    hero.stroke_step = 0.0;
+}
+
+/// How hard the stroke pushes this tick: the stroke table over the frames the animation
+/// crossed last tick, as the game reckons it.
+fn stroke_factor(hero: &HeroMotion, swim: &SwimProfile) -> f32 {
+    let table = &swim.stroke;
+    if table.is_empty() {
+        return 0.0;
+    }
+    let count = table.len();
+    let whole = (hero.stroke_frame as usize).min(count - 1);
+    let fraction = hero.stroke_frame - whole as f32;
+    let before = (whole + count - 1) % count;
+    fraction * table[whole] + (hero.stroke_step - fraction) * table[before]
+}
+
+fn advance_stroke(hero: &mut HeroMotion, rate: f32, swim: &SwimProfile) {
+    hero.stroke_step = swim.stroke_frames_per_rate * rate;
+    let frames = swim.stroke.len().max(1) as f32;
+    hero.stroke_frame = (hero.stroke_frame + hero.stroke_step).rem_euclid(frames);
+}
+
+fn start_dive(hero: &mut HeroMotion, fast: bool, profile: &HeroProfile) {
+    hero.set_state(if fast {
+        HeroState::UnderwaterFast
+    } else {
+        HeroState::UnderwaterSwim
+    });
+    hero.dive_left = profile.swim.dive_ticks;
+    reset_stroke(hero);
+}
+
+/// One tick on the surface (states 53 and 54).
+fn surface_tick(
+    hero: &mut HeroMotion,
+    input: &PlayerInput,
+    stick: &Stick,
+    wish: Vec3,
+    profile: &HeroProfile,
+) {
+    let swim = &profile.swim;
+    let Some(water) = hero.water else {
+        out_of_water(hero);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    };
+    let idle = hero.state == HeroState::SurfaceIdle;
+
+    if hero.jump_press.within(swim.jump_press_window)
+        && (!idle || hero.ticks > swim.idle_jump_after_tick)
+    {
+        hero.jump_press.used = true;
+        hero.pitch = 0.0;
+        hero.pitch_rate = 0.0;
+        start_jump(hero, JumpKind::Water, profile);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    }
+    let window = swim.dive_press_window;
+    let fast_pressed = hero.crouch_press.within(window) || hero.strafe_press.within(window);
+    if hero.melee_press.within(window) || (idle && fast_pressed) {
+        hero.melee_press.used = true;
+        hero.crouch_press.used = true;
+        hero.strafe_press.used = true;
+        start_dive(hero, fast_swim_held(input), profile);
+        underwater_tick(hero, input, stick, wish, profile);
+        return;
+    }
+    let stand_depth = if idle {
+        swim.stand_depth_idle
+    } else {
+        swim.stand_depth_swimming
+    };
+    if water.depth < stand_depth {
+        // The game wades in state 117, not read yet; the kit lands and walks.
+        hero.velocity.y = 0.0;
+        out_of_water(hero);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    }
+    if idle {
+        if stick.magnitude > swim.start_stick && hero.ticks > swim.start_after_tick {
+            hero.set_state(HeroState::SurfaceSwim);
+            hero.stroke_left = swim.stroke_ticks;
+            hero.bob_spring_rate = 0.0;
+            reset_stroke(hero);
+        }
+    } else if stick.magnitude < swim.stop_stick && hero.speed == 0.0 && hero.stroke_left == 0 {
+        start_floating(hero, water.surface, profile);
+    }
+
+    // The stick's way, relative to the camera, or on as he faces with it released.
+    let target_yaw = if stick.is_active() {
+        yaw_of(wish)
+    } else {
+        hero.yaw
+    };
+    turn(hero, target_yaw, swim.turn);
+    let mut target = swim.surface_speed * stick.magnitude;
+    if stick.is_active() {
+        target = target.max(swim.surface_min_speed);
+    }
+    hero.stroke_left = hero.stroke_left.saturating_sub(1);
+    let mut horizontal = Vec3::ZERO;
+    if hero.state == HeroState::SurfaceSwim {
+        if !stick.is_active() && hero.stroke_left > 0 {
+            target = swim.surface_speed;
+        }
+        if wrap(target_yaw - hero.yaw).abs() > swim.surface_turn_limit_degrees.to_radians() {
+            target = 0.0;
+        }
+        let rate = if hero.speed < target {
+            swim.surface_accel
+        } else {
+            swim.surface_brake
+        };
+        hero.speed = approach(hero.speed, target, rate * TICK);
+        horizontal = hero.facing() * (hero.speed * swim.surface_stroke * stroke_factor(hero, swim));
+        advance_stroke(hero, swim.surface_stroke_rate, swim);
+    } else {
+        hero.speed = 0.0;
+    }
+    let drift = (hero.drift.length() - swim.drift_brake * TICK).max(0.0);
+    hero.drift = hero.drift.normalize_or_zero() * drift;
+    hero.set_horizontal_velocity(horizontal + hero.drift);
+    // The games don't level him out on the surface in this code; the kit does.
+    hero.pitch = game_spring(
+        hero.pitch,
+        0.0,
+        swim.pitch_spring,
+        swim.pitch_cap,
+        &mut hero.pitch_rate,
+    );
+    float(hero, water.surface, profile);
+}
+
+/// Where his feet float this tick (`hero_surface_float`), as a vertical velocity.
+fn float(hero: &mut HeroMotion, surface: f32, profile: &HeroProfile) {
+    let swim = &profile.swim;
+    let swimming = hero.state == HeroState::SurfaceSwim;
+    if hero.ticks > swim.bob_free_ticks || hero.bob < 0.0 || hero.previous_state.is_underwater() {
+        if swimming {
+            hero.bob = game_spring(
+                hero.bob,
+                0.0,
+                swim.bob_swim,
+                swim.bob_swim_cap * TICK,
+                &mut hero.bob_spring_rate,
+            );
+            hero.bob_rate = 0.0;
+        } else {
+            hero.bob_rate -= hero.bob * swim.bob_stiffness + hero.bob_rate * swim.bob_damping;
+            if hero.bob.abs() < 0.001 && hero.bob_rate < 0.0001 {
+                hero.bob_rate = 0.0;
+            }
+        }
+    }
+    hero.bob += hero.bob_rate;
+    if swimming && hero.bob > 0.0 {
+        hero.bob_rate = hero.bob_rate.min(0.0);
+        hero.bob = approach(hero.bob, 0.0, swim.bob_sink * TICK);
+    }
+    hero.float_height = game_spring(
+        hero.float_height,
+        surface,
+        swim.surface_follow,
+        0.0,
+        &mut hero.float_rate,
+    );
+    let feet = hero.float_height - swim.float_below + hero.bob;
+    hero.velocity.y = (feet - hero.position.y) / TICK;
+}
+
+/// One tick under water (states 50, 51 and 52).
+fn underwater_tick(
+    hero: &mut HeroMotion,
+    input: &PlayerInput,
+    stick: &Stick,
+    wish: Vec3,
+    profile: &HeroProfile,
+) {
+    let swim = &profile.swim;
+    if hero.water.is_none() {
+        out_of_water(hero);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    }
+    let rise = input.held(Action::Jump);
+    let sink = input.held(Action::Melee);
+    let pitching = rise || sink;
+    let fast = fast_swim_held(input);
+
+    let diving = hero.dive_left > 0;
+    match hero.state {
+        HeroState::UnderwaterSwim => {
+            let mid_stroke = hero.stroke_frame > swim.idle_stroke_from
+                && hero.stroke_frame < swim.idle_stroke_to;
+            if !pitching
+                && !diving
+                && mid_stroke
+                && stick.magnitude < swim.stop_stick
+                && hero.speed < swim.idle_speed
+            {
+                start_underwater_idle(hero);
+            } else if fast && hero.ticks > swim.fast_after_tick {
+                hero.set_state(HeroState::UnderwaterFast);
+            }
+        }
+        HeroState::UnderwaterFast if !fast => {
+            if stick.magnitude > swim.fast_to_swim_stick {
+                hero.set_state(HeroState::UnderwaterSwim);
+                reset_stroke(hero);
+            } else if !pitching && !diving && stick.magnitude < swim.fast_to_idle_stick {
+                start_underwater_idle(hero);
+            }
+        }
+        HeroState::UnderwaterIdle if stick.magnitude > swim.start_stick || pitching || fast => {
+            if fast {
+                hero.set_state(HeroState::UnderwaterFast);
+            } else {
+                hero.set_state(HeroState::UnderwaterSwim);
+                reset_stroke(hero);
+            }
+        }
+        _ => {}
+    }
+    let state = hero.state;
+    let diving = hero.dive_left > 0;
+
+    // Pitch: down with melee (Square), up with jump (Cross), level otherwise. The games
+    // read how hard the button is pressed; the kit's buttons are always fully pressed.
+    let mut target = if (sink && !rise) || diving {
+        let press: f32 = if sink { 1.0 } else { 0.0 };
+        let press = if diving {
+            press.max(swim.dive_min_pitch)
+        } else {
+            press
+        };
+        press * swim.pitch_max
+    } else if rise {
+        -swim.pitch_max
+    } else {
+        0.0
+    };
+    if state == HeroState::UnderwaterIdle {
+        target = 0.0;
+    }
+    let cap = swim.pitch_cap
+        + if pitching {
+            swim.pitch_cap_pressed
+        } else {
+            0.0
+        };
+    hero.pitch = game_spring(
+        hero.pitch,
+        target,
+        swim.pitch_spring,
+        cap,
+        &mut hero.pitch_rate,
+    );
+
+    let target_yaw = if stick.is_active() {
+        yaw_of(wish)
+    } else {
+        hero.yaw
+    };
+    turn(hero, target_yaw, swim.turn);
+
+    let fast_state = state == HeroState::UnderwaterFast;
+    let mut target = if diving {
+        swim.dive_speed
+    } else if fast_state {
+        if fast {
+            swim.fast_speed
+        } else {
+            swim.fast_coast_speed
+        }
+    } else {
+        swim.under_speed
+    };
+    let mut scale = stick.magnitude;
+    if pitching || diving {
+        scale = 1.0;
+    }
+    if stick.magnitude > swim.scale_from {
+        let least = if fast_state {
+            swim.fast_min_scale
+        } else {
+            swim.min_scale
+        };
+        scale = scale.max(least);
+    }
+    if !(fast_state && fast) {
+        target *= scale;
+    }
+    let (accel, brake) = if fast_state {
+        (swim.fast_accel, swim.fast_brake)
+    } else {
+        (swim.under_accel, swim.under_brake)
+    };
+    let rate = if hero.speed < target { accel } else { brake };
+    hero.speed = approach(hero.speed, target, rate * TICK);
+
+    // Along his facing, tipped by the pitch.
+    let direction = hero.facing() * ops::cos(hero.pitch) + Vec3::NEG_Y * ops::sin(hero.pitch);
+    let after_fast = hero.previous_state == HeroState::UnderwaterFast;
+    hero.velocity = match state {
+        HeroState::UnderwaterFast => direction * hero.speed,
+        HeroState::UnderwaterSwim => {
+            let mut push = hero.speed * swim.under_stroke * stroke_factor(hero, swim);
+            if after_fast && hero.ticks < swim.after_fast_ticks {
+                push = push.max(swim.after_fast_min_speed);
+            }
+            direction * push
+        }
+        _ => {
+            let brake = if after_fast {
+                swim.idle_brake_after_fast
+            } else {
+                swim.idle_brake
+            };
+            let drift = (hero.drift.length() - brake * TICK).max(0.0);
+            hero.drift = hero.drift.normalize_or_zero() * drift;
+            hero.drift
+        }
+    };
+    let stroke_rate = (hero.speed * swim.under_stroke_rate_per_speed)
+        .clamp(swim.under_stroke_rate_min, swim.under_stroke_rate_max);
+    advance_stroke(hero, stroke_rate, swim);
+    hero.dive_left = hero.dive_left.saturating_sub(1);
+}
+
+/// Underwater idle (state 51): he drifts on with the velocity he had.
+fn start_underwater_idle(hero: &mut HeroMotion) {
+    hero.set_state(HeroState::UnderwaterIdle);
+    hero.drift = hero.velocity;
 }
 
 fn air_tick(

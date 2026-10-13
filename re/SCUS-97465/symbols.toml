@@ -244,3 +244,55 @@ address = 0x00171DE0
 kind = "data"
 confidence = "medium"
 note = "One byte per local player (indexed by hero+0x2F10): 1, the default, maps the crouch and charge action to L2; 0 to R1."
+
+# 2026-10-13, changing level (docs/re-setup.md, "Going straight to a level"), the same
+# mechanism as UYA's (re/SCUS-97353/symbols.toml).
+
+[[symbol]]
+name = "level_current"
+address = 0x0021DE10
+kind = "data"
+confidence = "high"
+note = "The level being played (libdl's ACTIVE_LEVEL_ID): 1 on DreadZone Station."
+
+[[symbol]]
+name = "level_next"
+address = 0x00222B80
+kind = "data"
+confidence = "high"
+note = "The level the next change loads. Writing it, then level_change_request, loaded each planet headlessly (tools/pine-probe/warp.sh); docs/re-setup.md lists the levels."
+
+[[symbol]]
+name = "level_change_request"
+address = 0x0021E80C
+kind = "data"
+confidence = "high"
+note = "Non-zero makes main_loop call level_change."
+
+[[symbol]]
+name = "game_mode"
+address = 0x0021DDB4
+kind = "data"
+confidence = "medium"
+note = "0 in normal play, 1 during the opening cutscene, 3 on a planet's challenge menu, 6 while a level change loads; the counterpart of UYA's game_mode."
+
+[[symbol]]
+name = "main_loop"
+address = 0x00528098
+kind = "function"
+confidence = "medium"
+note = "The per-frame game loop; each frame it first checks level_change_request."
+
+[[symbol]]
+name = "request_level_change"
+address = 0x005687B0
+kind = "function"
+confidence = "medium"
+note = "(level, save, extra): sets level_next, level_change_request, the previous level, and a third value at 0x21DE7C."
+
+[[symbol]]
+name = "level_change"
+address = 0x00627D18
+kind = "function"
+confidence = "medium"
+note = "Sets level_current from level_next, tears the level down and loads the new one."

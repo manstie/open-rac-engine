@@ -390,6 +390,339 @@
         switch_step: 0.75,
         switch_ticks: 48,
     ),
+    // States 50-54 and 18, "Swimming" [code, UYA NTSC, 2026-10-13; untraced].
+    swim: (
+        entry_below: 0.45,
+        entry_slack: 0.2,
+        entry_slack_extra: 0.07,
+        entry_depth: 0.8,
+        deep_below: 0.8,
+        jump_back_below: 0.7,
+        surface_below: 0.4,
+        float_below: 0.12, // Clank 0.05
+        surface_follow: (gain: 0.027, damping: 0.3), // no cap
+        bob_entry_scale: 0.37,
+        bob_entry_max: 7.0, // 0.116667 u per frame
+        bob_free_ticks: 10,
+        bob_stiffness: 0.005,
+        bob_damping: 0.045,
+        bob_swim: (gain: 0.03, damping: 0.3),
+        bob_swim_cap: 1.5, // 0.025 u per frame
+        bob_sink: 0.7, // 0.011667 u per frame
+        drift_max: 5.5, // 0.091667 u per frame
+        drift_brake: 4.2, // 0.0011667 u per frame per frame
+        surface_speed: 3.0, // 0.05 u per frame
+        surface_min_speed: 1.5, // 0.025
+        stroke_ticks: 45,
+        surface_turn_limit_degrees: 45.0, // 0.7853982 rad
+        surface_accel: 4.0, // 0.0011111 u per frame per frame
+        surface_brake: 5.0, // 0.0013889
+        surface_stroke: 5.5,
+        surface_stroke_rate: 0.6,
+        turn: (gain: 0.007, damping: 0.08, cap: 0.08726647),
+        jump_press_window: 8,
+        idle_jump_after_tick: 10,
+        // State 18, "Jump parameters by state" [code].
+        jump: (
+            height_min: 1.95,
+            height_max: 1.98,
+            hold_ticks: 10,
+            pushoff_ticks: 5,
+            gravity: 29.7,
+            apex_gravity_factor: 1.0,
+            air_speed: 6.17, // the jump block's default, 0.10283 u per frame
+        ),
+        dive_press_window: 7,
+        stop_stick: 0.1,
+        start_stick: 0.2,
+        start_after_tick: 10,
+        stand_depth_swimming: 0.7,
+        stand_depth_idle: 0.4,
+        pitch_max: 1.3613569, // 78 degrees
+        pitch_spring: (gain: 0.015, damping: 0.2),
+        pitch_cap: 0.011635529,
+        pitch_cap_pressed: 0.008726647, // × the button's pressure; the kit has full presses
+        dive_ticks: 40,
+        dive_min_pitch: 0.35,
+        dive_speed: 6.0, // 0.1 u per frame
+        under_speed: 3.0, // 0.05
+        fast_speed: 7.0, // 0.116667
+        fast_coast_speed: 2.8, // 0.046667
+        scale_from: 0.15,
+        min_scale: 0.35,
+        fast_min_scale: 0.4,
+        under_accel: 7.0, // 0.0019444 u per frame per frame
+        under_brake: 4.0, // 0.0011111
+        fast_accel: 13.0, // 0.0036111
+        fast_brake: 8.0, // 0.0022222
+        under_stroke: 5.0,
+        after_fast_ticks: 15,
+        after_fast_min_speed: 4.5, // 0.075 u per frame
+        idle_brake: 4.0,
+        idle_brake_after_fast: 8.0,
+        fast_after_tick: 20,
+        fast_to_swim_stick: 0.5,
+        fast_to_idle_stick: 0.7,
+        idle_speed: 2.0, // 0.033333 u per frame
+        idle_stroke_from: 9.0,
+        idle_stroke_to: 19.0,
+        // The table at 0x2F6630.
+        stroke: [
+            0.4, 0.4, 0.45, 0.52, 0.6, 0.68, 0.78, 0.89, 1.0, 1.0,
+            1.0, 1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6,
+            0.55, 0.5, 0.45, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4,
+        ],
+        stroke_frames_per_rate: 0.5, // a global, 0.5 in the Veldin image
+        under_stroke_rate_per_speed: 0.25, // 15 per u per frame
+        under_stroke_rate_min: 0.25,
+        under_stroke_rate_max: 0.75,
+    ),
+    // "Melee" [code, UYA NTSC, 2026-10-13; the wrench's line from the traces
+    // uyantsc-veldin-moves-2 and -melee-1]. Frame windows are rows of the attack table at
+    // 0x2F6310; per-frame game values are given in comments.
+    melee: (
+        frames_per_tick: 0.5, // the animation global 0x1A57E4
+        ground_press_window: 10,
+        crouch_press_window: 15,
+        air_press_window: 14,
+        air_press_window_late: 18, // after a flip or double jump
+        air_after_tick: 10, // the game's state timer at least 11
+        double_jump_after_tick: 19, // its animation past frame 32 [traced]
+        flip_after_tick: 30, // past frame 18 [traced]; 20 for one flip kind, not read
+        combo_below_height: 0.1,
+        chain_press_max: 15,
+        chain_memory_ticks: 27,
+        walk_out_frame: 34.0,
+        walk_out_stick: 0.9,
+        end_walk_stick: 0.8,
+        end_idle_frames: 5.0,
+        lunge_accel: 37.0, // 0.010278 u per frame per frame
+        lunge_brake: 28.0, // 0.0077778
+        air_gravity: 25.0, // 0.0069444
+        turn: (gain: 0.05, damping: 0.2, cap: 0.28216156),
+        throw_turn: (gain: 0.057, damping: 0.2, cap: 0.28216156),
+        lock_stick: 0.5,
+        edge_lookahead_ticks: 3.7,
+        edge_probe_above: 0.3,
+        edge_probe_below: 0.35,
+        combo: [
+            // Swing 1, right to left [lunge traced].
+            (
+                start_frame: 16.0,
+                blend_ticks: 5,
+                chain_before: 33.0,
+                buffer_from: 19.0,
+                chain_from: 23.0,
+                jump_from: 24.0,
+                end: 26.0,
+                hit_from: 17.0,
+                hit_to: 23.0,
+                lunge: [(18.0, 4.4)], // 0.073333 u per frame
+                reach: Some((offset: 0.75, range: 0.8, max_scale: 4.0)),
+                damage: 1.0, // the wrench's weapon row (0x2C56AC)
+                knockback: 1.0,
+                push: Left,
+                head_radius: 0.35,
+                swing: [
+                    (frame: 16.5, hand: (-0.30, -0.35, 0.57), tip: (-0.81, 0.02, 0.97)),
+                    (frame: 17.0, hand: (-0.06, -0.51, 0.51), tip: (-0.90, -0.58, 0.71)),
+                    (frame: 17.5, hand: (0.36, -0.48, 0.46), tip: (-0.45, -0.95, 0.72)),
+                    (frame: 18.0, hand: (0.65, -0.19, 0.41), tip: (-0.03, -1.14, 0.55)),
+                    (frame: 18.5, hand: (0.76, 0.20, 0.37), tip: (1.34, -1.24, 0.52)),
+                    (frame: 19.0, hand: (0.63, 0.51, 0.37), tip: (2.46, 0.04, 0.45)),
+                    (frame: 19.5, hand: (0.47, 0.52, 0.38), tip: (2.42, 0.74, 0.48)),
+                    (frame: 20.0, hand: (0.33, 0.51, 0.41), tip: (1.71, 1.24, 0.52)),
+                    (frame: 20.5, hand: (0.24, 0.52, 0.43), tip: (1.14, 1.35, 0.54)),
+                    (frame: 21.0, hand: (0.16, 0.52, 0.46), tip: (0.77, 1.45, 0.54)),
+                    (frame: 21.5, hand: (0.08, 0.52, 0.47), tip: (0.34, 1.45, 0.59)),
+                    (frame: 22.0, hand: (0.01, 0.50, 0.48), tip: (-0.02, 1.37, 0.59)),
+                    (frame: 22.5, hand: (-0.03, 0.48, 0.50), tip: (-0.27, 1.23, 0.64)),
+                    (frame: 23.0, hand: (-0.06, 0.45, 0.52), tip: (-0.49, 1.08, 0.65)),
+                ],
+            ),
+            // Swing 2, left to right.
+            (
+                start_frame: 7.0,
+                blend_ticks: 7,
+                chain_before: 25.0,
+                buffer_from: 7.0,
+                chain_from: 11.0,
+                jump_from: 13.0,
+                end: 15.0,
+                hit_from: 8.0,
+                hit_to: 13.0,
+                lunge: [(7.0, 5.7), (8.0, 4.5), (9.0, 3.0)], // 0.095, 0.075, 0.05
+                reach: Some((offset: 0.6, range: 1.7, max_scale: 4.0)),
+                damage: 1.0,
+                knockback: 1.0,
+                push: Right,
+                head_radius: 0.35,
+                swing: [
+                    (frame: 7.5, hand: (0.32, 0.36, 0.49), tip: (-0.55, 0.48, 0.47)),
+                    (frame: 8.0, hand: (0.45, 0.24, 0.51), tip: (-0.54, 0.63, 0.42)),
+                    (frame: 8.5, hand: (0.53, 0.03, 0.51), tip: (-0.14, 1.13, 0.43)),
+                    (frame: 9.0, hand: (0.52, -0.20, 0.53), tip: (0.56, 1.70, 0.51)),
+                    (frame: 9.5, hand: (0.38, -0.41, 0.55), tip: (1.40, 1.59, 0.40)),
+                    (frame: 10.0, hand: (0.17, -0.52, 0.59), tip: (2.16, 0.99, 0.44)),
+                    (frame: 10.5, hand: (-0.03, -0.51, 0.62), tip: (2.38, 0.10, 0.36)),
+                    (frame: 11.0, hand: (-0.21, -0.42, 0.64), tip: (1.87, -0.74, 0.44)),
+                    (frame: 11.5, hand: (-0.29, -0.33, 0.64), tip: (1.12, -1.03, 0.46)),
+                    (frame: 12.0, hand: (-0.35, -0.23, 0.63), tip: (0.60, -1.13, 0.48)),
+                    (frame: 12.5, hand: (-0.35, -0.21, 0.63), tip: (0.29, -1.09, 0.51)),
+                    (frame: 13.0, hand: (-0.36, -0.19, 0.62), tip: (0.05, -1.02, 0.54)),
+                ],
+            ),
+            // Swing 3, left to right; the next press starts the combo over.
+            (
+                start_frame: 2.0,
+                blend_ticks: 7,
+                chain_before: 0.0,
+                buffer_from: 16.0,
+                chain_from: 19.0,
+                jump_from: 19.0,
+                end: 21.0,
+                hit_from: 12.0,
+                hit_to: 16.0,
+                lunge: [(12.0, 3.7)], // 0.061667
+                reach: Some((offset: 1.3, range: 1.7, max_scale: 1.9)),
+                damage: 1.0,
+                knockback: 1.0,
+                push: Left,
+                head_radius: 0.35,
+                swing: [
+                    (frame: 11.5, hand: (-0.05, 0.32, 0.65), tip: (-0.67, -0.21, 0.56)),
+                    (frame: 12.0, hand: (0.15, 0.33, 0.65), tip: (-0.72, 0.15, 0.58)),
+                    (frame: 12.5, hand: (0.38, 0.17, 0.64), tip: (-0.38, 0.76, 0.64)),
+                    (frame: 13.0, hand: (0.42, -0.10, 0.63), tip: (0.27, 1.25, 0.65)),
+                    (frame: 13.5, hand: (0.26, -0.30, 0.64), tip: (1.40, 1.35, 0.66)),
+                    (frame: 14.0, hand: (0.02, -0.33, 0.65), tip: (2.04, 0.17, 0.68)),
+                    (frame: 14.5, hand: (-0.14, -0.26, 0.60), tip: (1.56, -0.97, 0.72)),
+                    (frame: 15.0, hand: (-0.20, -0.12, 0.56), tip: (0.55, -1.35, 0.59)),
+                    (frame: 15.5, hand: (-0.19, -0.07, 0.55), tip: (0.15, -1.20, 0.60)),
+                    (frame: 16.0, hand: (-0.17, -0.01, 0.54), tip: (-0.11, -1.10, 0.58)),
+                ],
+            ),
+        ],
+        // Up and over from behind, down in front at the landing.
+        jump_attack: (
+            start_frame: 19.0,
+            blend_ticks: 11,
+            chain_before: 99.0,
+            buffer_from: 32.0,
+            chain_from: 28.0,
+            jump_from: 28.0,
+            end: 30.0,
+            hit_from: 1.0,
+            hit_to: 28.0,
+            lunge: [],
+            reach: None,
+            damage: 2.0, // 0x2C56B0
+            knockback: 1.55,
+            push: Forward,
+            head_radius: 0.47,
+            swing: [
+                (frame: 19.0, hand: (-0.43, -0.26, 1.34), tip: (-1.78, 0.16, 0.48)),
+                (frame: 19.5, hand: (-0.42, -0.28, 1.37), tip: (-1.84, 0.18, 0.45)),
+                (frame: 20.0, hand: (-0.42, -0.30, 1.40), tip: (-1.82, 0.19, 0.46)),
+                (frame: 20.5, hand: (-0.42, -0.32, 1.42), tip: (-1.81, 0.20, 0.48)),
+                (frame: 21.0, hand: (-0.41, -0.33, 1.46), tip: (-1.80, 0.22, 0.52)),
+                (frame: 21.5, hand: (-0.36, -0.32, 1.49), tip: (-1.78, 0.25, 0.61)),
+                (frame: 22.0, hand: (-0.29, -0.29, 1.52), tip: (-1.75, 0.29, 0.71)),
+                (frame: 22.5, hand: (-0.23, -0.26, 1.55), tip: (-1.72, 0.31, 0.80)),
+                (frame: 23.0, hand: (-0.09, -0.20, 1.53), tip: (-1.66, 0.35, 0.99)),
+                (frame: 23.5, hand: (0.20, -0.08, 1.40), tip: (-1.44, 0.44, 1.39)),
+                (frame: 24.0, hand: (0.52, -0.00, 1.12), tip: (-0.95, 0.56, 1.80)),
+                (frame: 24.5, hand: (0.73, 0.00, 0.76), tip: (-0.25, 0.58, 2.05)),
+                (frame: 25.0, hand: (0.82, -0.04, 0.44), tip: (0.53, 0.44, 2.09)),
+                (frame: 25.5, hand: (0.74, -0.09, 0.33), tip: (1.18, 0.47, 1.93)),
+                (frame: 26.0, hand: (0.65, -0.11, 0.28), tip: (1.69, 0.36, 1.58)),
+                (frame: 26.5, hand: (0.56, -0.13, 0.25), tip: (2.06, 0.14, 1.04)),
+                (frame: 27.0, hand: (0.47, -0.14, 0.24), tip: (2.21, -0.05, 0.35)),
+                (frame: 27.5, hand: (0.44, -0.14, 0.29), tip: (2.19, -0.02, 0.34)),
+                (frame: 28.0, hand: (0.42, -0.15, 0.33), tip: (2.16, 0.01, 0.34)),
+            ],
+        ),
+        // The throw hits only with the thrown wrench (`thrown`).
+        throw: (
+            start_frame: 30.0,
+            blend_ticks: 5,
+            chain_before: 99.0,
+            buffer_from: 83.0,
+            chain_from: 88.0,
+            jump_from: 35.0,
+            end: 91.0,
+            hit_from: 99.0,
+            hit_to: 99.0,
+            lunge: [],
+            reach: None,
+            damage: 0.0,
+            knockback: 0.0,
+            push: Forward,
+            head_radius: 0.0,
+            swing: [],
+        ),
+        combo_aim: (range: 5.0, cone_degrees: 45.0, rise_degrees: 45.0),
+        jump_aim: (range: 8.0, cone_degrees: 60.0, rise_degrees: 0.0),
+        throw_aim: (range: 14.0, cone_degrees: 30.0, rise_degrees: 0.0),
+        jump: (
+            rise: 7.7, // 0.128333 u per frame [traced]
+            rise_high: 5.39, // 0.089833 [traced]
+            high_above: 1.8,
+            rise_higher: 3.85, // 0.064167 [traced]
+            higher_above: 2.25,
+            rise_accel: 150.0, // 0.041667
+            rise_until_tick: 8,
+            hold_until_tick: 14,
+            gravity: 130.0, // 0.036111 [traced]
+            fall_cap: 37.0, // 0.616667
+            brake: 15.0, // 0.0041667 [traced]
+            carry_speed: 4.5, // 0.075
+            carry_above: 4.0,
+            carry_until_tick: 70,
+            target_accel: 25.0, // 0.0069444
+            target_near: 2.0,
+            target_far: 5.0,
+            aim_until_frame: 25.0,
+            rise_rate: 0.33, // [traced]
+            strike_frame: 26.0, // lands on it [traced]
+            low_rate_below: 0.7,
+            low_rate_min: 0.75,
+            landed_rate: 2.0,
+            blend_after_flip: 17,
+            after_flip_ticks: 42,
+            slam_from_frame: 23.5,
+            slam_below: 0.5,
+            slam_radius: 0.4,
+            slam_damage: 2.0,
+            slam_knockback: 2.0,
+        ),
+        // [code; the flight traced in uyantsc-veldin-melee-1: out 8.65 u in 30 ticks, back
+        // in 25].
+        thrown: (
+            release_frame: 33.0,
+            hand: (0.67, -0.5, 0.39), // [traced]
+            speed: 23.0, // 0.383333 u per frame
+            jerk: 170.0, // its slowing grows 0.000787 u per frame per frame each frame
+            return_jerk: 54.0, // 0.00025
+            height: 0.55,
+            height_within: 0.8,
+            rise: 4.0, // 0.066667
+            sink: 1.0, // 0.016667
+            wall_slow: 0.5,
+            lost_beyond: 32.0,
+            radius: 0.4,
+            damage: 1.0, // the wrench's weapon row (0x2C56AC)
+            knockback_out: 1.2,
+            knockback_back: 0.37,
+            hold_frame: 81.0, // [simplified]: the game's animation runs on, then switches
+            catch_frame: 82.0, // [traced]
+            catch_ahead_ticks: 4.0,
+            catch_after_tick: 101,
+            blend_again: 3, // [traced]
+            again_after_tick: 30,
+            jump_out_window: 8,
+        ),
+    ),
     // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].
     hit: (
         max_speed: 7.0, // 0.11667 u per frame

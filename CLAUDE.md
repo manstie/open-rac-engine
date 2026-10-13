@@ -115,6 +115,7 @@ Development is native, with no container.
 | `cargo run` | Runs the game: a main menu, then the hero kit's demo level. The default workspace member is `crates/openrac`. |
 | `cargo run --features dev` | Uses Bevy's dynamic linking for faster rebuilds. Never use it for release builds. |
 | `cargo run -- --exit-after-frames 120` | Smoke test. Exits with code 0 after 120 frames. Use it to check rendering works. Add `--demo` to start in the level instead of the menu, and `--spectator` to fly a free camera instead of playing the hero. |
+| `cargo run -- --demo` with the UYA NTSC-U disc image in `source/` | The hero plays Ratchet's real animations, read from the disc at start-up (`--discs DIR` to look elsewhere). Without it his animation is procedural. |
 | `cargo run -- --demo --record-input x.orin`, then `--replay-input x.orin` | Records every tick's input, then replays it into the same simulation. `--settings <file>` keeps test runs out of the real settings file. |
 | `cargo fmt --all` | Formats the code. |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings treated as errors. |
@@ -156,8 +157,9 @@ converted by `ffmpeg`. A plain `cargo run` opens a window on the owner's desktop
 - **Keep Bevy out of the core crates:** `rac_iso`, `rac_formats`, `rac_recomp` and the
   runtime core must not depend on it. They should stay usable from tools and tests, and
   survive Bevy upgrades.
-- **The hero kit is ISO-free:** `rac_sim`, `rac_input`, `rac_hero`, `rac_combat`,
-  `rac_net` and `rac_demo` must never depend on the disc, format, asset or runtime crates.
+- **The hero kit is ISO-free:** `rac_sim`, `rac_input`, `rac_hero`, `rac_rig`,
+  `rac_combat`, `rac_net` and `rac_demo` must never depend on the disc, format, asset or
+  runtime crates.
   - Other Bevy projects and game mash-ups reuse them as plain plugins (PLAN P1.16).
   - They ask Bevy only for the features they use: the workspace turns Bevy's default
     features off, and `openrac` turns them back on.

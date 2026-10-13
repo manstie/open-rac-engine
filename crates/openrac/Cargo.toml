@@ -14,7 +14,10 @@ bevy = { workspace = true, features = ["default", "serialize", "libm"] }
 clap.workspace = true
 directories.workspace = true
 rac_demo.workspace = true
+rac_formats.workspace = true
 rac_input.workspace = true
+rac_iso.workspace = true
+rac_rig.workspace = true
 rac_sim.workspace = true
 serde.workspace = true
 toml.workspace = true

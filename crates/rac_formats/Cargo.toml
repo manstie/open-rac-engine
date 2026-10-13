@@ -1,0 +1,14 @@
+[package]
+name = "rac_formats"
+description = "Parsers for the games' data formats: moby skeletons, animation and meshes (no Bevy)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use rac_demo::{Shape, greybox_level};
 use rac_hero::{
     BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
-    controller::step,
+    controller::step, water::WaterVolume,
 };
 use rac_input::{Action, Buttons, PlayerInput};
 use std::f32::consts::FRAC_PI_2;
@@ -33,7 +33,14 @@ fn level_world() -> ParryWorld {
         .iter()
         .filter_map(|piece| piece.grind_rail())
         .collect();
-    ParryWorld::new(&bodies).with_rails(rails)
+    let water = greybox_level()
+        .iter()
+        .filter_map(|piece| {
+            let water = piece.water()?;
+            Some(WaterVolume::new(piece.translation, water.half_extents))
+        })
+        .collect();
+    ParryWorld::new(&bodies).with_rails(rails).with_water(water)
 }
 
 fn input(stick: Option<[i8; 2]>, held: &[Action], pressed: &[Action]) -> PlayerInput {
@@ -162,4 +169,53 @@ fn the_grind_rail_carries_the_hero_up_to_its_end() {
     assert!(highest_grinding > 3.9, "{highest_grinding}");
     assert!(hero.position.z < -43.0, "{}", hero.position);
     assert_eq!(hero.state, HeroState::Fall);
+}
+
+#[test]
+fn the_pool_is_climbed_into_swum_across_and_jumped_out_of() {
+    let world = level_world();
+    let profile = HeroProfile::uya();
+    let forward = input(Some([0, 127]), &[], &[]);
+    // At the foot of the pool's steps, which climb along -z to its near wall at x = -50.
+    let mut hero = HeroMotion::new(Vec3::new(-50.0, 0.0, -17.0), 0.0);
+    let mut ticks = 0;
+    while hero.state != HeroState::SurfaceIdle {
+        step(&mut hero, &forward, 0.0, &profile, &world);
+        ticks += 1;
+        assert!(
+            ticks < 600,
+            "never got in: {:?} at {}",
+            hero.state,
+            hero.position
+        );
+    }
+    // Swim across to the far wall, whose inside face is at z = -36.
+    for _ in 0..600 {
+        step(&mut hero, &forward, 0.0, &profile, &world);
+    }
+    assert_eq!(hero.state, HeroState::SurfaceSwim);
+    assert!(hero.position.z < -35.0, "{}", hero.position);
+    // The water jump clears the 4 u wall: the feet float at 3.38 and it rises about 1.5.
+    step(
+        &mut hero,
+        &input(Some([0, 127]), &[], &[Action::Jump]),
+        0.0,
+        &profile,
+        &world,
+    );
+    assert_eq!(hero.state, HeroState::Jump(JumpKind::Water));
+    let held = input(Some([0, 127]), &[Action::Jump], &[]);
+    let mut ticks = 0;
+    while hero.ground.is_none() {
+        step(&mut hero, &held, 0.0, &profile, &world);
+        ticks += 1;
+        assert!(
+            ticks < 240,
+            "never landed: {:?} at {}",
+            hero.state,
+            hero.position
+        );
+    }
+    assert!(!hero.state.is_swimming());
+    assert!(hero.position.z < -36.0, "{}", hero.position);
 }

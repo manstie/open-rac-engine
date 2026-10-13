@@ -1,0 +1,22 @@
+[package]
+name = "rac_tool"
+description = "openrac-tool: extracts and inspects the games' data from the user's own discs (and, for research, from EE memory images)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "openrac-tool"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+rac_formats.workspace = true
+rac_iso.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

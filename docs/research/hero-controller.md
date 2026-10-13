@@ -2,8 +2,7 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-12 (wall jump, ledges, hits and slope limit; then DL's
-charge boots, the skid state's braking and the moves that need items).
+(RE.6). Last updated 2026-10-13 (melee: the wrench combo, the jump attack and the throw).
 
 ## Status and method
 
@@ -418,14 +417,286 @@ Most jump-type states steer the same way after push-off:
     flags are set or Ratchet is more than 4 u above the ground. The R&C3 trace shows the
     4 u case **[code]**.
   - Close to the ground on PAL the fall slows again in a way not yet explained.
+  - Its timing, aim and hits: "Melee".
 
-## Ground attacks, hits and ledges [code]
+## Melee (states 19–21) [code, verified on UYA NTSC, 2026-10-13]
 
-- **Wrench combo (state 19):**
-  - Each swing lunges forward at a speed picked by the combo step and the animation
-    frame: about 4.4, 5.7 or 3.7 u/s.
-  - It is scaled when an enemy is targeted, and the hero turns towards that enemy.
-  - The lunge accelerates at 37 u/s² and brakes at 28 u/s².
+Read in UYA NTSC's code on Veldin:
+- the attack check that runs before the transitions' switch (`hero_attack_start`,
+  0x501678);
+- `hero_change_state`, the state handlers in `hero_update_state`, and `hero_transitions`;
+- the wrench's own object (0x338088);
+- the auto-aim (0x4EEA78, 0x4E5BB8, 0x4E56A8).
+
+Two of our own traces check it:
+- `uyantsc-veldin-moves-2`: a standing combo and jump attack;
+- `uyantsc-veldin-melee-1`: two standing throws, a throw from a walking crouch, a combo
+  with the stick held, and a run-jump attack.
+
+Their layout, `uyantsc-veldin-melee.toml`, adds the attack's fields and the wrench
+object to the hero's (`docs/re-setup.md`). Since the traces keep the whole hero struct,
+the layout also reads the attack fields out of older traces.
+
+The ground swings are UYA's wrench combo, the jump attack is its downward strike, and
+the throw sends the wrench out and back (P1.8).
+
+### Animation frames
+
+- **Every attack is timed by the hero's animation frame (0x1A57F8) [verified].**
+  1. An attack's animation blends in over a number of frames. During the blend the frame
+     creeps from the start frame by 1/blend a frame.
+  2. When the blend ends, the frame goes back to the start frame.
+  3. From then on it advances 0.5 a frame at rate 1: the global 0x1A57E4 holds 0.5.
+
+  Read in the animation code since (`moby-format.md`, "Sequences and keyframes"): the
+  animation frame is the keyframes' time stamps over 16, interpolated between keyframes.
+  0x1A57E4 is 1 / the current keyframe's length in ticks, so 0.5 means keyframes 2 ticks
+  long, which most hero keyframes are.
+
+  | Attack | Start frame | Blend (frames) |
+  |---|---|---|
+  | Swing 1 | 16 | 5 |
+  | Swing 2 | 7 | 7 |
+  | Swing 3 | 2 | 7 |
+  | Jump attack | 19 | 11; 17 within 42 frames of a flip |
+  | Throw | 30 | 5; 3 straight after another throw; 17 from first-person look |
+
+- **The transitions see the frame the animation reaches in that frame.**
+- **An attack's own motion starts on the frame after the one that entered its state.**
+  In the traces, the row where the state first shows still has the old state's motion.
+
+### The attack table (0x2F6310)
+
+- **Each row is eleven words, 0x2C bytes.**
+- **Rows:**
+  - 0–2: the combo's swings;
+  - 3: the throw;
+  - 4: the jump attack;
+  - 5–6: two more swings, probably the grind attack's;
+  - 7–8: state 77's.
+- **Words:**
+  - the kind: 0 a swing, 1 the jump attack, 2 the throw;
+  - the swing's number;
+  - then seven animation frames, used as the columns below;
+  - two more words, not read.
+
+| Row | Chain before | Presses from | Chain from | Jump from | End | Hits |
+|---|---|---|---|---|---|---|
+| 0, swing 1 | 33 | 19 | 23 | 24 | 26 | 17–23 |
+| 1, swing 2 | 25 | 7 | 11 | 13 | 15 | 8–13 |
+| 2, swing 3 | 0 | 16 | 19 | 19 | 21 | 12–16 |
+| 3, throw | 99 | 83 | 88 | 35 | 91 | none |
+| 4, jump attack | 99 | 32 | 28 | 28 | 30 | 1–28 |
+
+### Starting an attack
+
+- **The wrench must be in the hand, not thrown.** In single player the wrench is hand
+  item 9. The multiplayer wrench is item 0x7F, and its object (0x356110) runs the same
+  checks.
+- **Standing, walking or skidding (state types 0 and 1):**
+  - Square pressed in the last 10 frames starts the combo.
+  - With R1 (crouch) held as well, it throws.
+- **Crouching (state 4):** Square in the last 15 frames throws.
+- **In the air:**
+  - From these states:
+    - the jumps (7, 9, 10, 13, 15), the wall jump (17), the glide (8) and the fall (6);
+    - the double jump (14) once its animation is past frame 32, which is 20 frames in;
+    - the flips (11) once theirs is past frame 18, which is 31 frames in. One flip kind
+      waits for frame 20 instead; which kind isn't read.
+  - The state must also be at least 11 frames old.
+  - Square counts if pressed in the last 14 frames, or 18 after a flip or double jump.
+  - Within 0.1 u of the ground (0.57 with a flag set), this starts a combo swing.
+    Otherwise it starts the jump attack.
+- **During an attack (type 6):**
+  - The attack can't be blending, and the wrench must be in hand.
+  - From the row's chain-from frame, Square pressed within (frame − presses-from) × 2
+    frames starts a combo swing. That window is at least 1 frame and at most 15.
+  - With R1 held, the same press throws instead.
+  - A throw more than 30 frames old, with R1 held, can throw again from its chain-from
+    frame.
+- **Which swing it is (`hero_change_state`):**
+  - Entered straight from a swing whose frame is still under its chain-before frame: the
+    next swing. After swing 3 that is swing 1.
+  - Entered from the state after a swing, less than 27 frames after that swing ended:
+    also the next swing.
+  - Otherwise, swing 1.
+  - So a pause of up to about half a second keeps the combo going, and too early a press
+    is lost: one before the presses-from frame never counts.
+
+### Ending an attack
+
+- **Swings and the throw [verified]:**
+  - **Jumping out:** past the jump-from frame and not blending. An X pressed within
+    (frame − presses-from) × 2 frames jumps (8 frames for the throw). It is a standing
+    jump (state 7), or a jump from a crouch with R1 held.
+  - **Walking out:** past frame 34 with the stick over 0.9.
+  - **Past the end frame:**
+    - with the stick over 0.8, he walks;
+    - otherwise he idles 5 frames later, or when the animation finishes.
+  - In the traces, swing 3 idles at frame 26.5 and walks at 21.5 with the stick held.
+- **Jump attack:** past its end frame (30) he idles. The trace has it at 30.5.
+
+### Motion
+
+- **Swings lunge at a speed set by the swing and the frame [verified tick by tick in both
+  traces]:**
+  - **Speeds:**
+    - swing 1: 4.4 u/s until frame 18 (0.073333);
+    - swing 2: 5.7 u/s up to frame 7, 4.5 to frame 8, and 3.0 to frame 9 (0.095, 0.075,
+      0.05);
+    - swing 3: 3.7 u/s until frame 12 (0.061667).
+  - The lunge also runs during the blend.
+  - **Speeding up and slowing down:** it reaches its speed at 37 u/s² (0.010278) and slows
+    at 28 u/s² (0.0077778). A swing begun at a run drops at once to the lunge's speed.
+- **Direction:**
+  - A swing goes the way he faces.
+  - With the stick past 0.5, it goes the stick's way at once, and he turns to face it.
+- **Reaching a target:** a target found in the first three frames scales the lunge's
+  speed.
+  - The scale is ((horizontal distance − 0.5) − offset) / 0.9, at most 4 (1.9 for
+    swing 3).
+  - It is used only when over 1, and when the distance less 0.5 is within range + 3 of the
+    offset.
+
+    | Swing | Offset | Range |
+    |---|---|---|
+    | 1 | 0.75 | 0.8 |
+    | 2 | 0.6 | 1.7 |
+    | 3 | 1.3 | 1.7 |
+
+  - The acceleration stays the same, so the swing only goes a little further.
+- **Turning:** towards the target or the stick's direction, with the angle spring (gain
+  0.05, damping 0.2, cap 0.2822 rad a frame).
+  - Swing 2 stops looking for a target past frame 7.
+  - The throw turns with a gain of 0.057.
+- **Gravity:** a swing off the ground falls at 25 u/s² (0.0069444). On the ground, 54 u/s²
+  holds it down.
+- **Edges:** a moving swing on the ground stops dead at an edge.
+  - It looks 3.7 frames of its motion ahead, from 0.3 u above the feet to 0.35 u below.
+  - It stops if it finds no ground there, or ground steeper than 50°.
+- **The jump attack:** its vertical motion is under "Falling and other airborne moves".
+  - **Animation rate [verified]:**
+    1. 0.33 on the way up.
+    2. Then the rate that brings frame 26 to the landing: frames left / (frames to land ×
+       0.5). The frames to land assume 130 u/s² from the height above the ground, up to
+       60. Below 0.7 u the rate is at least 0.75.
+    3. 2.0 once on the ground, until frame 26.
+  - **With a target 2–5 u away,** it keeps 4.5 u/s towards it, changing speed at 25 u/s²
+    (0.0069444).
+- **The throw** slows to a stop at 28 u/s², turns to its aim, and lets go at frame 33.
+
+### Aim (0x4EEA78)
+
+- **When:** at the start of each attack, then every frame while the attack has neither a
+  target nor a set direction.
+  - Swing 2 stops looking past frame 7, the jump attack past frame 25, and the throw once
+    it has blended in.
+- **The stick:** past 0.5 it sets the direction to the stick's, and the target search
+  looks that way.
+- **Targets:**
+  - The game scores the objects on its target list (0x21E8E0, flag 0x1000).
+  - It rejects any further than the range, further round from the direction than the
+    cone, or further up or down than the rise.
+  - The least distance × (1 + angle off) wins. One class of object counts a further
+    0.8 × the range.
+  - A target, once found, stays the attack's target.
+
+| Attack | Range | Cone | Rise |
+|---|---|---|---|
+| Swings | 5 u | 45° | 45° |
+| Jump attack | 8 u | 60° | none at the start, 60° after; measured from the ground under him |
+| Throw | 14 u | 30° | none at the start, 45° after |
+
+### What the wrench hits
+
+- **The line [verified for its shape, traced]:**
+  - Each frame the wrench's object saves two points (at 0x1A5720 and 0x1A5730), and
+    last frame's pair (at 0x1A5740 and 0x1A5750):
+    - the hero's joint 0, the wrench hand;
+    - the wrench's joint 1, its tip.
+  - The tip is pushed 0.17 u further out.
+  - Then it is pulled in by up to 30% as it comes round past 105° from his facing
+    (0x337FD0).
+  - The kit's swing keys are these points, relative to his feet, from the traces'
+    standing swings. Each reaches about 2.4 u ahead at 0.4–0.75 u up; swing 3 reaches
+    2.0 u. Swing 1 sweeps right to left, swings 2 and 3 left to right. The jump attack
+    holds the wrench 1.8 u behind and low as it rises, then brings it over the top to
+    2.2 u ahead at the landing.
+- **The hit:** only during the row's hit frames, not blending, and with the tip within 90°
+  of his facing (the jump attack at any angle).
+  - The line is swept from last frame's to this frame's as five lines in between
+    (0x443AB8). Anything they cross is hit.
+  - A ball round the wrench's head, 0.085 u in from the tip, hits too. Its radius is
+    0.35, or 0.47 in the jump attack.
+- **Damage:**
+  - It comes from the wrench's weapon row. Rows are 0xF0 bytes from 0x2C5640; an item's row
+    number is at 0x1425C0 + item.
+  - The starting wrench does 1.0 for swings and the throw (+0x6C) and 2.0 for the jump
+    attack (+0x70).
+- **Push:**
+  - A swing pushes across the wrench's line: to the hero's left for swings 1 and 3, to
+    his right for swing 2. Its strength is 1.0.
+  - The jump attack pushes forward at 1.55.
+- **Once per attack:** each hit carries the attack's number, so a target takes one hit
+  per swing.
+- **The jump attack's slam:** past frame 23.5, while falling and in the air, a ball of
+  0.4 u at 0.5 u under his feet hits for 2, pushing forward at 2.
+- **A wall in front** sparks and sounds, but doesn't stop the swing. The test is a 1.4 u
+  ray from 0.5 u up towards the wrench, past frame 10, within 70° of the facing. The kit
+  doesn't do this yet.
+
+### The thrown wrench (0x4F1A08, 0x338088)
+
+- **Release:** when the throw animation passes frame 33, the throw's 12th frame
+  **[verified]**.
+- **Out [verified]:**
+  - It leaves from the hand, 0.67 u ahead, 0.5 u right and 0.39 u up **[traced]**, along
+    his facing at 23 u/s (0.38333 a frame).
+  - It doesn't carry the hero's motion: walking after it doesn't change its path.
+  - Each frame it moves, then slows. The slowing grows by 0.000787 u/frame² each frame,
+    170 u/s³. The trace's steps are 0.3833, 0.3826, 0.3810, 0.3786 and so on.
+  - After 31 moves, 7.98 u, it stops and turns back: 8.65 u from the hero.
+- **Height:** within 0.8 u of the ground, it keeps 0.55 u above it, rising at 4 u/s and
+  sinking at 1 u/s.
+- **Walls:** a wall in its way turns it back at once, at half speed.
+- **Back [verified]:**
+  - Its slowing carries over as acceleration, growing by 0.00025 a frame (54 u/s³).
+  - It flies straight to the hand, through walls.
+  - It is caught when closer than a frame's travel, after 25 frames in the trace. If it
+    is over 32 u away it is back in the hand at once.
+- **The catch:** when it is under 4 frames from the hand, the hero's animation jumps to
+  frame 82, the catch. A throw held for 101 frames plays it anyway.
+  - The trace has the jump a frame later than this reading gives.
+- **Hits:**
+  - Damage 1.
+  - A ball of 0.4 u round each end of the wrench.
+  - It pushes at 1.2 along the throw on the way out, and at 0.37 back towards the hero
+    on the way back.
+- **Duration:** standing still, the throw lasts 95 frames. He can walk off once the
+  wrench is gone, at frame 34.
+
+### Not read yet
+
+- The grind attack (state 42) and table rows 5–6.
+- State 77 (rows 7–8) and state 32 (the attack bounce).
+- The wrench upgrades' rows.
+- The giant-Clank mode (flag 0x1A4E14): damage × 50, a stronger lunge and a wider aim.
+- Deadlocked's melee.
+
+### In the kit
+
+- `rac_hero/src/controller/melee.rs` and the profile's `melee` section implement the
+  above. Hits are tested in `rac_combat`.
+- Simplifications:
+  - the swing's line comes from the traced keys, at every half frame;
+  - the thrown wrench hits as one ball at its middle;
+  - targets are points;
+  - the animation holds at frame 81 while the wrench is out;
+  - the kit's catch starts a tick before the trace's, so its throw lasts 94 ticks to the
+    game's 95.
+
+## Ledges and getting hit
+
 - **Get hit (state 22):** see "Getting hit and dying".
 - **Ledges (23–27):** see "Ledges".
 - The Gladiator traces contain ledge grabs and ledge jumps that we have not yet compared
@@ -561,9 +832,9 @@ a found flag.
   - Material 17 damages: its amount is a global divided by 8, with a 90-frame repeat
     timer, and it starts state 177, which shares the get-hit update.
   - Material 1 (lava) gives the lava jump (56), or death (57) at no health.
-  - Material 3 (water) gives state 106, or the 125 sink when health is 0. In UYA's
-    single-player code, 125 (libuya's "charge") sinks the hero at 1 u/s with the
-    quicksand type.
+  - Material 3 (quicksand, corrected 2026-10-13: see "Swimming") gives state 106, or
+    the 125 sink when health is 0. In UYA's single-player code, 125 (libuya's "charge")
+    sinks the hero at 1 u/s with the quicksand type.
   - Material 4 gives the slide (48).
 - **Death (57):** the hero brakes like a landing while the death animation plays. The
   respawn timing is in the death code, which has not been read yet.
@@ -744,6 +1015,205 @@ it is untraced.
   - no solid ground is needed under a rail;
   - the fall from a rail with nothing under it isn't there.
 
+## Swimming (states 50–54, 18) [code, UYA NTSC, 2026-10-13]
+
+Read in `hero_update_state`, `hero_transitions`, `hero_change_state`, the water check
+(`hero_enter_water`, 0x5010B8) and the surface float (`hero_surface_float`, 0x501458).
+Veldin's start has no water, so it is untraced.
+
+- **The states** (libuya's names):
+  - on the surface, type 18: 53 swim (`SWIMSURF`) and 54 idle (`IDLESURF`);
+  - under water, type 17: 50 swim (`SWIMUNDER`), 51 idle (`IDLEUNDER`) and 52 fast swim
+    (`CHARGEUNDER`).
+  - Their working values are in libuya's `HeroSwim` block at 0x1A5570, whose field names
+    match the code: the dive timer at +0x10, the pitch rate at +0x18, the button hold
+    counts at +0x30. The surface float's values are at 0x1A5300.
+- **Water** comes from the ground probe (`hero_ground_probe`). Its first cast, from 2.2 u
+  above the feet to 48 u below, can hit a water polygon. The code then:
+  - takes the water's height from that polygon's plane under the hero (0x1A4F30, libuya's
+    `waterHeight`);
+  - casts again past the water for the floor;
+  - sets the depth, surface minus floor, at 0x1A7428.
+  - Collision material 14 is a puddle: the surface is 0.2 u above the floor.
+  - **Shallow water** (0.25–0.85 u deep) sets a wading flag, and walking in it is state
+    117. That state isn't read yet.
+  - Correction to "Getting hit and dying" below: material 3 is quicksand. The probe keeps
+    its height apart from water's, at 0x1A4F34.
+- **Getting in [code, `hero_enter_water`, every frame]:** only in water, and not from a
+  ledge or the surface states. The hero goes to surface idle (54), or to state 108
+  (probably drowning) with no health, when either:
+  - he is falling, the water is more than 0.8 u deep, and his feet are 0.45 u below the
+    surface, give or take max(0.2, 0.07 + his intended vertical speed per frame) u;
+  - or his feet are more than 0.8 u under.
+  - A jump only counts once past its apex. The water jump (18) also comes back in with
+    its feet 0.7 u under.
+  - **Every 16 frames,** a probe also looks for water above a hero who isn't swimming. If
+    it finds water with no surface over him, he starts under water (51). That probe isn't
+    fully read.
+- **Floating on the surface (53, 54):**
+  - **Rest height:** the feet float 0.12 u below the surface (Clank 0.05). A tracked
+    surface height follows the water's with the game's spring (gain 0.027, damping 0.3,
+    no cap), and an offset bobs around it.
+  - **Bob on getting in:**
+    - the offset starts at the feet's height above the rest height;
+    - its rate starts at 0.37 × the vertical velocity, at most 7 u/s downwards.
+  - **When idle (54):** the offset is a damped oscillator. Each frame its rate loses
+    0.005 × offset + 0.045 × rate, so it bobs with a period of about 1.5 s.
+    - For the first 10 frames it moves freely, unless it is below the rest height or the
+      hero came up from under water.
+  - **When swimming (53):** the offset springs to 0 (gain 0.03, damping 0.3, cap
+    0.025 u per frame). Above the rest height it also sinks by 0.7 u/s.
+  - **Drift:** getting in carries the horizontal velocity on, capped at 5.5 u/s. It slows
+    at 4.2 u/s² and adds to both surface states' motion.
+- **Surface swim (53):**
+  - **Direction:** the stick sets it, relative to the camera. The facing turns with the
+    game's spring: gain 0.007, damping 0.08, cap 0.0873 rad per frame.
+  - **Target speed** is 3 u/s × the stick, but:
+    - at least 1.5 u/s while the stick is held;
+    - 3 u/s whatever the stick for the state's first 45 frames, so a stroke finishes;
+    - 0 while the stick points more than 45° from the facing.
+  - **Speed** rises at 4 u/s² and falls at 5 u/s².
+  - **Velocity:** speed × 5.5 × the stroke (below), along the facing and flat.
+- **Surface transitions:**
+  - **X pressed within 8 frames:** the water jump (18): 1.95–1.98 u, hold 10, push-off 5,
+    gravity 29.7. From idle, only after 10 frames.
+  - **Square pressed within 7 frames:** a dive. From idle, R1 or R2 also dives. It goes
+    to 52 if R1 or R2 is held, else to 50.
+    - Diving needs a flag in the hero's data that is probably set per level.
+  - **53 → 54:** stick under 0.1, speed 0, and the 45-frame stroke over.
+  - **54 → 53:** stick past 0.2, once 10 frames in.
+  - **Standing up:** 53 in water under 0.7 u deep goes to wading (117). 54 in water under
+    0.4 u deep goes to idle (0).
+- **Under water: steering.**
+  - **Yaw:** the stick sets the direction, relative to the camera, with the same spring as
+    the surface swim.
+  - **Pitch** is positive nose down. Its target:
+    - Square held without Cross: +1.3614 rad (78°) × clamp(1.5 × Square's pressure, 0.2, 1);
+    - Cross held: −1.3614 rad × clamp(1.5 × Cross's pressure, 0.2, 1);
+    - neither, or in idle (51): 0.
+    - **Pads without pressure buttons:** the factor ramps from 0.5 to 1 over 20 frames
+      held.
+    - **While diving:** at least 0.35.
+  - **The pitch spring:** gain 0.015, damping 0.2. Its cap is 0.01164 + 0.00873 × the
+    larger pressure, in rad per frame: 0.70 rad/s with no button and 1.22 rad/s at full
+    press.
+  - **The pressures** are in the pad's float array (pad+0x100): Cross at +0x128, Square
+    at +0x12C. The pad's terminal id (+0x1DC) is 0x79 for a DualShock 2 in pressure mode.
+  - **Bank (for the animation):** roll targets −7 × yaw rate × cos(pitch), with gain
+    0.007, damping 0.17 and cap 0.0204.
+- **Under water: speed.**
+  - **Target speed:**
+    - 3 u/s in 50 and 51, or 6 u/s in the dive;
+    - in 52: 7 u/s with R1 or R2 held, otherwise 2.8 u/s.
+  - **Scaled by the stick magnitude,** except in 52 with R1 or R2 held:
+    - with Cross or Square held, or in the dive, the scale is raised to 1;
+    - with the stick past 0.15, it is at least 0.35 (0.4 in 52).
+  - **Speed** rises at 7 u/s² and falls at 4 u/s². In 52 it rises at 13 and falls at 8.
+- **Under water: velocity,** along the yaw and pitch:
+  - **50:** speed × 5 × the stroke. For 15 frames after a fast swim it is at least
+    4.5 u/s.
+  - **52:** the speed itself.
+  - **51:** the velocity it was entered with, slowing at 4 u/s² (8 after a fast swim) in
+    the same direction.
+  - Nothing pulls him up or down: no buoyancy, no gravity and no air limit in these
+    states.
+- **The dive:** entering 50 or 52 from the surface starts a 40-frame dive (substate 1).
+  During it:
+  - the target speed is 6 u/s;
+  - the pitch is at least 0.35 × 78° down;
+  - he can't surface.
+- **Surfacing:** an underwater state goes to surface idle (54) when he is rising with his
+  feet less than 0.4 u under the surface, unless he is in the dive.
+- **Under water: transitions.**
+  - **50 → 52:** R1 or R2 held, once 20 frames in.
+  - **52 → 50:** R1 and R2 released, with the stick past 0.5.
+  - **50 → 51:** all of:
+    - no Cross or Square, and not in the dive;
+    - stick under 0.1 and speed under 2 u/s;
+    - the stroke animation between its frames 9 and 19.
+  - **52 → 51:** no Cross, Square, R1 or R2, and the stick under 0.7.
+  - **51 → 50 or 52:** stick past 0.2, or Cross or Square held, or R1 or R2 held (which
+    goes to 52).
+- **The stroke** makes swimming speed pulse with the arms.
+  - The animation is a 30-frame cycle:
+    - its rate is 0.6 on the surface;
+    - under water it is 15 × speed (u per frame), clamped to 0.25–0.75.
+  - It advances 0.5 × rate frames a tick. The 0.5 is a global read as 0.5 in the Veldin
+    image, so it may differ per animation.
+  - **The stroke factor** is a table (0x2F6630) integrated over the frames the animation
+    crossed this tick. The table is:
+    - 0.4 on frames 0–1;
+    - rising to 1.0 on frames 8–11;
+    - falling back to 0.4 by frame 23.
+  - **So on the surface** the velocity averages about 1.06 × the speed, between about
+    0.55 and 1.9 × through the stroke. Under water at full rate it averages about 1.2 ×
+    the speed. (Worked out with the game's formula, not traced.)
+- **Not read yet:** wading (117), drowning (108), getting hit in the water, the
+  every-16-frames underwater probe, and where the dive flag comes from.
+- **In the hero kit (P1.5, 2026-10-13):** water is a box whose top is the surface
+  (`Water`, `WaterVolume`), found under or up to 2.2 u below the feet. The five states,
+  the water jump, the dive, the surface float and bob, the stroke and the numbers are as
+  above, in `uya.ron`'s `swim` section.
+  - **Buttons:** Cross is jump, Square is melee, and R1 or R2 is crouch or strafe (so L2
+    swims fast too, as the kit has one strafe action).
+  - **[simplified]:**
+    - Buttons always count as fully pressed. So the pitch heads straight for ±78° and
+      turns at up to 1.22 rad/s, as on a DualShock 2 pressed hard.
+    - Swimming into shallow water lands and walks instead of wading.
+    - The level-out of the pitch on the surface is the kit's own. The game's surface
+      code doesn't touch the pitch.
+    - The water jump keeps the velocity it swam with, without the game's flattening in
+      water deeper than 1.25 u, which is a no-op for a flat swim anyway.
+    - The drift is taken from the velocity. The game copies a vector at hero+0x140,
+      taken here to be the velocity.
+    - Diving is allowed everywhere.
+  - **The water jump's apex** is about 1.55 u above the floating feet in the kit: the
+    target height isn't the apex (see "Jump heights"), and the push-off presses him
+    0.07 u into the water first.
+
+## Animations per state [code and trace, UYA NTSC, 2026-10-13]
+
+Which of the hero's sequences (`moby-format.md`) each state plays, read in
+`hero_change_state` (0x4FC518), which starts each state's animation with `hero_anim_set`
+(blend ticks, sequence, start keyframe), and checked against our trace
+`uyantsc-veldin-anim-1` (scripted play on Veldin with the wrench in hand, logging the hero's
+moby's sequence every frame). **[verified]** marks sequences the trace showed.
+
+| State | Sequence | Notes |
+|---|---|---|
+| Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**. At 20% health or less, 74; holding a weapon, that weapon's idle from `weapon_table` (row + 0x24). |
+| Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | |
+| Skid (3) | 6, or 5 straight out of a run between frames 3 and 16 | |
+| Crouch (4) | 13 **[verified]**; 14 moving **[verified]** | Starts at keyframe 2. |
+| Fall (6) | 11 **[verified]**, then 12 on landing **[verified]** | The game also plays 11 in state 121, falling out of the level **[verified]**. |
+| Jump (7) | 7 **[verified]** | |
+| Glide (8) | 19 **[verified]** | |
+| Run jump (9) | 8 or 9 **[verified 9]** | Out of a run, a per-frame table picks by the run cycle's frame (which foot). |
+| Long jump (10) | 18 | |
+| Flip (11) | 28 + direction: 28 left **[verified]**, 29 right **[verified]**, 30, 31 back **[verified]** | |
+| Double jump (14) | 22 **[verified]** | At rate 0.8, from keyframe 3. |
+| Heli jump (15) | 21 **[verified]** | |
+| Wall jump (17) | 35 | |
+| Water jump (18) | 89 | |
+| Combo (19) | 23, 24, 25 for swings 1–3 **[verified]** | Their keyframes' time stamps are the animation frames the attack windows use: swing 1's run 16–35, starting at its start frame 16. |
+| Jump attack (20) | 40 **[verified]** | |
+| Throw (21) | 26 **[verified]** | Frames 30–118, 95 ticks as traced. |
+| Hit (22) | 16 | |
+| Ledge grab (23) | 32 | |
+| Ledge hang (24) | 33 | |
+| Shimmy (25, 26) | 36 left, 37 right | |
+| Ledge jump (27) | 34 | |
+| Grind (39) | 44 + a stance value | |
+| Grind jump (40) | 72 | |
+| Grind switch (41) | 30 or 31 by side | |
+| Underwater swim, idle, fast (50–52) | 54, 55, 56 | |
+| Surface swim (53), idle (54) | 82, 53 | |
+| Dead (57) | 64 | |
+
+- The hero's skeleton and every sequence are on the disc in each level's core
+  (`disc-layout.md`, "Level data"). Every level has the skeleton but only the sequences
+  it uses.
+
 ## Moves that need items [code, UYA NTSC]
 
 The kit gates these with per-hero ability flags (PLAN.md section 5, 2026-10-12).
@@ -806,14 +1276,20 @@ The state numbers match libuya's `PlayerState`, and the types match `PlayerType`
 | 15 | heli jump (the jump from a crouch) | 4 jump | R&C3, UYA |
 | 19 | combo attack (wrench) | 6 attack | all |
 | 20 | jump attack | 6 attack | all |
+| 21 | throw attack (wrench) | 6 attack | UYA |
 | 22 | get hit | 7 get hit | R&C3 |
 | 23, 24 | ledge grab, ledge idle | 3 ledge | Gladiator, plus 24 in an R&C3 savestate |
 | 27 | ledge jump | 4 jump | Gladiator |
 | 29 | targeting (weapon out) | 0 idle | R&C3, Gladiator |
 | 101 | skid to position (scripted move) | 24 NPC | R&C3 |
 
-Also read in DL's code but not seen in a trace: 121, the bounce off a wall after a charge
-(type 10), and 125, the charge (type 28) [code].
+Also read in code but not seen in a trace:
+- in DL's: 121, the bounce off a wall after a charge (type 10), and 125, the charge
+  (type 28);
+- in UYA's: 18, the water jump; 50–52, swimming under water (type 17); and 53–54,
+  swimming on the surface (type 18).
+- UYA's code uses 117 for wading, where libuya's names say "get hit under water", so
+  libuya's numbering above about 100 may not hold for UYA's single-player code.
 
 ## Timing [measured]
 
@@ -834,7 +1310,8 @@ Also read in DL's code but not seen in a trace: 121, the bounce off a wall after
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
    swimming.
    - The wall jump, ledges, slope limit and getting hit are read in UYA's code, and the
-     charge boots in DL's (sections above, 2026-10-12). Grinding and swimming aren't yet.
+     charge boots in DL's (sections above, 2026-10-12). Grinding and swimming followed on
+     2026-10-13.
    - Veldin's starting area has none of them, so they are untraced. A savestate near a
      wall and a ledge (from the owner or a scripted play-through) would let us check the
      probe distances and the shimmy speed.

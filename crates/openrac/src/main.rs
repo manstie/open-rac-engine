@@ -1,9 +1,12 @@
 //! Open Ratchet & Clank Engine: application entry point.
 //!
-//! With no supported disc (there is no disc support yet) it runs the hero kit's demo. The
-//! roadmap lives in `PLAN.md` at the repository root.
+//! It runs the hero kit's demo. If the user's own UYA disc is in the discs folder, the
+//! hero plays Ratchet's animations read from it. The roadmap lives in `PLAN.md` at the
+//! repository root.
 
+mod discs;
 mod flow;
+mod hero_anims;
 mod menu;
 mod settings;
 
@@ -49,6 +52,9 @@ struct Args {
     /// Fly a free camera round the demo level instead of playing the hero.
     #[arg(long)]
     spectator: bool,
+    /// Where the user's disc images are.
+    #[arg(long, value_name = "DIR", default_value = "source")]
+    discs: PathBuf,
 }
 
 fn main() -> Result<AppExit> {
@@ -104,6 +110,9 @@ fn main() -> Result<AppExit> {
     if let Some(recording) = replay {
         app.insert_resource(InputSource::replay(recording));
     }
+    if let Some(animations) = hero_animations(&args.discs) {
+        app.insert_resource(animations);
+    }
     info!(
         "settings: {}; data: {}",
         paths.settings_file.display(),
@@ -117,6 +126,34 @@ fn main() -> Result<AppExit> {
     }
 
     Ok(app.run())
+}
+
+/// The hero's animations from the user's UYA disc, if one is in `folder`.
+fn hero_animations(folder: &std::path::Path) -> Option<rac_rig::RigAnimations> {
+    let Some((path, mut disc)) = discs::find(folder, discs::Release::UyaNtsc) else {
+        info!(
+            "no UYA NTSC-U disc in {}: the hero's animation is procedural",
+            folder.display()
+        );
+        return None;
+    };
+    let hero = rac_formats::level::Core::read_uya(&mut disc, hero_anims::LEVEL)
+        .and_then(|core| core.hero());
+    match hero {
+        Ok(hero) => {
+            let animations = hero_anims::rig_animations(&hero);
+            info!(
+                "the hero's animations: {} moves from {}",
+                animations.clips.len(),
+                path.display()
+            );
+            Some(animations)
+        }
+        Err(error) => {
+            bevy::prelude::warn!("couldn't read the hero from {}: {error}", path.display());
+            None
+        }
+    }
 }
 
 #[derive(Resource)]

@@ -4426,7 +4426,10 @@ dependencies = [
  "clap",
  "directories",
  "rac_demo",
+ "rac_formats",
  "rac_input",
+ "rac_iso",
+ "rac_rig",
  "rac_sim",
  "serde",
  "toml",
@@ -4767,13 +4770,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
-name = "rac_demo"
+name = "rac_combat"
 version = "0.1.0"
 dependencies = [
  "bevy",
  "rac_hero",
  "rac_input",
  "rac_sim",
+]
+
+[[package]]
+name = "rac_demo"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "rac_combat",
+ "rac_hero",
+ "rac_input",
+ "rac_rig",
+ "rac_sim",
+]
+
+[[package]]
+name = "rac_formats"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4801,10 +4823,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "rac_iso"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rac_rig"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "rac_hero",
+ "rac_sim",
+]
+
+[[package]]
 name = "rac_sim"
 version = "0.1.0"
 dependencies = [
  "bevy",
+]
+
+[[package]]
+name = "rac_tool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rac_formats",
+ "rac_iso",
+ "serde_json",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ use rac_hero::{
     ParryWorld, Side,
     controller::{self, Abilities, StepEvents, TICK, step},
     motor,
+    water::WaterVolume,
 };
 use rac_input::{Action, Buttons, PlayerInput};
 use std::f32::consts::FRAC_PI_2;
@@ -792,4 +793,236 @@ fn a_sideways_stick_switches_to_the_next_rail() {
         "{}",
         rig.hero.position
     );
+}
+
+// --- Swimming --------------------------------------------------------------------------
+
+/// The water's surface in [`pool`].
+const SURFACE: f32 = 3.0;
+/// Where the feet float at rest: 0.12 u under the surface.
+const AFLOAT: f32 = SURFACE - 0.12;
+
+/// Water 3 u deep over the floor and 100 u across, with the hero at `position`, facing
+/// −z, and `extra` bodies in it.
+fn pool(position: Vec3, extra: &[BodyPlacement]) -> Rig {
+    let water = WaterVolume::new(Vec3::new(0.0, 1.5, 0.0), Vec3::new(50.0, 1.5, 50.0));
+    let mut bodies = vec![floor()];
+    bodies.extend_from_slice(extra);
+    let mut rig = Rig {
+        hero: HeroMotion::new(position, 0.0),
+        profile: HeroProfile::uya(),
+        world: ParryWorld::new(&bodies).with_water(vec![water]),
+    };
+    rig.tick(&idle());
+    rig
+}
+
+/// Dropped in from 2 u above the surface and left to settle.
+fn floating() -> Rig {
+    let mut rig = pool(Vec3::new(0.0, SURFACE + 2.0, 0.0), &[]);
+    rig.until(120, &idle(), |hero| hero.state == HeroState::SurfaceIdle);
+    rig.ticks(600, &idle());
+    rig
+}
+
+#[test]
+fn falling_into_deep_water_bobs_and_settles_afloat() {
+    // "Swimming": a falling hero gets in with his feet about 0.45 u under; the bob then
+    // carries him deeper and back up, and he settles 0.12 u under the surface.
+    let mut rig = pool(Vec3::new(0.0, SURFACE + 2.0, 0.0), &[]);
+    rig.until(120, &idle(), |hero| hero.state == HeroState::SurfaceIdle);
+    assert!(
+        (rig.hero.position.y - (SURFACE - 0.45)).abs() < 0.3,
+        "{}",
+        rig.hero.position
+    );
+    let mut lowest = f32::MAX;
+    for _ in 0..90 {
+        rig.tick(&idle());
+        lowest = lowest.min(rig.hero.position.y);
+    }
+    assert!(lowest < AFLOAT - 0.4, "{lowest}");
+    rig.ticks(600, &idle());
+    assert_eq!(rig.hero.state, HeroState::SurfaceIdle);
+    assert!(
+        (rig.hero.position.y - AFLOAT).abs() < 0.01,
+        "{}",
+        rig.hero.position
+    );
+}
+
+#[test]
+fn the_surface_swim_averages_a_little_over_3_u_s() {
+    // 3 u/s × 5.5 × the stroke, which averages about 1.06 × the speed.
+    let mut rig = floating();
+    rig.tick(&input(FORWARD, &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::SurfaceSwim);
+    rig.ticks(120, &input(FORWARD, &[], &[]));
+    assert!((rig.hero.speed - 3.0).abs() < 1e-4, "{}", rig.hero.speed);
+    let start = rig.hero.position;
+    // Two whole strokes: 30 frames at 0.3 a tick each.
+    rig.ticks(200, &input(FORWARD, &[], &[]));
+    let travelled = rig.hero.position - start;
+    let average = -travelled.z / (200.0 * TICK);
+    assert!((average - 3.17).abs() < 0.05, "{average}");
+    assert!(travelled.x.abs() < 1e-3);
+    assert!((rig.hero.position.y - AFLOAT).abs() < 0.01);
+
+    // Let go and he finishes his stroke, slows at 5 u/s², and floats again.
+    let stopped = rig.until(120, &idle(), |hero| hero.state == HeroState::SurfaceIdle);
+    assert!(stopped > 30, "{stopped}");
+}
+
+#[test]
+fn melee_dives_and_jump_rises_back_to_the_surface() {
+    let mut rig = floating();
+    rig.tick(&input(None, &[], &[Action::Melee]));
+    assert_eq!(rig.hero.state, HeroState::UnderwaterSwim);
+    // The 40-tick dive points him at least 0.35 × 78° down and heads for 6 u/s.
+    rig.ticks(40, &idle());
+    assert!(rig.hero.pitch > 0.3, "{}", rig.hero.pitch);
+    assert!(rig.hero.position.y < AFLOAT - 0.5, "{}", rig.hero.position);
+    let deepest = rig.hero.position.y;
+
+    // Holding jump pitches him up to 78° and swims him up until he surfaces.
+    let rise = input(None, &[Action::Jump], &[]);
+    rig.until(300, &rise, |hero| hero.state == HeroState::SurfaceIdle);
+    assert!(rig.hero.position.y > deepest + 0.5);
+    assert!(
+        rig.hero.position.y > SURFACE - 0.4 - 0.1,
+        "{}",
+        rig.hero.position
+    );
+    rig.ticks(600, &idle());
+    assert!(
+        (rig.hero.position.y - AFLOAT).abs() < 0.01,
+        "{}",
+        rig.hero.position
+    );
+    assert!(rig.hero.pitch.abs() < 0.01, "{}", rig.hero.pitch);
+}
+
+#[test]
+fn melee_held_pitches_down_at_most_78_degrees() {
+    let mut rig = floating();
+    let sink = input(None, &[Action::Melee], &[]);
+    rig.tick(&input(None, &[], &[Action::Melee]));
+    let mut steepest = 0.0f32;
+    for _ in 0..30 {
+        rig.tick(&sink);
+        steepest = steepest.max(rig.hero.pitch);
+        // The pitch turns at most 0.0204 rad a tick with the button held.
+        assert!(rig.hero.pitch <= 0.0204 * 31.0 + 1e-3);
+    }
+    assert!(steepest > 0.5);
+    assert!(rig.hero.velocity.y < 0.0);
+    rig.ticks(200, &sink);
+    assert!(rig.hero.pitch <= 1.3613569 + 1e-6);
+}
+
+#[test]
+fn crouch_held_under_water_swims_fast_at_7_u_s() {
+    let mut rig = floating();
+    let fast = input(None, &[Action::Crouch], &[]);
+    rig.tick(&input(None, &[Action::Crouch], &[Action::Melee]));
+    assert_eq!(rig.hero.state, HeroState::UnderwaterFast);
+    rig.ticks(120, &fast);
+    assert_eq!(rig.hero.state, HeroState::UnderwaterFast);
+    assert!((rig.hero.speed - 7.0).abs() < 1e-4, "{}", rig.hero.speed);
+    assert!(
+        (rig.hero.velocity.length() - 7.0).abs() < 1e-3,
+        "{}",
+        rig.hero.velocity
+    );
+
+    // Let go with the stick still and he drifts to a stop at 8 u/s² after a fast swim.
+    rig.tick(&idle());
+    assert_eq!(rig.hero.state, HeroState::UnderwaterIdle);
+    let stopped = rig.until(120, &idle(), |hero| hero.velocity.length() < 1e-4);
+    assert!((50..=56).contains(&stopped), "{stopped}");
+}
+
+#[test]
+fn the_swim_turns_fast_after_20_ticks_with_crouch_held() {
+    let mut rig = floating();
+    rig.tick(&input(FORWARD, &[], &[Action::Melee]));
+    assert_eq!(rig.hero.state, HeroState::UnderwaterSwim);
+    rig.until(60, &input(FORWARD, &[Action::Crouch], &[]), |hero| {
+        hero.state == HeroState::UnderwaterFast
+    });
+    assert!(rig.hero.ticks <= 1);
+}
+
+#[test]
+fn jump_leaves_the_surface_about_1_5_u_up_and_falls_back_in() {
+    // State 18: target 1.95-1.98 u, hold 10, push-off 5, gravity 29.7. As with every jump
+    // the target isn't the apex ("Jump heights"), and the push-off presses him down into
+    // the water first.
+    let mut rig = floating();
+    let start = rig.hero.position.y;
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Water));
+    let held = input(None, &[Action::Jump], &[]);
+    let (mut highest, mut ticks) = (start, 0);
+    while rig.hero.state == HeroState::Jump(JumpKind::Water) {
+        rig.tick(&held);
+        highest = highest.max(rig.hero.position.y);
+        ticks += 1;
+        assert!(ticks < 120, "never fell back in");
+    }
+    assert_eq!(rig.hero.state, HeroState::SurfaceIdle);
+    let rise = highest - start;
+    assert!((rise - 1.55).abs() < 0.02, "{rise}");
+}
+
+#[test]
+fn a_jump_from_the_water_lands_on_the_side() {
+    // A side 0.5 u above the surface, 1 u ahead.
+    let side = block(
+        Vec3::new(0.0, (SURFACE + 0.5) / 2.0, -6.0),
+        Vec3::new(10.0, (SURFACE + 0.5) / 2.0, 5.0),
+        Material::Solid,
+    );
+    let mut rig = pool(Vec3::new(0.0, SURFACE + 2.0, 0.0), &[side]);
+    rig.until(120, &idle(), |hero| hero.state == HeroState::SurfaceIdle);
+    rig.ticks(600, &idle());
+    rig.tick(&input(FORWARD, &[], &[Action::Jump]));
+    rig.until(120, &input(FORWARD, &[Action::Jump], &[]), |hero| {
+        hero.ground.is_some()
+    });
+    assert!((rig.hero.position.y - (SURFACE + 0.5)).abs() < 0.01);
+    assert!(!rig.hero.state.is_swimming());
+}
+
+#[test]
+fn shallow_water_is_walked_through() {
+    let water = WaterVolume::new(Vec3::new(0.0, 0.3, 0.0), Vec3::new(50.0, 0.3, 50.0));
+    let mut rig = Rig {
+        hero: HeroMotion::new(Vec3::new(0.0, 2.0, 0.0), 0.0),
+        profile: HeroProfile::uya(),
+        world: ParryWorld::new(&[floor()]).with_water(vec![water]),
+    };
+    // Falling in lands on the bottom; walking stays walking.
+    rig.until(120, &idle(), |hero| hero.ground.is_some());
+    for _ in 0..120 {
+        rig.tick(&input(FORWARD, &[], &[]));
+        assert!(!rig.hero.state.is_swimming(), "{:?}", rig.hero.state);
+    }
+    assert_eq!(rig.hero.state, HeroState::Walk);
+}
+
+#[test]
+fn swimming_onto_a_shallow_shelf_stands_up() {
+    // The floor rises to 0.4 u under the surface beyond z = -6.
+    let shelf = block(
+        Vec3::new(0.0, (SURFACE - 0.4) / 2.0, -26.0),
+        Vec3::new(50.0, (SURFACE - 0.4) / 2.0, 20.0),
+        Material::Solid,
+    );
+    let mut rig = pool(Vec3::new(0.0, SURFACE + 2.0, 0.0), &[shelf]);
+    rig.until(120, &idle(), |hero| hero.state == HeroState::SurfaceIdle);
+    rig.ticks(600, &idle());
+    rig.until(600, &input(FORWARD, &[], &[]), |hero| hero.ground.is_some());
+    assert!(!rig.hero.state.is_swimming());
+    assert!((rig.hero.position.y - (SURFACE - 0.4)).abs() < 0.01);
 }

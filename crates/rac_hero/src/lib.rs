@@ -5,11 +5,13 @@
 //! - [`controller::step`] is the whole controller as one pure function; the plugin runs it
 //!   for every [`Hero`] each tick in `rac_sim::SimSet::Hero`.
 //! - Solid geometry comes from [`Collider`] components, with an optional [`Material`],
-//!   gathered into a [`CollisionScene`] each tick, together with [`GrindRail`]s. The controller itself only sees the
-//!   narrow [`CollisionWorld`] interface.
+//!   gathered into a [`CollisionScene`] each tick, together with [`GrindRail`]s and
+//!   [`Water`]. The controller itself only sees the narrow [`CollisionWorld`] interface.
 //! - [`HeroTuning`] holds the movement profile, UYA NTSC-U's unless the app sets another.
 //! - Health, hits ([`HurtHero`]), death and [`Checkpoint`]s are handled here, around the
 //!   controller.
+//! - The wrench's attacks turn to [`AimTarget`]s, and what they can hit each tick is in
+//!   [`HeroMotion::strikes`] for the game's combat code (`rac_combat`) to test.
 //! - [`FollowCamera`] is a basic third-person camera (P1.7).
 
 pub mod camera;
@@ -19,6 +21,7 @@ pub mod motor;
 pub mod profile;
 pub mod rail;
 pub mod stick;
+pub mod water;
 
 use bevy::prelude::*;
 use rac_input::PlayerInputs;
@@ -26,9 +29,12 @@ use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
 
 pub use camera::FollowCamera;
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
-pub use controller::{Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side};
+pub use controller::{
+    Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side, Strike, StrikeShape, ThrownWrench,
+};
 pub use profile::HeroProfile;
 pub use rail::GrindRail;
+pub use water::Water;
 
 /// A player-controlled hero.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
@@ -42,6 +48,13 @@ pub struct Hero {
     pub spawn_yaw: f32,
     /// Falling below this height sends him back to `spawn`.
     pub respawn_below: f32,
+}
+
+/// Something the hero's attacks turn to, `height` above the entity's position (its
+/// `SimTransform` if it moves in the simulation, otherwise its `Transform`).
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct AimTarget {
+    pub height: f32,
 }
 
 /// The controller's state for a [`Hero`].
@@ -130,8 +143,8 @@ impl Plugin for HeroPlugin {
     }
 }
 
-/// Rebuilds the [`CollisionScene`] from every [`Collider`] and [`GrindRail`] (rails in
-/// world space). Colliders with a
+/// Rebuilds the [`CollisionScene`] from every [`Collider`], [`GrindRail`] (rails in world
+/// space), [`Water`] (placed by its `Transform`) and [`AimTarget`]. Colliders with a
 /// `SimTransform` may move, and the hero rides them; others are placed by their
 /// `Transform`. They are ordered by entity so every peer builds the same list.
 fn gather_colliders(
@@ -143,8 +156,42 @@ fn gather_colliders(
         Option<(&SimTransform, &PreviousSimTransform)>,
     )>,
     rails: Query<(Entity, &GrindRail)>,
+    water: Query<(Entity, &Water, &Transform)>,
+    targets: Query<(
+        Entity,
+        &AimTarget,
+        Option<&Transform>,
+        Option<&SimTransform>,
+    )>,
     mut scene: ResMut<CollisionScene>,
 ) {
+    let mut target_list: Vec<(Entity, Vec3)> = targets
+        .iter()
+        .filter_map(|(entity, target, transform, simulated)| {
+            let at = match simulated {
+                Some(simulated) => simulated.translation,
+                None => transform?.translation,
+            };
+            Some((entity, at + Vec3::Y * target.height))
+        })
+        .collect();
+    target_list.sort_by_key(|(entity, _)| *entity);
+    scene
+        .0
+        .set_targets(target_list.into_iter().map(|(_, at)| at).collect());
+    let mut water_list: Vec<(Entity, water::WaterVolume)> = water
+        .iter()
+        .map(|(entity, water, transform)| {
+            (
+                entity,
+                water::WaterVolume::new(transform.translation, water.half_extents),
+            )
+        })
+        .collect();
+    water_list.sort_by_key(|(entity, _)| *entity);
+    scene
+        .0
+        .set_water(water_list.into_iter().map(|(_, volume)| volume).collect());
     let mut rail_list: Vec<(Entity, GrindRail)> = rails
         .iter()
         .map(|(entity, rail)| (entity, rail.clone()))
@@ -236,7 +283,9 @@ fn move_heroes(
             body.0 = HeroMotion::new(hero.spawn, hero.spawn_yaw);
         }
         transform.translation = body.0.position;
-        transform.rotation = Quat::from_rotation_y(body.0.yaw);
+        // Nose down is a turn about his own x axis.
+        transform.rotation =
+            Quat::from_rotation_y(body.0.yaw) * Quat::from_rotation_x(-body.0.pitch);
         if teleport {
             previous.0 = *transform;
         }

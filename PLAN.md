@@ -13,6 +13,8 @@ project owner and for every Claude session that picks this work up.
   - [prior-art.md](docs/research/prior-art.md): other projects, tools and their licences.
   - [hero-controller.md](docs/research/hero-controller.md): how Ratchet moves (RE.3).
   - [camera.md](docs/research/camera.md): how the camera follows him (RE.4, started).
+  - [moby-format.md](docs/research/moby-format.md): moby skeletons, animation and meshes
+    (P3.7, started).
 - How to set up and run the reverse-engineering tools, and the catalogue of savestates,
   recordings and traces: [docs/re-setup.md](docs/re-setup.md).
 
@@ -22,7 +24,7 @@ moved (say why).
 
 ---
 
-## 0. Status (updated 2026-10-12)
+## 0. Status (updated 2026-10-13)
 
 **Phase 0 (foundations) is done apart from CI's first run (P0.7). Phase 1 has started: the
 app flow, the 60 Hz simulation core, the input layer and the greybox level are in
@@ -80,14 +82,35 @@ the game itself.**
       `hero.toml` (frame counter 0x21DDB8). They verify the charge's numbers.
     - They also found a 0.43 u per frame step limit, the bounce's 54 frames, how the
       skid after a charge slides, and that DL's default controls charge with L2.
+  - **2026-10-13, fifth pass:** grinding and swimming read in UYA's code and added to
+    the kit (`hero-controller.md`, "Grinding", "Swimming"). Both are untraced: Veldin's
+    start has no rail or water.
+
+  - **2026-10-13, sixth pass:** melee read in UYA's code and added to the kit (P1.8,
+    `hero-controller.md`, "Melee"): the wrench combo, the jump attack and the throw, with a
+    new crate `rac_combat` for hits, and a melee yard in the demo.
+  - **2026-10-13, seventh pass:** UYA's moby format read in code (P3.7,
+    `docs/research/moby-format.md`): skeletons and every animation keyframe decode, and
+    `openrac-tool moby` writes a class as a `.glb` into `cache/`. With UYA's hero as the
+    reference, the hero now has his placeholder model (P1.17, crate `rac_rig`): a blocky,
+    flat-shaded gold Ratchet with Clank and the wrench, animated in code.
+  - **2026-10-13, eighth pass:** the disc layer reads UYA (P2.1, P2.3, P2.4): the WAD
+    codec from the game's own decompressor, the TOC, the level files and the core. With a
+    UYA NTSC-U disc in `source/`, the hero plays Ratchet's real animations, read from the
+    disc at start-up (P1.17, `hero-controller.md`, "Animations per state").
 
 **Next actions, in order:**
-1. **Owner, when convenient:** savestates or recordings of the moves that need a
-   particular place (wall jump, ledges, grinding, swimming, charge boots), and a half-tilt
-   stick recording on an NTSC disc (`docs/re-setup.md`, "Still wanted").
-   - Most jump moves are now verified on UYA NTSC with our own scripted traces.
-   - The wall jump and ledges are implemented from code. A savestate near a wall and a
-     ledge would let a scripted trace check their probe distances and the shimmy speed.
+1. **Trace the moves that need a particular place (RE.3, RE.5):** wall jump, ledges,
+   grinding and swimming.
+   - **Since 2026-10-13 we can get there ourselves:** `tools/pine-probe/warp.sh` sends a
+     headless UYA or DL game to any level by writing the games' own level-change request
+     (`docs/re-setup.md`, "Going straight to a level", with UYA's level list).
+   - `uyantsc-sewers-swim.p2s` already starts the hero swimming (level 28).
+   - Next: find a wall-jump wall, a ledge and a rail in the warped-to levels, savestate
+     next to each, and trace the moves with scripted play.
+   - **Owner, when convenient:** a half-tilt stick recording on an NTSC disc (`docs/re-setup.md`,
+     "Still wanted"). Recordings of the place-bound moves are still welcome, but no
+     longer needed to reach them.
 2. **Owner:** push `re/hero-movement` so CI runs (the push needs the owner's
    credentials). Then fix anything Windows-specific it finds (P0.7).
 3. **Done 2026-10-12:** the follow camera (RE.4 → P1.7), read in code and checked against
@@ -95,11 +118,21 @@ the game itself.**
    `camera.md`, "Next steps".
 4. What P1.5 still lacks:
    - **Done 2026-10-12 and 13:** the charge boots (from DL's code), the ability flags,
-     the walk's sharp-turn skid and grinding (from UYA's code).
+     the walk's sharp-turn skid, grinding and swimming (from UYA's code).
    - strafe speeds and lock-on, with targets from P1.9.
-5. RE.3, continued: swimming in code (grinding is done). DL NTSC traces now work
-   (`re/SCUS-97465/hero.toml`, the charge traces); more DL moves can be traced the same
-   way.
+5. **Done 2026-10-13:** swimming (P1.5), the level warp (RE.5), melee (P1.8), the
+   placeholder model with the moby reader (P1.17, P3.7, P2.7), and the disc layer for UYA
+   with the real animations (P2.1–P2.4, P3.3). All of it is uncommitted in
+   the tree because the owner couldn't enter the signing password: **owner, commit it**
+   (suggested messages in §9's entries).
+   - **Owner, before publishing the model:** `rac_rig` is a recognisable Ratchet and
+     Clank, which goes further than G1's primitive-shape placeholder (§5, 2026-10-13).
+     Keep it, or ask for a less recognisable stand-in.
+   - Done the same day: the rig plays Ratchet's real animations from the user's own UYA
+     disc (P1.17, P2.1–P2.4).
+   - RE.3 still lacks traces of the moves that need a place (wall, ledge, grind,
+     water). DL NTSC traces work (`re/SCUS-97465/hero.toml`), so more DL moves can be
+     traced the same way.
 6. RE.2: seed the knowledge base from libuya and libdl (MIT).
 7. In parallel, at lower priority: the disc layer, P2.1–P2.5.
 
@@ -142,8 +175,9 @@ the game itself.**
      - keep entity ordering stable;
      - use one seeded RNG per level;
      - never read the wall clock.
-   - **The hero kit is ISO-free.** `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and
-     `rac_demo` never depend on the disc, format or runtime crates. CI enforces this
+   - **The hero kit is ISO-free.** `rac_sim`, `rac_input`, `rac_hero`, `rac_rig`,
+     `rac_combat`, `rac_net` and `rac_demo` never depend on the disc, format or runtime
+     crates. CI enforces this
      (P1.16).
    - Parsing and format crates **don't depend on Bevy**, so tools and tests stay fast and
      survive Bevy upgrades.
@@ -268,7 +302,8 @@ All crates live in `crates/`. Libraries are prefixed `rac_*`; the binary is `ope
 ISO-free hero kit: reusable in any Bevy app; never depends on the game-layer crates
   rac_sim      fixed 60 Hz clock, system order, render interpolation, seeded RNG
   rac_input    actions, bindings, remapping, per-tick input snapshots (G3)
-  rac_hero     kinematic controller (R&C3/Gladiator feel), abilities, camera, placeholder rig
+  rac_hero     kinematic controller (R&C3/Gladiator feel), abilities, camera
+  rac_rig      placeholder hero model: blocky gold Ratchet, Clank and wrench, animated in code
   rac_combat   health and damage, melee, weapons, projectiles, pickups, quick-select
   rac_net      direct-IP sessions over ggrs: rollback or lockstep, desync checks (G4)
   rac_demo     greybox demo level, demo enemies and HUD (the standalone demo)
@@ -343,6 +378,10 @@ App
 | 2026-10-12 | The dev profile builds with **line-table debug info only** (dependencies without any), and heavy cargo commands run at low priority with 4 jobs (CLAUDE.md, "Commands"). Full debug info made the parallel links of the Bevy test binaries exhaust 31 GB and froze the owner's desktop. |
 | 2026-10-12 | **"Backport" means one movement and camera controller for every game; the abilities available in each game stay the same** (owner's clarification of D2). Abilities the games grant as items are flags, never carried across. Charge boots, the heli-pack and thruster-pack moves, glide, grind boots and gadgets are per-hero ability flags. Each game sets them from its own item and save state, so an older game only gets what it had (R&C1 never gets charge boots, and GC gets them once bought). The originals gate them the same way: UYA's long and heli jumps need the heli-pack in the back slot. The demo turns every flag on. |
 | 2026-10-12 | Research instances of PCSX2 (`boot.sh`, `replay.sh`, never the owner's) may have their memory written with `pine-probe poke` to reach a move the level hasn't granted yet. The first use gave DL's charge boots on DreadZone Station. The poke and the savestate it leads to are recorded with the trace (`docs/re-setup.md`). |
+| 2026-10-13 | **The placeholder hero is a blocky, medium-poly, flat-shaded gold model of Ratchet, Clank and the wrench, made by hand in code with UYA's hero as the visual reference** (owner's request; P1.17). Nothing converted from the disc is committed: the extracted mesh, skeleton and animations stay in `cache/`, and the rig's own geometry and skeleton are our measurements in our own data. The rig follows UYA's joint layout, so animations extracted from the user's own disc can drive it; without a disc it plays animations made in code. **Owner's call before publishing:** the likeness is still Sony's character, so this goes further than G1's primitive-shape placeholder. |
+| 2026-10-13 | The placeholder model lives in its own kit crate, **`rac_rig`** (with Bevy's `bevy_pbr`), so `rac_hero` stays free of rendering. The rig only reads `HeroBody` and poses itself procedurally; animations from a disc will reach it through each joint's UYA index, loaded by `openrac`, never by a kit crate. Models extracted for reference (`openrac-tool moby --glb`) go in `cache/models/` only. |
+| 2026-10-13 | **Game data reaches the kit only at run time, through kit-level types.** `openrac` reads the hero's animations from the user's own disc at start-up and hands `rac_rig` clips on its own joints (`RigAnimations`); the kit never reads a disc, and nothing read is stored. The disc folder is `source/` by default (`--discs`), matching G2. |
+| 2026-10-13 | The same research instances may be sent to any level by writing the games' own level-change request (`tools/pine-probe/warp.sh`), so traces of place-bound moves don't wait on a play-through. The catalogue says which savestates were reached this way, and with which items. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -508,6 +547,11 @@ also works: using a GPL tool is fine, copying its code is not.
       - savestates and five scripted charge takes in `source/Ratchet Gladiator/`;
       - the charge verified as above.
     - **Still to do:** trace a wall, a ledge and a grind; read swimming.
+  - 2026-10-13: **swimming read in UYA's code**: getting in, the surface float and bob,
+    the surface swim and its animation-timed stroke, the dive, pitch and speed under
+    water, the fast swim, and every transition between the five states
+    (`hero-controller.md`, "Swimming"). Untraced: Veldin's start has no water. Also
+    found: floor material 3 is quicksand, not water.
   - 2026-10-13: **grinding read in UYA's code**: the rail search and getting on, the
     speed model, the grind and switch jumps, and the rail's end (`hero-controller.md`,
     "Grinding"). Untraced: Veldin's start has no rail.
@@ -812,6 +856,19 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
           - The greybox rail is ridable. 9 new tests, one of them riding the greybox
             rail.
           - Not yet: the grind attack (with P1.8), and auto-jumping rails.
+        - **Swimming, done 2026-10-13 (uncommitted until the owner can sign):** read in
+          UYA's code (`hero-controller.md`, "Swimming") and implemented:
+          - a `water` module: boxes whose top is the surface, as `Water` components
+            gathered with the colliders and reached through `CollisionWorld::water`;
+          - getting in from a fall or deep under, the surface float and bob, the surface
+            swim and its stroke, the water jump (18), the dive, and swimming under water
+            with pitch (melee down, jump up), its idle drift and the fast swim (crouch or
+            strafe held);
+          - standing up in shallow water, as a landing (the game's wading, 117, isn't
+            read).
+          - The greybox has a raised pool with steps up to its wall; the hero's model
+            pitches with him. 13 new tests, one of them swimming across the greybox pool
+            and jumping out.
         - Still to do: strafe speeds and lock-on (with P1.9).
         - **Charge boots and ability flags, done 2026-10-12:**
           - The charge boots are read in DL's code (`hero-controller.md`, "Charge boots"):
@@ -885,8 +942,23 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
   - Right stick or mouse orbit, and collision via sphere casts.
   - Strafe/lock mode and first-person mode.
   - Hooks for camera volumes and splines from level data (Phase 3).
-- [ ] **P1.8** Melee (`rac_combat`), following RE.7: the wrench combo, a thrown wrench and a
+- [~] **P1.8** Melee (`rac_combat`), following RE.7: the wrench combo, a thrown wrench and a
   downward strike, each with hitboxes and hit reactions.
+  - 2026-10-13, done and uncommitted (the owner commits):
+    - UYA's combo (19), jump attack (20) and throw (21) were read in code and checked
+      against our traces `uyantsc-veldin-moves-2` and `-melee-1`
+      (`hero-controller.md`, "Melee").
+    - They are in `rac_hero/src/controller/melee.rs` and the profile's `melee` section:
+      the animation-frame windows, chaining, lunges, aim, the thrown wrench's flight, and
+      the strikes in `HeroMotion::strikes`.
+    - The new crate `rac_combat` adds hurtboxes, hit points, one hit per attack,
+      knockback and flash.
+    - The demo has a melee yard behind the start, with crates that break and dummies
+      that are pushed about, and a stand-in wrench.
+    - Tests: `rac_hero/tests/melee.rs` (20) and `rac_combat` (4). `cargo test
+      --workspace`, fmt and clippy pass. The addresses are in
+      `re/SCUS-97353/symbols.toml`.
+  - Not done: the grind attack (42), the wall clank, and DL's melee.
 - [ ] **P1.9** Weapons framework (`rac_combat`), following RE.7:
   - Data-driven definitions (RON):
     - fire mode: hitscan, projectile, lobbed, stream/beam or homing;
@@ -936,7 +1008,7 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
     geometry.
   - The public API is documented, and configuration comes from RON assets.
   - `examples/hero_sandbox.rs` drops the kit into a plain Bevy app.
-- [ ] **P1.17** Placeholder rigged character:
+- [~] **P1.17** Placeholder rigged character:
   - A skeleton built in code, following a documented bone-naming convention.
   - Body parts made from primitive shapes (capsules, boxes, spheres) attached to the bones.
   - Animations authored in code (Bevy `AnimationClip`s) or generated procedurally. They are
@@ -945,6 +1017,41 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
   - A swap point for real skinned models later: the disc's hero model in P3.15, or other
     games' models in mash-ups.
   - Different colours for player 1 and player 2.
+  - **2026-10-13, first version done (owner's request), uncommitted:** a **blocky,
+    medium-poly, flat-shaded gold** Ratchet with Clank on his back and the wrench, modelled
+    by hand in code with UYA's hero as the reference (decision in §5). New kit crate
+    `rac_rig`:
+    - 44 joints named after body parts, laid out like UYA's hero (each records the UYA
+      joint it stands for), and 3,800 triangles in 67 chamfered blocks, each the convex
+      hull of a few points. Gold for player 1, silver for player 2.
+    - Procedural poses for every hero state, eased into each other: idle, run (stride
+      from distance run), skid, crouch, jumps (flip and double-jump spins), glide, ledges,
+      grind, swim, hit and death. Swings put the hand on the controller's own swing line
+      with two-bone IK, so the drawn wrench is where the hits are; the thrown wrench flies
+      as its own copy.
+    - The demo uses it in place of the capsule, and its cameras have a sky-gradient
+      environment light for the gold to reflect. Checked headlessly on Xvfb.
+    - 16 tests (hull, shapes, skeleton, mirroring, IK, stride).
+    - Not done in that version: animations from the user's own disc (done the same day,
+      next entry), firing poses (P1.9), and facial animation.
+  - **2026-10-13, done (owner's request), uncommitted: the hero plays Ratchet's real
+    animations from the user's own UYA disc.**
+    - The disc path (P2.1, P2.3, P2.4, P3.3, P3.7): `rac_iso` reads the image, and
+      `rac_formats` the TOC, the level header, the core header, the WAD-compressed core
+      and the hero's class, all 111 joints and 127 sequences, in 0.1 s
+      (`disc-layout.md`, "Level data"). It matches the hero in a memory image exactly.
+    - Which sequence each state plays, read in `hero_change_state` and checked with our
+      trace `uyantsc-veldin-anim-1` (`hero-controller.md`, "Animations per state").
+    - `rac_rig` takes clips (`RigAnimations`, one per `RigMove`) and plays them over its
+      procedural poses; attacks follow the controller's animation frame, so the drawn
+      swing matches the hits. Clank and the wrench stay procedural.
+    - `openrac` finds a UYA NTSC-U disc in `source/` (`--discs`), converts the hero's
+      sequences to the rig's joints at start-up (39 moves) and inserts them. Without a disc
+      the hero is procedural as before. Nothing read from the disc is stored.
+    - Tests: `rac_rig` clips (4), `openrac` conversion (3), and one disc test
+      (`OPENRAC_SOURCE_DIR`, ignored without discs). Checked headlessly on Xvfb.
+    - Not done: the idle fidgets (1, 2), landing animations (12), the walk's speed
+      thresholds read in code (5 u/s is from the trace), and facial and finger joints.
 - [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
   - Host and join by `IP:port` over UDP.
   - A handshake checking the build and settings.
@@ -973,21 +1080,29 @@ Crates: `rac_iso`, `rac_formats::wad`/`elf`, and `rac_tool`. P2.4 and P2.5 come 
 the UYA and DL executables can be unpacked, the RE track no longer needs savestates or
 Wrench.
 
-- [ ] **P2.1** `rac_iso` reads ISO9660 over `Read + Seek`: the PVD, directories and file
+- [x] **P2.1** `rac_iso` reads ISO9660 over `Read + Seek`: the PVD, directories and file
   extents. It exposes a raw sector API. It never loads a whole 4 GB image.
-- [ ] **P2.2** Disc identification:
+  - 2026-10-13: done (`crates/rac_iso`, 3 tests on a synthetic image).
+- [~] **P2.2** Disc identification:
+  - 2026-10-13: a first part in `openrac` (`discs.rs`): disc images in a folder,
+    recognised by `SYSTEM.CNF`'s boot executable. UYA NTSC-U only so far.
   - Read `SYSTEM.CNF` (`BOOT2`, `VER`, `VMODE`) and the SHA-1 of the boot ELF.
   - Map them to a `Release { game: Rac1|Gc|Uya|Dl, region, version, serial }`.
   - Build a table of known releases: the six discs in `disc-layout.md`, plus SCUS-97199 and
     SCUS-97268. Each entry records the TOC LBA, the `SYSTEM.CNF` LBA and whether the ELF is
     packed.
   - Unknown discs get a clear error.
-- [ ] **P2.3** TOC parsers:
+- [~] **P2.3** TOC parsers:
+  - 2026-10-13: UYA's is done (`rac_formats::level::Toc`; `disc-layout.md`, "Level
+    data"). GC, DL and R&C1 aren't.
   - GC/UYA/DL at LBA 1001: global WAD headers identified by size, and a level table whose
     order differs by game. Include DL's missions.
   - R&C1 at LBA 1500: the header, global ranges and `levels[19]`, which point to level
     headers.
-- [ ] **P2.4** WAD codec:
+- [~] **P2.4** WAD codec:
+  - 2026-10-13: the decompressor is done, written from UYA's own (`rac_formats::wad`, 7
+    tests) and run on every WAD of Veldin's level data. Not yet: fuzzing, the compressor,
+    and running it on every WAD of every disc.
   - Decompressor for the packet stream, the 0x2000-byte blocks, and the padding and dummy
     packets.
   - Fuzzing (`cargo-fuzz`) and property tests.
@@ -996,8 +1111,11 @@ Wrench.
   a WAD in `.rodata`, at offset 0x7080 on our discs) → the real game ELF.
 - [ ] **P2.6** Level overlay extraction: read the 16-byte `{dest, size, type, entry}`
   records and produce per-level code images (for reverse engineering and the recompiler).
-- [ ] **P2.7** `openrac-tool` CLI: `identify`, `toc`, `extract --out cache/<release>/`,
+- [~] **P2.7** `openrac-tool` CLI: `identify`, `toc`, `extract --out cache/<release>/`,
   `unpack-elf` and `dump-overlay`.
+  - 2026-10-13: the crate `rac_tool` exists with one command, `moby`, which reads a moby
+    class from an EE memory image and can write it as a `.glb` (skeleton, mesh, every
+    sequence) into `cache/` (`docs/re-setup.md`, "Extracting a model").
 - [ ] **P2.8** Cache layout and versioning:
   - Path: `cache/<serial>-<elfsha1[0..8]>/…`.
   - A manifest records the tool version and source hashes, so extraction can be incremental
@@ -1021,14 +1139,25 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     → 1.0, and mips.
   - Texture tables and the GS RAM table → Bevy `Image`.
   - A texture browser for debugging.
-- [ ] **P3.3** The level core header (0xBC) and the class tables.
+- [~] **P3.3** The level core header (0xBC) and the class tables.
+  - 2026-10-13: UYA's level header, data part, core header, moby class table and hero
+    sequence table (`rac_formats::level`, `disc-layout.md`, "Level data"). The core
+    header's other tables aren't read yet.
 - [ ] **P3.4** Tfrags (terrain, with LOD 0 first), **P3.5** ties (instanced, with
   per-instance vertex colours), **P3.6** shrubs.
-- [ ] **P3.7** Mobys:
+- [~] **P3.7** Mobys:
   - Class header, packets and LODs.
   - Skeleton and joints, and skinning with up to 3 joints per vertex.
   - Animation sequences → Bevy `AnimationClip`.
   - Metal (environment map) materials and bangles.
+  - 2026-10-13, started on UYA NTSC in memory (`rac_formats::moby`,
+    `docs/research/moby-format.md`): the class header, skeleton and every keyframe
+    (compressed and whole) decode and are verified; mesh positions and strips decode.
+    Open: duplicate vertices (a quarter of the hero's triangles), the VU0 matrix slots
+    (skinning weights), and textures.
+  - 2026-10-13: classes are read from the disc too (`Placement::Packed`), and the hero's
+    skeleton and all 127 sequences come straight from the UYA disc image
+    (`level::Core::hero`, `openrac-tool hero`), matching the memory image exactly.
 - [ ] **P3.8** Sky: shells, and rotation converted from per-frame to per-second using the
   region's refresh rate.
 - [ ] **P3.9** Collision: the octant grid and triangle/quad faces with their type byte.
@@ -1260,6 +1389,54 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-13 (real animations):** P1.17, P2.1–P2.4, P3.3, P3.7, owner's request. Not
+  committed. Suggested message: "Read UYA's levels from the disc and play Ratchet's real
+  animations on the hero (P1.17, P2.1, P2.3, P2.4, P3.3, P3.7)".
+  - The WAD codec, TOC, level files and core read from the disc with our own code
+    (`rac_iso`, `rac_formats::{wad, level}`), written from the game's loader and
+    decompressor in Ghidra; the hero's class from the disc matches memory exactly.
+  - The state-to-sequence map from `hero_change_state` and a new trace
+    (`uyantsc-veldin-anim-1`).
+  - The rig plays clips; `openrac` converts the disc's sequences at start-up.
+  - Next: the armor WAD for the hero's real mesh (if wanted), or landing and fidget
+    animations.
+
+- **2026-10-13 (model):** P1.17, P3.7 and P2.7, owner's request. Not committed.
+  Suggested message: "Read UYA's moby skeletons and animation, and give the hero a
+  blocky gold placeholder model (P1.17, P3.7, P2.7)".
+  - UYA's animation code read in Ghidra: the keyframe format, its compression and the
+    pose convention, verified on every hero sequence and by placing Clank and the wrench
+    on the hero's joints (`moby-format.md`).
+  - New crates: `rac_formats` (moby reader, 14 tests), `rac_tool` (`openrac-tool moby`,
+    `.glb` export to `cache/`, 3 tests) and `rac_rig` (the model, 16 tests). The demo
+    uses the model.
+  - Next: the user's own UYA animations on the rig (P1.17), or the mesh's duplicate
+    vertices (P3.7).
+
+- **2026-10-13 (melee):** P1.8 and RE.3. Not committed. Suggested message: "Read UYA's
+  wrench combo, jump attack and throw and add melee to the hero kit (P1.8, RE.3)".
+  - The attack table, chaining, lunges, aim, hits and the thrown wrench read in Ghidra
+    and checked against our traces (`hero-controller.md`, "Melee").
+  - `rac_hero`'s attacks, the new `rac_combat` crate and the demo's melee yard. 24 new
+    tests.
+
+- **2026-10-13 (level warp):** RE.5 tooling. Not committed (the owner can't sign yet).
+  - Found UYA's and DL's level-change request in Ghidra; two writes over PINE load any
+    level. `tools/pine-probe/warp.sh`, and pine-probe `peek`, `poke --word`,
+    `load-state` and `save-state`.
+  - UYA's levels 1–29 mapped by warping to each from Veldin; DL's fly-ins read for their
+    names. A swimming savestate in Aquatos's sewers.
+  - Next: savestates and traces at a wall, a ledge and a rail.
+
+- **2026-10-13 (swimming):** RE.3 and P1.5. Not committed: the owner couldn't enter
+  the signing password. Suggested message: "Read UYA's swimming and add it to the hero
+  (RE.3, P1.5)".
+  - UYA's five swim states and the water jump read in Ghidra: getting in, the surface
+    float and bob, the stroke, the dive, pitch, the fast swim, and the transitions.
+  - Implemented with water boxes (`water` module). The greybox has a pool.
+  - 13 new tests (155 in all).
+  - Next: P1.8 melee, or traces of the place-bound moves when the owner has savestates.
 
 - **2026-10-13 (grinding):** RE.3 and P1.5.
   - UYA's grinding read in Ghidra: getting on, the speed model, the grind and switch

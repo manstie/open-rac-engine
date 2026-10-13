@@ -1,0 +1,19 @@
+[package]
+name = "rac_combat"
+description = "Hero kit: what the hero's attacks hit (hurtboxes, hit points) and how it reacts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "libm"] }
+rac_hero.workspace = true
+rac_sim.workspace = true
+
+[dev-dependencies]
+rac_input.workspace = true
+
+[lints]
+workspace = true

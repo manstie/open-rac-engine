@@ -65,6 +65,9 @@ only from the decompilation projects.
     - It also lists function addresses.
   - **libuya** (`horizon-uya-patch/libuya`, MIT) builds for both UYA NTSC and PAL.
     - It defines `MobyClass` and `Moby`.
+      - Its `MobyClass` and `MobySeq` layouts were the starting point for
+        `moby-format.md` (2026-10-13). Everything used was re-checked against UYA NTSC's
+        data. Its `Moby` animation fields don't match UYA's single-player hero.
     - It lists per-map overlay addresses.
 - **Lists of memory addresses:** Programie/RCMemory covers PAL R&C1–3 in PCSX2 format. It
   has no licence, so we take single addresses from it as facts and re-verify them (its R&C3

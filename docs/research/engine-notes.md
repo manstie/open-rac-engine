@@ -80,8 +80,9 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
   - Packets never cross a 0x2000-byte block.
   - Padding packets are `12 00 00` followed by 0xEE fill.
   - A dummy packet, `11 00 00`, separates two literal runs.
-  - Wrench realigns to 0x1000. OpenRAC reports that R&C1 PAL uses 0x2000. Resolve this
-    against the real decompressor.
+  - Wrench realigns to 0x1000. OpenRAC reports that R&C1 PAL uses 0x2000. **Resolved for
+    UYA (2026-10-13):** its decompressor reads 0x2000-byte blocks; the full codec is in
+    [disc-layout.md](disc-layout.md#wad-compression-verified-2026-10-13).
 - **Packed executables (R&C3, UYA, DL, Gladiator):** a loader stub plus a WAD-compressed
   game image in `.rodata`, which on our discs begins at file offset 0x7080 **[verified]**.
   Wrench 0.4 and later can unpack them.

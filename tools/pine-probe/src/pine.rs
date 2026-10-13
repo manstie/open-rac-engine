@@ -36,6 +36,7 @@ mod opcode {
     pub const READ32: u8 = 0x2;
     pub const READ64: u8 = 0x3;
     pub const WRITE8: u8 = 0x4;
+    pub const WRITE32: u8 = 0x6;
     pub const VERSION: u8 = 0x8;
     pub const SAVE_STATE: u8 = 0x9;
     pub const LOAD_STATE: u8 = 0xA;
@@ -224,6 +225,15 @@ impl Pine {
         self.call(&request).map(drop)
     }
 
+    /// Writes a little-endian 32-bit word of EE memory, for the same research use as
+    /// [`Pine::write_u8`].
+    pub fn write_u32(&mut self, addr: u32, value: u32) -> Result<(), PineError> {
+        let mut request = vec![opcode::WRITE32];
+        request.extend_from_slice(&addr.to_le_bytes());
+        request.extend_from_slice(&value.to_le_bytes());
+        self.call(&request).map(drop)
+    }
+
     /// Commands that answer with a length-prefixed, NUL-terminated string.
     fn string_command(&mut self, op: u8) -> Result<String, PineError> {
         let reply = self.call(&[op])?;
@@ -355,6 +365,15 @@ pub(crate) mod tests {
                             None => ok = false,
                         }
                     }
+                    opcode::WRITE32 => {
+                        let a = addr();
+                        let value: [u8; 4] = request[i..i + 4].try_into().unwrap();
+                        i += 4;
+                        match memory.get_mut(a..a + 4) {
+                            Some(word) => word.copy_from_slice(&value),
+                            None => ok = false,
+                        }
+                    }
                     opcode::ID => {
                         let id = b"SCES-00000\0";
                         out.extend_from_slice(&(id.len() as u32).to_le_bytes());
@@ -426,6 +445,14 @@ pub(crate) mod tests {
         pine.write_u8(0x21, 0xAB).unwrap();
         assert_eq!(pine.read_bytes(0x20, 3).unwrap()[1], 0xAB);
         assert!(pine.write_u8(0x10_0000, 1).is_err());
+    }
+
+    #[test]
+    fn writes_a_word() {
+        let mut pine = Pine::from_stream(FakePcsx2::new(memory()));
+        pine.write_u32(0x40, 0x0123_4567).unwrap();
+        assert_eq!(pine.read_u32(0x40).unwrap(), 0x0123_4567);
+        assert!(pine.write_u32(0x10_0000, 1).is_err());
     }
 
     #[test]

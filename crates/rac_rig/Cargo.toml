@@ -1,0 +1,16 @@
+[package]
+name = "rac_rig"
+description = "Hero kit: the placeholder hero model, a blocky gold Ratchet with Clank and the wrench, built and animated in code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "libm", "bevy_pbr"] }
+rac_hero.workspace = true
+rac_sim.workspace = true
+
+[lints]
+workspace = true

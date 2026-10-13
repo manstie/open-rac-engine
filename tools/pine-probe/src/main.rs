@@ -34,12 +34,38 @@ enum Command {
         #[arg(long)]
         wait: Option<f64>,
     },
-    /// Write one byte of the running game's EE memory (private research instances only).
+    /// Load the running game's savestate from a slot (PCSX2's F3 loads slot 1).
+    LoadState {
+        state: u8,
+        #[arg(long, default_value_t = DEFAULT_SLOT)]
+        slot: u16,
+    },
+    /// Save the running game to a savestate slot.
+    SaveState {
+        state: u8,
+        #[arg(long, default_value_t = DEFAULT_SLOT)]
+        slot: u16,
+    },
+    /// Print a 32-bit word of the running game's EE memory, as a signed decimal.
+    Peek {
+        /// The address, in hex.
+        #[arg(value_parser = parse_hex)]
+        addr: u32,
+        #[arg(long, default_value_t = DEFAULT_SLOT)]
+        slot: u16,
+    },
+    /// Write a byte, or a word, of the running game's EE memory (private research
+    /// instances only).
     Poke {
         /// The address, in hex (for example 0x1D45B4).
         #[arg(value_parser = parse_hex)]
         addr: u32,
-        value: u8,
+        /// A byte, or with `--word` a 32-bit word (decimal, or hex with 0x).
+        #[arg(value_parser = parse_number)]
+        value: u32,
+        /// Write a little-endian 32-bit word instead of a byte.
+        #[arg(long)]
+        word: bool,
         #[arg(long, default_value_t = DEFAULT_SLOT)]
         slot: u16,
     },
@@ -128,11 +154,38 @@ fn parse_hex(text: &str) -> Result<u32, String> {
     u32::from_str_radix(digits, 16).map_err(|e| e.to_string())
 }
 
+/// Decimal, or hex with a 0x prefix.
+fn parse_number(text: &str) -> Result<u32, String> {
+    match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(digits) => u32::from_str_radix(digits, 16).map_err(|e| e.to_string()),
+        None => text
+            .parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string()),
+    }
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Status { slot, wait } => status(slot, wait),
-        Command::Poke { addr, value, slot } => {
-            Pine::connect(slot)?.write_u8(addr, value)?;
+        Command::LoadState { state, slot } => Ok(Pine::connect(slot)?.load_state(state)?),
+        Command::SaveState { state, slot } => Ok(Pine::connect(slot)?.save_state(state)?),
+        Command::Peek { addr, slot } => {
+            println!("{}", Pine::connect(slot)?.read_u32(addr)? as i32);
+            Ok(())
+        }
+        Command::Poke {
+            addr,
+            value,
+            word,
+            slot,
+        } => {
+            let mut pine = Pine::connect(slot)?;
+            if word {
+                pine.write_u32(addr, value)?;
+            } else {
+                let byte = u8::try_from(value).context("a byte poke takes 0..=255; use --word")?;
+                pine.write_u8(addr, byte)?;
+            }
             Ok(())
         }
         Command::Recording {

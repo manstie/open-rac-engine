@@ -176,6 +176,45 @@ ghidra-headless cache/ghidra/proj <name> -process <name>.ee.bin -noanalysis -rea
   - `pgrep -f` or `pkill -f` with a pattern from the PCSX2 command line also matches the
     shell running it. Kill PCSX2 by PID.
 
+### Extracting a model (P3.7)
+
+**From the disc** (the engine's own path): `openrac-tool hero` reads the hero's skeleton
+and every animation straight from a UYA disc image, through the level's core
+(`docs/research/disc-layout.md`, "Level data"). It takes 0.4 s.
+
+```sh
+cargo run -p rac_tool -- hero --level 1 --sequences \
+  --iso "source/Ratchet & Clank 3/Ratchet & Clank - Up Your Arsenal (USA) (En,Fr,Es).iso" \
+  --glb cache/models/uyantsc-disc-veldin-hero.glb \
+  --check-ee cache/ghidra/ee/uyantsc-veldin.ee.bin
+```
+
+`--check-ee` compares the result with the hero in a memory image of the same level; on
+Veldin every joint and keyframe matches. His mesh isn't in the level, so the `.glb` has
+the skeleton and animations only.
+
+**From memory**, for anything the disc path can't read yet:
+
+`openrac-tool moby` reads a moby class out of an EE image made by `import-savestate.sh`
+and describes it. With `--glb` it also writes the class as a binary glTF: the skeleton
+(joints `j000`…), the high-detail mesh in gold with flat shading, and every sequence as
+an animation. Blender and any glTF viewer open it. The format is in
+`docs/research/moby-format.md`.
+
+```sh
+cargo run -p rac_tool -- moby --ee cache/ghidra/ee/uyantsc-veldin.ee.bin \
+  --moby 1d36d00 --sequences --glb cache/models/uyantsc-veldin-hero.glb
+```
+
+- The output is derived from the disc, so it goes in `cache/models/`, never the
+  repository. Regenerate it from the savestate whenever it's needed.
+- `--moby` takes a moby's address and reads its class; `--class` takes a class directly.
+  On the Veldin image, UYA's hero is 0x1D36D00, the wrench 0x1D63E00, Clank on his back
+  0x1D66100 and Clank's pack form 0x1D66000.
+- About a quarter of the hero's triangles are missing until the mesh's duplicate
+  vertices are understood. Each vertex follows the bone it lies nearest, a stand-in for
+  the mesh's own blending.
+
 ## NTSC savestates without a capture session (RE.8)
 
 The NTSC discs can be booted headlessly and played with xdotool, so savestates of a level
@@ -238,6 +277,116 @@ xdotool key F1    # savestate  -> cache/pcsx2/boot/<name>/xdg/PCSX2/sstates/
 - **Coming back:** `boot.sh` keeps `cache/pcsx2/boot/<name>/` between runs. After
   booting, F3 loads savestate slot 1, so a saved gameplay state skips the menus.
 
+### Going straight to a level
+
+Found 2026-10-13 in UYA's and DL's code (`re/<serial>/symbols.toml`: `level_next`,
+`level_change_request`, `level_current`, `game_mode`).
+- **How the games change level:** each game's main loop checks a request flag every
+  frame. When it is set, the loop saves the level's state and loads the level whose
+  number is in `level_next`.
+- **So two writes send a running game anywhere:**
+
+  | Release | `level_next` | `level_change_request` | `level_current` | `game_mode` |
+  |---|---|---|---|---|
+  | UYA NTSC-U (SCUS-97353) | 0x1DFBC4 | 0x1D6674 | 0x1D545C | 0x1D6694 |
+  | DL NTSC-U (SCUS-97465) | 0x222B80 | 0x21E80C | 0x21DE10 | 0x21DDB4 |
+
+- **`tools/pine-probe/warp.sh <level> --from-state 1`** does it on a `boot.sh` instance:
+  1. it loads savestate slot 1;
+  2. it writes the level number, then the request;
+  3. it waits until that level is in normal play (game mode 0) and the hero stands
+     still.
+  - Then look around and take savestates with F1, or `pine-probe save-state <n>`.
+  - pine-probe's `peek`, `poke --word`, `load-state` and `save-state` commands do the
+    single steps.
+- **UYA: warp from Veldin's savestate (slot 1 in the `uya` boot), not from a planet you
+  warped to.**
+  - Arriving by the flight in leaves the game in ship mode. The next change then goes
+    through space (level 0, game mode 6) and waits there for a destination the ship
+    menu never chose.
+  - From the Veldin state, every level number that is a place loaded (table below).
+- **What you arrive with:** a new game's items, so the heli-pack and thruster-pack and
+  little else. Items are bytes at 0x142CA0 + the item number; write 1 to own one.
+  - 0x142CAE (item 0x0E) is the flag the grind code checks, so probably the grind boots.
+  - RCMemory's PAL list matches these addresses: 0x0B Hypershot, 0x0D gravity boots,
+    0x1D charge boots.
+- **Arrival:** the ship flies in and lands, and the hero jumps out. A first visit may
+  play a cutscene; Start skips it.
+- **UYA's levels**, numbered as the game does. Each was loaded this way from Veldin on
+  2026-10-13, and screenshots of the arrivals are in `cache/pcsx2/levels/`. Names come
+  from the game's transition table and the screenshots:
+
+  | Level | Planet | On arrival |
+  |---|---|---|
+  | 1 | Veldin | A new game starts here |
+  | 2 | Florana | Plays |
+  | 3 | Starship Phoenix | Plays (the ship flies in from space) |
+  | 4 | Marcadia | Plays |
+  | 5 | Daxx | Plays |
+  | 6 | Starship Phoenix, under attack | Plays |
+  | 7 | Annihilation Nation | Plays |
+  | 8 | Aquatos | Plays |
+  | 9 | Tyhrranosis | Plays |
+  | 10 | Zeldrin Starport | Plays |
+  | 11 | Obani Gemini | Plays |
+  | 12 | Blackwater City | Battle Missions menu (named on screen) |
+  | 13 | Holostar Studios | Plays |
+  | 14 | Koros | Plays |
+  | 15 | none | Stays in the loading mode |
+  | 16 | Metropolis | Plays |
+  | 17 | Crash Site | Plays |
+  | 18 | Aridia | Battle Missions menu ("Tunnels of Outpost X12") |
+  | 19 | Qwark's Hideout | Plays; `game_mode` reads 5101 here, so `warp.sh` times out |
+  | 20 | Launch Site | Battle Missions menu ("Defeat Dr. Nefarious") |
+  | 21 | Obani Draco | Plays |
+  | 22 | Command Center | Plays |
+  | 23 | Holostar Studios, as Clank | A cutscene |
+  | 24 | Insomniac Museum | Plays |
+  | 25 | none | Stays in the loading mode |
+  | 26 | Metropolis, Ranger missions | Battle Missions menu ("Urban Storm") |
+  | 27 | Aquatos, as Clank | Plays |
+  | 28 | Aquatos sewers | Plays, swimming (`uyantsc-sewers-swim.p2s`) |
+  | 29 | Tyhrranosis, Ranger missions | Battle Missions menu ("Island Strike") |
+  | 30–36 | Qwark vid-comics, entered from the Phoenix (3) or the museum (24) | Not tried |
+
+  - **The names** are the usual numbering. They fit the game's transition table: the
+    Clank and Ranger versions lead to their planets, and the vid-comics go to and from
+    the Phoenix. Only Blackwater City (12) is named on screen. The others come from the
+    look of the arrivals and the missions' names.
+  - **On a Battle Missions menu,** X starts the mission on that planet. Triangle opens the
+    galactic map.
+  - Levels from 37 up and level 0 weren't tried. Level 0 is where a change waits in space
+    mode.
+- **DL's levels** (tried 2026-10-13 from `dlntsc-dreadzone-open.p2s`, slot 1 in the `dl`
+  boot):
+  - **Each planet arrives at its "Challenges" menu, which names it.** Screenshots are in
+    `cache/pcsx2/levels-dl/`.
+  - **A new game has no challenges there, so the planets can't be played yet.** Triangle
+    goes to the Planet Select screen, where everything past DreadZone Station is
+    locked. Unlocking challenges would need their progress flags, which aren't found
+    yet.
+  - `warp.sh` waits for game mode 0, so on DL it times out at those menus. The level has
+    loaded anyway.
+
+  | Level | Planet |
+  |---|---|
+  | 1 | DreadZone Station (playable; new games start here) |
+  | 2 | Catacrom Four |
+  | 3, 9, 12, 16 | Stay on DreadZone's look; probably the tournaments held in its arena |
+  | 4 | Sarathos |
+  | 5 | Kronos |
+  | 6 | Shaar |
+  | 7 | The Valix Belt |
+  | 8 | Orxon |
+  | 10 | Torval |
+  | 11 | A planet whose fly-in shows no name; libdl's map list makes it Stygia |
+  | 13 | Maraxus |
+  | 14 | Ghost Station |
+  | 15 | DreadZone Station Interior |
+
+  - **libdl's multiplayer map numbers are these plus 40.** Its `MAP_ID_TORVAL` is 50 and
+    `MAP_ID_MARAXUS` 53, for example.
+
 ### Making traces with scripted play
 
 With a gameplay savestate loaded, a trace of scripted moves takes a minute:
@@ -287,7 +436,10 @@ stays out of the repository.
 | UYA NTSC-U traces | `source/Ratchet & Clank 3/uyantsc-veldin-moves-{1,2,3}.trace`, each with the `.sh` input script that drove it | Self-made with scripted keyboard play: 1, jumps (tapped and held), double jump, glide, heli jump, walk and stop, run jump and long jump; 2, wrench combo, jump attack and L1 look; 3, strafe walk, side and back flips. 2,069, 1,195 and 1,075 frames. |
 | DL NTSC-U, DreadZone Station gameplay | `source/Ratchet Gladiator/dlntsc-dreadzone-play.p2s`, `-boots.p2s`, `-open.p2s` | Headless, 2026-10-12. `play`: just after the opening cutscene. `boots`: after the tutorial's look and fire steps, with the charge boots poked in. `open`: after its jump step too, facing the longest open floor; the start for the charge takes. |
 | DL NTSC-U charge traces | `source/Ratchet Gladiator/dlntsc-dreadzone-charge-1.trace` (script `-charge-1.sh`) and `-charge-3-{1..5}.trace` (script `-charge-3.sh <take>`) | Self-made, 2026-10-12, layout `re/SCUS-97465/hero.toml`. Take 1: three charges that bounce off a nearby block. Takes 3-1 to 3-5: a charge from standing, a steered one, a missed double tap (16 frames apart), single taps, and a full 61-frame charge ending in the skid. |
+| UYA NTSC-U melee trace | `source/Ratchet & Clank 3/uyantsc-veldin-melee-1.trace`, script `uyantsc-veldin-melee-1.sh`, layout `uyantsc-veldin-melee.toml` | Self-made, 2026-10-13, from the uya boot's slot 1 (P1.8). It holds two standing throws, a throw from a walking crouch, a combo with the stick held and a run-jump attack, with the hero's hand and wrench tip, the animation frame, the attack row and the wrench object (at 0x1D63E00 in that boot). 2,383 frames. Older traces export with the layout once its `wrench` region is removed. |
+| UYA NTSC-U animation trace | `source/Ratchet & Clank 3/uyantsc-veldin-anim-1.trace`, script `uyantsc-veldin-anim-1.sh`, layout `uyantsc-veldin-anim.toml` | Self-made, 2026-10-13, from the uya boot's slot 1 (P1.17). Idle, walking, jumps, double jump and glide, run jumps, crouching, a heli jump, three flips, the combo, a jump attack, a throw, and walking off the cliff, with the hero's moby's sequence, keyframe and blend (moby at 0x1D36D00 in that boot). 4,425 frames. Gives `hero-controller.md`, "Animations per state". |
 | UYA NTSC-U camera trace | `source/Ratchet & Clank 3/uyantsc-veldin-cam-1.trace`, with its script `uyantsc-veldin-cam-1.sh` and layout `uyantsc-veldin-cam.toml` | Self-made, 2026-10-12, for the camera (RE.4): left stick only (runs in each direction and a circle, a held jump, a double jump, a run jump), with the camera, its update object and its follow block captured. The hero ran off the cliff ahead of the start twice and respawned. 2,673 frames. |
+| UYA NTSC-U, Aquatos sewers swimming | `source/Ratchet & Clank 3/uyantsc-sewers-swim.p2s` | Headless, 2026-10-13: warped from `uyantsc-veldin-play.p2s` to level 28 (`warp.sh 28 --from-state 1`), then walked forward into the water. The hero floats on the surface (state 54). A new game's items only. |
 | R&C3 PAL camera trace | `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace`, layout `source/Ratchet & Clank 3/rc3pal-veldin-5-cam.toml` | A replay of the owner's recording 5 with the camera block added (RE.4, `docs/research/camera.md`). It can be regenerated from the layout. |
 
 Working copies of the self-made savestates and traces are also in `cache/pcsx2/ntsc-states/`

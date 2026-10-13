@@ -161,6 +161,71 @@ The stub's printf strings (`# TLB spad=0 kernel=1:%d …`) show that it also set
 - R&C2 PAL contains `BESCES-50916RATCHET/save%d.bin`, so it reads an R&C1 PAL save. This is the
   cross-game save bonus.
 
+## Level data (UYA NTSC-U) [verified 2026-10-13]
+
+Read with our own code (`rac_iso`, `rac_formats::{wad, level}`) and checked against the
+game's loader in Ghidra (`level_load_core`, 0x428750, and `wad_decompress`, 0x433EA0;
+`re/SCUS-97353/symbols.toml`). The final check: Veldin's core, unpacked from the disc by
+`openrac-tool hero`, holds the hero's class and every one of his keyframes byte for byte
+as the Veldin memory image has them.
+
+- **The table of contents** (sector 1001): UYA has eight global WAD headers back to back,
+  each starting `{header size, first sector}`, 0x7400 bytes in all (sizes 0x648, 0x48,
+  0xBF0, 0xC30, 0x398, 0x2340, 0x3C8, 0x2AB0). Then the level table: 24 bytes per level,
+  three `{sector, count}` ranges in the order audio, level, scene, each pointing at the
+  file's header sector.
+  - Level 0 is empty. Levels 1–36 have all three files (some are empty), and 38–55 (the
+    multiplayer maps) only level and scene. The table is zero-padded after 55.
+- **A level WAD's header** (its first sector, 0x60 bytes): its size (0x60), its first
+  sector on the disc, the level number, the reverb, then `{sector, count}` ranges counted
+  from the WAD's first sector: data, sound bank, gameplay, occlusion, three chunks and
+  three chunk sound banks. Veldin: data at +0x314 for 0x1F28 sectors.
+- **The data part** starts with a 0x80-byte table of `{offset, size}` pairs in bytes from
+  its start. `level_load_core` uses:
+  - +0x08/+0x0C: the **core header**, stored as is (0x8990 bytes on Veldin);
+  - +0x48: the **core**, a WAD that unpacks whole (11.6 MB to 20 MB on Veldin) to a fixed
+    address (0x91E000 on Veldin).
+  - The other pairs are 3.4 MB stored as is at +0x80, three more blocks, and three WADs
+    of 16 bytes (empty). Not identified yet.
+- **The core header:**
+  - +0x18 and +0x1C: the moby class count (227 on Veldin) and the table's offset. Each
+    entry is 0x20 bytes: the class's offset in the core, its class number, two words, and
+    16 texture indices. Class 0 is the hero.
+  - +0x78: the hero's sequence table, one core offset per sequence (0 where a level
+    leaves one out). The core keeps his sequences outside his class.
+  - +0x84 and +0x88: the core's packed and unpacked sizes.
+  - At load the game also fills a memory map of the level's regions (0x1EA9C0): the core,
+    the moby classes, the hero's sequences, the mobys and the armor mesh.
+- **The hero on other levels:** every level with a hero carries the same 111-joint
+  skeleton and only the sequences it uses. Veldin and level 2 have all 127, level 6 has
+  88, level 30 six, and the multiplayer maps have no class 0. His mesh isn't in the core
+  at all; it comes from the armor WAD.
+
+### WAD compression [verified 2026-10-13]
+
+Read in UYA's `wad_decompress` (0x433EA0) and confirmed by unpacking every WAD of
+Veldin's level data:
+
+- The header is 16 bytes: `"WAD"`, the whole WAD's size (header included) as an unaligned
+  `u32`, then padding. A WAD of 16 bytes is empty.
+- The packets run in **0x2000-byte blocks** counted from the end of the header. The
+  game DMAs one block at a time into scratchpad, so a packet never crosses a block.
+- A first byte above 0x11 is a literal run of (byte − 0x11). After that, by flag byte:
+
+  | Flag | Packet |
+  |---|---|
+  | 0x00–0x0F | Literal run of flag + 3 bytes, or of the next byte + 18 if the flag is 0. Not allowed straight after literals (the game traps). |
+  | 0x10–0x1F | Far match: length flag & 7 (or the next byte + 7) + 2, distance ((flag & 8) << 11) + (u16 >> 2) + 0x4000. |
+  | 0x20–0x3F | Medium match: length flag & 0x1F (or the next byte + 0x1F) + 2, distance (u16 >> 2) + 1. |
+  | 0x40–0xFF | Short match: length (flag >> 5) + 1, distance ((flag >> 2) & 7) + (next byte << 3) + 1. |
+
+- A match's last header byte (the flag for short matches, the low distance byte
+  otherwise) carries 0–3 trailing literals in its low two bits.
+- A far match whose distance field is 0 copies nothing. With length 1 (`11 xx 00`) it's an
+  empty packet whose trailing literals still count; it lets a literal run follow
+  literals and starts blocks. With any other length (`12 00 00`) it ends the block: the
+  rest is padding (0xEE) and the next packet starts the next block.
+
 ## Implications for the plan
 
 1. The disc layer needs two access paths: ISO9660 (to find `SYSTEM.CNF`, the
