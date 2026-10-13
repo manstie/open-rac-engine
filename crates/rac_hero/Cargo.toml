@@ -9,6 +9,8 @@ publish = false
 
 [dependencies]
 bevy = { workspace = true, features = ["std", "libm", "bevy_camera"] }
+# Only for its `libm` feature (see the workspace manifest).
+glamx.workspace = true
 parry3d.workspace = true
 rac_input.workspace = true
 rac_sim.workspace = true

@@ -174,7 +174,10 @@ the game itself.**
      - never depend on `HashMap`/`HashSet` iteration order;
      - keep entity ordering stable;
      - use one seeded RNG per level;
-     - never read the wall clock.
+     - never read the wall clock;
+     - build x86-64 without FMA (no `target-cpu=native`), so glam's SIMD maths round the
+       same on every machine. glam's `scalar-math` is not an option: Bevy's renderer
+       needs a 16-byte-aligned `Vec4` (section 5, 2026-10-13).
    - **The hero kit is ISO-free.** `rac_sim`, `rac_input`, `rac_hero`, `rac_rig`,
      `rac_combat`, `rac_net` and `rac_demo` never depend on the disc, format or runtime
      crates. CI enforces this
@@ -371,7 +374,7 @@ App
 | 2026-10-12 | NTSC savestates for static analysis are made headlessly (`tools/pine-probe/boot.sh`: a new game driven with xdotool), using copies of the owner's memory cards and never their live instance. |
 | 2026-10-12 | The hero kit gains a crate, **`rac_sim`**: the fixed 60 Hz clock, the `SimSet` order, `SimTick`, interpolated `SimTransform` and the `SimRng` (PCG32), shared by every kit crate. The workspace turns Bevy's default features off so kit crates ask only for what they use; `openrac` turns them back on. |
 | 2026-10-12 | Settings are **TOML** (`settings.toml` in the platform config directory, via `directories`), since the workspace already uses TOML. `PlayerInput` is a fixed 10-byte encoding (move stick in PS2 counts, look in binary-angle units, held and pressed bits), and input recordings are `.orin` files of those. |
-| 2026-10-12 | Hero collision uses **`parry3d` 0.31** (Apache-2.0) behind the kit's own `CollisionWorld` interface, with its `alloc` and `enhanced-determinism` features. It shares Bevy's glam version, so there is no conversion. The hero's origin is at his feet, and his capsule is libdl's (radius 0.45, sphere centres 0.7/0.5 and 1.05), floating over a ground probe. |
+| 2026-10-12 | Hero collision uses **`parry3d` 0.31** (Apache-2.0) behind the kit's own `CollisionWorld` interface, with its `alloc` feature (`enhanced-determinism` was dropped on 2026-10-13, below). It shares Bevy's glam version, so there is no conversion. The hero's origin is at his feet, and his capsule is libdl's (radius 0.45, sphere centres 0.7/0.5 and 1.05), floating over a ground probe. |
 | 2026-10-12 | `rac_input` maps pad sticks from **circle to square**, and keys send full counts on both axes. The games' stick code expects a PS2 stick's square range, so without this a modern pad's diagonal would run at two-thirds speed. |
 | 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials, returned per body by `CollisionWorld`. Health is a `Health` component beside the controller: the controller only knows whether a hit is fatal, and reports hazard contact. |
 | 2026-10-12 | Rules the games time by **animation frame** (the ledge grab and climb, the double jump's grab delay) assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts for its move's window of ticks, and only once. |
@@ -382,6 +385,7 @@ App
 | 2026-10-13 | The placeholder model lives in its own kit crate, **`rac_rig`** (with Bevy's `bevy_pbr`), so `rac_hero` stays free of rendering. The rig only reads `HeroBody` and poses itself procedurally; animations from a disc will reach it through each joint's UYA index, loaded by `openrac`, never by a kit crate. Models extracted for reference (`openrac-tool moby --glb`) go in `cache/models/` only. |
 | 2026-10-13 | **Game data reaches the kit only at run time, through kit-level types.** `openrac` reads the hero's animations from the user's own disc at start-up and hands `rac_rig` clips on its own joints (`RigAnimations`); the kit never reads a disc, and nothing read is stored. The disc folder is `source/` by default (`--discs`), matching G2. |
 | 2026-10-13 | The same research instances may be sent to any level by writing the games' own level-change request (`tools/pine-probe/warp.sh`), so traces of place-bound moves don't wait on a play-through. The catalogue says which savestates were reached this way, and with which items. |
+| 2026-10-13 | **parry3d's `enhanced-determinism` feature is off, and must stay off.** It turns on glam's `scalar-math` for the whole build, so `Vec4` loses its 16-byte alignment. Bevy sizes its GPU mesh buffers with `size_of`, so `MeshUniform` became 168 bytes against the shaders' 176. Every render phase's buffer then fell 8 bytes per mesh short, and a phase holding one mesh (the demo's water) failed wgpu validation and quit the app. Determinism keeps the rest of what the feature gave: `rac_hero` depends on `glamx` only to turn on its `libm` feature, so parry's scalar maths (through simba's `libm_force`) still avoid each platform's C library. The ordered hash maps it also gave are only used by parry's mesh building and voxels, never by the kit's queries (balls, capsules, cuboids, rays). glam's SSE2 path rounds identically on Windows and Linux as long as FMA is off (section 2). `openrac` asserts the alignment at compile time. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -728,6 +732,9 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
   - Done 2026-10-12: `crates/rac_sim`, plus the record/replay in `rac_input`.
   - Bevy's `libm` feature is on.
   - Still to do: comparing state hashes across operating systems is P1.19.
+  - 2026-10-13: glam keeps its SIMD maths. `scalar-math` (via parry3d's
+    `enhanced-determinism`) broke Bevy's mesh buffers (section 5). P1.19 should confirm
+    Windows and Linux hash the same; ARM builds may not.
   - `FixedUpdate` at 60 Hz, with transform interpolation for rendering.
   - System order: input → enemies → hero → particles → camera.
   - Bevy's `libm` feature plus `bevy::math::ops`.
@@ -775,7 +782,8 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
     - **Collision:**
       - A narrow `CollisionWorld` interface (P1.16): capsule and sphere casts that return
         the fraction, normal and body hit.
-      - A brute-force `parry3d` backend (0.31, with `enhanced-determinism`). Its glam is
+      - A brute-force `parry3d` backend (0.31; `enhanced-determinism` was dropped on
+        2026-10-13 because it broke rendering, section 5). Its glam is
         the same version as Bevy's, so no conversion is needed.
       - `rac_demo` gives each solid greybox piece a `Collider`, and moving platforms
         update theirs every tick.
@@ -1389,6 +1397,13 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-13 (render crash):** P1.2 and P1.5, owner's bug report. Committed. The demo
+  quit with "Binding size 168 ... less than minimum 176" once the water came into view.
+  The cause was glam's `scalar-math`, turned on by parry3d's `enhanced-determinism`
+  (section 5). The feature is off (`glamx/libm` keeps parry on
+  libm), `openrac` asserts `Vec4`'s alignment at compile time, and the camera now turns on
+  to the pool without errors.
 
 - **2026-10-13 (real animations):** P1.17, P2.1–P2.4, P3.3, P3.7, owner's request. Not
   committed. Suggested message: "Read UYA's levels from the disc and play Ratchet's real

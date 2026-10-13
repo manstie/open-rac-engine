@@ -57,6 +57,15 @@ struct Args {
     discs: PathBuf,
 }
 
+// Bevy's GPU buffers lay out mesh data with `size_of`, which matches the shaders only while
+// `Vec4` is 16-byte aligned. glam's `scalar-math` feature (enabled by parry3d's
+// `enhanced-determinism`) drops that alignment, and the renderer then fails validation
+// whenever a render phase holds a single mesh, such as the demo's water.
+const _: () = assert!(
+    align_of::<bevy::math::Vec4>() == 16,
+    "glam's `scalar-math` feature is on; Bevy's renderer needs 16-byte-aligned Vec4"
+);
+
 fn main() -> Result<AppExit> {
     let args = Args::parse();
     let paths = Paths::resolve(args.settings.clone())?;

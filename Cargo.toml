@@ -19,10 +19,14 @@ anyhow = "1"
 # stay reusable in other Bevy apps; `openrac` turns the defaults back on.
 bevy = { version = "0.20", default-features = false }
 directories = "6"
-# Collision queries for the hero kit. `alloc` enables casting between convex shapes, and
-# `enhanced-determinism` routes the maths through libm
-# so every platform computes the same contacts (PLAN.md section 2).
-parry3d = { version = "0.31", default-features = false, features = ["required-features", "std", "alloc", "enhanced-determinism"] }
+# Collision queries for the hero kit. `alloc` enables casting between convex shapes. Never
+# enable `enhanced-determinism`: it turns on glam's `scalar-math` for the whole build,
+# which shrinks `Vec4` to 4-byte alignment and breaks Bevy's GPU mesh buffers (PLAN.md
+# section 5, 2026-10-13).
+parry3d = { version = "0.31", default-features = false, features = ["required-features", "std", "alloc"] }
+# Never used in code: its `libm` feature sends parry's scalar maths (through simba) to
+# libm rather than each platform's C library, the half of `enhanced-determinism` we keep.
+glamx = { version = "0.3", default-features = false, features = ["libm"] }
 rac_combat = { path = "crates/rac_combat" }
 rac_demo = { path = "crates/rac_demo" }
 rac_formats = { path = "crates/rac_formats" }

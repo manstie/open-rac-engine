@@ -130,8 +130,10 @@ of the app take seconds.
 **Keep builds from starving the desktop.** The workspace links about 20 test binaries
 that each contain Bevy. On 2026-10-12 an unrestricted clippy-plus-tests run froze the
 owner's machine (8 cores, 31 GB) and crashed VS Code. So:
-- Run heavy commands at low priority with fewer jobs, for example
-  `nice -n 19 ionice -c 3 cargo test --workspace -j 4`.
+- Run heavy commands at medium priority with fewer jobs, for example
+  `nice -n 10 ionice -c 2 -n 7 cargo test --workspace -j 6` (the owner's choice on
+  2026-10-13; idle priority with `-j 4` was too slow). Drop back to `-j 4` if the desktop
+  lags.
 - Run clippy and the tests as separate commands, not chained.
 - The dev profile keeps line tables only for the same reason (`Cargo.toml`). Set
   `debug = true` locally when you need a debugger.
@@ -174,6 +176,9 @@ converted by `ffmpeg`. A plain `cargo run` opens a window on the owner's desktop
   - Draw randomness only from the level's seeded RNG.
   - Never read the wall clock or frame delta time inside `FixedUpdate`.
   - All gameplay input arrives as per-tick `PlayerInput` values.
+  - Never turn on glam's `scalar-math`, for example through parry3d's
+    `enhanced-determinism`. It breaks Bevy's GPU mesh buffers (PLAN §5, 2026-10-13).
+    Determinism instead relies on building x86-64 without FMA.
 - **Errors:** libraries return typed errors (`thiserror`) and never panic on bad input,
   because user discs can be corrupt or unsupported. Binaries and tools may use `anyhow`.
 - **Gameplay** systems run in `FixedUpdate` at 60 Hz, and rendering interpolates between
