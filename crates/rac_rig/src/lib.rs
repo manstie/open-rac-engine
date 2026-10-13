@@ -1,27 +1,32 @@
-//! The hero kit's placeholder model (PLAN.md P1.17): a blocky, flat-shaded gold Ratchet
-//! with Clank on his back and the wrench in his hand, built and animated in code.
+//! The hero kit's model (PLAN.md P1.17): a skeleton laid out like UYA's hero, posed from
+//! the hero's state, wearing any model skinned to it.
 //!
-//! - [`model`] describes it: a skeleton laid out like UYA's hero, and blocks that are each
-//!   the convex hull of a few points, modelled by hand with UYA's hero as the reference
+//! - [`model`] describes the skeleton and the open model: a blocky, flat-shaded gold
+//!   Ratchet with Clank on his back and the wrench in his hand, whose blocks are each the
+//!   convex hull of a few points, modelled by hand with UYA's hero as the reference
 //!   (`docs/research/moby-format.md`). Nothing in it comes from a disc.
-//! - [`spawn_rig`] builds it under a hero entity; [`RigPlugin`] poses it every frame from
-//!   the hero's state, and flies a copy of the wrench while it is thrown.
+//! - [`RigModels`] holds the models heroes can wear: the open one, and any a game adds,
+//!   such as its hero imported from the user's own disc. Every one wears the same skeleton,
+//!   so the same poses drive it; [`SkeletonMap`] lines a game's skeleton up with it.
+//! - A hero entity with a [`RigLook`] is dressed in the chosen model. [`RigPlugin`] poses
+//!   it every frame from the hero's state, and flies a copy of the wrench while it is
+//!   thrown.
 //! - A game with real animation inserts [`RigAnimations`]: clips for some [`RigMove`]s,
 //!   already on the rig's joints. Those moves play their clip; the rest stay procedural.
 //!
-//! The rig only reads the controller ([`rac_hero::HeroBody`]), so it can be swapped for
-//! another model, or the disc's own (P3.15), without touching the simulation.
+//! The rig only reads the controller ([`rac_hero::HeroBody`]), so models and animations
+//! change without touching the simulation.
 
 mod clips;
 mod hull;
 pub mod model;
 mod pose;
+mod retarget;
 mod shapes;
+mod wear;
 
-use std::collections::BTreeMap;
-
-use bevy::asset::RenderAssetUsages;
-use bevy::mesh::PrimitiveTopology;
+use bevy::camera::visibility::DynamicSkinnedMeshBounds;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use rac_hero::HeroBody;
 
@@ -29,21 +34,31 @@ pub use clips::{FlipSide, RigAnimations, RigClip, RigKeyframe, RigMove};
 pub use hull::convex_hull;
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
+pub use retarget::{LineUpError, SkeletonMap};
+pub use wear::{
+    ModelData, ModelError, OPEN_MODEL, Paint, RigModel, RigModels, Surface, open_model,
+};
 
-/// Poses every [`HeroRig`] from its hero each frame.
+/// Dresses heroes in the chosen model and poses every [`HeroRig`] from its hero each
+/// frame.
 pub struct RigPlugin;
 
 impl Plugin for RigPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (animate, fly_thrown_wrenches));
+        app.init_resource::<RigModels>()
+            .add_systems(Startup, wear::register_open_model)
+            .add_systems(Update, (dress, animate, fly_thrown_wrenches).chain());
     }
 }
 
-/// The colours of one hero's model.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// The colours of one hero's model. A hero entity with one is dressed in the chosen
+/// model.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct RigLook {
     pub main: Color,
     pub accent: Color,
+    /// Whether a model's own materials are tinted with `main`, to tell players apart.
+    pub tint_own: bool,
 }
 
 impl RigLook {
@@ -53,11 +68,13 @@ impl RigLook {
             Self {
                 main: Color::srgb(1.0, 0.78, 0.34),
                 accent: Color::srgb(0.45, 0.30, 0.10),
+                tint_own: player > 0,
             }
         } else {
             Self {
                 main: Color::srgb(0.86, 0.88, 0.92),
                 accent: Color::srgb(0.25, 0.28, 0.34),
+                tint_own: true,
             }
         }
     }
@@ -82,8 +99,19 @@ impl RigLook {
 pub struct HeroRig {
     pub hero: Entity,
     pub joints: Vec<Entity>,
+    /// The copy of the wrench that flies while it is thrown.
+    pub thrown: Entity,
     skeleton: Vec<JointDef>,
+    /// The surfaces of the wrench in his hand, hidden while it is thrown.
+    wrench: Vec<Entity>,
     animator: pose::Animator,
+}
+
+/// On a hero entity: the model it wears.
+#[derive(Component, Debug, Clone, PartialEq, Eq)]
+pub struct Worn {
+    pub model: String,
+    pub rig: Entity,
 }
 
 /// One joint of a [`HeroRig`].
@@ -96,71 +124,41 @@ pub struct ThrownWrenchModel {
     pub hero: Entity,
 }
 
-/// A flat-shaded mesh of triangles: every corner carries its face's normal.
-pub fn flat_mesh(triangles: &[[Vec3; 3]]) -> Mesh {
-    let mut positions = Vec::with_capacity(triangles.len() * 3);
-    let mut normals = Vec::with_capacity(triangles.len() * 3);
-    for [a, b, c] in triangles {
-        let normal = (*b - *a).cross(*c - *a).normalize_or_zero();
-        for corner in [a, b, c] {
-            positions.push(corner.to_array());
-            normals.push(normal.to_array());
-        }
-    }
-    Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-}
-
-/// The model's blocks for each joint and look, in the joint's space.
-fn joint_meshes(model: &ModelDef, offset: Vec3) -> BTreeMap<(usize, Look), Vec<[Vec3; 3]>> {
-    let mut meshes: BTreeMap<(usize, Look), Vec<[Vec3; 3]>> = BTreeMap::new();
-    for part in &model.parts {
-        let points: Vec<Vec3> = model
-            .local_points(part)
-            .into_iter()
-            .map(|p| p - offset)
-            .collect();
-        meshes
-            .entry((part.joint, part.look))
-            .or_default()
-            .extend(convex_hull(&points));
-    }
-    meshes
-}
-
-/// Builds the placeholder model under `hero`, and the wrench it throws, and returns the
-/// model's root.
+/// Dresses `hero` in `model` and returns the model's root and the thrown wrench's copy.
+/// Materials come from `look`, or the model's own, tinted for players after the first.
 pub fn spawn_rig(
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     hero: Entity,
     look: RigLook,
-) -> Entity {
-    let model = model::hero();
+    model: &RigModel,
+) -> (Entity, Entity) {
     let main = materials.add(look.material(Look::Main));
     let accent = materials.add(look.material(Look::Accent));
-    let material = |look: Look| match look {
-        Look::Main => main.clone(),
-        Look::Accent => accent.clone(),
+    let mut material = |paint: &Paint| match paint {
+        Paint::Look(Look::Main) => main.clone(),
+        Paint::Look(Look::Accent) => accent.clone(),
+        Paint::Own(own) if !look.tint_own => own.clone(),
+        Paint::Own(own) => {
+            let mut tinted = materials.get(own).cloned().unwrap_or_default();
+            tinted.base_color = look.main;
+            materials.add(tinted)
+        }
     };
 
     let root = commands
         .spawn((
-            Name::new("hero model"),
+            Name::new(format!("hero model ({})", model.name)),
             Transform::default(),
             Visibility::default(),
         ))
         .id();
     commands.entity(hero).add_child(root);
 
-    let mut joints: Vec<Entity> = Vec::with_capacity(model.joints.len());
-    for (index, joint) in model.joints.iter().enumerate() {
-        let parent_rest = joint.parent.map_or(Vec3::ZERO, |p| model.joints[p].rest);
+    let skeleton = &model.skeleton;
+    let mut joints: Vec<Entity> = Vec::with_capacity(skeleton.len());
+    for (index, joint) in skeleton.iter().enumerate() {
+        let parent_rest = joint.parent.map_or(Vec3::ZERO, |p| skeleton[p].rest);
         let entity = commands
             .spawn((
                 Name::new(joint.name),
@@ -174,20 +172,27 @@ pub fn spawn_rig(
         joints.push(entity);
     }
 
-    for ((joint, look), triangles) in joint_meshes(&model, Vec3::ZERO) {
-        let part = commands
+    // Skinned meshes are placed by their joints, whatever their own transform.
+    let mut wrench = Vec::new();
+    for surface in &model.surfaces {
+        let entity = commands
             .spawn((
-                Mesh3d(meshes.add(flat_mesh(&triangles))),
-                MeshMaterial3d(material(look)),
+                Mesh3d(surface.mesh.clone()),
+                MeshMaterial3d(material(&surface.paint)),
+                SkinnedMesh {
+                    inverse_bindposes: model.inverse_bindposes.clone(),
+                    joints: joints.clone(),
+                },
+                DynamicSkinnedMeshBounds,
                 Transform::default(),
             ))
             .id();
-        commands.entity(joints[joint]).add_child(part);
+        commands.entity(root).add_child(entity);
+        if surface.wrench {
+            wrench.push(entity);
+        }
     }
 
-    // The thrown wrench spins about its middle, 0.2 m up the shaft from the grip.
-    let wrench = model::wrench_parts_only();
-    let middle = shapes::at(0.2, -0.06, 0.0);
     let thrown = commands
         .spawn((
             Name::new("thrown wrench"),
@@ -196,11 +201,11 @@ pub fn spawn_rig(
             Visibility::Hidden,
         ))
         .id();
-    for ((_, look), triangles) in joint_meshes(&wrench, middle) {
+    for surface in &model.thrown {
         let part = commands
             .spawn((
-                Mesh3d(meshes.add(flat_mesh(&triangles))),
-                MeshMaterial3d(material(look)),
+                Mesh3d(surface.mesh.clone()),
+                MeshMaterial3d(material(&surface.paint)),
                 Transform::default(),
             ))
             .id();
@@ -210,10 +215,42 @@ pub fn spawn_rig(
     commands.entity(root).insert(HeroRig {
         hero,
         joints,
-        skeleton: model.joints,
+        thrown,
+        skeleton: model.skeleton.clone(),
+        wrench,
         animator: pose::Animator::default(),
     });
-    root
+    (root, thrown)
+}
+
+/// Dresses each hero with a [`RigLook`] in the chosen model, again whenever the choice
+/// changes.
+fn dress(
+    mut commands: Commands,
+    models: Res<RigModels>,
+    materials: Option<ResMut<Assets<StandardMaterial>>>,
+    heroes: Query<(Entity, &RigLook, Option<&Worn>), With<HeroBody>>,
+    rigs: Query<&HeroRig>,
+) {
+    let (Some(model), Some(mut materials)) = (models.chosen(), materials) else {
+        return;
+    };
+    for (hero, look, worn) in &heroes {
+        if let Some(worn) = worn {
+            if worn.model == model.name {
+                continue;
+            }
+            if let Ok(rig) = rigs.get(worn.rig) {
+                commands.entity(rig.thrown).despawn();
+            }
+            commands.entity(worn.rig).despawn();
+        }
+        let (rig, _) = spawn_rig(&mut commands, &mut materials, hero, *look, model);
+        commands.entity(hero).insert(Worn {
+            model: model.name.clone(),
+            rig,
+        });
+    }
 }
 
 fn animate(
@@ -221,7 +258,8 @@ fn animate(
     animations: Option<Res<RigAnimations>>,
     heroes: Query<&HeroBody>,
     mut rigs: Query<&mut HeroRig>,
-    mut transforms: Query<(&mut Transform, &mut Visibility), With<RigJoint>>,
+    mut transforms: Query<&mut Transform, With<RigJoint>>,
+    mut visibilities: Query<&mut Visibility, Without<RigJoint>>,
 ) {
     let seconds = time.delta_secs();
     for mut rig in &mut rigs {
@@ -246,19 +284,21 @@ fn animate(
         animator.pose.ease(&target, 1.0 - (-speed * seconds).exp());
 
         for (index, &entity) in rig.joints.iter().enumerate() {
-            let Ok((mut transform, mut visibility)) = transforms.get_mut(entity) else {
+            let Ok(mut transform) = transforms.get_mut(entity) else {
                 continue;
             };
             let joint = &rig.skeleton[index];
             let parent_rest = joint.parent.map_or(Vec3::ZERO, |p| rig.skeleton[p].rest);
             transform.translation = joint.rest - parent_rest + animator.pose.offsets[index];
             transform.rotation = animator.pose.rotations[index];
-            if index == joint::WRENCH {
-                let wanted = if hero.thrown.is_some() {
-                    Visibility::Hidden
-                } else {
-                    Visibility::Inherited
-                };
+        }
+        let wanted = if hero.thrown.is_some() {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        for &surface in &rig.wrench {
+            if let Ok(mut visibility) = visibilities.get_mut(surface) {
                 visibility.set_if_neq(wanted);
             }
         }
@@ -337,22 +377,67 @@ fn fly_thrown_wrenches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
+    use rac_hero::HeroMotion;
 
-    #[test]
-    fn flat_meshes_give_every_corner_its_faces_normal() {
-        let mesh = flat_mesh(&[[Vec3::ZERO, Vec3::X, Vec3::Y]]);
-        assert_eq!(mesh.count_vertices(), 3);
-        let normals = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap();
-        assert_eq!(normals.len(), 3);
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_asset::<SkinnedMeshInverseBindposes>()
+            .add_plugins(RigPlugin);
+        app
+    }
+
+    fn rigs(app: &mut App) -> Vec<String> {
+        let mut query = app.world_mut().query::<&Name>();
+        let world = app.world();
+        let mut names: Vec<String> = query
+            .iter(world)
+            .filter(|n| n.as_str().starts_with("hero model"))
+            .map(|n| n.to_string())
+            .collect();
+        names.sort();
+        names
     }
 
     #[test]
-    fn every_joint_with_blocks_gets_a_mesh() {
-        let model = model::hero();
-        let meshes = joint_meshes(&model, Vec3::ZERO);
-        for joint in [joint::HEAD, joint::HAND_R, joint::CLANK_HEAD, joint::WRENCH] {
-            assert!(meshes.contains_key(&(joint, Look::Main)), "{joint}");
-        }
-        assert!(meshes.contains_key(&(joint::HEAD, Look::Accent)), "eyes");
+    fn heroes_are_dressed_in_the_chosen_model_and_redressed_when_it_changes() {
+        let mut app = app();
+        app.world_mut().spawn((
+            HeroBody(HeroMotion::new(Vec3::ZERO, 0.0)),
+            RigLook::for_player(0),
+        ));
+        app.update();
+        app.update();
+        assert_eq!(rigs(&mut app), vec!["hero model (open)"]);
+
+        let mut other = open_model();
+        other.name = "other".into();
+        app.world_mut()
+            .resource_scope(|world, mut models: Mut<RigModels>| {
+                world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                    let mut bindposes = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
+                    models.add(other, &mut meshes, &mut bindposes).unwrap();
+                });
+                models.choose("other");
+            });
+        app.update();
+        app.update();
+        assert_eq!(
+            rigs(&mut app),
+            vec!["hero model (other)"],
+            "the old model is gone"
+        );
+
+        let mut skinned = app.world_mut().query::<&SkinnedMesh>();
+        let count = skinned.iter(app.world()).count();
+        assert_eq!(count, open_model().surfaces.len());
+        assert!(
+            skinned
+                .iter(app.world())
+                .all(|s| s.joints.len() == joint::COUNT)
+        );
     }
 }

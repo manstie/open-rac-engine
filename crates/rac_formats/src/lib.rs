@@ -7,15 +7,19 @@
 //!
 //! - [`moby`]: moby classes, with their skeleton, animation and mesh
 //!   (`docs/research/moby-format.md`).
+//! - [`armor`]: UYA's armor, the hero's mesh and textures.
+//! - [`texture`]: indexed images as the GS draws them.
 //! - [`wad`]: the games' LZ compression.
 //! - [`level`]: UYA's table of contents and level files, down to the moby classes.
 //!
 //! Bad data gives a [`FormatError`], never a panic: users' discs can be damaged or of a
 //! release we haven't seen.
 
+pub mod armor;
 pub mod image;
 pub mod level;
 pub mod moby;
+pub mod texture;
 pub mod wad;
 
 pub use image::Image;

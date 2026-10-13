@@ -11,16 +11,24 @@ use bevy::{
 };
 use rac_demo::DemoSettings;
 use rac_input::{Action, ActionState};
+use rac_rig::RigModels;
 
 use crate::flow::{AppState, Pause};
+use crate::settings::{self, Paths};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MenuCommand {
     PlayDemo,
+    /// Puts the hero in the next model, and remembers it.
+    NextModel,
     Resume,
     MainMenu,
     Quit,
 }
+
+/// The text of the button that changes the hero's model.
+#[derive(Component, Debug)]
+struct ModelLabel;
 
 #[derive(Component, Debug, Clone, Copy)]
 struct MenuItem {
@@ -51,22 +59,41 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(AppState::InGame), spawn_controls_hint)
             .add_systems(
                 Update,
-                (navigate, focus_on_hover, accept, run_chosen, show_focus).chain(),
+                (
+                    navigate,
+                    focus_on_hover,
+                    accept,
+                    run_chosen,
+                    show_focus,
+                    label_model.run_if(resource_changed::<RigModels>),
+                    label_new_model_buttons,
+                )
+                    .chain(),
             );
     }
 }
 
-fn spawn_main_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
+fn spawn_main_menu(
+    mut commands: Commands,
+    mut focus: ResMut<Focus>,
+    disc: Option<Res<rac_rig::RigAnimations>>,
+) {
     focus.0 = 0;
+    let found = if disc.is_some() {
+        "Your UYA disc gives the hero Ratchet's animations, and his model under Model."
+    } else {
+        "No supported disc found. The hero kit's demo needs none."
+    };
     commands.spawn((Camera2d, DespawnOnExit(AppState::MainMenu)));
     commands.spawn((
         DespawnOnExit(AppState::MainMenu),
         menu_root(Color::srgb(0.05, 0.06, 0.08)),
         children![
             title("Open Ratchet & Clank Engine"),
-            subtitle("No supported disc found. The hero kit's demo needs none."),
+            subtitle(found),
             button(0, "Play the demo", MenuCommand::PlayDemo),
-            button(1, "Quit", MenuCommand::Quit),
+            model_button(1),
+            button(2, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -79,8 +106,9 @@ fn spawn_pause_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
         children![
             title("Paused"),
             button(0, "Resume", MenuCommand::Resume),
-            button(1, "Main menu", MenuCommand::MainMenu),
-            button(2, "Quit", MenuCommand::Quit),
+            model_button(1),
+            button(2, "Main menu", MenuCommand::MainMenu),
+            button(3, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -161,6 +189,20 @@ fn subtitle(text: &str) -> impl Bundle {
 }
 
 fn button(index: usize, label: &str, command: MenuCommand) -> impl Bundle {
+    button_with(index, label, command, ())
+}
+
+/// Its label is filled in by [`label_model`].
+fn model_button(index: usize) -> impl Bundle {
+    button_with(index, "Model", MenuCommand::NextModel, ModelLabel)
+}
+
+fn button_with(
+    index: usize,
+    label: &str,
+    command: MenuCommand,
+    marker: impl Bundle,
+) -> impl Bundle {
     (
         Button,
         Hovered::default(),
@@ -184,8 +226,27 @@ fn button(index: usize, label: &str, command: MenuCommand) -> impl Bundle {
                 ..default()
             },
             TextColor(TEXT),
+            marker,
         )],
     )
+}
+
+fn label_model(models: Res<RigModels>, mut labels: Query<&mut Text, With<ModelLabel>>) {
+    let title = models.chosen().map_or("none", |model| model.title.as_str());
+    for mut text in &mut labels {
+        text.0 = format!("Model: {title}");
+    }
+}
+
+/// Labels a menu's model button as soon as it appears.
+fn label_new_model_buttons(
+    models: Res<RigModels>,
+    labels: Query<(), Added<ModelLabel>>,
+    texts: Query<&mut Text, With<ModelLabel>>,
+) {
+    if !labels.is_empty() {
+        label_model(models, texts);
+    }
 }
 
 fn navigate(actions: Res<ActionState>, items: Query<&MenuItem>, mut focus: ResMut<Focus>) {
@@ -226,10 +287,26 @@ fn run_chosen(
     mut chosen: ResMut<Chosen>,
     mut app_state: ResMut<NextState<AppState>>,
     mut pause: ResMut<NextState<Pause>>,
+    mut models: ResMut<RigModels>,
+    paths: Option<Res<Paths>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     match chosen.0.take() {
         Some(MenuCommand::PlayDemo) => app_state.set(AppState::InGame),
+        Some(MenuCommand::NextModel) => {
+            let Some(model) = models.choose_next() else {
+                return;
+            };
+            info!("the hero's model: {} ({})", model.title, model.name);
+            let name = model.name.clone();
+            if let Some(paths) = paths {
+                let mut saved = settings::load_or_create(&paths.settings_file);
+                saved.hero_model = Some(name);
+                if let Err(error) = settings::save(&paths.settings_file, &saved) {
+                    warn!("could not save the hero's model: {error:#}");
+                }
+            }
+        }
         Some(MenuCommand::Resume) => pause.set(Pause::Running),
         Some(MenuCommand::MainMenu) => app_state.set(AppState::MainMenu),
         Some(MenuCommand::Quit) => {

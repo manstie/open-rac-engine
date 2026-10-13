@@ -193,13 +193,20 @@ as the Veldin memory image has them.
     16 texture indices. Class 0 is the hero.
   - +0x78: the hero's sequence table, one core offset per sequence (0 where a level
     leaves one out). The core keeps his sequences outside his class.
-  - +0x84 and +0x88: the core's packed and unpacked sizes.
+  - +0x88 and +0x8C: the core's packed and unpacked sizes. (+0x84 is a count the loader
+    passes with the GS RAM table at +0x00/+0x04 when it sends the textures to the GS.)
+  - Between them, `{count, offset}` pairs of tables in the core header [data, from the
+    values; not read in code yet]: +0x20 tie classes, +0x28 shrub classes, then textures
+    for tfrags (+0x30), mobys (+0x38, 143 on Veldin, 16 bytes each), ties, shrubs,
+    particles and effects (+0x58). The texture data itself is probably the data part's
+    first block (3.4 MB at +0x80), which the loader sends to the GS.
   - At load the game also fills a memory map of the level's regions (0x1EA9C0): the core,
     the moby classes, the hero's sequences, the mobys and the armor mesh.
 - **The hero on other levels:** every level with a hero carries the same 111-joint
   skeleton and only the sequences it uses. Veldin and level 2 have all 127, level 6 has
   88, level 30 six, and the multiplayer maps have no class 0. His mesh isn't in the core
-  at all; it comes from the armor WAD.
+  at all; it comes from the armor WAD (`moby-format.md`, "The armor WAD"), the fifth of
+  the eight global headers.
 
 ### WAD compression [verified 2026-10-13]
 

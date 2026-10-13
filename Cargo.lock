@@ -4432,6 +4432,7 @@ dependencies = [
  "rac_rig",
  "rac_sim",
  "serde",
+ "thiserror 2.0.21",
  "toml",
 ]
 
@@ -4836,6 +4837,7 @@ dependencies = [
  "bevy",
  "rac_hero",
  "rac_sim",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

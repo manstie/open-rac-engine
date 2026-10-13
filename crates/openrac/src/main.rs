@@ -1,12 +1,13 @@
 //! Open Ratchet & Clank Engine: application entry point.
 //!
 //! It runs the hero kit's demo. If the user's own UYA disc is in the discs folder, the
-//! hero plays Ratchet's animations read from it. The roadmap lives in `PLAN.md` at the
-//! repository root.
+//! hero plays Ratchet's animations read from it, and Ratchet's own model can be chosen in
+//! the menus. The roadmap lives in `PLAN.md` at the repository root.
 
 mod discs;
 mod flow;
 mod hero_anims;
+mod hero_model;
 mod menu;
 mod settings;
 
@@ -16,7 +17,7 @@ use bevy::{
     diagnostic::FrameCount,
     prelude::{
         App, AppExit, DefaultPlugins, MessageWriter, PluginGroup, Res, Resource, Update, Window,
-        WindowPlugin, default, info,
+        WindowPlugin, default, info, warn,
     },
     render::RenderPlugin,
 };
@@ -55,6 +56,10 @@ struct Args {
     /// Where the user's disc images are.
     #[arg(long, value_name = "DIR", default_value = "source")]
     discs: PathBuf,
+    /// The hero's model: `open`, or a model imported from a disc (`uya`). Overrides the
+    /// one saved in the settings, which the menus change.
+    #[arg(long, value_name = "NAME")]
+    model: Option<String>,
 }
 
 // Bevy's GPU buffers lay out mesh data with `size_of`, which matches the shaders only while
@@ -119,8 +124,16 @@ fn main() -> Result<AppExit> {
     if let Some(recording) = replay {
         app.insert_resource(InputSource::replay(recording));
     }
-    if let Some(animations) = hero_animations(&args.discs) {
+    let (animations, model) = from_disc(&args.discs);
+    if let Some(animations) = animations {
         app.insert_resource(animations);
+    }
+    app.insert_resource(hero_model::DiscModels(model.into_iter().collect()))
+        .add_systems(bevy::prelude::Startup, hero_model::register_disc_models);
+    if let Some(model) = args.model.as_ref().or(settings.hero_model.as_ref()) {
+        app.world_mut()
+            .resource_mut::<rac_rig::RigModels>()
+            .choose(model);
     }
     info!(
         "settings: {}; data: {}",
@@ -137,20 +150,28 @@ fn main() -> Result<AppExit> {
     Ok(app.run())
 }
 
-/// The hero's animations from the user's UYA disc, if one is in `folder`.
-fn hero_animations(folder: &std::path::Path) -> Option<rac_rig::RigAnimations> {
+/// The hero's animations and model from the user's UYA disc, if one is in `folder`.
+fn from_disc(
+    folder: &std::path::Path,
+) -> (Option<rac_rig::RigAnimations>, Option<hero_model::Imported>) {
     let Some((path, mut disc)) = discs::find(folder, discs::Release::UyaNtsc) else {
         info!(
             "no UYA NTSC-U disc in {}: the hero's animation is procedural",
             folder.display()
         );
-        return None;
+        return (None, None);
     };
-    let hero = rac_formats::level::Core::read_uya(&mut disc, hero_anims::LEVEL)
-        .and_then(|core| core.hero());
-    match hero {
-        Ok(hero) => {
-            let animations = hero_anims::rig_animations(&hero);
+    let read = rac_formats::level::Core::read_uya(&mut disc, hero_anims::LEVEL)
+        .and_then(|core| core.hero().map(|hero| (core, hero)));
+    let (core, hero) = match read {
+        Ok(read) => read,
+        Err(error) => {
+            warn!("couldn't read the hero from {}: {error}", path.display());
+            return (None, None);
+        }
+    };
+    let animations = match hero_anims::rig_animations(&hero) {
+        Ok(animations) => {
             info!(
                 "the hero's animations: {} moves from {}",
                 animations.clips.len(),
@@ -159,10 +180,21 @@ fn hero_animations(folder: &std::path::Path) -> Option<rac_rig::RigAnimations> {
             Some(animations)
         }
         Err(error) => {
-            bevy::prelude::warn!("couldn't read the hero from {}: {error}", path.display());
+            warn!("the hero's skeleton in {}: {error}", path.display());
             None
         }
-    }
+    };
+    let model = match hero_model::import(&mut disc, &core, &hero, hero_model::ARMOR) {
+        Ok(model) => Some(model),
+        Err(error) => {
+            warn!(
+                "couldn't read Ratchet's model from {}: {error}",
+                path.display()
+            );
+            None
+        }
+    };
+    (animations, model)
 }
 
 #[derive(Resource)]

@@ -8,7 +8,7 @@ mod anim;
 mod mesh;
 
 pub use anim::{JointScale, JointTranslation, Keyframe, Sequence};
-pub use mesh::{Packet, PacketKind};
+pub use mesh::{Mesh, MeshTriangle, MeshVertex, Packet, PacketKind, Skin, Vertex, normal};
 
 use crate::{FormatError, Image};
 
@@ -171,6 +171,17 @@ impl MobyClass {
     /// World units per class unit.
     pub fn unit(&self) -> f32 {
         self.scale / 1024.0
+    }
+
+    /// The mesh at one level of detail.
+    pub fn mesh(&self, kind: PacketKind) -> Result<Mesh, FormatError> {
+        let packets: Vec<Packet> = self
+            .packets
+            .iter()
+            .filter(|p| p.kind == kind)
+            .cloned()
+            .collect();
+        Mesh::assemble(&packets)
     }
 }
 

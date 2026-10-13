@@ -850,4 +850,91 @@ name = "level_memory_map"
 address = 0x001EA9C0
 kind = "data"
 confidence = "medium"
-note = "Start addresses of the level's memory regions: the core at 0x91E000 on Veldin, the moby classes (+0x38), the hero's sequences (+0x44), the mobys, the armor mesh."
+note = "Start addresses of the level's memory regions: the core at 0x91E000 on Veldin, the moby classes (+0x38), the hero's sequences (+0x44), the mobys, the wrench's mesh (+0x74) and the armor's (+0x78)."
+
+# 2026-10-13, the hero's mesh: the armor WAD, the wrench and Clank's texture
+# (docs/research/moby-format.md, "The armor WAD").
+
+[[symbol]]
+name = "disc_read"
+address = 0x0045CA00
+kind = "function"
+confidence = "medium"
+note = "(buffer, sector, count): reads sectors from the disc into the buffer."
+
+[[symbol]]
+name = "armor_wad_header"
+address = 0x00162AF0
+kind = "data"
+confidence = "high"
+note = "The armor WAD's global header from the table of contents: size 0x398, first sector, 56 entries of {mesh sector, count, textures sector, count}, then two {sector, count} pairs for Clank's textures (0x162E78)."
+
+[[symbol]]
+name = "armor_buffer"
+address = 0x001D4B64
+kind = "data"
+confidence = "high"
+note = "Where the armor is read: its textures first, then its mesh over them (0x1F28000 on Veldin)."
+
+[[symbol]]
+name = "armor_load"
+address = 0x00422838
+kind = "function"
+confidence = "high"
+note = "(armor): reads the armor's textures into armor_buffer and sends each one's palette and pixels to the GS (addresses at 0x1A1EE0 and 0x1A1EF4), then reads its mesh over them."
+
+[[symbol]]
+name = "armor_install"
+address = 0x00422AB8
+kind = "function"
+confidence = "medium"
+note = "Sets the armor textures' GS registers and relocates the mesh (armor_relocate)."
+
+[[symbol]]
+name = "armor_change"
+address = 0x00422BD0
+kind = "function"
+confidence = "high"
+note = "(armor): armor_load, armor_install, then armor_attach to the hero's class; keeps the armor number at 0x1D4B60."
+
+[[symbol]]
+name = "armor_relocate"
+address = 0x00423F28
+kind = "function"
+confidence = "high"
+note = "(mesh, ?, texture remap): makes a mesh-only file's packet and texture-usage pointers addresses, and maps its texture-usage lists' numbers through the remap table."
+
+[[symbol]]
+name = "armor_attach"
+address = 0x00424008
+kind = "function"
+confidence = "high"
+note = "(class, mesh): gives a class a mesh-only file's packet counts (+4 to +7), packet table (+0) and texture-usage table (+0x20). Used for the hero's armor and the wrench."
+
+[[symbol]]
+name = "wrench_load"
+address = 0x00422D70
+kind = "function"
+confidence = "high"
+note = "Reads armor-WAD entry 31's texture to the GS and its mesh into the wrench's buffer (level_memory_map + 0x74), which level_load_core attaches to the wrench's class (0x47)."
+
+[[symbol]]
+name = "clank_texture_load"
+address = 0x00423238
+kind = "function"
+confidence = "high"
+note = "(n): reads Clank's texture n (0 on a new game) from the pairs after the armor entries and sends it to the GS (palette 0x1A1EEC, pixels 0x1A1F00)."
+
+[[symbol]]
+name = "texture_slot_load"
+address = 0x00423068
+kind = "function"
+confidence = "low"
+note = "(n): like clank_texture_load for another global WAD (first sector at 0x161EC4, table at 0x1629B8) into the GS slot at 0x1A1EE8 and 0x1A1EFC. What it is for isn't known."
+
+[[symbol]]
+name = "fixed_texture_gs_addresses"
+address = 0x001A1EE0
+kind = "data"
+confidence = "medium"
+note = "GS addresses (× 256 bytes) of the textures loaded outside levels: palettes for the armor, the wrench, texture_slot_load and Clank, one more, then the pixels in the same order from 0x1A1EF4."

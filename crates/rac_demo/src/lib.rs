@@ -12,7 +12,7 @@ mod spectator;
 use bevy::prelude::*;
 use rac_combat::{CombatPlugin, Destroyed, HitReaction, Hitpoints, Pushable, target_bundle};
 use rac_hero::{Checkpoint, Collider, FollowCamera, HeroPlugin, HeroTuning, hero_bundle};
-use rac_rig::{RigLook, RigPlugin, spawn_rig};
+use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
 pub use level::{
@@ -253,21 +253,14 @@ pub fn spawn_demo(
         return;
     }
 
-    let hero = commands
-        .spawn((
-            Name::new("hero"),
-            DemoEntity,
-            hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
-            Visibility::default(),
-        ))
-        .id();
-    spawn_rig(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        hero,
+    commands.spawn((
+        Name::new("hero"),
+        DemoEntity,
+        hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
+        // The rig dresses him in the chosen model.
         RigLook::for_player(0),
-    );
+        Visibility::default(),
+    ));
     let camera = FollowCamera::for_player(0, 0.0);
     let (translation, rotation) = camera.placement(HERO_SPAWN, &tuning.0.camera);
     commands.spawn((

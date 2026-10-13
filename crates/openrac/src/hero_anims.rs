@@ -5,13 +5,15 @@
 //!   (`docs/research/disc-layout.md`, "Level data").
 //! - Which sequence each move plays is UYA's own choice, read in its code
 //!   (`docs/research/hero-controller.md`, "Animations per state").
-//! - Each keyframe is posed on UYA's skeleton, then each rig joint takes the rotation and
-//!   offset of its UYA joint relative to its rig parent's, so the rig's joints sit where
-//!   UYA's do even where the rig leaves joints out.
+//! - Each keyframe is posed on UYA's skeleton, then [`SkeletonMap`] gives each rig joint the
+//!   rotation of its UYA joint relative to its rig parent's, and its offset from where UYA
+//!   has it at rest, so every model the rig wears keeps its own proportions.
 
 use bevy::math::{Quat, Vec3};
 use rac_formats::moby::{Keyframe, MobyClass};
-use rac_rig::{FlipSide, RigAnimations, RigClip, RigKeyframe, RigMove, model};
+use rac_rig::{
+    FlipSide, LineUpError, RigAnimations, RigClip, RigKeyframe, RigMove, SkeletonMap, model,
+};
 
 /// Veldin: a new game starts here, and its core holds every one of the hero's sequences.
 pub const LEVEL: usize = 1;
@@ -61,7 +63,7 @@ const MOVES: &[(RigMove, usize, bool, usize)] = &[
 
 /// UYA's class axes (x forward, y left, z up) to the hero's local space in Bevy (x right,
 /// y up, z back). It's a rotation, so quaternions' vector parts map the same way.
-fn to_bevy(v: Vec3) -> Vec3 {
+pub fn to_bevy(v: Vec3) -> Vec3 {
     Vec3::new(-v.y, v.z, -v.x)
 }
 
@@ -72,7 +74,7 @@ fn quat_to_bevy(q: Quat) -> Quat {
 
 /// Each UYA joint's rotation and position (world units) in the hero's space, for one
 /// keyframe.
-fn pose(class: &MobyClass, keyframe: &Keyframe) -> (Vec<Quat>, Vec<Vec3>) {
+pub(crate) fn pose(class: &MobyClass, keyframe: &Keyframe) -> (Vec<Quat>, Vec<Vec3>) {
     let count = class.joints.len();
     let mut translations: Vec<Vec3> = class
         .joints
@@ -106,56 +108,54 @@ fn pose(class: &MobyClass, keyframe: &Keyframe) -> (Vec<Quat>, Vec<Vec3>) {
     )
 }
 
-/// The rig's clips for every move UYA animates, from the hero's class.
-pub fn rig_animations(class: &MobyClass) -> RigAnimations {
+/// How UYA's hero skeleton lines up with the rig's, through the UYA joint each rig joint
+/// names.
+pub fn skeleton_map(class: &MobyClass) -> Result<SkeletonMap, LineUpError> {
     let rig = model::hero().joints;
-    let uya = |joint: usize| rig[joint].uya.map(|u| u as usize);
-    let driven: Vec<bool> = rig
+    let sources: Vec<Option<usize>> = rig.iter().map(|j| j.uya.map(usize::from)).collect();
+    let parents: Vec<Option<usize>> = class.joints.iter().map(|j| j.parent).collect();
+    let unit = class.unit();
+    let rest: Vec<Vec3> = class
+        .joints
         .iter()
-        .map(|joint| joint.uya.is_some_and(|u| (u as usize) < class.joints.len()))
+        .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
         .collect();
+    SkeletonMap::new(&rig, &sources, &parents, &rest)
+}
 
+/// The rig's clips for every move UYA animates, from the hero's class.
+pub fn rig_animations(class: &MobyClass) -> Result<RigAnimations, LineUpError> {
+    let map = skeleton_map(class)?;
     let mut animations = RigAnimations {
-        driven: driven.clone(),
+        driven: map.driven(),
         ..Default::default()
     };
     for &(movement, number, looping, start) in MOVES {
         let Some(Some(sequence)) = class.sequences.get(number) else {
             continue;
         };
-        let mut keyframes = Vec::new();
-        for keyframe in sequence.keyframes.iter().skip(start) {
-            let (world, positions) = pose(class, keyframe);
-            let mut rotations = vec![Quat::IDENTITY; rig.len()];
-            let mut offsets = vec![Vec3::ZERO; rig.len()];
-            for (index, joint) in rig.iter().enumerate() {
-                let (true, Some(own)) = (driven[index], uya(index)) else {
-                    continue;
-                };
-                let parent = joint.parent.and_then(uya);
-                let (parent_rotation, parent_position) = match parent {
-                    Some(p) => (world[p], positions[p]),
-                    None => (Quat::IDENTITY, Vec3::ZERO),
-                };
-                let inverse = parent_rotation.inverse();
-                rotations[index] = (inverse * world[own]).normalize();
-                let rest = joint.rest - joint.parent.map_or(Vec3::ZERO, |p| rig[p].rest);
-                offsets[index] = inverse * (positions[own] - parent_position) - rest;
-            }
-            keyframes.push(RigKeyframe {
-                ticks: keyframe.ticks(),
-                frame: keyframe.stamp as f32 / 16.0,
-                rotations,
-                offsets,
-            });
-        }
+        let keyframes: Vec<RigKeyframe> = sequence
+            .keyframes
+            .iter()
+            .skip(start)
+            .map(|keyframe| {
+                let (rotations, positions) = pose(class, keyframe);
+                let (rotations, offsets) = map.pose(&rotations, &positions);
+                RigKeyframe {
+                    ticks: keyframe.ticks(),
+                    frame: keyframe.stamp as f32 / 16.0,
+                    rotations,
+                    offsets,
+                }
+            })
+            .collect();
         if !keyframes.is_empty() {
             animations
                 .clips
                 .insert(movement, RigClip { keyframes, looping });
         }
     }
-    animations
+    Ok(animations)
 }
 
 #[cfg(test)]
@@ -163,26 +163,52 @@ mod tests {
     use super::*;
     use rac_formats::moby::{Joint, Sequence};
 
-    /// A two-joint class: a root and a joint 1 unit up, with joint 1 turned a quarter
-    /// turn about UYA's up axis in its one keyframe.
+    /// A class shaped like UYA's hero as far as the rig is concerned: each joint a rig joint
+    /// names hangs from its rig parent's, and the rest from the root. Joint 1, the hips, is
+    /// 1 unit up and turned a quarter turn about UYA's up axis in the one keyframe.
     fn class() -> MobyClass {
-        let joint = |parent, rest: [f32; 3]| Joint {
-            parent,
-            offset: rest,
-            rest,
-        };
+        let rig = model::hero().joints;
+        let count = rig.iter().filter_map(|j| j.uya).max().unwrap() as usize + 1;
+        let mut parents = vec![Some(0); count];
+        parents[0] = None;
+        for joint in &rig {
+            if let (Some(own), Some(parent)) = (joint.uya, joint.parent) {
+                parents[own as usize] = rig[parent].uya.map(usize::from);
+            }
+        }
+        let mut joints: Vec<Joint> = Vec::new();
+        for (index, parent) in parents.into_iter().enumerate() {
+            let offset = if index == 1 {
+                [0.0, 0.0, 1.0]
+            } else {
+                [0.0; 3]
+            };
+            let base = parent.map_or([0.0; 3], |p| joints[p].rest);
+            let rest = [
+                base[0] + offset[0],
+                base[1] + offset[1],
+                base[2] + offset[2],
+            ];
+            joints.push(Joint {
+                parent,
+                offset,
+                rest,
+            });
+        }
         // The game stores the inverse rotation: -90° about z for a +90° turn.
         let quarter = (0.5f32.sqrt() * 32768.0) as i16;
+        let mut rotations = vec![[0, 0, 0, 0x7FFF]; count];
+        rotations[1] = [0, 0, -quarter, quarter];
         let keyframe = Keyframe {
             rate: 0.5,
             stamp: 32,
-            rotations: vec![[0, 0, 0, 0x7FFF], [0, 0, -quarter, quarter]],
+            rotations,
             scales: Vec::new(),
             translations: Vec::new(),
         };
         MobyClass {
             scale: 1024.0,
-            joints: vec![joint(None, [0.0; 3]), joint(Some(0), [0.0, 0.0, 1.0])],
+            joints,
             sequences: vec![Some(Sequence {
                 bounds: [0.0; 4],
                 keyframes: vec![keyframe],
@@ -216,16 +242,37 @@ mod tests {
 
     #[test]
     fn idle_becomes_a_looping_clip_on_the_rig() {
-        let animations = rig_animations(&class());
+        let animations = rig_animations(&class()).unwrap();
         let idle = &animations.clips[&RigMove::Idle];
         assert!(idle.looping);
-        assert_eq!(idle.keyframes[0].frame, 2.0);
-        assert_eq!(idle.keyframes[0].ticks, 2.0);
+        let keyframe = &idle.keyframes[0];
+        assert_eq!(keyframe.frame, 2.0);
+        assert_eq!(keyframe.ticks, 2.0);
         assert!(animations.driven[model::joint::ROOT]);
-        assert!(animations.driven[model::joint::HIPS]);
-        // The class has two joints, so the rig's other UYA joints aren't driven.
-        assert!(!animations.driven[model::joint::HEAD]);
-        assert!(!animations.driven[model::joint::CLANK]);
+        assert!(animations.driven[model::joint::HEAD]);
+        assert!(
+            !animations.driven[model::joint::CLANK],
+            "Clank isn't UYA's hero"
+        );
+        let turn = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        assert!(keyframe.rotations[model::joint::HIPS].angle_between(turn) < 1e-3);
+        assert!(
+            keyframe.rotations[model::joint::SPINE].angle_between(Quat::IDENTITY) < 1e-3,
+            "the spine turns with the hips, not on them"
+        );
+        for offset in &keyframe.offsets {
+            assert!(offset.length() < 1e-5, "nothing moves from rest: {offset}");
+        }
+    }
+
+    #[test]
+    fn a_skeleton_without_the_rigs_joints_doesnt_line_up() {
+        let mut small = class();
+        small.joints.truncate(2);
+        assert!(matches!(
+            rig_animations(&small),
+            Err(LineUpError::Missing { .. })
+        ));
     }
 }
 
@@ -245,7 +292,7 @@ mod disc_tests {
         let hero = core.hero().unwrap();
         assert_eq!(hero.joints.len(), 111);
         assert_eq!(hero.sequences.iter().flatten().count(), 127);
-        let animations = rig_animations(&hero);
+        let animations = rig_animations(&hero).unwrap();
         assert_eq!(animations.clips.len(), MOVES.len());
         // Swing 1 runs from its start frame, 16, as the melee code expects.
         let swing = &animations.clips[&RigMove::Combo(0)];

@@ -11,7 +11,7 @@ use crate::moby::MobyClass;
 use crate::{DiscReader, FormatError, Image, wad};
 
 /// Bytes per sector.
-const SECTOR: u64 = 2048;
+pub(crate) const SECTOR: u64 = 2048;
 /// Sectors of the table of contents to read: the globals and every level entry.
 const TOC_SECTORS: u64 = 16;
 /// The hero's moby class number.
@@ -53,11 +53,19 @@ pub struct LevelFiles {
     pub scene: SectorRange,
 }
 
+/// A global WAD's header in the table of contents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlobalHeader {
+    /// The WAD's first sector.
+    pub sector: u32,
+    /// The whole header, its size and sector first.
+    pub bytes: Vec<u8>,
+}
+
 /// The table of contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toc {
-    /// Each global WAD's header size and first sector.
-    pub globals: Vec<(u32, u32)>,
+    pub globals: Vec<GlobalHeader>,
     /// By level number; levels the game doesn't have are empty.
     pub levels: Vec<LevelFiles>,
 }
@@ -77,7 +85,10 @@ impl Toc {
                     detail: format!("size {size:#x}"),
                 });
             }
-            globals.push((size, image.u32(at + 4)?));
+            globals.push(GlobalHeader {
+                sector: image.u32(at + 4)?,
+                bytes: image.bytes(at, size as usize)?.to_vec(),
+            });
             at += size;
         }
         let mut levels = Vec::new();
@@ -93,6 +104,11 @@ impl Toc {
             levels.pop();
         }
         Ok(Self { globals, levels })
+    }
+
+    /// Reads UYA's table of contents from the disc.
+    pub fn read_uya_disc(disc: &mut impl DiscReader) -> Result<Self, FormatError> {
+        Self::read_uya(&disc.read(TOC_SECTOR * SECTOR, (TOC_SECTORS * SECTOR) as usize)?)
     }
 }
 
@@ -217,7 +233,7 @@ pub struct Core {
 impl Core {
     /// Reads and unpacks the core of UYA level `level` from the disc.
     pub fn read_uya(disc: &mut impl DiscReader, level: usize) -> Result<Self, FormatError> {
-        let toc = Toc::read_uya(&disc.read(TOC_SECTOR * SECTOR, (TOC_SECTORS * SECTOR) as usize)?)?;
+        let toc = Toc::read_uya_disc(disc)?;
         let files = toc
             .levels
             .get(level)
@@ -243,6 +259,23 @@ impl Core {
             header: core_header,
             bytes,
         })
+    }
+
+    /// Moby class `class` from the core's class table, with its own mesh and sequences.
+    pub fn moby_class(&self, class: u32) -> Result<MobyClass, FormatError> {
+        let entry = self
+            .header
+            .moby_class(class)
+            .ok_or_else(|| FormatError::Invalid {
+                what: "level core",
+                address: class,
+                detail: "no such moby class".into(),
+            })?;
+        MobyClass::read_placed(
+            &Image::new(&self.bytes, 0),
+            entry.offset,
+            crate::moby::Placement::Packed,
+        )
     }
 
     /// The hero's class (class 0) with his skeleton and every sequence.
@@ -281,7 +314,8 @@ mod tests {
         }
         w.put(&[0; 48]);
         let toc = Toc::read_uya(&w.bytes).unwrap();
-        assert_eq!(toc.globals[3], (0x0C, 103));
+        assert_eq!(toc.globals[3].sector, 103);
+        assert_eq!(toc.globals[3].bytes.len(), 0x0C);
         assert_eq!(toc.levels.len(), 2);
         assert_eq!(
             toc.levels[1].level,

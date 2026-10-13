@@ -9,7 +9,7 @@ rig (P1.17). Started 2026-10-13 on UYA NTSC-U.
 - **Memory image:** UYA NTSC-U (SCUS-97353) on Veldin, `cache/ghidra/ee/uyantsc-veldin.ee.bin`
   (a headless boot, `docs/re-setup.md`). A class in memory has absolute pointers.
 - **The disc:** the same classes read from the UYA disc image ("On the disc" below), which
-  is how the engine reads them.
+  is how the engine reads them, and the hero's mesh from the armor WAD ("The armor WAD").
 - **Code read in Ghidra** (addresses and names in `re/SCUS-97353/symbols.toml`):
   - the hero's animation driver (`hero_anim_set`, `hero_anim_update`);
   - `moby_anim_frame`, which fetches one keyframe, and `anim_frame_unpack`, which
@@ -158,40 +158,135 @@ libuya's `MobyClass` layout matches UYA's data:
 - The moby's own rotation matrix (moby + 0xC0) maps class axes to world axes row by row,
   and its position (moby + 0x10) is the root's world position.
 
-## Mesh [data, partly understood]
+## Mesh [verified 2026-10-13]
 
-- **Packet table entries** (16 bytes): the VIF list's address, its size in quadwords, the
-  quadword offset of its texture data (0 if none), the vertex table's address, the vertex
-  table's size in quadwords, two derived counts, and the number of vertices sent to VU1.
+Read with `rac_formats::moby::{Packet, Mesh}` on the UYA disc: Ratchet in every armor
+mesh (entries 0–34, below), the wrench, and Clank's class from Veldin's core. Every
+packet decodes with no load from an unset VU0 slot, no duplicate of an empty cache entry,
+every blend weight summing to 256 and every strip index in range; Ratchet's armor 0 gives
+5,655 vertices and 6,740 triangles. The layout follows ReRAC's moby notes (ISC, written
+from Wrench's behaviour on R&C1; `prior-art.md`), checked here against UYA's data:
+GC, UYA and DL halve the vertex table header's fields to u16 but otherwise match.
+
+- **Packet table entries** (16 bytes): the VIF list's address, its size in quadwords
+  (u16), the quadword offset of its texture data (u16), the vertex table's address, and
+  four bytes: the vertex table's size in quadwords, two counts derived from the next, and
+  the number of vertices sent to VU1. The table lists the high-detail packets, then the
+  low-detail ones, then the metal (environment-mapped) ones, which have their own vertex
+  format and aren't read yet.
 - **Vertex table header** (u16 each): matrix transfers, two-joint vertices, three-joint
-  vertices, one-joint vertices, duplicate vertices, vertices sent, and the byte offset of
-  the vertex records. Matrix transfers (a joint and a VU0 matrix slot, a byte each) and
-  then the duplicate entries (u16, multiples of 0x80) come before the records.
-- **Vertex records** (16 bytes): blending data in the first 8 bytes (VU0 matrix slots, and
-  weights that sum to 256 for blended vertices), a packed normal (two bytes), then x, y, z
-  as s16 in model space at the rest pose.
-- **Strips:** the VIF list's first UNPACK holds 16-bit texture coordinates, one per vertex
-  sent, and the second the strip indices: a 4-byte header, then 8-bit indices into the
-  vertices sent, starting at 1. A set high bit means the vertex doesn't complete a
-  triangle (the GS's ADC bit), which is how strips restart and fans are built. The first
-  index slot is 0, and the header's third byte appears to hold the real first index. 0
-  ends the list.
-- **Open:** how duplicate entries map to earlier vertices. They index more than one
-  packet's worth of vertices; a buffer filled by the low 9 bits of each record's first
-  halfword was tried and is wrong. Without them about a quarter of the hero's triangles
-  are missing, which is enough for a reference but not for rendering. The VU0 matrix-slot
-  scheme (which joints each vertex follows) isn't decoded yet either.
+  vertices, one-matrix vertices, duplicates, vertices sent (the four counts before it
+  added), the byte offset of the vertex records, and one we don't use. Then the matrix
+  transfers (a joint and a VU0 address, a byte each), and, 8-byte aligned, one u16 per
+  duplicate: a vertex-cache entry shifted left by 7.
+- **Vertex records** (16 bytes): bytes 0–7 skin the vertex (below); 8 and 9 the normal as
+  azimuth about z from x, then elevation towards z, 256 steps a turn
+  (x = cos a cos e, y = sin a cos e, z = sin e; the decoded normals face the way 99.3% of
+  Ratchet's triangles do); then x, y, z as s16 at the rest pose.
+- **Vertex IDs:** the low 9 bits of a record's first halfword are the ID of the vertex 7
+  records before it, since VU1 has seven vertices in flight. At least one record follows
+  the real vertices; the IDs no record holds are up to six more halfwords at bytes 4–15
+  of the last one. A vertex fills the vertex cache (512 entries) at its ID.
+- **Skinning** replays VU0: 64 matrix slots of four quadwords, addressed 0–0xF0 (0xF4
+  means "don't store"). Slots keep their matrices from packet to packet within a level of
+  detail.
+  - First the packet's matrix transfers put a joint's matrix in a slot.
+  - A two-joint vertex: byte 1 >> 1 is a joint it moves into slot address byte 6 first;
+    it blends slots byte 2 and byte 3 with weights byte 4 and byte 5 (out of 256), and
+    stores the blend at byte 7.
+  - A three-joint vertex blends slots byte 2, byte 3 and byte 1 & 0xFE with bytes 4–6,
+    and stores at byte 7. It can't move a joint in.
+  - A one-matrix vertex moves joint byte 1 >> 1 into slot byte 3, then uses slot byte 2,
+    which may hold a blend an earlier vertex or packet stored.
+  - Blend inputs are always single joints. Every vertex of every armor follows one to
+    three joints this way.
+- **Duplicates** follow a packet's own vertices: each copies the cached vertex its entry
+  names (position, normal and skin), possibly from an earlier packet, with a texture
+  coordinate of its own. That's how a seam shares a position between two UV islands.
+- **Texture coordinates:** the VIF list's first UNPACK (V2-16) holds an s, t pair per
+  vertex sent, own then duplicate, with 1.0 = 4096. Metal packets have none.
+- **Strips:** the next UNPACK (V4-8) is a 4-byte header and then 1-based indices into the
+  vertices sent. A set high bit means the vertex doesn't complete a triangle (the GS's ADC
+  bit), which is how strips restart. An index of 0 switches texture: it takes the next
+  64-byte block of GS registers from the third UNPACK (TEX1, CLAMP, TEX0, MIPTBP1; TEX0's
+  low word is the class's texture number on the disc, −1 for none) and the next switch
+  index, which is the header's third byte for the first switch and byte 0xC of quadword
+  k − 1 of the third UNPACK for switch k. A switch index of 0 ends the packet, and the
+  three indices before it (always 1, 1, 1) are never drawn. Texture state carries over
+  from packet to packet.
+- **Winding** isn't kept: the strips' triangles face either way about equally often
+  (3,358 of 6,740 agree with their normals), and the GS draws both sides. Turn each
+  triangle to agree with its vertex normals.
+
+## The armor WAD [verified 2026-10-13]
+
+The hero's class has no mesh on the disc; his armor brings it. Read in UYA's code
+(`armor_load` 0x422838, `armor_relocate` 0x423F28, `armor_attach` 0x424008,
+`wrench_load` 0x422D70 and `clank_texture_load` 0x423238 in
+`re/SCUS-97353/symbols.toml`) and with our own reader, whose armor 0 matches the Veldin
+memory image's hero mesh (0x1F28000) except for the relocated pointers.
+
+- **The table** is the fifth global header in the table of contents (header size 0x398,
+  first sector 0xAEA89 on our disc). After the size and sector: 56 entries of four words,
+  each a `{sector, count}` from the WAD's first sector for an armor's mesh and then its
+  textures; then two `{sector, count}` pairs for Clank's textures.
+- **Loading an armor:** the game reads the textures into the armor buffer and sends each
+  straight to the GS, then reads the mesh over them, relocates it and gives the hero's
+  class its packet table, packet counts and texture-usage table. The mesh and textures
+  are stored as they are, not WAD-compressed.
+- **Mesh file:** a 16-byte header (high, low and metal packet counts and the first metal
+  packet as bytes; the packet table's offset; the texture-usage table's offset; 0), then
+  packets as in a class, with pointers counted from the file's start.
+- **Texture file:** a count, an offset per texture, then each texture as a PIF2 image:
+  the magic "2FIP", a word we don't use, width, height, the pixel format at +0x10 (0x13,
+  8-bit indexed, for all of them), and the mipmap count at +0x1C; a 256-colour palette at
+  +0x20 (RGBA, alpha 0x80 opaque) in the GS's CSM1 order, which swaps entries 8–15 and
+  16–23 of every 32; the pixels at +0x420; then the smaller mipmaps. The mesh's texture
+  numbers index this list.
+- **Which entry is what:** 0 is the armor a new game starts in (Veldin). Entries 0–34
+  are meshes of this kind and all decode; 14–28 are the same size and look like copies.
+  Entry 31 is the wrench: `wrench_load` reads it whatever the armor, and gives its mesh
+  to the wrench's class (0x47), whose class in the core has no packets. Entries 35–55
+  start with a whole moby class (a skeleton of their own), probably the multiplayer
+  characters, and aren't read yet.
+- **Clank's texture:** Clank's class (0x259, in the core) has its own mesh, but the core's
+  class table names no textures for it (all 0xFF). `clank_texture_load` reads Clank
+  texture 0 from the pairs after the armor entries: a bare PIF2 image.
+- **The GS's copy:** the textures go to fixed GS addresses kept at 0x1A1EE0 (palettes:
+  armor, wrench, a gadget, Clank) and 0x1A1EF4 (images, the same order), and each
+  packet's TEX0 is rewritten to point there at load.
+
+## The wrench and Clank on the hero [verified 2026-10-13]
+
+- **Orientation:** in the Veldin image the wrench (on joint 56) and Clank (on joint 5)
+  have their joint's world orientation to within 0.004, and their own class's scale
+  (0.2083), not the hero's. So at rest the wrench sits at joint 56's rest position with
+  its class axes unturned, and Clank at joint 5's.
+- **Their own poses:** each plays its own sequence: the wrench sequence 1 and Clank
+  sequence 13 in the Veldin image, where Ratchet stands. Posed that way, the wrench points
+  out along Ratchet's T-pose arm and up, about (0.87, 0.47, 0.12) in the hero's
+  Bevy-axis space from the hand; that is the direction the rig's wrench joint uses for
+  every model (`rac_rig::model::wrench_points`).
+- **Clank's back form** (class 0x259, 33 joints): 0 the root, 1 the hips, 4 the head's
+  pivot, 5 the top of the head with the antenna chain 6–10, the face (eyes, lids, mouth)
+  13–25 under 4, the feet 27 (right) and 28 (left) under 26, and a back plate 29–32. It
+  has no arm joints.
 
 ## Where this is used
 
-- `crates/rac_formats/src/moby/`: the reader (class, skeleton, keyframes, packets), tested
-  on synthetic data.
+- `crates/rac_formats/src/moby/`: the reader (class, skeleton, keyframes, packets and the
+  assembled mesh), tested on synthetic data; `rac_formats::armor` and
+  `rac_formats::texture` read the armor WAD and its images.
 - `openrac-tool moby`: describes a class in an EE image and writes it as a `.glb` into
-  `cache/models/` (`docs/re-setup.md`, "Extracting a model").
+  `cache/models/`, now with the mesh's own skin weights (`docs/re-setup.md`, "Extracting a
+  model").
 - `openrac-tool hero`: reads the hero's skeleton and animations from the UYA disc image
   itself, and with `--check-ee` compares them with a memory image of the same level.
-- `crates/rac_rig`: the hero kit's placeholder model. Its joints sit where UYA's hero's
-  do, rounded to the centimetre, and each names the UYA joint it stands for, so these
-  animations can drive it. Its blocks were sized against the hero's mesh, measured per
-  body part (head 0.40 × 0.39 m, ears to 1.42 m, feet 0.38 m long, tail 0.63 m). No
+- `crates/rac_rig`: the hero kit's skeleton and its open model. Its joints sit where UYA's
+  hero's do, rounded to the centimetre, and each names the UYA joint it stands for, so
+  these animations can drive it. Its blocks were sized against the hero's mesh, measured
+  per body part (head 0.40 × 0.39 m, ears to 1.42 m, feet 0.38 m long, tail 0.63 m). No
   geometry or animation from the disc is in the repository.
+- `crates/openrac/src/hero_model.rs`: at start-up, Ratchet in armor 0 with its textures,
+  the wrench and Clank, skinned to the rig's skeleton as the model "uya" (PLAN.md §5,
+  2026-10-13). Nothing read is stored.

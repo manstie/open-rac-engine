@@ -12,7 +12,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use bevy::prelude::*;
 use rac_hero::{HeroMotion, HeroState, JumpKind};
 
-use crate::model::{JointDef, joint};
+use crate::model::{JointDef, joint, wrench_points};
 
 /// Metres the hero covers in one stride (two steps) at a run.
 const STRIDE: f32 = 1.5;
@@ -152,7 +152,7 @@ fn wrench_at_rest(b: &mut Builder) {
     let down_back = Vec3::new(0.15, -0.9, 0.35).normalize();
     b.world(
         joint::HAND_R,
-        Quat::from_rotation_arc(Vec3::NEG_Z, down_back),
+        Quat::from_rotation_arc(wrench_points(), down_back),
     );
 }
 
@@ -220,7 +220,10 @@ fn reach_right(b: &mut Builder, joints: &[JointDef], hand: Vec3, tip: Vec3) {
         Quat::from_rotation_arc(lower_rest, (wrist - elbow).normalize()),
     );
     let wrench = (tip - hand).normalize_or(Vec3::NEG_Z);
-    b.world(joint::HAND_R, Quat::from_rotation_arc(Vec3::NEG_Z, wrench));
+    b.world(
+        joint::HAND_R,
+        Quat::from_rotation_arc(wrench_points(), wrench),
+    );
 }
 
 /// The pose for the hero's state now. `phase` is the stride's phase and `time` the rig's
@@ -430,7 +433,7 @@ mod tests {
         let pose = target(&model.joints, &motion, 0.0, 0.0);
         let arm = world_rotation(&model.joints, &pose, joint::SHOULDER_R) * Vec3::X;
         assert!(arm.y < -0.8, "{arm}");
-        let wrench = world_rotation(&model.joints, &pose, joint::HAND_R) * Vec3::NEG_Z;
+        let wrench = world_rotation(&model.joints, &pose, joint::HAND_R) * wrench_points();
         assert!(wrench.y < -0.8, "{wrench}");
     }
 
@@ -460,7 +463,7 @@ mod tests {
         let lower = world_rotation(joints, &pose, joint::ELBOW_R)
             * (joints[joint::HAND_R].rest - joints[joint::ELBOW_R].rest);
         assert!((shoulder + upper + lower).distance(hand) < 1e-3);
-        let wrench = world_rotation(joints, &pose, joint::HAND_R) * Vec3::NEG_Z;
+        let wrench = world_rotation(joints, &pose, joint::HAND_R) * wrench_points();
         assert!(wrench.distance(Vec3::NEG_Z) < 1e-3);
     }
 

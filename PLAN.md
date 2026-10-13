@@ -122,9 +122,19 @@ the game itself.**
    - strafe speeds and lock-on, with targets from P1.9.
 5. **Done 2026-10-13:** swimming (P1.5), the level warp (RE.5), melee (P1.8), the
    placeholder model with the moby reader (P1.17, P3.7, P2.7), and the disc layer for UYA
-   with the real animations (P2.1–P2.4, P3.3). All of it is uncommitted in
-   the tree because the owner couldn't enter the signing password: **owner, commit it**
-   (suggested messages in §9's entries).
+   with the real animations (P2.1–P2.4, P3.3). Committed together as `f695bfb`.
+   - **Done 2026-10-13 (owner's goal, §5):** selectable hero models, the
+     open one or a game import, all on the rig's skeleton (P1.17, P3.7).
+     - `rac_rig` wears any model skinned to its skeleton (`RigModels`, `ModelData`,
+       `wear.rs`); the blocky model is now one, with rigid weights. `SkeletonMap`
+       (`retarget.rs`) checks a game skeleton lines up and moves poses and weights across.
+     - The model "uya": Ratchet in armor 0 with its textures, the wrench and Clank, read
+       from the user's disc at start-up and skinned to the rig (`openrac/src/hero_model.rs`;
+       `moby-format.md`, "Mesh", "The armor WAD"). The mesh decode is complete.
+     - The menus' "Model" button and `--model` choose; the choice is saved in
+       `settings.toml`. Both models checked on Xvfb with the disc's animations.
+     - Next, if wanted: the other armors as models (entries 0–34 decode; 35–55 are whole
+       classes), metal packets (the wrench's chrome), and the gadget texture slot.
    - **Owner, before publishing the model:** `rac_rig` is a recognisable Ratchet and
      Clank, which goes further than G1's primitive-shape placeholder (§5, 2026-10-13).
      Keep it, or ask for a less recognisable stand-in.
@@ -384,6 +394,7 @@ App
 | 2026-10-13 | **The placeholder hero is a blocky, medium-poly, flat-shaded gold model of Ratchet, Clank and the wrench, made by hand in code with UYA's hero as the visual reference** (owner's request; P1.17). Nothing converted from the disc is committed: the extracted mesh, skeleton and animations stay in `cache/`, and the rig's own geometry and skeleton are our measurements in our own data. The rig follows UYA's joint layout, so animations extracted from the user's own disc can drive it; without a disc it plays animations made in code. **Owner's call before publishing:** the likeness is still Sony's character, so this goes further than G1's primitive-shape placeholder. |
 | 2026-10-13 | The placeholder model lives in its own kit crate, **`rac_rig`** (with Bevy's `bevy_pbr`), so `rac_hero` stays free of rendering. The rig only reads `HeroBody` and poses itself procedurally; animations from a disc will reach it through each joint's UYA index, loaded by `openrac`, never by a kit crate. Models extracted for reference (`openrac-tool moby --glb`) go in `cache/models/` only. |
 | 2026-10-13 | **Game data reaches the kit only at run time, through kit-level types.** `openrac` reads the hero's animations from the user's own disc at start-up and hands `rac_rig` clips on its own joints (`RigAnimations`); the kit never reads a disc, and nothing read is stored. The disc folder is `source/` by default (`--discs`), matching G2. |
+| 2026-10-13 | **The hero's model is selectable: the open-source rig model or a model imported from one of the user's own discs** (owner's request). Every model wears the **rig's skeleton** (`rac_rig::model::joint`): it gives its own rest position for each joint and a mesh whose skin weights name those joints, so one character controller and one set of clips (procedural or from a disc) drive any of them. An import is offered only when its bones line up: each rig joint has a joint in the game's skeleton that descends from the rig parent's, and the game's other joints fold into their nearest such ancestor. Clips carry joint offsets from the source skeleton's rest, so each model keeps its own proportions. Joints whose frame matters beyond their position follow the game's convention: every model's wrench points from the hand at rest the way UYA's held wrench does (`model::wrench_points`). Imports are converted at run time like the animations; none is stored. The player picks the model in the menus (saved in `settings.toml`) or with `--model`. |
 | 2026-10-13 | The same research instances may be sent to any level by writing the games' own level-change request (`tools/pine-probe/warp.sh`), so traces of place-bound moves don't wait on a play-through. The catalogue says which savestates were reached this way, and with which items. |
 | 2026-10-13 | **parry3d's `enhanced-determinism` feature is off, and must stay off.** It turns on glam's `scalar-math` for the whole build, so `Vec4` loses its 16-byte alignment. Bevy sizes its GPU mesh buffers with `size_of`, so `MeshUniform` became 168 bytes against the shaders' 176. Every render phase's buffer then fell 8 bytes per mesh short, and a phase holding one mesh (the demo's water) failed wgpu validation and quit the app. Determinism keeps the rest of what the feature gave: `rac_hero` depends on `glamx` only to turn on its `libm` feature, so parry's scalar maths (through simba's `libm_force`) still avoid each platform's C library. The ordered hash maps it also gave are only used by parry's mesh building and voxels, never by the kit's queries (balls, capsules, cuboids, rays). glam's SSE2 path rounds identically on Windows and Linux as long as FMA is off (section 2). `openrac` asserts the alignment at compile time. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
@@ -1058,6 +1069,28 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
       the hero is procedural as before. Nothing read from the disc is stored.
     - Tests: `rac_rig` clips (4), `openrac` conversion (3), and one disc test
       (`OPENRAC_SOURCE_DIR`, ignored without discs). Checked headlessly on Xvfb.
+  - **2026-10-13, done (owner's goal: "select the open-source model or one of the game
+    imports, so long as the bones line up and weights are interchangeable")** (§5):
+    - `rac_rig` dresses each hero with a `RigLook` in the chosen model from `RigModels`,
+      as skinned meshes on its joints, and re-dresses when the choice changes. A model is
+      a `ModelData`: a rest position per rig joint and surfaces whose weights name rig
+      joints; `check` refuses one that doesn't fit. The blocky model is the model "open".
+    - `SkeletonMap` lines a game's skeleton up with the rig's (each rig joint's source
+      descends from its parent's), folds the joints the rig leaves out into their nearest
+      mapped ancestor, and turns source poses into rig poses. Clips now carry offsets from
+      the source's rest, so each model keeps its own proportions.
+    - The wrench joint follows UYA's convention, the way the game's held wrench points
+      from the T-pose hand (`model::wrench_points`); the open wrench was turned to match
+      and the procedural poses aim by it, so disc clips swing either wrench as the game
+      does.
+    - `openrac` imports the model "uya" at start-up (`hero_model.rs`): Ratchet in armor 0
+      with its two textures, the wrench (armor-WAD entry 31) and Clank (his class in
+      Veldin's core, his texture from the armor WAD), the latter two baked in the poses
+      the game shows and folded onto the rig's wrench and Clank joints.
+    - Chosen in the main and pause menus ("Model"), saved as `hero_model` in
+      `settings.toml`, or with `--model`.
+    - Tests: `rac_rig` (wear 3, retarget 3, dressing 1), `openrac` (fold, winding, the
+      skeleton check, and two disc tests: the import, and every armor mesh decodes).
     - Not done: the idle fidgets (1, 2), landing animations (12), the walk's speed
       thresholds read in code (5 u/s is from the trace), and facial and finger joints.
 - [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
@@ -1142,11 +1175,14 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
 
 - [ ] **P3.1** ELF and overlay model, and a **catalogue of each game's VU microcode**
   (DVP overlays). The renderer work depends on it.
-- [ ] **P3.2** Textures:
+- [~] **P3.2** Textures:
   - Formats: PSMT8/PSMT4 with RGBA32/16 CLUTs, CSM1 palette order, GS swizzles, alpha 0x80
     → 1.0, and mips.
   - Texture tables and the GS RAM table → Bevy `Image`.
   - A texture browser for debugging.
+  - 2026-10-13: the armor WAD's PIF2 images (8-bit, CSM1 palette, alpha 0x80) →
+    `rac_formats::texture` → Bevy `Image` (`moby-format.md`, "The armor WAD"). The core
+    header's texture tables are located but not read (`disc-layout.md`).
 - [~] **P3.3** The level core header (0xBC) and the class tables.
   - 2026-10-13: UYA's level header, data part, core header, moby class table and hero
     sequence table (`rac_formats::level`, `disc-layout.md`, "Level data"). The core
@@ -1162,10 +1198,16 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     `docs/research/moby-format.md`): the class header, skeleton and every keyframe
     (compressed and whole) decode and are verified; mesh positions and strips decode.
     Open: duplicate vertices (a quarter of the hero's triangles), the VU0 matrix slots
-    (skinning weights), and textures.
+    (skinning weights), and textures. **All three done the same day** (next entries).
   - 2026-10-13: classes are read from the disc too (`Placement::Packed`), and the hero's
     skeleton and all 127 sequences come straight from the UYA disc image
     (`level::Core::hero`, `openrac-tool hero`), matching the memory image exactly.
+  - 2026-10-13: **the mesh decodes completely** (`Mesh::assemble`, `moby-format.md`,
+    "Mesh"): vertex IDs and the vertex cache (duplicates), the VU0 slot machine (one to
+    three joints per vertex, weights out of 256), normals, texture coordinates and
+    texture switches, following ReRAC's notes (ISC) and checked on every UYA armor mesh,
+    the wrench and Clank. The armor WAD is read (`rac_formats::armor`). Not yet: metal
+    packets, bangles, and armors 35–55 (whole classes).
 - [ ] **P3.8** Sky: shells, and rotation converted from per-frame to per-second using the
   region's refresh rate.
 - [ ] **P3.9** Collision: the octant grid and triangle/quad faces with their type byte.
@@ -1397,6 +1439,13 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-13 (selectable models):** P1.17, P3.7, P3.2, owner's goal. Committed.
+  - `rac_rig` wears any skinned model (`RigModels`, `SkeletonMap`); the blocky model is
+    one. The armor WAD, the full moby mesh decode and PIF2 textures read in Ghidra and
+    `rac_formats`; `openrac` imports Ratchet, the wrench and Clank as the model "uya".
+  - Chosen in the menus or with `--model`. Checked on Xvfb with both models.
+  - Next: other armors as models, metal packets, or the level's own textures (P3.2).
 
 - **2026-10-13 (render crash):** P1.2 and P1.5, owner's bug report. Committed. The demo
   quit with "Binding size 168 ... less than minimum 176" once the water came into view.

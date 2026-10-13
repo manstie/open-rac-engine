@@ -5,7 +5,7 @@
 use rac_formats::moby::{MobyClass, PacketKind};
 use serde_json::{Value, json};
 
-use crate::pose::{Local, local_pose, nearest_bone, to_gltf};
+use crate::pose::{Local, local_pose, to_gltf};
 
 /// Ticks per second: keyframe lengths are in 60 Hz ticks.
 const TICK_HZ: f32 = 60.0;
@@ -127,28 +127,20 @@ pub fn write(class: &MobyClass, name: &str) -> anyhow::Result<Written> {
         }
     }
 
-    // The mesh: the high-detail packets' own vertices, each following the bone it lies
-    // nearest.
-    let mut positions = Vec::new();
-    let mut joints = Vec::new();
-    let mut indices: Vec<u32> = Vec::new();
-    for packet in class.packets.iter().filter(|p| p.kind == PacketKind::High) {
-        let first = (positions.len() / 3) as u32;
-        for vertex in &packet.positions {
-            let model = vertex.map(|v| v as f32);
-            positions.extend(to_gltf(model.map(|v| v * unit)));
-            joints.extend([nearest_bone(class, model) as u8, 0, 0, 0]);
-        }
-        for triangle in packet.triangles() {
-            if triangle.iter().all(|&i| i < packet.positions.len()) {
-                indices.extend(triangle.map(|i| first + i as u32));
-            }
-        }
+    // The mesh at high detail, with its own skin weights.
+    let mesh = class.mesh(PacketKind::High)?;
+    let mut positions = Vec::with_capacity(mesh.vertices.len() * 3);
+    let mut joints = Vec::with_capacity(mesh.vertices.len() * 4);
+    let mut weights = Vec::with_capacity(mesh.vertices.len() * 4);
+    for vertex in &mesh.vertices {
+        positions.extend(to_gltf(vertex.position.map(|v| v as f32 * unit)));
+        joints.extend(vertex.skin.joints);
+        joints.push(0);
+        weights.extend(vertex.skin.weights.map(|w| w as f32 / 256.0));
+        weights.push(0.0);
     }
-    let vertex_count = positions.len() / 3;
-    let weights: Vec<f32> = (0..vertex_count)
-        .flat_map(|_| [1.0, 0.0, 0.0, 0.0])
-        .collect();
+    let indices: Vec<u32> = mesh.triangles.iter().flat_map(|t| t.corners).collect();
+    let vertex_count = mesh.vertices.len();
     let position = buffer.floats(&positions, 3, true);
     let joint_bytes = buffer.accessor(
         &joints,

@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 pub struct Settings {
     pub input: InputSettings,
+    /// The hero's model, by name (`rac_rig::RigModels`); the open model if unset.
+    pub hero_model: Option<String>,
 }
 
 /// Where the app keeps its files.
@@ -125,6 +127,7 @@ mod tests {
         let path = temp_file("saved.toml");
         let mut settings = Settings::default();
         settings.input.invert_look_y = true;
+        settings.hero_model = Some("uya".into());
         save(&path, &settings).unwrap();
         assert_eq!(load_or_create(&path), settings);
     }

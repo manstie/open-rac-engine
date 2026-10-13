@@ -7,7 +7,7 @@
 //! geometry comes from the game. The joints follow UYA's layout (each names the UYA joint
 //! it stands for), so animation read from a disc can drive the rig later.
 
-use bevy::math::{Vec2, Vec3};
+use bevy::math::{Quat, Vec2, Vec3};
 
 use crate::shapes::{at, beam, block_at};
 
@@ -65,6 +65,20 @@ pub struct JointDef {
     pub rest: Vec3,
     /// The UYA hero joint it stands for, if any.
     pub uya: Option<u8>,
+}
+
+/// Which way the wrench points from the right hand at rest, in the hero's space: out
+/// along the arm and up, as UYA's held wrench does (its pose while Ratchet stands,
+/// measured on the user's disc). Every model's wrench points this way, so clips from a
+/// disc swing any of them as the game swings its own, and the procedural poses aim the
+/// hand by it.
+pub fn wrench_points() -> Vec3 {
+    Vec3::new(0.87, 0.47, 0.12).normalize()
+}
+
+/// The open wrench is modelled pointing forward, then turned about the hand by this.
+pub(crate) fn wrench_turn() -> Quat {
+    Quat::from_rotation_arc(Vec3::NEG_Z, wrench_points())
 }
 
 /// Which material a part is drawn in.
@@ -224,7 +238,8 @@ fn joints() -> Vec<JointDef> {
         own("clank_arm_r", CLANK, at(-0.26, -0.115, 0.95)),
         own("clank_leg_l", CLANK, at(-0.19, 0.06, 0.68)),
         own("clank_leg_r", CLANK, at(-0.19, -0.06, 0.68)),
-        // The wrench sits on the hand joint, pointing forward at rest, as UYA's does.
+        // The wrench sits on the hand joint; it points as UYA's held wrench does
+        // ([`wrench_points`]).
         own("wrench", HAND_R, at(-0.02, -0.52, 0.88)),
     ]);
     debug_assert_eq!(joints.len(), COUNT);
@@ -631,7 +646,8 @@ fn clank_parts() -> Vec<PartDef> {
 }
 
 /// The wrench, in the right hand at rest: the grip through the fist, the shaft and the
-/// claw ahead of it, 0.83 m in all (UYA's is 0.82).
+/// claw ahead of it, 0.83 m in all (UYA's is 0.82), modelled pointing forward and turned
+/// to [`wrench_points`].
 fn wrench_parts() -> Vec<PartDef> {
     use Look::*;
     let v = Vec2::new;
@@ -685,6 +701,13 @@ fn wrench_parts() -> Vec<PartDef> {
                 0.008,
             ),
         ));
+    }
+    let hand = at(-0.02, -0.52, 0.88);
+    let turn = wrench_turn();
+    for part in &mut parts {
+        for point in &mut part.points {
+            *point = hand + turn * (*point - hand);
+        }
     }
     parts
 }

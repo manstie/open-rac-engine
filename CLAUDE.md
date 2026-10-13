@@ -116,6 +116,7 @@ Development is native, with no container.
 | `cargo run --features dev` | Uses Bevy's dynamic linking for faster rebuilds. Never use it for release builds. |
 | `cargo run -- --exit-after-frames 120` | Smoke test. Exits with code 0 after 120 frames. Use it to check rendering works. Add `--demo` to start in the level instead of the menu, and `--spectator` to fly a free camera instead of playing the hero. |
 | `cargo run -- --demo` with the UYA NTSC-U disc image in `source/` | The hero plays Ratchet's real animations, read from the disc at start-up (`--discs DIR` to look elsewhere). Without it his animation is procedural. |
+| `cargo run -- --demo --model uya` (or `open`) | Chooses the hero's model: Ratchet read from the UYA disc, or the open blocky one. The menus' "Model" button does the same and saves the choice. |
 | `cargo run -- --demo --record-input x.orin`, then `--replay-input x.orin` | Records every tick's input, then replays it into the same simulation. `--settings <file>` keeps test runs out of the real settings file. |
 | `cargo fmt --all` | Formats the code. |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings treated as errors. |

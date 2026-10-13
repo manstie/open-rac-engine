@@ -11,6 +11,7 @@ publish = false
 bevy = { workspace = true, features = ["std", "libm", "bevy_pbr"] }
 rac_hero.workspace = true
 rac_sim.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
