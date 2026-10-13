@@ -250,7 +250,9 @@ fn crouch_lets_go_and_the_hero_falls() {
 }
 
 #[test]
-fn the_stick_to_one_side_shimmies_along_the_ledge() {
+fn a_shimmy_steps_like_the_trace_and_finishes_its_cycle() {
+    // "Ledges", shimmy [verified on UYA NTSC]: still for nine ticks, then the steps the
+    // trace shows, and a whole cycle of 0.623 u even when the stick lets go part-way.
     let mut rig = ledge_rig();
     hang(&mut rig);
     let start = rig.hero.position;
@@ -258,13 +260,54 @@ fn the_stick_to_one_side_shimmies_along_the_ledge() {
     let left = input(Some([-127, 0]), &[], &[]);
     rig.tick(&left);
     assert_eq!(rig.hero.state, HeroState::LedgeShimmy(Side::Left));
-    rig.ticks(30, &left);
+    let mut steps = Vec::new();
+    for _ in 0..18 {
+        let before = rig.hero.position;
+        rig.tick(&left);
+        steps.push(rig.hero.position.distance(before));
+    }
+    let mut expected = vec![0.0; 9];
+    expected.extend([
+        0.0125, 0.0125, 0.025, 0.025, 0.0375, 0.0375, 0.081, 0.081, 0.081,
+    ]);
+    for (tick, (step, want)) in steps.iter().zip(&expected).enumerate() {
+        assert!(
+            (step - want).abs() < 1e-4,
+            "tick {}: {step} not {want}",
+            tick + 1
+        );
+    }
+    rig.until(30, &idle(), |hero| hero.state == HeroState::LedgeHang);
     let moved = start.x - rig.hero.position.x;
-    let expected = rig.profile.ledge.shimmy_speed * 30.0 / 60.0;
-    assert!((moved - expected).abs() < 0.05, "moved {moved}");
+    assert!((moved - 0.623).abs() < 3e-3, "moved {moved}");
     assert!((rig.hero.position.y - start.y).abs() < 1e-3);
-    rig.tick(&idle());
-    assert_eq!(rig.hero.state, HeroState::LedgeHang);
+    // It settles a skin's width nearer the wall than the hang it started from.
+    assert!(
+        (rig.hero.position.z - start.z).abs() < 0.02,
+        "{start} {}",
+        rig.hero.position
+    );
+}
+
+#[test]
+fn the_climb_moves_forward_from_its_fifth_tick() {
+    // "Ledges", ledge jump [verified on UYA NTSC]: still for four ticks, then towards
+    // 2 u/s at 8 u/s², which it keeps until he lands.
+    let mut rig = ledge_rig();
+    hang(&mut rig);
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Ledge));
+    // The speed, not the motion: the kit's capsule keeps a skin's width from the lip, so
+    // it rubs it for a few ticks where the game's hero passes clear.
+    for tick in 1..=30u32 {
+        rig.tick(&idle());
+        let speed = Vec3::new(rig.hero.velocity.x, 0.0, rig.hero.velocity.z).length();
+        let want = (tick.saturating_sub(4) as f32 * 8.0 / 60.0).min(2.0);
+        assert!(
+            (speed - want).abs() < 1e-4,
+            "tick {tick}: {speed} not {want}"
+        );
+    }
 }
 
 #[test]

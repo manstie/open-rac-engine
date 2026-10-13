@@ -105,9 +105,28 @@ the game itself.**
    - **Since 2026-10-13 we can get there ourselves:** `tools/pine-probe/warp.sh` sends a
      headless UYA or DL game to any level by writing the games' own level-change request
      (`docs/re-setup.md`, "Going straight to a level", with UYA's level list).
-   - `uyantsc-sewers-swim.p2s` already starts the hero swimming (level 28).
-   - Next: find a wall-jump wall, a ledge and a rail in the warped-to levels, savestate
-     next to each, and trace the moves with scripted play.
+   - **Swimming is traced (2026-10-13):** four sewer traces (level 28) verify the
+     surface float and bob, the surface swim, the water jump, the dive, underwater
+     swimming and the fast swim (`hero-controller.md`, "Swimming"). They also found that
+     water can flow, a no-dive timer the levels set, and the underwater wall slide. The
+     kit needed no change.
+   - **Ledges are traced (2026-10-13):** three traces at the stacked crates west of
+     Veldin's start (`uyantsc-veldin-ledge.p2s`) verify the grab, hang, shimmy steps,
+     letting go and the climb. They corrected two things: the shimmy's table sets each
+     step's length, and the climb's forward speed holds outside animation frames 13–30.
+     The kit now steps its shimmy by the game's table and times the climb from the trace
+     (`rac_hero` tests `a_shimmy_steps_like_the_trace…`, `the_climb_moves_forward…`).
+   - **The wall jump is traced (2026-10-13)** against a side wall of the Starship
+     Phoenix (`uyantsc-phoenix-wall.p2s`): its parameters, the cling, 4.9 u/s along the
+     normal and the turn all match the code, and the kit already had them.
+   - **Next: a rail.** UYA's rail list is at 0x1DFD10, with the count at 0x1DFD14; the grind
+     boots are at 0x142CAE. Read in normal play, once the level is up (straight after a
+     warp they still show Veldin's), levels 2, 4, 5, 7–10, 13, 14, 16, 17 and 24 have none.
+     Level 11 read pointer 0x6E, count 960, which looks like a different layout; check it
+     first. Not scanned yet: 19, 21, 22, 6, 27 and the vid-comics. The research boot is
+     `uya-place` (`docs/re-setup.md`, swim traces row). Its scan script is lost with the
+     scratchpad: warp from Veldin, press Start through cutscenes until `game_mode` is 0,
+     then peek both words.
    - **Owner, when convenient:** a half-tilt stick recording on an NTSC disc (`docs/re-setup.md`,
      "Still wanted"). Recordings of the place-bound moves are still welcome, but no
      longer needed to reach them.
@@ -1439,6 +1458,12 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-13 (place-bound moves):** RE.3, RE.5, P1.5. Traced swimming (Aquatos sewers),
+  ledges (Veldin's crates) and the wall jump (Starship Phoenix) with scripted play in a
+  private boot (`uya-place`); all match the code apart from corrections in
+  `hero-controller.md`. The kit's shimmy and climb now follow the traces. Committed.
+  Next: find a level with rails (§0, next action 1).
 
 - **2026-10-13 (selectable models):** P1.17, P3.7, P3.2, owner's goal. Committed.
   - `rac_rig` wears any skinned model (`RigModels`, `SkeletonMap`); the blocky model is

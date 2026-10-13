@@ -484,15 +484,15 @@ note = "Sets the move angle from the camera-relative stick (the yaw when release
 name = "anim_table_over_step"
 address = 0x004E1368
 kind = "function"
-confidence = "medium"
-note = "A per-frame table weighted over the frames the hero's animation crossed last tick (frame 0x1A57F8, step 0x1A57FC); the swim stroke uses it."
+confidence = "high"
+note = "(table, length): frac(frame) × table[frame] + (step − frac(frame)) × table[frame − 1], with the frame at 0x1A57F8 and last tick's step at 0x1A57FC; wraps unless bit 2 of 0x1A57E8 is set. The swim stroke uses it. Checked on every swimming frame of the sewer traces (2026-10-13)."
 
 [[symbol]]
 name = "swim_stroke_table"
 address = 0x002F6630
 kind = "data"
-confidence = "medium"
-note = "30 floats: how hard each frame of the swimming stroke pushes, 0.4 rising to 1.0 on frames 8-11 and back to 0.4 by frame 23."
+confidence = "high"
+note = "30 floats: how hard each frame of the swimming stroke pushes, 0.4 rising to 1.0 on frames 8-11 and back to 0.4 by frame 23. The same values are at 0x2F37B0 in the Aquatos sewers' overlay (level 28)."
 
 [[symbol]]
 name = "hero_swim_block"
@@ -521,6 +521,30 @@ address = 0x001A57E0
 kind = "data"
 confidence = "medium"
 note = "Speed of the hero's animation; it advances rate × 0x1A57E4 (0.5 in the Veldin image) frames a tick. Swimming sets it from the speed."
+
+# 2026-10-13, swimming traced in the Aquatos sewers (docs/research/hero-controller.md,
+# "Swimming"): what stops a dive, and what bends the underwater velocity.
+
+[[symbol]]
+name = "hero_no_dive_timer"
+address = 0x001A4DDE
+kind = "data"
+confidence = "high"
+note = "i16 countdown; a dive from the surface needs it at 0. hero_timers_update counts it down and on Florana (2) and Marcadia (4) sets it to 10 every frame. In the Aquatos sewers' overlay a level object (update at 0x323B68 there) sets it to 2 every frame while the hero is in its volume and outside its two exception volumes; in a new game's sewers that is everywhere."
+
+[[symbol]]
+name = "hero_timers_update"
+address = 0x004FAA68
+kind = "function"
+confidence = "medium"
+note = "Counts down the hero's i16 timers at 0x1A4DB0-0x1A4DFC each frame, among them hero_no_dive_timer, which it holds at 10 on levels 2 and 4."
+
+[[symbol]]
+name = "hero_wall_slide"
+address = 0x004EB5D0
+kind = "function"
+confidence = "high"
+note = "(force): probes along the intended velocity's direction (0x1A4CD0) and, against a surface steeper than 50° or of material 8 or 12, removes the velocity's part into it. The probe starts 0.395 u up and reaches 0.5 u (and 1.4 × that from 0.3 × the height); under water (types 17, 18) it starts at the origin and reaches 0.7 u. Seen on 240 underwater frames of the sewer traces: the intended velocity was the swim's own less its part into the channel's wall."
 
 # 2026-10-13, changing level (docs/re-setup.md, "Going straight to a level"). Writing a
 # level number to level_next and 1 to level_change_request in a running game loads that

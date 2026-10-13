@@ -283,9 +283,16 @@
         shimmy_stick: 0.5,
         shimmy_degrees: 45.0,
         shimmy_probe: 0.3,
-        // The game steps by a per-animation-frame table whose resulting speed isn't
-        // traced yet [placeholder].
-        shimmy_speed: 1.0,
+        // The shimmy steps by its animation's table [verified on UYA NTSC, 2026-10-13]:
+        // towards the ledge 0.1 u to the side (0.2 × the hang's 0.5 u offset), 0.5 × the
+        // frame's entry long. The animation sits at frame 0 for 6 ticks, then runs half a
+        // frame a tick; a cycle ends on frame 14, before its last entry, so covers 0.623 u.
+        shimmy_look: 0.1,
+        shimmy_steps: [0.0, 0.0, 0.025, 0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037, 0.037, -0.017, -0.017, -0.035, -0.035],
+        shimmy_step_scale: 0.5,
+        shimmy_blend_ticks: 6,
+        shimmy_frames_per_tick: 0.5,
+        shimmy_cycle_frames: 14.0,
         shimmy_turn: (gain: 0.02, damping: 0.2, cap: 0.0785398),
         // State 27, the ledge jump: 2.0-2.05 u, hold 1, push-off 4, gravity 25 [code].
         climb: (
@@ -297,13 +304,16 @@
             apex_gravity_factor: 1.0,
             air_speed: 6.17,
         ),
-        // Forward 0 until animation frame 13, then towards 2 u/s at 8 u/s² until 27, back
-        // towards 0 until 30, then 0 [code].
+        // The game moves forward towards 2 u/s at 8 u/s² between the climbing animation's
+        // frames 13 and 27, back towards 0 until 30, and leaves the speed alone outside
+        // them [code]. The animation reached 13 on the climb's 5th tick and jumped to
+        // another clip past 30 on its 36th, so the speed held at 2 u/s until he landed
+        // [verified on UYA NTSC, 2026-10-13].
         climb_forward_speed: 2.0,
         climb_forward_accel: 8.0,
-        climb_forward_from_tick: 13,
-        climb_forward_until_tick: 27,
-        climb_forward_stop_tick: 30,
+        climb_forward_from_tick: 5,
+        climb_forward_until_tick: 35,
+        climb_forward_stop_tick: 35,
         climb_turn_after_tick: 40,
     ),
     // State 125, "Charge boots" [verified on DL NTSC, apart from the descent and the wall

@@ -371,13 +371,26 @@ pub struct LedgeProfile {
     /// Jump with the stick pulled further than this from the facing lets go, in degrees.
     pub let_go_degrees: f32,
     /// The stick past this and within `shimmy_degrees` of a side shimmies that way, if a
-    /// ledge goes on `shimmy_probe` to that side.
+    /// ledge goes on `shimmy_probe` to that side. At the end of each cycle of the shimmy's
+    /// animation the same test decides whether it goes on or hangs.
     pub shimmy_stick: f32,
     pub shimmy_degrees: f32,
     pub shimmy_probe: f32,
-    pub shimmy_speed: f32,
+    /// Each shimmy tick the ledge is looked for `shimmy_look` to the side, and the hero
+    /// steps towards it by `shimmy_step_scale` × the entry of `shimmy_steps` for the
+    /// animation's frame. The entry sets the step's length; a negative one steps back.
+    pub shimmy_look: f32,
+    pub shimmy_steps: Vec<f32>,
+    pub shimmy_step_scale: f32,
+    /// The animation is at frame 0 until tick `shimmy_blend_ticks`, then advances
+    /// `shimmy_frames_per_tick` a tick; a cycle is `shimmy_cycle_frames` long.
+    pub shimmy_blend_ticks: u32,
+    pub shimmy_frames_per_tick: f32,
+    pub shimmy_cycle_frames: f32,
     pub shimmy_turn: TurnSpring,
-    /// The climb: a jump with its own forward speed, timed like its animation.
+    /// The climb: a jump with its own forward speed, timed like its animation. Before
+    /// `climb_forward_from_tick` and after `climb_forward_stop_tick` the speed is left as
+    /// it is: 0 at first, and whatever it had reached at the end.
     pub climb: JumpParams,
     pub climb_forward_speed: f32,
     pub climb_forward_accel: f32,

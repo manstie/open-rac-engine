@@ -702,11 +702,35 @@ the throw sends the wrench out and back (P1.8).
 - The Gladiator traces contain ledge grabs and ledge jumps that we have not yet compared
   with this.
 
-## Wall jump (state 17) [code, UYA NTSC, 2026-10-12]
+## Wall jump (state 17) [code, then verified on UYA NTSC, 2026-10-13]
 
 Read in `hero_detect_wall` (0x4E39B8), the transitions (`hero_transitions`, 0x503B68),
-`hero_change_state` and the air phase (`hero_air_horizontal`, 0x4EDE80). Not yet seen in a
-trace: Veldin's start has no wall to jump from.
+`hero_change_state` and the air phase (`hero_air_horizontal`, 0x4EDE80).
+
+**Checked against our own UYA NTSC traces** (`uyantsc-phoenix-wall-{1,2}`, scripted keyboard
+play against a side wall of the Starship Phoenix's bridge corridor, level 3;
+`docs/re-setup.md`). A standing jump at an ordinary wall, then X again 0.13 s later. These
+match the code:
+- **The wall window** opened on the jump's 6th frame, the first with the feet 0.4 u or more
+  up (0.53 u), and counted down from there.
+  - It wasn't set again while he rose past the low blocks beside him, so it lasted 5
+    frames.
+  - X pressed later became a double jump. So against a low-based wall the timing is
+    tight.
+- **The wall jump's parameters:** 1.8–1.85 u (tapped and held), push-off 9 frames, hold
+  12, gravity 29 u/s².
+- **The cling:** the 9 push-off frames hold him against the wall, sinking 0.0133 u a
+  frame.
+- **The launch:** sqrt(2 × height × gravity) is added to that sinking speed, less one
+  frame's gravity, as in every jump.
+- **Moving away:** from the 10th frame (`t > 8` in the code) he moves at exactly 4.9 u/s
+  along the wall's normal, with no air control.
+- **The turn** towards the normal starts on the 11th frame: gain 0.042, damping 0.2. Its
+  cap is 0.197804 rad a frame (680°/s), which the code reading rounded to 0.198.
+  - It uses the game's spring: the rate is first clamped to the error, and the yaw snaps
+    to the target once the step leaves it within 1% of the cap.
+- Landing on the edge of a low block afterwards, he went through state 123 for 9 frames
+  before falling. That state isn't read.
 
 - **Wall contact is a 6-frame window.** Every frame the detector may set a countdown to 6
   (7 during a wall jump), which the per-frame timers then count down. A wall jump can
@@ -752,11 +776,11 @@ trace: Veldin's start has no wall to jump from.
   - From frame 9 the horizontal velocity is set every frame to 4.9 u/s (0.081667 u/frame)
     along the wall's normal. There is no air control.
   - From frame 10 the hero turns towards the normal's direction with gain 0.042, damping
-    0.2 and cap 0.198 rad/frame.
+    0.2 and cap 0.197804 rad/frame [verified].
   - Entering the state also writes 1.7 u/s, or 4.9 u/s scaled by the open space behind,
     to a jump-block field that no code in the Veldin overlay reads.
 
-## Ledges (states 23–27) [code, UYA NTSC, 2026-10-12]
+## Ledges (states 23–27) [code, UYA NTSC, 2026-10-12; traced 2026-10-13]
 
 Read in `hero_detect_ledge` (0x4E4550), the state update and the transitions. The game
 runs the detector every frame, before the transitions, at the hero's position, and keeps
@@ -801,21 +825,63 @@ a found flag.
   - R1, or X while pulling the stick more than 135° away from his facing, lets go.
   - The stick past 0.5 and within 45° of either side shimmies that way (25 or 26), if a
     ledge is found 0.3 u to that side.
-- **Shimmy (25, 26):**
-  - Each frame the detector runs at a point a short way to the side, and the hero moves
-    towards the hang point it finds.
-  - The step is that offset times a per-animation-frame factor times 0.5. The factors
-    for its 15 frames are 0, 0, 0.025, 0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037,
-    0.037, −0.017, −0.017, −0.035 and −0.035.
-  - The resulting speed hasn't been traced yet.
-  - It returns to hanging when the stick is released, or no ledge continues.
+- **Shimmy (25, 26)** [verified]:
+  - Each frame the detector runs at a point to the side: 0.2 × the hang point's offset
+    from the lip, flattened, so 0.1 u. The hero moves towards the hang point it finds.
+  - **Each step's length** is 0.5 × a per-animation-frame factor, whatever the distance:
+    the code sets the vector's length. The factors for the 15 frames are 0, 0, 0.025,
+    0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037, 0.037, −0.017, −0.017, −0.035 and
+    −0.035.
+    - The animation advances 0.5 frames a tick, after 6 ticks of blending in at 1/6.
+    - A cycle ends when the animation reaches frame 14, so the last entry is never used.
+      One cycle covers 0.623 u in 28 ticks, about 1.3 u/s if the animation loops on a
+      long ledge. The stack was too narrow to see a second cycle.
+  - Where the side probe finds nothing, he doesn't move that tick.
+  - **It goes on** while the stick stays past 0.5 within 45° of that side and a ledge is
+    found 0.3 u that way. Otherwise it returns to hanging when the animation ends. With
+    the stick still held, the next shimmy starts from hanging.
   - X climbs; X while pulling away lets go (40-frame no-grab timer).
-- **Ledge jump (27):**
+- **Ledge jump (27)** [verified]:
   - Vertically it is the standard model: 2.0–2.05 u, push-off 4 frames, hold 1 frame,
-    gravity 25 u/s².
-  - Its forward speed is tied to the animation. It is 0 until frame 13, eases to 2 u/s at
-    8 u/s² until frame 27, then back towards 0, and is 0 after frame 30.
+    gravity 25 u/s². It peaks 1.97 u above the hanging feet, 0.54 u above the lip.
+  - **Its forward speed follows the animation frame:**
+    - below frame 13 it isn't changed, so it stays 0;
+    - from 13 to 27 it approaches 2 u/s at 8 u/s²;
+    - from 27 to 30 it approaches 0;
+    - past 30 it isn't changed again. (The code reading said 0, which was wrong.)
+  - **Timing:** the climb's animation starts at frame 12 and runs 0.304 frames a tick.
+    So the speed starts on the climb's 5th frame and reaches 2 u/s on its 19th.
+    - In the trace the animation then switched to another clip at frame 31 on the 36th
+      frame. The speed therefore held at 2 u/s until he landed on top, 41 frames in.
   - After 40 frames he turns and steers like a normal jump.
+
+**Checked against our own UYA NTSC traces** (`uyantsc-veldin-ledge-{1,2,3}`, scripted
+keyboard play on Veldin at the two stacked crates west of the start; `docs/re-setup.md`).
+These match the code:
+- **The grab:**
+  - It starts on the first frame the top is 0.5 u or more above the feet (0.550; the
+    frame before had 0.463).
+  - The hang point is the lip less 1.43 u, 0.5 u out from the wall.
+  - He moves towards it at exactly 4 u/s.
+  - He hangs on the 14th frame, once the grab animation (which starts at frame 11) has
+    passed frame 12.
+- **Letting go:** R1, and X with the stick pulled away, each drop him into a fall.
+- **The shimmy's steps and the climb,** as above.
+
+**Found in the traces:**
+- **Hanging (24) doesn't run the detector into the ledge block; shimmying does.**
+  - When a shimmy on the 1 u-wide stack ended at its edge, the hang moved the hero back to
+    the hang point of the original grab, at 4 u/s. Meanwhile he turned towards the lip
+    the shimmy had last found.
+  - About 20° off the wall the hang's own check (the detector at his position, run by the
+    transitions) failed, and he fell.
+  - Whether a long ledge does the same after each shimmy cycle is untested.
+
+**In the hero kit (P1.5, 2026-10-13):** the shimmy steps by the table as above, and the
+climb's forward speed starts on tick 5 and holds from tick 35 (`uya.ron`). **[simplified]:**
+- after a shimmy the kit hangs where it ended;
+- the kit's capsule keeps a skin's width from the lip, so the climb rubs it for a few
+  ticks where the game's hero passes clear.
 
 ## Getting hit and dying [code, UYA NTSC, 2026-10-12]
 
@@ -1015,11 +1081,63 @@ it is untraced.
   - no solid ground is needed under a rail;
   - the fall from a rail with nothing under it isn't there.
 
-## Swimming (states 50–54, 18) [code, UYA NTSC, 2026-10-13]
+## Swimming (states 50–54, 18) [code, then verified on UYA NTSC, 2026-10-13]
 
 Read in `hero_update_state`, `hero_transitions`, `hero_change_state`, the water check
 (`hero_enter_water`, 0x5010B8) and the surface float (`hero_surface_float`, 0x501458).
-Veldin's start has no water, so it is untraced.
+
+**Checked against our own UYA NTSC traces** (`uyantsc-sewers-swim-{1..4}`, scripted
+keyboard play in the Aquatos sewers, level 28; `docs/re-setup.md`). The sewers' water
+flows, which moves the hero (below), so the swim states were checked through what they
+ask for, the intended velocity (hero+0x110), and through the float's own variables. These
+match the code:
+- **The float:** the feet rest 0.12 u under the surface, and the bob on getting in and
+  its damped oscillation hold on all 390 surface-idle frames, to the PS2's rounding.
+- **Getting in** from a water jump: the test uses the feet after that frame's move, and
+  so does the bob's starting offset. Its rate starts at 0.37 × that frame's vertical
+  velocity.
+- **The surface swim (53),** on all 167 frames to 3e-8: the turn spring, the 3 u/s
+  target that is 0 while the stick points more than 45° away, the 4 u/s² rise, and the
+  velocity, speed × 5.5 × the stroke, along the facing.
+- **The water jump:** 1.95–1.98 u, hold 10, push-off 5, gravity 29.7 u/s². The push-off
+  presses him down 0.0134 u a frame, 0.067 u in all.
+- **Under water (50, 52):** 87 frames exact and 240 more after the wall slide (below).
+  - the dive's 40 frames and its 6 u/s target (in 52 too);
+  - 3 u/s in 50 and 7 u/s in 52 with R1 held;
+  - rises of 7 and 13 u/s² and the 4 u/s² fall;
+  - the pitch's cap, 0.01164 rad per frame with no button and 0.02036 at full press;
+  - the stroke's rate, 15 × the speed clamped to 0.25–0.75;
+  - the velocity, speed × 5 × the stroke in 50 and the speed itself in 52, along the yaw
+    and the pitch.
+- **Underwater idle (51)** after a fast swim keeps the velocity's direction and shortens
+  it by 8 u/s² exactly.
+- **Transitions seen:** 54 → 50 on Square, 54 → 52 on Square with R1 held, 50 → 52 on R1,
+  52 → 51 on letting go, surfacing into 54, and 53 → wading (117) in shallow water.
+- A state change takes effect after that frame's update, so the first frame of a new
+  state still moves as the old one did.
+
+**Found in the traces:**
+- **Under water the velocity slides along walls.** After the swim sets its velocity,
+  `hero_wall_slide` (0x4EB5D0) probes 0.7 u along it. If it finds a surface steeper than
+  50° (or of material 8 or 12), it removes the velocity's part into that surface. The
+  surface swim doesn't call it.
+- **Water can flow.** In the sewers' channels the water carried the hero at up to 8 u/s
+  (0.1334 u per frame), speeding up at about 7 u/s² and turning with the channel. Where
+  the channel turned it also lifted him, up to 0.07 u a frame, and it lifted him back to
+  the surface within about two seconds of a dive.
+  - None of it is in the swim states' intended velocity, only in the motion, so something
+    outside the hero's state code applies it. Not read yet.
+- **Diving is switched off by a timer,** `hero_no_dive_timer` (0x1A4DDE, an i16), which
+  must be 0. The hero's timers update counts it down.
+  - In Veldin's build the timers update holds it at 10 on Florana (2) and Marcadia (4).
+  - In the sewers a level object (its update is at 0x323B68 in that overlay) sets it to
+    2 every frame while the hero is in its volume and outside two exception volumes. In
+    a new game's sewers that covers all the water.
+  - For the dive traces the object's store was patched in the research instance to write
+    0 (`uyantsc-sewers-dive.p2s`).
+- **Diving lifts the origin.** On the dive's first frame the hero's position rose
+  0.156 u at once, every time, and stayed there. Diving also calls a function with 3 that
+  isn't read, probably a collision-shape change.
 
 - **The states** (libuya's names):
   - on the surface, type 18: 53 swim (`SWIMSURF`) and 54 idle (`IDLESURF`);
@@ -1059,8 +1177,9 @@ Veldin's start has no water, so it is untraced.
     - its rate starts at 0.37 × the vertical velocity, at most 7 u/s downwards.
   - **When idle (54):** the offset is a damped oscillator. Each frame its rate loses
     0.005 × offset + 0.045 × rate, so it bobs with a period of about 1.5 s.
-    - For the first 10 frames it moves freely, unless it is below the rest height or the
-      hero came up from under water.
+    - While the state's timer is 10 or less it moves freely, unless it is below the rest
+      height or the hero came up from under water. The timer is counted after the
+      update, so that is the first 11 updates [verified].
   - **When swimming (53):** the offset springs to 0 (gain 0.03, damping 0.3, cap
     0.025 u per frame). Above the rest height it also sinks by 0.7 u/s.
   - **Drift:** getting in carries the horizontal velocity on, capped at 5.5 u/s. It slows
@@ -1079,7 +1198,9 @@ Veldin's start has no water, so it is untraced.
     gravity 29.7. From idle, only after 10 frames.
   - **Square pressed within 7 frames:** a dive. From idle, R1 or R2 also dives. It goes
     to 52 if R1 or R2 is held, else to 50.
-    - Diving needs a flag in the hero's data that is probably set per level.
+    - Diving needs `hero_no_dive_timer` at 0, which levels hold above 0 to forbid it
+      ("Found in the traces" above). The hero's class must also have a pointer at
+      +0x120 set, probably the dive animation.
   - **53 → 54:** stick under 0.1, speed 0, and the 45-frame stroke over.
   - **54 → 53:** stick past 0.2, once 10 frames in.
   - **Standing up:** 53 in water under 0.7 u deep goes to wading (117). 54 in water under
@@ -1140,16 +1261,21 @@ Veldin's start has no water, so it is untraced.
     - under water it is 15 × speed (u per frame), clamped to 0.25–0.75.
   - It advances 0.5 × rate frames a tick. The 0.5 is a global read as 0.5 in the Veldin
     image, so it may differ per animation.
-  - **The stroke factor** is a table (0x2F6630) integrated over the frames the animation
-    crossed this tick. The table is:
+  - **The stroke factor** comes from a table (0x2F6630 on Veldin, 0x2F37B0 in the
+    sewers) [verified]. With the animation at frame f after a step s, and k the whole
+    frame of f, it is `frac(f) × table[k] + (s − frac(f)) × table[k − 1]`.
+    - The formula assumes each tick reaches a new frame. With steps under a frame the
+      second term turns negative, so the push saws up and down within each frame.
+    - Over a cycle it still averages s × the table's mean.
+  - **The table:**
     - 0.4 on frames 0–1;
     - rising to 1.0 on frames 8–11;
     - falling back to 0.4 by frame 23.
   - **So on the surface** the velocity averages about 1.06 × the speed, between about
     0.55 and 1.9 × through the stroke. Under water at full rate it averages about 1.2 ×
-    the speed. (Worked out with the game's formula, not traced.)
+    the speed.
 - **Not read yet:** wading (117), drowning (108), getting hit in the water, the
-  every-16-frames underwater probe, and where the dive flag comes from.
+  every-16-frames underwater probe, flowing water, and the lift on diving.
 - **In the hero kit (P1.5, 2026-10-13):** water is a box whose top is the surface
   (`Water`, `WaterVolume`), found under or up to 2.2 u below the feet. The five states,
   the water jump, the dive, the surface float and bob, the stroke and the numbers are as
@@ -1166,7 +1292,11 @@ Veldin's start has no water, so it is untraced.
       water deeper than 1.25 u, which is a no-op for a flat swim anyway.
     - The drift is taken from the velocity. The game copies a vector at hero+0x140,
       taken here to be the velocity.
-    - Diving is allowed everywhere.
+    - Diving is allowed everywhere. A level would forbid it with the game's no-dive
+      timer.
+    - The kit's capsule slides along walls under water, which has the effect of the
+      game's `hero_wall_slide`.
+    - Water doesn't flow.
   - **The water jump's apex** is about 1.55 u above the floating feet in the kit: the
     target height isn't the apex (see "Jump heights"), and the push-off presses him
     0.07 u into the water first.

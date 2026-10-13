@@ -1489,20 +1489,31 @@ fn ledge_tick(
                 return;
             }
             turn(hero, wall_yaw, ledge.shimmy_turn);
-            let next = if towards(side) && ledge_to(side, ledge.shimmy_probe).is_some() {
-                ledge_to(side, ledge.shimmy_speed * TICK)
-            } else {
-                None
-            };
-            match next {
-                Some(next) => {
-                    hero.ledge = Some(next);
-                    hero.velocity = (next.hang - hero.position) / TICK;
+            // The steps follow the shimmy's animation, and a cycle once begun is finished
+            // even if the stick lets go. At each cycle's end the stick and the ledge ahead
+            // decide whether another follows.
+            let frame = hero.ticks.saturating_sub(ledge.shimmy_blend_ticks) as f32
+                * ledge.shimmy_frames_per_tick;
+            let cycle_frame = frame % ledge.shimmy_cycle_frames;
+            hero.velocity = Vec3::ZERO;
+            if frame > 0.0
+                && cycle_frame == 0.0
+                && !(towards(side) && ledge_to(side, ledge.shimmy_probe).is_some())
+            {
+                // Hang where the shimmy ended.
+                if let Some(here) = detect_ledge(world, profile, position, yaw, height) {
+                    hero.ledge = Some(here);
                 }
-                None => {
-                    hero.velocity = Vec3::ZERO;
-                    hero.set_state(HeroState::LedgeHang);
-                }
+                hero.set_state(HeroState::LedgeHang);
+                return;
+            }
+            let entry = ledge.shimmy_steps.get(cycle_frame as usize).copied();
+            let step = entry.unwrap_or(0.0) * ledge.shimmy_step_scale;
+            if step != 0.0
+                && let Some(next) = ledge_to(side, ledge.shimmy_look)
+            {
+                hero.velocity = (next.hang - position).normalize_or_zero() * step / TICK;
+                hero.ledge = Some(next);
             }
         }
         _ => {}
@@ -2466,14 +2477,15 @@ fn air_tick(
                     // Forward onto the ledge, timed like the climbing animation.
                     let ledge = &profile.ledge;
                     let step = ledge.climb_forward_accel * TICK;
-                    hero.climb_speed =
-                        if t < ledge.climb_forward_from_tick || t > ledge.climb_forward_stop_tick {
-                            0.0
-                        } else if t <= ledge.climb_forward_until_tick {
-                            approach(hero.climb_speed, ledge.climb_forward_speed, step)
-                        } else {
-                            approach(hero.climb_speed, 0.0, step)
-                        };
+                    if (ledge.climb_forward_from_tick..=ledge.climb_forward_until_tick).contains(&t)
+                    {
+                        hero.climb_speed =
+                            approach(hero.climb_speed, ledge.climb_forward_speed, step);
+                    } else if t > ledge.climb_forward_until_tick
+                        && t <= ledge.climb_forward_stop_tick
+                    {
+                        hero.climb_speed = approach(hero.climb_speed, 0.0, step);
+                    }
                     let facing = hero.facing();
                     hero.set_horizontal_velocity(facing * hero.climb_speed);
                     if t > ledge.climb_turn_after_tick {
