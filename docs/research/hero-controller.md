@@ -279,7 +279,7 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
     because the kit's targets can be solid, and a line into one would always be blocked.
     The game's ray probably ignores objects.
   - There is no weapon yet (P1.9), so lock-on works with anything.
-  - **Gamepad only, by the owner's decision (PLAN §5, 2026-10-15):** `Action::LockOn` is
+  - **Gamepad only (PLAN §5, 2026-10-15):** `Action::LockOn` is
     bound to both triggers, and `rac_input` ignores keyboard and mouse bindings for it,
     because with a mouse the player aims themselves.
 - `rac_rig`: `RigMove::StrafeBack` plays sequence 20. Sideways, the rig turns the hips by

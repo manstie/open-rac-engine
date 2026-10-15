@@ -44,7 +44,7 @@ remaster, using your own game discs. That covers *Ratchet & Clank* (2002) throug
 | *Ratchet & Clank 3* (2004) | *Ratchet & Clank: Up Your Arsenal* | SCUS-97353 (USA), SCES-52456 (Europe/Australia) | First target; research |
 | *Ratchet: Gladiator* (2005) | *Ratchet: Deadlocked* | SCUS-97465 (USA), SCES-53285 (Europe/Australia) | First target; research |
 | *Ratchet & Clank* (2002) | | SCUS-97199 (USA), SCES-50916 (Europe/Australia, v2.00) | Planned |
-| *Ratchet & Clank 2* (2003) | *Ratchet & Clank: Going Commando* | SCUS-97268 (USA), SCES-51607 (Europe/Australia) | Planned |
+| *Ratchet & Clank 2* (2003) | *Ratchet & Clank: Going Commando* | SCUS-97268 (USA, v2.00), SCES-51607 (Europe/Australia) | Planned |
 
 Other disc versions may be added later. Each disc is identified by its contents, not its
 file name. The details are in [docs/research/disc-layout.md](docs/research/disc-layout.md).

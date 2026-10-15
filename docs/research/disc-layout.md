@@ -1,16 +1,18 @@
 # Disc layout: preliminary inspection
 
-First look at the six user-supplied discs in `source/`, done on 2026-10-11. Every
-read was read-only, using a throwaway ISO9660 walker plus `readelf` and `strings` on
+First look at the user-supplied discs in `source/`: six on 2026-10-11, and the NTSC-U
+R&C1 and GC discs on 2026-10-15. Every read was read-only, using a throwaway ISO9660 walker plus `readelf` and `strings` on
 boot executables copied to a temp directory outside the repo. This file records
 facts *about* the discs (serials, addresses, sizes, hashes). It contains no game
 data. Re-verify anything marked *unverified* before you build on it.
 
-## The six discs
+## The eight discs
 
 | Folder in `source/` | Title (region) | Serial | `VMODE` | `VER` | Volume ID | Mastered |
 |---|---|---|---|---|---|---|
+| `Ratchet & Clank` | Ratchet & Clank (USA) | SCUS-97199 | NTSC | 1.00 | RATCHETANDCLANK | 2002-10-02 |
 | `Ratchet & Clank` | Ratchet & Clank (Europe, Australia) v2.00 | SCES-50916 | PAL | 2.00 | RATCHETANDCLANK | 2003-01-29 |
+| `Ratchet & Clank 2` | Ratchet & Clank: Going Commando (USA) v2.00, Greatest Hits | SCUS-97268 | NTSC | 2.00 | RATCHETANDCLANK2 | 2004-02-03 |
 | `Ratchet & Clank 2` | Ratchet & Clank 2 (Europe, Australia) | SCES-51607 | PAL | 1.00 | RATCHETANDCLANK2 | 2003-10-16 |
 | `Ratchet & Clank 3` | Ratchet & Clank 3 (Europe, Australia) | SCES-52456 | PAL | 1.00 | RATCHETANDCLANK3 | 2004-09-30 |
 | `Ratchet & Clank 3` | Ratchet & Clank: Up Your Arsenal (USA) | SCUS-97353 | NTSC | 1.00 | RATCHETANDCLANK3 | 2004-09-23 |
@@ -18,17 +20,23 @@ data. Re-verify anything marked *unverified* before you build on it.
 | `Ratchet Gladiator` | Ratchet: Gladiator (Europe, Australia) | SCES-53285 | PAL | 1.00 | RATCHETGLADIATOR | 2005-10-10 |
 
 "Mastered" is the primary volume descriptor's creation date. The preparer ID is
-`INSOMNIAC GAMES` on R&C1 and `INSOMNIAC` on the rest. The publisher ID is SCEE for the
-PAL R&C1–3 discs, SCEA for UYA and SONY for Deadlocked and Gladiator. The file names
-follow Redump naming.
+`INSOMNIAC GAMES` on R&C1 PAL, `INSOMNIACGAMES` on R&C1 USA and `INSOMNIAC` on the rest.
+The publisher ID is SCEE for the PAL R&C1–3 discs, SCEA for R&C1 USA and UYA, and SONY for
+GC USA, Deadlocked and Gladiator. The file names follow Redump naming.
 
-**All six images are verified good dumps.** On 2026-10-11 each whole-image SHA-1 below was
-looked up with redump.org's quick search, and the matching disc page lists the same SHA-1
-(PLAN.md P0.10):
+The GC USA disc is the v2.00 Greatest Hits release (redump serial `SCUS-97268GH`, boot ELF
+dated 2004-01-20), not the original v1.01. The R&C1 USA image is the one redump lists for
+both the original and the Greatest Hits editions.
+
+**All eight images are verified good dumps.** Each whole-image SHA-1 below was looked up
+with redump.org's quick search (2026-10-11; the NTSC-U R&C1 and GC on 2026-10-15), and the
+matching disc page lists the same SHA-1 (PLAN.md P0.10):
 
 | Serial | Redump entry | Version |
 |---|---|---|
+| SCUS-97199 | [disc 5362](http://redump.org/disc/5362/) | 1.00 |
 | SCES-50916 | [disc 4254](http://redump.org/disc/4254/) | 2.00 |
+| SCUS-97268 | [disc 36578](http://redump.org/disc/36578/) | 2.00 |
 | SCES-51607 | [disc 234](http://redump.org/disc/234/) | 1.00 |
 | SCES-52456 | [disc 225](http://redump.org/disc/225/) | 1.00 |
 | SCUS-97353 | [disc 11307](http://redump.org/disc/11307/) | 1.00 |
@@ -39,7 +47,9 @@ looked up with redump.org's quick search, and the matching disc page lists the s
 
 | Serial | Whole image | Sectors (2048 B) | Boot ELF | Boot ELF bytes | Boot ELF SHA-1 |
 |---|---|---|---|---|---|
+| SCUS-97199 | `aee9275384f739c9b24cd5de6f7e200292db7b01` | 2,057,664 | `SCUS_971.99` | 1,383,028 | `72fd1de379dafd8f243dceeb3be50980f3fd3cd5` |
 | SCES-50916 | `ef304c641c7cd426ba492707dda5974679befbc0` | 2,058,000 | `SCES_509.16` | 1,388,100 | `79956931bd62fafd8d20fa2eae796dbaf2e15e83` |
+| SCUS-97268 | `eeba0fff2118b14cbf838e6638ef7af3e72c0c31` | 1,867,488 | `SCUS_972.68` | 2,621,256 | `4124a79c1e5a1ceb56f514df0dbbc11f072af56f` |
 | SCES-51607 | `5a64211823e62faf33c0e86f1ad4df962a028ed0` | 1,732,688 | `SCES_516.07` | 2,878,084 | `cb59ce5396ddebb8aa539b0847f8bf66d6a47fe0` |
 | SCES-52456 | `5593eab45eac8814ce4b95fa1c23510fc0a21ebf` | 2,179,744 | `SCES_524.56` | 771,648 | `e3a8f37d6033b007a80f63dfbfca9afe24f27a47` |
 | SCUS-97353 | `b080139c5a94688ef9472b78d5f5585a756d1ee4` | 2,138,368 | `SCUS_973.53` | 771,008 | `601012bb03ef1213ad1253baebae8a071b8a7df7` |
@@ -52,19 +62,27 @@ boot-ELF hash. That is cheap, and hashing a whole 4 GB image is not.
 ## What the ISO9660 filesystem exposes
 
 Most game data is **not** in the ISO9660 directory tree. The games address raw
-sectors through their own table of contents (TOC). R&C2 PAL is the exception.
+sectors through their own table of contents (TOC). R&C2 is the exception.
 
 - **R&C1 (SCES-50916):** the tree holds only `SYSTEM.CNF` (LBA 289), `SCES_509.16` (LBA 290) and
   `IOPRP243.IMG` (LBA 968). The other ~2,057,000 sectors aren't referenced by the
   filesystem.
+- **R&C1 USA (SCUS-97199):** the same three files, with `SCUS_971.99` at LBA 290 and
+  `IOPRP243.IMG` at LBA 966.
 - **R&C2 (SCES-51607):** everything is visible.
   - `RC2.HDR` at LBA 1001 (408,444 B) is the TOC.
-  - `/G/` holds the global WADs: `MPEG.WAD` (1.06 GB) and `MPEG1.WAD` (771 MB) are the
+  - `/G/` holds the global WADs: `MPEG.WAD` (1.03 GiB) and `MPEG1.WAD` (771 MiB) are the
     FMVs, plus `MISC`, `HUD`, `BONUS`, `AUDIO`, `SPACE`, `SCENE`, `GADGET` and `ARMOR`.
   - `/G/` also holds `LEVELn.WAD`, `AUDIOn.WAD` and `SCENEn.WAD` for **n = 0..26**,
     which is 27 level slots.
   - `/G/DUMMY.` is the same size as `MISC.WAD`, so it's probably padding.
   - Only ~1,000 sectors are unreferenced.
+- **R&C2 USA v2.00 (SCUS-97268):** the same layout: `SYSTEM.CNF` at LBA 1000, `RC2.HDR` at
+  LBA 1001 (408,444 B, the same size as PAL's), `SCUS_972.68` at LBA 1201 and
+  `IOPRP255.IMG` at 2481. `/G/` has the same WADs and 27 level slots, but **three** FMV
+  WADs, `MPEG.WAD` (1.00 GiB, LBA 2611), `MPEG1.WAD` (1.21 GiB) and `MPEG2.WAD`
+  (109 MiB), against PAL's two. `AUDIO.WAD` is 34 MiB against PAL's 104 MiB, which carries
+  more languages.
 - **R&C3 (SCES-52456) and UYA (SCUS-97353):** the game data is hidden. The tree contains:
   - `SYSTEM.CNF` (LBA 1000), the boot ELF and `I5BOOTN.ELF` (a second packed ELF whose
     purpose is TBD);
@@ -82,11 +100,12 @@ sectors through their own table of contents (TOC). R&C2 PAL is the exception.
 - **R&C1: LBA 1500 (0x5DC).** The sector starts `01 00 00 00 60 29 00 00`, which is
   `version = 1, header_size = 0x2960`. That matches the community documentation. After it
   come `(lba: u32, sector_count: u32)` pairs that chain contiguously: (1506, 9), then
-  (1515, 46), then (1561, 50), and so on.
+  (1515, 46), then (1561, 50), and so on. R&C1 USA's TOC starts with the same words.
 - **R&C2 through Gladiator: LBA 1001 (0x3E9),** immediately after `SYSTEM.CNF` at LBA 1000.
   - The first `u32` is `0x328` on R&C2 and `0x648` on R&C3, UYA, Deadlocked and
     Gladiator.
-  - On R&C2 the second `u32` is `0xAB1` (2737), which is the LBA of `/G/MPEG.WAD`.
+  - On R&C2 the second `u32` is the LBA of `/G/MPEG.WAD`: `0xAB1` (2737) on PAL and
+    `0xA33` (2611) on USA.
   - Together these two values are the first global WAD header, `{header_size, lba}`.
   - The rest of the layout is summarised in
     [engine-notes.md](engine-notes.md#disc-toc-and-wad): the remaining global WAD headers,
@@ -102,9 +121,17 @@ There are two generations.
 
 ### 1. R&C1 and R&C2: plain executables with section headers
 
-These load at `0x00100080`. R&C1 has 61 sections, entry `0x0012d868` and GP
-`0x00166d00`. R&C2 has 71 sections, entry `0x00131b48` and GP `0x001af070`. The section
-names describe the engine's structure:
+These load at `0x00100080`. GP is the `.reginfo` section's value.
+
+| Boot ELF | Sections | Entry | GP | `.lit` | `.text` |
+|---|---|---|---|---|---|
+| R&C1 USA `SCUS_971.99` | 61 | `0x0012d728` | `0x00166c00` | `0x0015ef00` | `0x001e8d00` |
+| R&C1 PAL `SCES_509.16` | 61 | `0x0012d868` | `0x00166d00` | `0x0015f000` | `0x001e9080` |
+| R&C2 USA `SCUS_972.68` | 71 | `0x00131ae8` | `0x001aeff0` | `0x001a7c80` | `0x0026ea00` |
+| R&C2 PAL `SCES_516.07` | 71 | `0x00131b48` | `0x001af070` | `0x001a7d00` | `0x0026e780` |
+
+Each USA executable has the same sections as its PAL counterpart, a few hundred bytes
+apart. The section names describe the engine's structure:
 
 | Section(s) | Meaning (interpretation) |
 |---|---|
@@ -115,7 +142,8 @@ names describe the engine's structure:
 | `.DVP.overlay..0x<vuaddr>.<id>.<line>.<n>` plus `.DVP.ovlytab` and `.DVP.ovlystrtab` | **VU1 microcode overlays** from Sony's DVP assembler, split into 2 KB chunks. |
 | `legal.data`, `mc1.data` ×2 (R&C2 only) | A second load segment at `0x01800000` (legal screens and memory-card data). |
 
-The VU overlays come in **12 programs in R&C1 and 13 in R&C2**. OpenRAC counts R&C1's
+The VU overlays come in **12 programs in R&C1 and 13 in R&C2**, the same IDs on both
+regions' discs. OpenRAC counts R&C1's
 programs as 9 for VU1 and 3 for VU0. The program IDs match across the two games: 104691, 436083, 221571, 56467, 912339, 55907, 903379, 13507, 224979, 28259, 57843
 and 13859. R&C2 adds 56883. Several R&C2 programs have more or larger chunks. So the
 rendering microcode is shared and evolved from game to game, which is strong evidence
@@ -158,8 +186,10 @@ The stub's printf strings (`# TLB spad=0 kernel=1:%d …`) show that it also set
     wavetables.
   - R&C1 references `cdrom0:\CODE\I5\PARAM.TXT` and `cdrom0:\DATA\LEVELS\LEVEL`, which
     are development-time paths that don't exist on the retail disc.
-- R&C2 PAL contains `BESCES-50916RATCHET/save%d.bin`, so it reads an R&C1 PAL save. This is the
-  cross-game save bonus.
+- Both R&C2 executables contain `BASCUS-97199RATCHET/save%d.bin`,
+  `BESCES-50916RATCHET/save%d.bin` and `BISCPS-15037RATCHET/save%d.bin`, so each reads an
+  R&C1 save from the USA, PAL or Japanese release. This is the cross-game save bonus.
+- R&C1 USA has the same development paths as R&C1 PAL.
 
 ## Level data (UYA NTSC-U) [verified 2026-10-13]
 

@@ -105,8 +105,8 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
   | Build | Addresses |
   |---|---|
   | R&C1 PAL | `.lit` 0x15F000 and `$gp` 0x166D00 **[verified]**; boot `.text` 0x1E9080 **[verified]** |
-  | R&C1 NTSC-U | `.lit` 0x15EF00, `$gp` 0x166C00 |
-  | GC, as reported (region unclear) | `.lit` 0x1A7C80, `.text` 0x26EA00 |
+  | R&C1 NTSC-U | `.lit` 0x15EF00 and `$gp` 0x166C00 **[verified on our SCUS-97199 disc]**; boot `.text` 0x1E8D00 |
+  | Our GC NTSC-U v2.00 disc | `.lit` 0x1A7C80, `.text` 0x26EA00, `$gp` 0x1AEFF0 **[verified]**. The figures reported for GC, region unclear, are this build's. |
   | Our GC PAL disc | `.lit` 0x1A7D00, `.text` 0x26E780, `$gp` 0x1AF070 **[verified]** |
   | DL, level `.text` | 0x3A1580–0x4EEF00, varying per level |
 
