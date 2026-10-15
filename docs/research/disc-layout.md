@@ -344,6 +344,36 @@ Veldin's level data:
   literals and starts blocks. With any other length (`12 00 00`) it ends the block: the
   rest is padding (0xEE) and the next packet starts the next block.
 
+## Level data (DL NTSC-U and Gladiator PAL) [verified 2026-10-15]
+
+Read in DL's loader in our DreadZone Station image (`dl_level_read_headers` 0x159AB0,
+`dl_level_load_steps` 0x578530, `dl_level_load_core` 0x578940; `re/SCUS-97465/symbols.toml`)
+and with `rac_formats::level` (`Toc::read_dl`, `LevelHeader::read_dl`, `Core::read_dl`)
+on both discs, whose disc tests read every level.
+- **The table of contents** is 0x1A sectors from UYA's place: eight global WAD headers,
+  then UYA's level table, 24 bytes a level (audio, level, scene). Levels 0 (the menu),
+  1–15 (the story's planets), 21–35 (the same for two players) and 41–74 (the
+  multiplayer maps) have level files, 47 in all on both discs. Levels 20 to 39 have no
+  audio or scene of their own: the game uses level − 20's.
+- **A level WAD's header** is 0xC68 bytes: its size, its first sector, the level number,
+  then from +0x18 the data and the sound bank as `{sector, count}`. When it reloads a
+  level's gameplay alone the game unpacks +0x58, which is what the data's own gameplay
+  WAD gives on a full load. The chunks and 128 missions after aren't read. DL has no
+  occlusion range where UYA has one.
+- **The data's table** is UYA's with one more pair at +0x08 (the level's code): the core
+  header at +0x10, the GS RAM image at +0x18 (stored as is) and the core WAD at +0x50.
+- **The core's class table** has 0x20 bytes a class, as UYA's: the offset, the class
+  number, at +8 where its textures come from (0 the level's own; 1–3 the skin WAD's
+  first, second or third texture group), and from +0x10 sixteen indices into the level's
+  moby texture table (0xFF after the last).
+- **Level textures:** the core header lists the moby textures at +0x38 (count) and +0x3C
+  (offset), 16 bytes each: where the pixels are, width, height, a kind (0 kept in the GS
+  for the whole level, its pixels in the GS RAM image; 1 or 3 kept in EE memory, from the
+  core's texture base at header + 0x60, stored in the GS's 32-bit order), the palette
+  and a small mipmap in the GS RAM image, in 0x100-byte blocks. The GS RAM table (header
+  +0x00 count, +0x04 offset, 16 bytes an entry) lists the palettes and mipmaps sent first;
+  the entry after them starts the textures the GS keeps.
+
 ## Implications for the plan
 
 1. The disc layer needs two access paths: ISO9660 (to find `SYSTEM.CNF`, the

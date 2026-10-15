@@ -31,11 +31,12 @@ session is working on the task now; notes on problems met stay with their task (
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus). He has the follow camera with
   lock-on (P1.7) and melee (P1.8). He wears the open blocky model or, from the user's
   discs, any of 15 UYA suits or 12 DL skins, and plays Ratchet's real animations with a
-  UYA disc (P1.17). Input can be recorded and replayed.
+  UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
+  and replayed.
 - **Reverse engineering:** the hero's movement and camera are read in UYA's and DL's code
   and checked against traces (RE.3, RE.4); RE.8 is answered (NTSC-U is the native tuning).
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
-  from the disc, and DL's skin WAD (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
+  from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
   R&C1 and GC, are identified by their boot executables' hashes (P2.2).
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
@@ -282,6 +283,7 @@ None at the moment.
 | 2026-10-15 | **D6:** Local split-screen co-op, as Gladiator had, comes after direct-IP co-op works, on the same multi-hero foundation (P6.6). |
 | 2026-10-15 | **D7:** Each game's hero moves with that game's own values (jump heights, speeds, timings), read from its code into its own profile. What carries across the games ("backported") is the controls and the moves that need no item; moves granted by items stay with the games that have them (2026-10-12). The older games also offer their original hero ("classic movement") as an option in single-player; co-op always uses the native hero. |
 | 2026-10-15 | **D8:** Connectivity goes as far as it can without servers of our own: direct IP; automatic port mapping (UPnP IGD via `igd-next`, NAT-PMP, PCP); IPv6 where both peers have it; and UDP hole punching, with each peer's public address (learned from public STUN servers) carried in join codes the two players swap themselves. No master, rendezvous or relay servers. Two peers both behind symmetric NATs may still need a forwarded port. |
+| 2026-10-15 | **The rig's skeleton is UYA's hero's whole skeleton** (111 joints in his order, then Clank's and the wrench's), replacing the 44-joint one, so clips drive the face and fingers joint for joint. Poses carry a scale per joint, which its children take on as in the games; a model bound to joints turned at rest says so (`ModelData::turns`). A rig joint a source skeleton lacks may sit between two it has. Which clip plays, and how fast, follows the game's own rules (`rac_rig/src/play.rs`); a game hands the rig its rules for fidgets with its clips. |
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
 
 ## 6. Roadmap
@@ -471,6 +473,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   and the crate `rac_combat`): UYA's wrench combo, jump attack and throw, with hurtboxes,
   hit points, one hit per attack, knockback and flash. The demo has a melee yard.
   - To do: the grind attack (state 42), the wall clank, and DL's melee.
+  - In progress (2026-10-15): finishing the to-do list: the grind attack, the wall clank
+    and DL's melee, read in code and traced.
 - [ ] **P1.9** Weapons framework (`rac_combat`), following RE.7:
   - Data-driven definitions (RON):
     - fire mode: hitscan, projectile, lobbed, stream/beam or homing;
@@ -516,20 +520,29 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     check on `cargo tree` that the kit depends on no disc, format or runtime crate;
     document the public API; `examples/hero_sandbox.rs`, the kit in a plain Bevy app.
 - [~] **P1.17** The hero's rig and models (`rac_rig`, `openrac/src/hero_model.rs`;
-  section 5, 2026-10-13):
-  - Done: a 44-joint skeleton laid out like UYA's hero; the open model (gold for player 1,
-    silver for player 2) with procedural poses for every hero state, using two-bone IK to
-    put the wrench on the controller's swing line. The rig wears any model skinned to its
-    skeleton (`RigModels`, `ModelData`, `SkeletonMap`). From the user's discs `openrac`
-    imports 15 UYA suits ("uya", "uya-blue" …) with their chrome, and 12 DL skins from a
-    DL NTSC-U or Gladiator PAL disc ("dl-ratchet" … "dl-jak"). With a UYA disc the hero
-    plays Ratchet's real animations (`hero-controller.md`, "Animations per state").
-    Chosen with `--model` or the menus' Model button.
-  - To do: idle fidgets and landing animations; the walk's animation speed thresholds
-    from code (5 u/s is from a trace); facial and finger joints; firing poses (P1.9);
-    Ratchet's head for DL's five armors (they stop at the neck); DL's own wrench (class
-    0x23FA in its level cores; the skins hold the open wrench meanwhile); the game's names
-    for UYA's suits; UYA's armor entries 35–55; the gadget texture slot.
+  section 5, 2026-10-13 and 2026-10-15):
+  - Done: the rig's skeleton is UYA's hero's 111 joints, face and fingers included, plus
+    Clank's and the wrench's; poses and clips carry each joint's scale, which its children
+    take on; models may be bound to joints turned at rest (`ModelData::turns`). The open
+    model (gold for player 1, silver for player 2) has procedural poses for every hero
+    state, with two-bone IK putting the wrench on the controller's swing line. The rig
+    wears any model skinned to its skeleton (`RigModels`, `ModelData`, `SkeletonMap`).
+    From the user's discs `openrac` imports 15 UYA suits, titled with the game's names,
+    and 12 DL skins from a DL NTSC-U or Gladiator PAL disc. With a UYA disc the hero plays
+    Ratchet's real animations, chosen and timed as UYA's code does
+    (`rac_rig/src/play.rs`; `hero-controller.md`, "Idle fidgets", "Landings", "The
+    walk's animation"): the walk's bands, rates and stride, fidgets, the hurt idle,
+    landings and the run's skid. Chosen with `--model` or the menus' Model button.
+  - Read, not yet worn: UYA's 21 multiplayer skins, entries 35–55 (`Skin::read_uya`,
+    the hero's skeleton less 25 face joints); DL's wrench (class 0x23FA,
+    `Core::read_dl`, `Core::moby_textures`); DL's armors' heads, their bangles 1 and 12
+    in play (`Skin::bangles`; `moby-format.md`, "DL's skins").
+  - Found not needed: the third GS texture slot is the ship's paint job.
+  - To do: wear DL's armors (0–4) with bangles 1 and 12, and DL's wrench on the skins
+    in its sequence 1 (DL classes' sequences don't read as UYA's do yet: read them
+    first); offer the multiplayer skins with the wrench and without Clank; warp the jump's
+    air animation to its peak and landing frames; the landing lockout in the controller
+    (P1.5); firing poses (P1.9).
   - `wrench_points` had been measured on a bake that ignored the wrench's rest turn (P3.7).
     It is now (0.47, −0.12, −0.87), forward from the fist, which matches the game's
     screenshot. Every model's wrench and the procedural poses follow it.

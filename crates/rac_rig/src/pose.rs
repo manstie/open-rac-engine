@@ -19,12 +19,15 @@ const STRIDE: f32 = 1.5;
 /// Run speed (u/s) at which the stride is full; UYA's walk tops out at 10.
 const FULL_RUN: f32 = 9.0;
 
-/// A pose: each joint's rotation relative to its parent, and how far it is moved from
-/// where it sits at rest (in its parent's space).
+/// A pose: each joint's rotation relative to its parent, how far it is moved from where
+/// it sits at rest (in its parent's space), and how it is scaled along its own axes. A
+/// joint's scale carries to its children, as in the games: UYA squashes the whole hero
+/// by scaling his root.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pose {
     pub rotations: Vec<Quat>,
     pub offsets: Vec<Vec3>,
+    pub scales: Vec<Vec3>,
 }
 
 impl Pose {
@@ -32,6 +35,7 @@ impl Pose {
         Self {
             rotations: vec![Quat::IDENTITY; joint::COUNT],
             offsets: vec![Vec3::ZERO; joint::COUNT],
+            scales: vec![Vec3::ONE; joint::COUNT],
         }
     }
 
@@ -42,6 +46,9 @@ impl Pose {
         }
         for (offset, goal) in self.offsets.iter_mut().zip(&target.offsets) {
             *offset = offset.lerp(*goal, rate);
+        }
+        for (scale, goal) in self.scales.iter_mut().zip(&target.scales) {
+            *scale = scale.lerp(*goal, rate);
         }
     }
 }
@@ -54,19 +61,18 @@ pub struct Animator {
     pub phase: f32,
     /// Seconds since the rig appeared, for idle motion.
     pub time: f32,
-    /// The move whose clip plays, and how far into it (ticks).
-    pub clip_move: Option<crate::RigMove>,
-    pub clip_ticks: f32,
+    /// Which clip plays, and how far into it.
+    pub director: crate::play::Director,
 }
 
-impl Default for Animator {
-    fn default() -> Self {
+impl Animator {
+    /// `seed` varies the fidgets between heroes.
+    pub fn new(seed: u32) -> Self {
         Self {
             pose: Pose::rest(),
             phase: 0.0,
             time: 0.0,
-            clip_move: None,
-            clip_ticks: 0.0,
+            director: crate::play::Director::new(seed),
         }
     }
 }

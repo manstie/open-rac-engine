@@ -4,59 +4,100 @@
 //! It is modelled by hand. UYA's hero was the reference for proportions only: the joints
 //! sit where UYA's do, rounded to the centimetre, and the blocks were sized against the
 //! hero's mesh measured from the user's own disc (`docs/research/moby-format.md`). No
-//! geometry comes from the game. The joints follow UYA's layout (each names the UYA joint
-//! it stands for), so animation read from a disc can drive the rig later.
+//! geometry comes from the game. The skeleton is laid out as UYA's hero's (joint *n* of
+//! the rig is UYA's joint *n*, up to [`joint::UYA_JOINTS`]), so animation read from a disc
+//! drives the rig joint for joint, face and fingers included.
 
 use bevy::math::{Quat, Vec2, Vec3};
 
 use crate::shapes::{at, beam, block_at};
 
-/// The rig's joints, parents before children.
+/// The rig's joints, parents before children. Joints 0 to 110 are UYA's hero's, in its
+/// order; Clank's and the wrench's are the rig's own and come after.
 pub mod joint {
     pub const ROOT: usize = 0;
     pub const HIPS: usize = 1;
-    pub const SPINE: usize = 2;
-    pub const CHEST: usize = 3;
-    pub const NECK: usize = 4;
-    pub const HEAD: usize = 5;
-    pub const JAW: usize = 6;
-    pub const EAR_L: usize = 7;
-    pub const EAR_L_TIP: usize = 8;
-    pub const EAR_R: usize = 9;
-    pub const EAR_R_TIP: usize = 10;
-    pub const SHOULDER_R: usize = 11;
-    pub const ELBOW_R: usize = 12;
-    pub const HAND_R: usize = 13;
-    pub const FINGERS_R: usize = 14;
-    pub const THUMB_R: usize = 15;
-    pub const SHOULDER_L: usize = 16;
-    pub const ELBOW_L: usize = 17;
-    pub const HAND_L: usize = 18;
-    pub const FINGERS_L: usize = 19;
-    pub const THUMB_L: usize = 20;
-    pub const THIGH_R: usize = 21;
-    pub const KNEE_R: usize = 22;
-    pub const ANKLE_R: usize = 23;
-    pub const TOE_R: usize = 24;
-    pub const THIGH_L: usize = 25;
-    pub const KNEE_L: usize = 26;
-    pub const ANKLE_L: usize = 27;
-    pub const TOE_L: usize = 28;
+    pub const WAIST: usize = 2;
+    pub const SPINE: usize = 3;
+    pub const SPINE_UPPER: usize = 4;
+    pub const CHEST: usize = 5;
+    pub const CHEST_UPPER: usize = 6;
+    pub const NECK: usize = 7;
+    pub const HEAD: usize = 8;
+    pub const JAW: usize = 10;
+    /// The face's other joints: brows, lids, cheeks, mouth and nose. UYA animates them
+    /// by moving and scaling them as much as by turning them; which is which isn't read,
+    /// so they go by UYA's numbers.
+    pub const FACE: [usize; 36] = [
+        9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+        33, 34, 35, 36, 37, 38, 39, 40, 47, 48, 49, 50, 51,
+    ];
+    pub const EAR_L: usize = 41;
+    pub const EAR_L_TIP: usize = 42;
+    pub const EAR_L_END: usize = 43;
+    pub const EAR_R: usize = 44;
+    pub const EAR_R_TIP: usize = 45;
+    pub const EAR_R_END: usize = 46;
+    pub const CLAVICLE_R: usize = 52;
+    pub const SHOULDER_R: usize = 53;
+    pub const ELBOW_R: usize = 54;
+    pub const FOREARM_R: usize = 55;
+    pub const HAND_R: usize = 56;
+    /// Each finger's three joints, from the knuckle out.
+    pub const INDEX_R: [usize; 3] = [57, 58, 59];
+    pub const MIDDLE_R: [usize; 3] = [60, 61, 62];
+    pub const RING_R: [usize; 3] = [63, 64, 65];
+    pub const PINKY_R: [usize; 3] = [66, 67, 68];
+    /// The middle finger's knuckle, which carries the open model's fingers.
+    pub const FINGERS_R: usize = 60;
+    pub const THUMB_R: usize = 69;
+    pub const THUMB_R_TIP: usize = 70;
+    /// A joint at the elbow that UYA scales to keep the elbow's shape as it bends.
+    pub const ELBOW_R_HELPER: usize = 71;
+    pub const CLAVICLE_L: usize = 72;
+    pub const SHOULDER_L: usize = 73;
+    pub const ELBOW_L: usize = 74;
+    pub const FOREARM_L: usize = 75;
+    pub const HAND_L: usize = 76;
+    pub const INDEX_L: [usize; 3] = [77, 78, 79];
+    pub const MIDDLE_L: [usize; 3] = [80, 81, 82];
+    pub const RING_L: [usize; 3] = [83, 84, 85];
+    pub const PINKY_L: [usize; 3] = [86, 87, 88];
+    pub const FINGERS_L: usize = 80;
+    pub const THUMB_L: usize = 89;
+    pub const THUMB_L_TIP: usize = 90;
+    pub const ELBOW_L_HELPER: usize = 91;
+    pub const THIGH_R: usize = 92;
+    pub const KNEE_R: usize = 93;
+    pub const ANKLE_R: usize = 94;
+    pub const HEEL_R: usize = 95;
+    /// The ball of the foot.
+    pub const TOE_R: usize = 96;
+    pub const TOE_R_TIP: usize = 97;
+    pub const THIGH_L: usize = 98;
+    pub const KNEE_L: usize = 99;
+    pub const ANKLE_L: usize = 100;
+    pub const HEEL_L: usize = 101;
+    pub const TOE_L: usize = 102;
+    pub const TOE_L_TIP: usize = 103;
     /// The tail's seven joints, from the hips out.
-    pub const TAIL: [usize; 7] = [29, 30, 31, 32, 33, 34, 35];
-    pub const CLANK: usize = 36;
-    pub const CLANK_HEAD: usize = 37;
-    pub const CLANK_ANTENNA: usize = 38;
-    pub const CLANK_ARM_L: usize = 39;
-    pub const CLANK_ARM_R: usize = 40;
-    pub const CLANK_LEG_L: usize = 41;
-    pub const CLANK_LEG_R: usize = 42;
-    pub const WRENCH: usize = 43;
-    pub const COUNT: usize = 44;
+    pub const TAIL: [usize; 7] = [104, 105, 106, 107, 108, 109, 110];
+    /// How many of the rig's joints are UYA's hero's.
+    pub const UYA_JOINTS: usize = 111;
+    pub const CLANK: usize = 111;
+    pub const CLANK_HEAD: usize = 112;
+    pub const CLANK_ANTENNA: usize = 113;
+    pub const CLANK_ARM_L: usize = 114;
+    pub const CLANK_ARM_R: usize = 115;
+    pub const CLANK_LEG_L: usize = 116;
+    pub const CLANK_LEG_R: usize = 117;
+    pub const WRENCH: usize = 118;
+    pub const COUNT: usize = 119;
 }
 
 /// One joint of the rig. At rest every joint is unrotated: the hero stands in a T-pose,
-/// facing forward, as UYA's skeleton does.
+/// facing forward, as UYA's skeleton does. A model whose own joints are turned at rest
+/// says so in [`crate::ModelData::turns`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct JointDef {
     pub name: &'static str,
@@ -114,15 +155,6 @@ impl ModelDef {
     }
 }
 
-fn j(name: &'static str, parent: usize, rest: Vec3, uya: u8) -> JointDef {
-    JointDef {
-        name,
-        parent: Some(parent),
-        rest,
-        uya: Some(uya),
-    }
-}
-
 fn own(name: &'static str, parent: usize, rest: Vec3) -> JointDef {
     JointDef {
         name,
@@ -132,103 +164,136 @@ fn own(name: &'static str, parent: usize, rest: Vec3) -> JointDef {
     }
 }
 
-/// `side` is +1 for the hero's left and -1 for his right.
-fn sided(name: [&'static str; 2], side: f32) -> &'static str {
-    if side > 0.0 { name[0] } else { name[1] }
-}
+/// UYA's hero's joints in its order: name, parent, and where it sits at rest (forward,
+/// left, up, metres), rounded to the centimetre. The sides' joints mirror each other;
+/// UYA's own are a millimetre or so apart.
+#[rustfmt::skip]
+const UYA: [(&str, usize, [f32; 3]); joint::UYA_JOINTS] = [
+    ("root", 0, [0.0, 0.0, 0.0]),
+    ("hips", 0, [-0.04, 0.0, 0.49]),
+    ("waist", 1, [-0.04, 0.0, 0.52]),
+    ("spine", 2, [-0.03, 0.0, 0.59]),
+    ("spine_upper", 3, [-0.03, 0.0, 0.69]),
+    ("chest", 4, [-0.05, 0.0, 0.80]),
+    ("chest_upper", 5, [-0.02, 0.0, 0.90]),
+    ("neck", 6, [-0.02, 0.0, 0.95]),
+    ("head", 7, [-0.01, 0.0, 1.08]),
+    ("face_09", 8, [0.15, 0.0, 1.07]),
+    ("jaw", 8, [0.0, 0.0, 1.04]),
+    ("face_11", 10, [0.13, 0.0, 0.96]),
+    ("face_12", 10, [0.16, 0.0, 1.01]),
+    ("face_13", 10, [0.14, 0.0, 0.97]),
+    ("face_14", 8, [-0.04, 0.0, 1.00]),
+    ("face_15", 14, [0.05, 0.0, 0.99]),
+    ("face_16", 8, [0.06, -0.05, 1.04]),
+    ("face_17", 8, [0.06, 0.05, 1.04]),
+    ("face_18", 8, [0.03, 0.0, 1.15]),
+    ("face_19", 18, [0.14, 0.09, 1.14]),
+    ("face_20", 18, [0.14, -0.09, 1.14]),
+    ("face_21", 8, [0.02, -0.01, 1.13]),
+    ("face_22", 21, [0.10, -0.06, 1.25]),
+    ("face_23", 8, [0.02, 0.01, 1.13]),
+    ("face_24", 23, [0.10, 0.06, 1.25]),
+    ("face_25", 8, [-0.05, 0.01, 1.17]),
+    ("face_26", 25, [0.09, -0.08, 1.24]),
+    ("face_27", 26, [0.06, -0.15, 1.19]),
+    ("face_28", 26, [0.15, -0.02, 1.19]),
+    ("face_29", 8, [-0.05, -0.01, 1.17]),
+    ("face_30", 29, [0.09, 0.08, 1.24]),
+    ("face_31", 30, [0.06, 0.15, 1.19]),
+    ("face_32", 30, [0.15, 0.02, 1.19]),
+    ("face_33", 8, [-0.03, -0.18, 1.09]),
+    ("face_34", 33, [-0.03, -0.20, 1.04]),
+    ("face_35", 8, [-0.03, 0.18, 1.09]),
+    ("face_36", 35, [-0.03, 0.20, 1.04]),
+    ("face_37", 8, [0.15, 0.0, 1.05]),
+    ("face_38", 8, [0.19, 0.0, 1.02]),
+    ("face_39", 8, [0.14, 0.09, 1.09]),
+    ("face_40", 8, [0.14, -0.09, 1.09]),
+    ("ear_l", 8, [-0.10, 0.11, 1.19]),
+    ("ear_l_tip", 41, [-0.21, 0.25, 1.27]),
+    ("ear_l_end", 42, [-0.27, 0.36, 1.35]),
+    ("ear_r", 8, [-0.10, -0.12, 1.19]),
+    ("ear_r_tip", 44, [-0.21, -0.26, 1.27]),
+    ("ear_r_end", 45, [-0.27, -0.36, 1.35]),
+    ("face_47", 8, [0.11, -0.13, 1.02]),
+    ("face_48", 8, [0.11, 0.13, 1.02]),
+    ("face_49", 8, [0.13, -0.08, 1.20]),
+    ("face_50", 8, [0.13, 0.08, 1.20]),
+    ("face_51", 8, [0.15, 0.0, 1.02]),
+    ("clavicle_r", 6, [-0.02, -0.08, 0.91]),
+    ("shoulder_r", 52, [-0.02, -0.15, 0.92]),
+    ("elbow_r", 53, [-0.03, -0.35, 0.88]),
+    ("forearm_r", 54, [-0.03, -0.39, 0.88]),
+    ("hand_r", 55, [-0.02, -0.52, 0.88]),
+    ("index_r_1", 56, [0.07, -0.68, 0.92]),
+    ("index_r_2", 57, [0.07, -0.74, 0.92]),
+    ("index_r_3", 58, [0.07, -0.80, 0.92]),
+    ("middle_r_1", 56, [0.01, -0.69, 0.92]),
+    ("middle_r_2", 60, [0.01, -0.76, 0.92]),
+    ("middle_r_3", 61, [0.01, -0.83, 0.92]),
+    ("ring_r_1", 56, [-0.05, -0.68, 0.92]),
+    ("ring_r_2", 63, [-0.05, -0.75, 0.92]),
+    ("ring_r_3", 64, [-0.05, -0.81, 0.92]),
+    ("pinky_r_1", 56, [-0.11, -0.68, 0.92]),
+    ("pinky_r_2", 66, [-0.11, -0.72, 0.92]),
+    ("pinky_r_3", 67, [-0.11, -0.77, 0.92]),
+    ("thumb_r_1", 56, [0.09, -0.59, 0.90]),
+    ("thumb_r_2", 69, [0.15, -0.61, 0.90]),
+    ("elbow_r_helper", 54, [-0.02, -0.38, 0.88]),
+    ("clavicle_l", 6, [-0.02, 0.08, 0.91]),
+    ("shoulder_l", 72, [-0.02, 0.15, 0.92]),
+    ("elbow_l", 73, [-0.03, 0.35, 0.88]),
+    ("forearm_l", 74, [-0.03, 0.39, 0.88]),
+    ("hand_l", 75, [-0.02, 0.52, 0.88]),
+    ("index_l_1", 76, [0.07, 0.68, 0.92]),
+    ("index_l_2", 77, [0.07, 0.74, 0.92]),
+    ("index_l_3", 78, [0.07, 0.80, 0.92]),
+    ("middle_l_1", 76, [0.01, 0.69, 0.92]),
+    ("middle_l_2", 80, [0.01, 0.76, 0.92]),
+    ("middle_l_3", 81, [0.01, 0.83, 0.92]),
+    ("ring_l_1", 76, [-0.05, 0.68, 0.92]),
+    ("ring_l_2", 83, [-0.05, 0.75, 0.92]),
+    ("ring_l_3", 84, [-0.05, 0.81, 0.92]),
+    ("pinky_l_1", 76, [-0.11, 0.68, 0.92]),
+    ("pinky_l_2", 86, [-0.11, 0.72, 0.92]),
+    ("pinky_l_3", 87, [-0.11, 0.77, 0.92]),
+    ("thumb_l_1", 76, [0.09, 0.59, 0.90]),
+    ("thumb_l_2", 89, [0.15, 0.61, 0.90]),
+    ("elbow_l_helper", 74, [-0.02, 0.38, 0.88]),
+    ("thigh_r", 1, [-0.04, -0.065, 0.46]),
+    ("knee_r", 92, [0.01, -0.065, 0.27]),
+    ("ankle_r", 93, [-0.04, -0.065, 0.08]),
+    ("heel_r", 94, [0.03, -0.065, 0.0]),
+    ("toe_r", 95, [0.14, -0.065, 0.0]),
+    ("toe_r_tip", 96, [0.21, -0.065, 0.0]),
+    ("thigh_l", 1, [-0.04, 0.065, 0.46]),
+    ("knee_l", 98, [0.01, 0.065, 0.27]),
+    ("ankle_l", 99, [-0.04, 0.065, 0.08]),
+    ("heel_l", 100, [0.03, 0.065, 0.0]),
+    ("toe_l", 101, [0.14, 0.065, 0.0]),
+    ("toe_l_tip", 102, [0.21, 0.065, 0.0]),
+    ("tail_0", 1, [-0.13, 0.0, 0.46]),
+    ("tail_1", 104, [-0.21, 0.0, 0.46]),
+    ("tail_2", 105, [-0.32, 0.0, 0.46]),
+    ("tail_3", 106, [-0.43, 0.0, 0.46]),
+    ("tail_4", 107, [-0.52, 0.0, 0.46]),
+    ("tail_5", 108, [-0.59, 0.0, 0.46]),
+    ("tail_6", 109, [-0.69, 0.0, 0.46]),
+];
 
 fn joints() -> Vec<JointDef> {
     use joint::*;
-    let mut joints = vec![
-        JointDef {
-            name: "root",
-            parent: None,
-            rest: Vec3::ZERO,
-            uya: Some(0),
-        },
-        j("hips", ROOT, at(-0.04, 0.0, 0.49), 1),
-        j("spine", HIPS, at(-0.03, 0.0, 0.59), 3),
-        j("chest", SPINE, at(-0.05, 0.0, 0.80), 5),
-        j("neck", CHEST, at(-0.02, 0.0, 0.95), 7),
-        j("head", NECK, at(-0.01, 0.0, 1.08), 8),
-        j("jaw", HEAD, at(0.0, 0.0, 1.04), 10),
-        j("ear_l", HEAD, at(-0.10, 0.11, 1.19), 41),
-        j("ear_l_tip", EAR_L, at(-0.21, 0.25, 1.27), 42),
-        j("ear_r", HEAD, at(-0.10, -0.12, 1.19), 44),
-        j("ear_r_tip", EAR_R, at(-0.21, -0.26, 1.27), 45),
-    ];
-    for (side, uya) in [(-1.0, 53), (1.0, 73)] {
-        let base = joints.len();
-        joints.extend([
-            j(
-                sided(["shoulder_l", "shoulder_r"], side),
-                CHEST,
-                at(-0.02, 0.15 * side, 0.92),
-                uya,
-            ),
-            j(
-                sided(["elbow_l", "elbow_r"], side),
-                base,
-                at(-0.03, 0.35 * side, 0.88),
-                uya + 1,
-            ),
-            j(
-                sided(["hand_l", "hand_r"], side),
-                base + 1,
-                at(-0.02, 0.52 * side, 0.88),
-                uya + 3,
-            ),
-            j(
-                sided(["fingers_l", "fingers_r"], side),
-                base + 2,
-                at(0.01, 0.69 * side, 0.92),
-                uya + 7,
-            ),
-            j(
-                sided(["thumb_l", "thumb_r"], side),
-                base + 2,
-                at(0.09, 0.59 * side, 0.90),
-                uya + 16,
-            ),
-        ]);
-    }
-    for (side, uya) in [(-1.0, 92), (1.0, 98)] {
-        let base = joints.len();
-        joints.extend([
-            j(
-                sided(["thigh_l", "thigh_r"], side),
-                HIPS,
-                at(-0.04, 0.065 * side, 0.46),
-                uya,
-            ),
-            j(
-                sided(["knee_l", "knee_r"], side),
-                base,
-                at(0.01, 0.065 * side, 0.27),
-                uya + 1,
-            ),
-            j(
-                sided(["ankle_l", "ankle_r"], side),
-                base + 1,
-                at(-0.04, 0.065 * side, 0.08),
-                uya + 2,
-            ),
-            j(
-                sided(["toe_l", "toe_r"], side),
-                base + 2,
-                at(0.14, 0.065 * side, 0.0),
-                uya + 4,
-            ),
-        ]);
-    }
-    let tail = [-0.13, -0.21, -0.32, -0.43, -0.52, -0.59, -0.69];
-    for (i, forward) in tail.into_iter().enumerate() {
-        let parent = if i == 0 { HIPS } else { TAIL[i - 1] };
-        let names = [
-            "tail_0", "tail_1", "tail_2", "tail_3", "tail_4", "tail_5", "tail_6",
-        ];
-        joints.push(j(names[i], parent, at(forward, 0.0, 0.46), 104 + i as u8));
-    }
+    let mut joints: Vec<JointDef> = UYA
+        .iter()
+        .enumerate()
+        .map(|(index, &(name, parent, [forward, left, up]))| JointDef {
+            name,
+            parent: (index > 0).then_some(parent),
+            rest: at(forward, left, up),
+            uya: Some(index as u8),
+        })
+        .collect();
     // Clank rides on UYA's joint 5, facing backwards; his joints are our own.
     joints.extend([
         own("clank", CHEST, at(-0.05, 0.0, 0.80)),
@@ -751,6 +816,50 @@ mod tests {
         assert_eq!(model.joints[joint::HAND_L].uya, Some(76));
         assert_eq!(model.joints[joint::TOE_L].uya, Some(102));
         assert_eq!(model.joints[joint::TAIL[6]].uya, Some(110));
+    }
+
+    #[test]
+    fn the_rigs_joints_are_uyas_then_clanks_and_the_wrench() {
+        let model = hero();
+        let joints = &model.joints;
+        for (index, joint) in joints.iter().enumerate() {
+            let expected = (index < joint::UYA_JOINTS).then_some(index as u8);
+            assert_eq!(joint.uya, expected, "{}", joint.name);
+        }
+        let descends = |mut index: usize, ancestor: usize| {
+            while let Some(parent) = joints[index].parent {
+                if parent == ancestor {
+                    return true;
+                }
+                index = parent;
+            }
+            false
+        };
+        for face in joint::FACE {
+            assert!(descends(face, joint::HEAD), "{}", joints[face].name);
+        }
+        let fingers = [
+            (joint::INDEX_R, joint::INDEX_L),
+            (joint::MIDDLE_R, joint::MIDDLE_L),
+            (joint::RING_R, joint::RING_L),
+            (joint::PINKY_R, joint::PINKY_L),
+        ];
+        for (right, left) in fingers {
+            assert_eq!(joints[right[0]].parent, Some(joint::HAND_R));
+            assert_eq!(joints[left[0]].parent, Some(joint::HAND_L));
+            for (r, l) in right.into_iter().zip(left) {
+                let (r, l) = (joints[r].rest, joints[l].rest);
+                assert!(
+                    (r * Vec3::new(-1.0, 1.0, 1.0) - l).length() < 1e-6,
+                    "{r} {l}"
+                );
+            }
+            assert_eq!(joints[right[2]].parent, Some(right[1]));
+        }
+        assert_eq!(joint::FINGERS_R, joint::MIDDLE_R[0]);
+        assert_eq!(joints[joint::THUMB_R_TIP].parent, Some(joint::THUMB_R));
+        assert_eq!(joints[joint::SHOULDER_R].parent, Some(joint::CLAVICLE_R));
+        assert_eq!(joints[joint::TOE_L_TIP].parent, Some(joint::TOE_L));
     }
 
     #[test]

@@ -108,6 +108,10 @@ pub struct ModelData {
     pub title: String,
     /// Where each rig joint sits at rest, in the hero's space ([`joint`] order).
     pub rest: Vec<Vec3>,
+    /// Each rig joint's orientation at rest in the hero's space, for a model bound to
+    /// joints turned at rest, as UYA's hero's eyes and brows are; empty if none is. A
+    /// clip's scales are along these axes.
+    pub turns: Vec<Quat>,
     pub surfaces: Vec<Surface>,
     /// Where the thrown wrench spins, in the hero's space at rest.
     pub wrench_spin: Vec3,
@@ -118,6 +122,12 @@ pub struct ModelData {
 pub enum ModelError {
     #[error("{model}: {found} joint rest positions, but the rig has {expected} joints")]
     Rest {
+        model: String,
+        found: usize,
+        expected: usize,
+    },
+    #[error("{model}: {found} joint rest turns, but the rig has {expected} joints")]
+    Turns {
         model: String,
         found: usize,
         expected: usize,
@@ -158,6 +168,13 @@ impl ModelData {
             return Err(ModelError::Rest {
                 model: model(),
                 found: self.rest.len(),
+                expected: joint::COUNT,
+            });
+        }
+        if !self.turns.is_empty() && self.turns.len() != joint::COUNT {
+            return Err(ModelError::Turns {
+                model: model(),
+                found: self.turns.len(),
                 expected: joint::COUNT,
             });
         }
@@ -224,6 +241,15 @@ impl ModelData {
             })
             .collect()
     }
+
+    /// Each rig joint's orientation at rest: [`ModelData::turns`], or none.
+    pub fn turns(&self) -> Vec<Quat> {
+        if self.turns.is_empty() {
+            vec![Quat::IDENTITY; joint::COUNT]
+        } else {
+            self.turns.iter().map(|turn| turn.normalize()).collect()
+        }
+    }
 }
 
 /// The open model: the blocky gold Ratchet, Clank and wrench of [`crate::model`], every
@@ -248,6 +274,7 @@ pub fn open_model() -> ModelData {
         name: OPEN_MODEL.into(),
         title: "Blocky gold".into(),
         rest: def.joints.iter().map(|joint| joint.rest).collect(),
+        turns: Vec::new(),
         surfaces,
         // 0.2 m up the shaft from the grip.
         wrench_spin: def.joints[joint::WRENCH].rest + model::wrench_turn() * at(0.2, -0.06, 0.0),
@@ -268,6 +295,8 @@ pub struct RigModel {
     pub name: String,
     pub title: String,
     pub(crate) skeleton: Vec<JointDef>,
+    /// Each joint's orientation at rest ([`ModelData::turns`]).
+    pub(crate) turns: Vec<Quat>,
     pub(crate) surfaces: Vec<RigSurface>,
     /// The wrench's surfaces without skinning, centred where it spins.
     pub(crate) thrown: Vec<RigSurface>,
@@ -314,14 +343,17 @@ impl RigModels {
                 });
             }
         }
-        // No joint is rotated at rest, so each inverse bind pose only undoes the position.
+        // Each inverse bind pose undoes the joint's place and turn at rest.
+        let turns = data.turns();
         let inverse: Vec<Mat4> = data
             .rest
             .iter()
-            .map(|rest| Mat4::from_translation(-*rest))
+            .zip(&turns)
+            .map(|(rest, turn)| Mat4::from_rotation_translation(*turn, *rest).inverse())
             .collect();
         let model = RigModel {
             skeleton: data.skeleton(),
+            turns,
             name: data.name,
             title: data.title,
             surfaces,
@@ -426,6 +458,10 @@ mod tests {
         let mut model = open_model();
         model.rest.pop();
         assert!(matches!(model.check(), Err(ModelError::Rest { .. })));
+
+        let mut model = open_model();
+        model.turns = vec![Quat::IDENTITY; 3];
+        assert!(matches!(model.check(), Err(ModelError::Turns { .. })));
 
         let mut model = open_model();
         model.surfaces[0].weights[0] = [0.5, 0.0, 0.0, 0.0];

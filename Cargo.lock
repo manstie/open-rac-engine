@@ -4796,6 +4796,7 @@ dependencies = [
 name = "rac_formats"
 version = "0.1.0"
 dependencies = [
+ "rac_iso",
  "thiserror 2.0.21",
 ]
 

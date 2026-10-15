@@ -1242,3 +1242,42 @@ address = 0x01E9E270
 kind = "function"
 confidence = "low"
 note = "libdl's internal_netSendAppMessage. Called or jumped to from 29 places in this image."
+
+# 2026-10-15, level data, the wrench and the armors' heads (docs/research/disc-layout.md,
+# "Level data (DL NTSC-U and Gladiator PAL)"; docs/research/moby-format.md, "DL's skins"
+# and "Bangles"). Addresses from our DreadZone Station image.
+
+[[symbol]]
+name = "dl_level_read_headers"
+address = 0x00159AB0
+kind = "function"
+confidence = "medium"
+note = "Reads the table of contents' level table; levels 20-39 take level - 20's audio and scene."
+
+[[symbol]]
+name = "dl_level_load_steps"
+address = 0x00578530
+kind = "function"
+confidence = "medium"
+note = "Steps of a level's load; reads the level WAD header's data range (+0x18)."
+
+[[symbol]]
+name = "dl_level_load_core"
+address = 0x00578940
+kind = "function"
+confidence = "medium"
+note = "Copies the data table's first 0x70 bytes, unpacks the core, sends the GS RAM image, and gives classes with a texture group (class entry +8) the skin WAD's textures."
+
+[[symbol]]
+name = "player_draw_setup"
+address = 0x00684EF0
+kind = "function"
+confidence = "low"
+note = "Per frame: sets the player moby's scale to its class's x 1.2 and its bangle mask (moby + 0x74) to player_bangles, or to 0xFFE (bangles 1-11, the bare head) while player + 0x418 is set."
+
+[[symbol]]
+name = "player_bangles"
+address = 0x002206B0
+kind = "data"
+confidence = "medium"
+note = "u16 bangle mask the player wears in play: 0x1002 (collar 1 and the helmet, 12) in all our images."

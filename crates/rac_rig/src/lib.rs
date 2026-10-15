@@ -12,7 +12,9 @@
 //!   it every frame from the hero's state, and flies a copy of the wrench while it is
 //!   thrown.
 //! - A game with real animation inserts [`RigAnimations`]: clips for some [`RigMove`]s,
-//!   already on the rig's joints. Those moves play their clip; the rest stay procedural.
+//!   already on the rig's joints, and its rules for fidgets. Those moves play their clip,
+//!   chosen and timed as the game does (fidgets, landings, the walk's speed bands); the
+//!   rest stay procedural.
 //!
 //! The rig only reads the controller ([`rac_hero::HeroBody`]), so models and animations
 //! change without touching the simulation.
@@ -20,6 +22,7 @@
 mod clips;
 mod hull;
 pub mod model;
+mod play;
 mod pose;
 mod retarget;
 mod shapes;
@@ -28,13 +31,16 @@ mod wear;
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
-use rac_hero::HeroBody;
+use rac_hero::{Health, HeroBody};
 
-pub use clips::{FlipSide, RigAnimations, RigClip, RigKeyframe, RigMove};
+pub use clips::{
+    FidgetRule, FlipSide, Landing, RUN_BELOW, RigAnimations, RigClip, RigKeyframe, RigMove,
+    SET_OFF_BELOW, Sample,
+};
 pub use hull::convex_hull;
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
-pub use retarget::{LineUpError, SkeletonMap};
+pub use retarget::{LineUpError, SkeletonMap, SourceJoint};
 pub use wear::{
     ModelData, ModelError, OPEN_MODEL, Paint, RigModel, RigModels, Surface, open_model,
 };
@@ -102,6 +108,8 @@ pub struct HeroRig {
     /// The copy of the wrench that flies while it is thrown.
     pub thrown: Entity,
     skeleton: Vec<JointDef>,
+    /// Each joint's orientation at rest in the model ([`ModelData::turns`]).
+    turns: Vec<Quat>,
     /// The surfaces of the wrench in his hand, hidden while it is thrown.
     wrench: Vec<Entity>,
     animator: pose::Animator,
@@ -158,12 +166,18 @@ pub fn spawn_rig(
     let skeleton = &model.skeleton;
     let mut joints: Vec<Entity> = Vec::with_capacity(skeleton.len());
     for (index, joint) in skeleton.iter().enumerate() {
-        let parent_rest = joint.parent.map_or(Vec3::ZERO, |p| skeleton[p].rest);
         let entity = commands
             .spawn((
                 Name::new(joint.name),
                 RigJoint(index),
-                Transform::from_translation(joint.rest - parent_rest),
+                joint_transform(
+                    skeleton,
+                    &model.turns,
+                    index,
+                    Quat::IDENTITY,
+                    Vec3::ZERO,
+                    Vec3::ONE,
+                ),
                 Visibility::default(),
             ))
             .id();
@@ -217,8 +231,9 @@ pub fn spawn_rig(
         joints,
         thrown,
         skeleton: model.skeleton.clone(),
+        turns: model.turns.clone(),
         wrench,
-        animator: pose::Animator::default(),
+        animator: pose::Animator::new(hero.to_bits() as u32),
     });
     (root, thrown)
 }
@@ -253,26 +268,59 @@ fn dress(
     }
 }
 
+/// A joint's transform relative to its parent, posed by a rotation (its turn from rest,
+/// relative to its parent's), an offset from rest and a scale, in a model whose joints may
+/// be turned at rest.
+fn joint_transform(
+    skeleton: &[JointDef],
+    turns: &[Quat],
+    index: usize,
+    rotation: Quat,
+    offset: Vec3,
+    scale: Vec3,
+) -> Transform {
+    let joint = &skeleton[index];
+    let turn = turns.get(index).copied().unwrap_or_default();
+    let (parent_rest, parent_turn) = joint.parent.map_or((Vec3::ZERO, Quat::IDENTITY), |p| {
+        (skeleton[p].rest, turns.get(p).copied().unwrap_or_default())
+    });
+    // Poses are in the parent's unturned axes; the joint's own axes are turned at rest.
+    let into_parent = parent_turn.inverse();
+    Transform {
+        translation: into_parent * (joint.rest - parent_rest + offset),
+        rotation: into_parent * rotation * turn,
+        scale,
+    }
+}
+
 fn animate(
     time: Res<Time>,
     animations: Option<Res<RigAnimations>>,
-    heroes: Query<&HeroBody>,
+    heroes: Query<(&HeroBody, Option<&Health>)>,
     mut rigs: Query<&mut HeroRig>,
     mut transforms: Query<&mut Transform, With<RigJoint>>,
     mut visibilities: Query<&mut Visibility, Without<RigJoint>>,
 ) {
     let seconds = time.delta_secs();
     for mut rig in &mut rigs {
-        let Ok(body) = heroes.get(rig.hero) else {
+        let Ok((body, health)) = heroes.get(rig.hero) else {
             continue;
         };
         let hero = &body.0;
+        let health = health.map(|h| h.current as f32 / h.max.max(1) as f32);
         let rig = &mut *rig;
         let animator = &mut rig.animator;
         animator.time += seconds;
         animator.phase = pose::advance_phase(animator.phase, hero, seconds);
         let mut target = pose::target(&rig.skeleton, hero, animator.phase, animator.time);
-        let playing = play_clip(animator, animations.as_deref(), hero, seconds, &mut target);
+        let playing = play_clip(
+            animator,
+            animations.as_deref(),
+            hero,
+            health,
+            seconds,
+            &mut target,
+        );
         pose::twist_for_strafe(&mut target, hero);
         // Attacks and clips track closely; procedural poses ease in.
         let speed = if hero.state.is_attacking() {
@@ -288,10 +336,15 @@ fn animate(
             let Ok(mut transform) = transforms.get_mut(entity) else {
                 continue;
             };
-            let joint = &rig.skeleton[index];
-            let parent_rest = joint.parent.map_or(Vec3::ZERO, |p| rig.skeleton[p].rest);
-            transform.translation = joint.rest - parent_rest + animator.pose.offsets[index];
-            transform.rotation = animator.pose.rotations[index];
+            let pose = &animator.pose;
+            *transform = joint_transform(
+                &rig.skeleton,
+                &rig.turns,
+                index,
+                pose.rotations[index],
+                pose.offsets[index],
+                pose.scales[index],
+            );
         }
         let wanted = if hero.thrown.is_some() {
             Visibility::Hidden
@@ -312,28 +365,12 @@ fn play_clip(
     animator: &mut pose::Animator,
     animations: Option<&RigAnimations>,
     hero: &rac_hero::HeroMotion,
+    health: Option<f32>,
     seconds: f32,
     target: &mut Pose,
 ) -> bool {
-    let current = RigMove::of(hero);
-    if current != animator.clip_move {
-        animator.clip_move = current;
-        animator.clip_ticks = 0.0;
-    } else {
-        let rate = match current {
-            // The run cycle plays faster the faster he runs: 1.25 times at UYA's 6.2 u/s.
-            Some(RigMove::Run) => {
-                (Vec2::new(hero.velocity.x, hero.velocity.z).length() / 5.0).clamp(0.5, 1.5)
-            }
-            // UYA plays walking backwards at 25 × its speed in u per frame, 0.7 to 2.2.
-            Some(RigMove::StrafeBack) => {
-                (Vec2::new(hero.velocity.x, hero.velocity.z).length() / 2.4).clamp(0.7, 2.2)
-            }
-            Some(RigMove::DoubleJump) => 0.8,
-            _ => 1.0,
-        };
-        animator.clip_ticks += seconds * 60.0 * rate;
-    }
+    let director = &mut animator.director;
+    let current = director.step(hero, health, animations, seconds);
     let (Some(animations), Some(current)) = (animations, current) else {
         return false;
     };
@@ -343,15 +380,18 @@ fn play_clip(
     let sample = if current.follows_attack_frame() {
         clip.at_frame(hero.attack_frame())
     } else {
-        clip.at_time(animator.clip_ticks)
+        clip.at_time(director.ticks)
     };
-    let Some((rotations, offsets)) = sample else {
+    let Some((rotations, offsets, scales)) = sample else {
         return false;
     };
     for (index, driven) in animations.driven.iter().enumerate() {
         if *driven && index < target.rotations.len() && index < rotations.len() {
             target.rotations[index] = rotations[index];
             target.offsets[index] = offsets[index];
+            if let Some(scale) = scales.get(index) {
+                target.scales[index] = *scale;
+            }
         }
     }
     true

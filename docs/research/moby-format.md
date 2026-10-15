@@ -188,12 +188,18 @@ libuya's `MobyClass` layout matches UYA's data:
   keyframe turns each eye by about its rest orientation. A vertex bound at rest moves by
   the joint's world transform times its inverse bind ("Skeleton"), which is the joint's
   turn *from* rest. That turn is also what a rig with unturned joints needs
-  (`hero_anims::pose`). [verified 2026-10-15]
+  (`hero_anims::skinning`). [verified 2026-10-15]
 - **Scales hide parts.** Clank's standing keyframe (sequence 13, keyframe 24) scales
   joints 18 and 24 to (0, 0, 0.0002), which collapses their 22 vertices each to a point.
-  Elsewhere in the sequence they show briefly (0.39 at keyframe 32). Its other scale,
-  joint 1's, stays within 1.2% of 1. Whether a child inherits its parent's scale isn't
-  read: the import scales only the joint's own vertices. [data]
+  Elsewhere in the sequence they show briefly (0.39 at keyframe 32). [data]
+- **A scale carries to the joint's children** [data, 2026-10-15; the multiply isn't read
+  in code]: the hero's root, which no vertex follows, is scaled in almost every
+  sequence, 0.82 to 1.31 along up and sideways (crouching 1.08 wide and 0.94 tall,
+  landing 0.94 to 1.07), which only does anything if the whole body takes it on. His
+  face works as much by scaling joints as by turning them: the lids (19, 20) to 0.18,
+  the brows (22, 24) 0.2 to 0.9, the mouth's pieces (12, 13) to nothing. The brows' binds
+  also scale, 1.67 along one of their own axes (`Joint::rest_scale`), which their
+  keyframes scale back. Sequences 116–118 stretch the hips (1) to 2.08 wide.
 
 ## Mesh [verified 2026-10-13]
 
@@ -315,16 +321,138 @@ memory image's hero mesh (0x1F28000) except for the relocated pointers.
   7 a tuxedo, and 8–13 aliens and robots; all 15 are skinned to the hero's own joints.
   15–28 are byte-for-byte copies of 14, and 32–34 of 29–31. Entry 31 is the wrench:
   `wrench_load` reads it whatever the armor, and gives its mesh to the wrench's class
-  (0x47), whose class in the core has no packets; 29 and 30 are wrench-sized too. Which
-  of the game's armor names goes with which entry isn't read yet. Entries 35–55 start
-  with a whole moby class (a skeleton of their own), probably the multiplayer
-  characters, and aren't read yet.
+  (0x47), whose class in the core has no packets. 29 and 30 are two other wrenches
+  (drawn from the disc, 2026-10-15) that no code we have loads: the single-player code
+  reads entries 0–13 and 31 only. The game's names for 0–13 are in "Armor numbers and
+  names" below. Entries 35–55 are whole moby classes, the multiplayer skins
+  ("Multiplayer skins" below).
 - **Clank's texture:** Clank's class (0x259, in the core) has its own mesh, but the core's
   class table names no textures for it (all 0xFF). `clank_texture_load` reads Clank
   texture 0 from the pairs after the armor entries: a bare PIF2 image.
 - **The GS's copy:** the textures go to fixed GS addresses kept at 0x1A1EE0 (palettes:
-  armor, wrench, a gadget, Clank) and 0x1A1EF4 (images, the same order), and each
-  packet's TEX0 is rewritten to point there at load.
+  armor, wrench, the ship's paint, Clank) and 0x1A1EF4 (images, the same order), and each
+  packet's TEX0 is rewritten to point there at load. The third slot isn't the hero's
+  ("The third slot: the ship's paint" below).
+
+### Armor numbers and names [verified 2026-10-15]
+
+Read in the Veldin memory image's code and data, with the names looked up in the level's
+text table (the Phoenix's holds the same). The vendor code and its tables are level code
+and data: the addresses are Veldin's (the skin table is at 0x2F1160 on the Phoenix).
+
+- **The armor number is the entry number** [code]: `armor_load` reads entry *n* for armor
+  *n*, and `armor_change` keeps *n* at 0x1D4B60. The armor worn is a saved short at
+  0x1426A0. A skin is a saved byte at 0x1427AB (0 for none), which `armor_load` and
+  `armor_install` use in its place.
+- **Armors** [code, text]: the armor vendor (`armor_vendor_list` 0x4B7420) offers the
+  armors numbered above the one worn. Names come from text numbers at 0x1DACA0, prices
+  from 0x1DACB8:
+
+  | Entry | Name | Price (bolts) |
+  |---|---|---|
+  | 0 | Alpha Combat Suit | 0, the one a new game starts in |
+  | 1 | Magnaplate Armor | 10,000 |
+  | 2 | Adamantine Armor | 60,000 |
+  | 3 | Aegis Mark V Armor | 250,000 |
+  | 4 | Infernox Armor | 1,000,000 |
+
+- **Skins** [code, data, text]: the Specials menu's skins ("Spend Titanium Bolts here to
+  change Ratchet's look"; `skin_list` 0x4B75A8) come from a table of ten 16-byte records
+  at 0x2F1C60: name text, description text, price in titanium bolts, entry. A price of
+  0xFF hides the skin until something unlocks it, and a skin already bought costs 0. A bit
+  per entry records what's unlocked (`skin_unlocked` 0x4B7370: 0x14271E for entries 0–7,
+  0x1427A8 for 8–15).
+
+  | Entry | Name, as the game spells it | Price |
+  |---|---|---|
+  | −1 | CURRENT ARMOR (back to the armor) | 0 |
+  | 5 | OLD SCHOOL RATCHET ("Flashback to Ratchet and Clank 1") | hidden |
+  | 6 | SNOWMAN | 6 |
+  | 7 | TUXEDO RATCHET | 6 |
+  | 8 | BUGINOID ("an insectoid alien") | 6 |
+  | 9 | BRAINIUS ("the lost cousin of the B2 Brawler") | 6 |
+  | 10 | CONSTRUCTOBOT ("an armored robot warrior") | hidden; the flag at 0x14279F unlocks it |
+  | 11 | ROBO ROOSTER ("a bug-eyed robot") | 6 |
+  | 12 | TROOPER ("one of your robotic enemies") | 5 |
+  | 13 | ROBO ("a tricked-out robot break dancer") | 5 |
+
+  Each matches what entries 5–13 look like on the rig. Entries 6 and 8–13 are the
+  multiplayer skins of the same names (below) in other colours, made over as meshes for
+  the hero's skeleton.
+- **Entry 14 and its copies (15–28) aren't chosen by any code we have** [code]:
+  `armor_load`'s callers pass the armor worn or the skin, and armor numbers stop at 13
+  (the skin table ends there, and so does the per-armor table at 0x2F1480, below). It is
+  Ratchet in a dark suit with an orange light on the chest (drawn from the disc,
+  2026-10-15). Maybe multiplayer Ratchet, libuya's skin 0; not checked, since no memory
+  image of a multiplayer level exists yet.
+- **Inferno Mode** [code]: breaking an Inferno crate (class 0x1F8, in `crate_break`
+  0x33BE30) makes armor 4 the one worn for 1,200 frames, keeping the old one at 0x1426D8,
+  and gives the hero class 0x1F3A's packets (`hero_mesh_swap` 0x422C60) rather than
+  reading Infernox's mesh. Veldin's core has no class 0x1F3A.
+- **A block per armor in the hero's class** [code, data]: `armor_install` copies, for
+  armor *n*, a block named by `{address, size}` at 0x2F1480 + 8*n* to just before the
+  hero's skeleton; the class header's byte +0x0F is its size in quadwords (63 for armors
+  0–5 and 7; the snowman's and 8–13 have their own sizes). Its records name joints with
+  offsets and radii, maybe collision or culling volumes. Not read; drawing doesn't use it.
+
+### Multiplayer skins (entries 35–55) [verified 2026-10-15]
+
+Read with `rac_formats::armor::Skin::read_uya` on UYA NTSC-U, and each drawn at rest
+with its textures (a throwaway renderer, 2026-10-15).
+
+- **Each is a whole class as stored** [verified]: pointers count from its start and its
+  skeleton is UYA's (0x40-byte records, parents as scratchpad addresses), so
+  `MobyClass::read_placed(.., Placement::Packed)` reads it. The textures are a texture
+  file as an armor's, one or two 128² PIF2 images.
+- **The same 86-joint skeleton in all 21** (positions, parents and binds the same in class
+  units, but for Brainius' left eye), one sequence of one keyframe, and the hero's scale
+  0.1458 except Bruiser's 0.1604. 1,724 to 2,702 triangles at high detail, 706 to 1,357
+  at low; only Bruiser has metal packets (90 triangles).
+- **It is the hero's skeleton less 25 face joints** [verified]: every joint sits on one of
+  the hero's 111 to 2 mm, with the parent's counterpart as its parent and the same turn
+  and scale at rest (Brainius' left eye, 14 and 15, is turned half a degree more). Skin
+  joints 0–10 are hero joints 0–10, 11 is 18, 12–15 are 21–24 (the eyes, turned at rest
+  as the hero's), 16 is 29, 17 is 30, 18 is 32, 19–24 are 41–46 (the ears), 25 and 26 are
+  49 and 50, and 27–85 are 52–110 (arms, legs, tail). So the hero's animations can drive
+  them through that map (`rac_formats::armor::UYA_SKIN_JOINTS`).
+- **Which is which:** libuya's multiplayer skin numbers 1–21, in order. Each was matched
+  by its look, and those with single-player namesakes look like them. The names are the
+  game's multiplayer texts (0xF23–0xF28, 0x1634–0x1641, 0x1767):
+
+  | Entry | Name | Entry | Name | Entry | Name |
+  |---|---|---|---|---|---|
+  | 35 | Robo | 42 | Gray | 49 | Brainius |
+  | 36 | Thug | 43 | Hotbot | 50 | Skrunch |
+  | 37 | Tyhrranoid | 44 | Gladiola | 51 | Bones |
+  | 38 | Blarg | 45 | Evil Clown | 52 | Nefarious |
+  | 39 | Ninja | 46 | Beach Bunny | 53 | Trooper |
+  | 40 | Snow Man | 47 | Robo Rooster | 54 | Constructobot |
+  | 41 | Bruiser | 48 | Buginoid | 55 | Dan |
+
+  Skin 0, Ratchet (text 0xF22), has no class here.
+- **What loads them** isn't in our images: the single-player code reads no entry past 31.
+  The multiplayer code must.
+
+### The third slot: the ship's paint [verified 2026-10-15]
+
+Read in the Veldin image's code and from the disc.
+
+- **`texture_slot_load` (0x423068) loads the paint job of Ratchet's ship** [code, data]:
+  image *n* of 32 (256² PIF2 images, then 7 VAG sounds), listed as `{sector, count}` pairs
+  at +0xAF8 of the fourth global header (size 0xC30, first sector 0xAB70F on our disc).
+  *n* is bits 16–20 of the ship's configuration word at 0x1D54D0. It keeps *n* at 0x16C5B0
+  and the TEX0 for the slot at 0x16C5B8.
+- **`ship_load` (0x422FA0)** reads hull *m* (bits 0–1 of the same word) from the pairs at
+  +0xAE0: three whole classes of 4 joints and about 1,660 triangles. It puts the hull in a
+  fixed buffer, which the level loader registers as class 0xD54, drawn in the paint.
+- **The core's class table says who uses it** [data]: the third word (+8) of a class's
+  entry is 0 for the level's textures, 1 for the paint and 2 for Clank's texture
+  (`level_load_core`). Every story level marks the ship's parts with 1 (classes 0x10D4,
+  0x10D5, 0x10D6, 0x10D8, 0x10DA, 0x10DE and 0x10E5, which the Ship Upgrades vendor lists
+  at 0x1D6700), and Clank (0x259) with 2; levels 19, 23 and 27 mark 0x57 with 2 too.
+- **Callers:** the level's start and loader (0x3EE988, 0x4D2370), and the Ship Upgrades
+  vendor to show and keep a paint (`vendor_preview` 0x4BBDD8, `vendor_close` 0x4B95D8).
+- **The hero doesn't need it:** nothing he carries draws with it.
 
 ## The wrench and Clank on the hero [verified 2026-10-13]
 
@@ -371,9 +499,16 @@ skin's skeleton and textures come out identical.
   Starshield (10) and Venus (14), priced 0 to 75. Entry 16, Ratchet in DL's helmet and
   suit, isn't in the menu. Each matched what we saw when we wore it (Xvfb). The
   multiplayer skins are other classes (libdl: 0x251C–0x2531).
-- **The armors have no head:** their meshes stop at the neck (1.03 m) at both levels of
-  detail, and no moby near the player carries one in our image. Where the game draws
-  Ratchet's head from isn't found yet.
+- **The armors' heads are bangles** [verified 2026-10-15]: the armors' (0–4) own meshes
+  stop at the neck (1.03 m), and the rest of Ratchet comes from their bangles ("Bangles",
+  below), the same thirteen in each: 0 and 1 two collars, 2, 3 and 11 the mouth's
+  pieces, 4–9 the eyes and lids, 10 the bare head with its ears (1,468 to 1,584
+  triangles, to 1.36 m, on the face's joints, in the second texture) and 12 the helmet
+  (486 triangles, to 1.29 m, on the head joint alone, in the first texture). The other
+  skins have no bangles. In play the game sets the player's mask every frame
+  (0x684EF0) from the global at 0x2206B0, which holds 0x1002 (collar 1 and the helmet)
+  in all four of our DL and Gladiator images, where he wears armor 0; in a mode of the
+  player's (its + 0x418 set) it shows 0xFFE instead (1–11: the bare head).
 - **Each skin is a whole class**, pointers counted from its start, with UYA's header
   for the packet table, packet counts, joint count and scale (0.2083, as UYA's hero),
   but:
@@ -387,7 +522,8 @@ skin's skeleton and textures come out identical.
   - each joint offset record (+0x18) ends with a byte naming the parent in its low
     seven bits (0x7F for the root); the skins set the high bit, another class (a
     winged pack, 0x246B) doesn't;
-  - one sequence (+0x48), not read.
+  - one sequence (+0x48), which doesn't read as UYA's sequences do (tried 2026-10-15),
+    not read.
 - **Meshes and textures** decode with UYA's rules unchanged: 1,692 to 5,640 triangles,
   no metal packets, a low level of detail on most skins; two PIF2 textures each
   (256² and 128² for the armors, two 128² for the rest).
@@ -397,8 +533,27 @@ skin's skeleton and textures come out identical.
   arm (52 shoulder, 54 elbow, 56 hand, 57 palm with four fingers, 70 thumb), 73–94 the
   right, 95 and 96 on the chest, 97–101 the left leg (thigh, knee, ankle, foot, toe)
   and 102–106 the right. It has no tail. The left side comes first, unlike UYA's.
-- **The wrench** is a class of its own in the level cores (libdl: 0x23FA), which aren't
-  read yet.
+- **The wrench** is class 0x23FA (libdl's name) in every level core but the menu's
+  [verified 2026-10-15, `Core::read_dl` and its disc tests]: 17 joints, every one turned
+  as UYA's wrench's are, scale 0.2083, 834 triangles at high detail and 498 at low, no
+  bangles, and one 128² texture of the level's own (`Core::moby_textures`). Its moby's
+  parent is the player's, it hangs from his right hand (joint 78: the first of his class's
+  joint lists, which the wrench's code asks for), and while he stands it plays its
+  sequence 1 from keyframe 0, as UYA's does [data, DreadZone Station image]. Its
+  sequences aren't read yet, as the skins' aren't.
+
+## Bangles [verified on DL NTSC, 2026-10-15]
+
+Parts of a class's mesh that each moby shows or hides one by one, read by
+`MobyClass::read_bangles` and checked on DL's skins and wrench.
+- The header's byte 0x2C is where the bangle table is, in quadwords from the class's
+  start (0 for none). The table starts with the first bangle packet and the count, then a
+  mask with a bit for each bangle there is; then four bytes for each of 15 bangles: its
+  first high-detail packet and the count, then the same for low detail. The packets are
+  entries of the class's own packet table after the metal ones, and read as regular
+  packets, from an empty vertex cache and VU0 slots.
+- A moby shows bangle *n* while bit *n* of its mask (DL: moby + 0x74, libdl's `Bangles`)
+  is set. Its vertices follow the class's joints as the rest of the mesh does.
 
 ## Where this is used
 
@@ -410,14 +565,18 @@ skin's skeleton and textures come out identical.
   inverse bind (`docs/re-setup.md`, "Extracting a model").
 - `openrac-tool hero`: reads the hero's skeleton and animations from the UYA disc image
   itself, and with `--check-ee` compares them with a memory image of the same level.
-- `crates/rac_rig`: the hero kit's skeleton and its open model. Its joints sit where UYA's
-  hero's do, rounded to the centimetre, and each names the UYA joint it stands for, so
-  these animations can drive it. Its blocks were sized against the hero's mesh, measured
-  per body part (head 0.40 × 0.39 m, ears to 1.42 m, feet 0.38 m long, tail 0.63 m). No
-  geometry or animation from the disc is in the repository.
+- `crates/rac_rig`: the hero kit's skeleton and its open model. Its joints 0–110 are
+  UYA's hero's, in his order, where his sit rounded to the centimetre, face and fingers
+  included, then Clank's and the wrench's, so these animations drive it joint for joint,
+  with their scales. Its blocks were sized against the hero's mesh, measured per body part
+  (head 0.40 × 0.39 m, ears to 1.42 m, feet 0.38 m long, tail 0.63 m). No geometry or
+  animation from the disc is in the repository.
 - `crates/openrac/src/hero_model.rs`: at start-up, Ratchet in each of the 15 distinct
   suits with its textures, the wrench and Clank, skinned to the rig's skeleton as the
-  models "uya" (armor 0), "uya-blue", "uya-snowman" and so on (`SUITS`; PLAN.md §5,
-  2026-10-13). Triangles under metal packets are polished metal. From a DL or Gladiator
-  disc, the twelve complete skins as "dl-ratchet", "dl-jak" and so on (`DL_SUITS`),
-  each lent the open model's wrench. Nothing read is stored.
+  models "uya" (armor 0), "uya-blue", "uya-snowman" and so on (`SUITS`, titled with the
+  game's names; PLAN.md §5, 2026-10-13), bound with the hero's turns at rest. The wrench
+  and Clank are baked in their standing poses through each joint's posed transform times
+  its inverse bind, scales carried to children. Triangles under metal packets are
+  polished metal. From a DL or Gladiator disc, the twelve complete skins as
+  "dl-ratchet", "dl-jak" and so on (`DL_SUITS`), their fingers, clavicles, forearms and
+  heels on the rig's own, each lent the open model's wrench. Nothing read is stored.

@@ -1584,11 +1584,11 @@ moby's sequence every frame). **[verified]** marks sequences the trace showed.
 
 | State | Sequence | Notes |
 |---|---|---|
-| Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**. At 20% health or less, 74; holding a weapon, that weapon's idle from `weapon_table` (row + 0x24). |
-| Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | Strafing backwards, 20 [code]. |
+| Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**, and 73 ("Idle fidgets"). At 20% health or less, 74, with 78 now and then; holding a weapon, that weapon's idle from `weapon_table` (row + 0x24). |
+| Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | Strafing backwards, 20 [code]. Bands and rates under "The walk's animation". |
 | Skid (3) | 6, or 5 straight out of a run between frames 3 and 16 | |
 | Crouch (4) | 13 **[verified]**; 14 moving **[verified]** | Starts at keyframe 2. |
-| Fall (6) | 11 **[verified]**, then 12 on landing **[verified]** | The game also plays 11 in state 121, falling out of the level **[verified]**. |
+| Fall (6) | 10, then 11 **[verified]**, then 12 on landing **[verified]** | "Landings". The game also plays 11 in state 121, falling out of the level **[verified]**. |
 | Jump (7) | 7 **[verified]** | |
 | Glide (8) | 19 **[verified]** | |
 | Run jump (9) | 8 or 9 **[verified 9]** | Out of a run, a per-frame table picks by the run cycle's frame (which foot). |
@@ -1617,6 +1617,76 @@ moby's sequence every frame). **[verified]** marks sequences the trace showed.
 - The hero's skeleton and every sequence are on the disc in each level's core
   (`disc-layout.md`, "Level data"). Every level has the skeleton but only the sequences
   it uses.
+
+### Idle fidgets [code, UYA NTSC, 2026-10-15]
+
+Read in the idle state's transitions (0x503B68) and the fidget picker 0x502930 on Veldin.
+- **The table** at 0x2F4370 has four fidgets of 0x70 bytes: +0x44 0 to play a sequence
+  (else enter state 60), +0x48 the sequence, +0x50 the hand item it needs (−1 any), +0x58
+  the mean seconds between plays, +0x5C the cooldown in seconds, +0x60 the cooldown
+  counter in frames:
+
+  | Fidget | Sequence | Every | Cooldown | Only |
+  |---|---|---|---|---|
+  | 0 | 1 | 10 s | 5.5 s | |
+  | 1 | 2 | 10 s | 5.5 s | |
+  | 2 | 73 | 8 s | 5 s | nothing within 8 u above him (a ray up), and a global at 0x1D545C of −1 |
+  | 3 | 78 | 4 s | 2.5 s | at low health (below) |
+
+- **Each frame** standing in the plain idle animation, when no fidget has played for 120
+  frames (0x1A4DE8): each fidget whose cooldown is over has a chance of 1 in (its mean ×
+  60) of starting, chosen by weight. Starting one sets its cooldown and the 120-frame gap,
+  and plays it with a 12-tick blend; the cooldowns and the gap count down every frame
+  (0x4FAA68). When it ends the idle comes back (blend −2: 16 ticks from the table at
+  0x1DBE90).
+- **At 20% health or less** (0x4DC080) the idle is 74, and at each end of its loop fidget
+  3 plays one time in three if its cooldown is over.
+- In the kit: `rac_rig/src/play.rs`. The rig has no collision, so it plays fidget 2 as if
+  the sky were clear.
+
+### Landings [code, UYA NTSC, 2026-10-15]
+
+- **Jumps** time their animation to land on a frame of their own: `hero_change_state`
+  sets the peak frame (0x1A5078), the landing frame (0x1A507C) and a landing keyframe
+  (0x1A5080) per state, and the air rate is warped to meet them. On landing, short of the
+  landing frame, the jump's own sequence restarts from the landing keyframe + 2 (blend 7),
+  and the jump state plays it out until the stick moves him off or it ends:
+
+  | State | Sequence | Peak, landing frame | Landing keyframe |
+  |---|---|---|---|
+  | Jump (7) | 7 | 18, 30 | 12 |
+  | Run jump (9) | 8, 9 | 18, 29 | 11 |
+  | Long jump (10) | 18 | 18, 29 | 10; lands into a skid playing 5 |
+  | Flip (11) | 28–31 | 18, 31 | 24 |
+  | Double jump (14) | 22 | 32, 43 | 19 |
+  | Heli jump (15) | 21 | 50, 64 | 30 |
+  | Wall jump (17) | 35 | 12, 20 | 10 |
+  | Water jump (18) | 89 | 18, 28 | 14 |
+  | Ledge jump (27) | 34 | 20, 29 | 19 |
+
+- **Falls** (state 6) start with 10, a one-keyframe step-off pose, and change to 11 after
+  17 frames or at once from more than 1.75 u up. Landing from 11 goes to idle playing 12:
+  from keyframe 9 (blend −1) after under 90 frames of falling, from keyframe 4 (blend 6)
+  after more. A fall still in 10 lands without one. The landing also sets a lockout
+  (0x1A4DC0: 7, 10 after state 44, 18 after a fall over 50 frames, 22 after a long one),
+  which the kit's controller doesn't have yet.
+- In the kit the controller lands into the walk, so the rig plays a landing while he stays
+  at the speed he landed with, at most 2.5 u/s (a landing with the stick let go), and
+  stops it when he speeds up. It doesn't warp the air animation yet.
+
+### The walk's animation [code, UYA NTSC, 2026-10-15]
+
+`hero_walk_anim` (0x5024B8), with the bands at 0x1DBE40 (16 bytes a substate):
+- The walk always starts setting off (substate 0, sequence 3) at keyframe 15, blended
+  over 8 ticks (12 at low health, 18 after a fall). After 4 frames it runs (substate 1,
+  sequence 4, from keyframe 16 when entered directly) above 2.35 u/s, and sets off again
+  below 1.9 u/s.
+- Changing keeps the stride: the new keyframe is the old one × the new sequence's
+  keyframe count / the old one's, plus 1 into the run or 5 into setting off (0x1DBE60).
+- Rates, from his speed in u per frame: setting off × 157 (0.6 to 4), running × 13 (0.6
+  to 2.2), walking backwards × 25 (0.7 to 2.2). The trace's "1.25 at 6.2 u/s" was the
+  run; the code gives 1.34.
+- A skid out of a run whose cycle is between frames 3 and 16 plays 5, otherwise 6.
 
 ## Moves that need items [code, UYA NTSC]
 

@@ -38,12 +38,29 @@ pub struct Joint {
 }
 
 impl Joint {
+    /// How much the inverse bind scales along each of the joint's own axes: 1 for almost
+    /// every joint. UYA's hero has two that scale (22 and 24, by 1.67 along one axis), and
+    /// his keyframes scale them back.
+    pub fn rest_scale(&self) -> [f32; 3] {
+        self.inverse_bind
+            .map(|row| (row[0] * row[0] + row[1] * row[1] + row[2] * row[2]).sqrt())
+    }
+
     /// The joint's orientation at rest, as a unit quaternion `[x, y, z, w]` in
     /// [`Keyframe::rotation`]'s convention: it turns the joint's axes into the model's.
-    /// For the rare bind that also scales, it's the rotation part, normalised.
+    /// For a bind that also scales, it's the rotation left once the scale is taken out.
     pub fn rest_rotation(&self) -> [f32; 4] {
-        // The orientation is the inverse bind's rotation transposed.
-        let m = |row: usize, column: usize| self.inverse_bind[column][row];
+        // The orientation is the inverse bind's rotation transposed. Each row of the bind
+        // is one of the joint's axes, scaled by `rest_scale`.
+        let scale = self.rest_scale();
+        let m = |row: usize, column: usize| {
+            let along = self.inverse_bind[column][row];
+            if scale[column] > 0.0 {
+                along / scale[column]
+            } else {
+                along
+            }
+        };
         let trace = m(0, 0) + m(1, 1) + m(2, 2);
         let q = if trace > 0.0 {
             let s = (trace + 1.0).sqrt() * 2.0;
@@ -241,7 +258,7 @@ impl MobyClass {
     /// - the joint offsets (+0x18) end with a byte naming the parent by its number in the
     ///   low seven bits, 0x7F for the root's none; the high bit is a flag we don't use.
     ///
-    /// Its sequences aren't read.
+    /// Its sequences aren't read: the skins' one sequence doesn't read as UYA's do.
     pub fn read_dl(image: &Image, address: u32) -> Result<Self, FormatError> {
         let pointer = |at: u32| -> Result<u32, FormatError> { Ok(address + image.u32(at)?) };
         let packet_table = image.u32(address)?;
@@ -302,6 +319,85 @@ impl MobyClass {
     }
 
     /// The mesh at one level of detail, or of the metal packets.
+    pub fn mesh(&self, kind: PacketKind) -> Result<Mesh, FormatError> {
+        mesh_of(&self.packets, kind)
+    }
+
+    /// Reads the bangles of the class whose header is at `address`: the parts of its mesh
+    /// a moby shows or hides one by one, such as the helmet of DL's armors
+    /// (`moby-format.md`, "Bangles"). Empty if the class has none.
+    ///
+    /// The header's byte 0x2C is where the bangle table is, in quadwords from the class's
+    /// start. The table starts with the first bangle packet and the count of them, then a
+    /// mask with a bit per bangle there is; then four bytes per bangle, 15 of them: the
+    /// first high-detail packet and the count, then the same for low detail. The packets
+    /// are entries of the class's own packet table, after the metal ones, and read as
+    /// regular packets.
+    pub fn read_bangles(
+        image: &Image,
+        address: u32,
+        placement: Placement,
+    ) -> Result<Vec<Bangle>, FormatError> {
+        let quadwords = image.u8(address + 0x2C)? as u32;
+        if quadwords == 0 {
+            return Ok(Vec::new());
+        }
+        let from = match placement {
+            Placement::Loaded => 0,
+            Placement::Packed => address,
+        };
+        let table = match image.u32(address)? {
+            0 => {
+                return Err(FormatError::Invalid {
+                    what: "bangle table",
+                    address,
+                    detail: "bangles in a class with no packets".into(),
+                });
+            }
+            value => from + value,
+        };
+        let block = address + quadwords * 16;
+        let present = image.u16(block + 2)?;
+        let mut bangles = Vec::new();
+        for slot in 0..BANGLE_SLOTS {
+            if present & (1 << slot) == 0 {
+                continue;
+            }
+            let at = block + 4 + slot * 4;
+            let [high, high_count, low, low_count] = [0, 1, 2, 3].map(|i| image.u8(at + i));
+            let (high, high_count) = (high? as u32, high_count? as u32);
+            let (low, low_count) = (low? as u32, low_count? as u32);
+            let packets = (high..high + high_count)
+                .map(|index| (index, PacketKind::High))
+                .chain((low..low + low_count).map(|index| (index, PacketKind::Low)))
+                .map(|(index, kind)| Packet::read(image, table + index * 0x10, kind, from))
+                .collect::<Result<Vec<_>, _>>()?;
+            bangles.push(Bangle {
+                slot: slot as usize,
+                packets,
+            });
+        }
+        Ok(bangles)
+    }
+}
+
+/// Slots in a bangle table; a moby's bangle mask has a bit for each.
+const BANGLE_SLOTS: u32 = 15;
+
+/// A bangle: a part of a class's mesh that each moby shows while bit [`Bangle::slot`] of
+/// its bangle mask is set (DL keeps the mask at moby + 0x74). Its vertices follow the
+/// class's own joints, as the rest of the mesh does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bangle {
+    /// Where it is in the class's bangle table, and its bit in a moby's mask.
+    pub slot: usize,
+    /// High detail, then low detail.
+    pub packets: Vec<Packet>,
+}
+
+impl Bangle {
+    /// The bangle's mesh at one level of detail. Its packets start from an empty vertex
+    /// cache and VU0 slots, as the class's high- and low-detail lists do.
     pub fn mesh(&self, kind: PacketKind) -> Result<Mesh, FormatError> {
         mesh_of(&self.packets, kind)
     }
@@ -497,6 +593,31 @@ pub(crate) mod tests {
             "{z} {w}"
         );
         assert_eq!(class.joints[1].rest_rotation(), [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(joint.rest_scale(), [1.0; 3]);
+    }
+
+    #[test]
+    fn a_bind_that_scales_keeps_its_turn_apart_from_its_scale() {
+        // The same quarter turn about z, with the bind stretching the joint's own y axis
+        // 1.5 times, as UYA's hero's joints 22 and 24 do with one of theirs.
+        let joint = Joint {
+            parent: None,
+            offset: [0.0; 3],
+            rest: [0.0; 3],
+            inverse_bind: [
+                [0.0, 1.0, 0.0, 0.0],
+                [-1.5, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+        };
+        assert_eq!(joint.rest_scale(), [1.0, 1.5, 1.0]);
+        let [x, y, z, w] = joint.rest_rotation();
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        assert!(x.abs() < 1e-6 && y.abs() < 1e-6, "{x} {y}");
+        assert!(
+            (z - half).abs() < 1e-6 && (w - half).abs() < 1e-6,
+            "{z} {w}"
+        );
     }
 
     #[test]
@@ -636,5 +757,66 @@ pub(crate) mod tests {
             MobyClass::read(&image, 0x100),
             Err(FormatError::OutOfBounds { .. })
         ));
+    }
+
+    /// A class at 0 whose packet table (at 0xF0) has `mesh::tests::one_packet`'s packet
+    /// as its entry 1, and a bangle table at 0x400 that lists it for bangles 0 and 2,
+    /// once at high and once at low detail. Bangle 1's entry is there but its bit isn't.
+    fn bangled_class() -> Vec<u8> {
+        let (mut bytes, entry) = super::mesh::tests::one_packet();
+        assert_eq!(entry, 0x100);
+        let mut w = Writer { bytes: Vec::new() };
+        w.u32(0xF0).u8(1).put(&[0; 0x27]).u8(0x40);
+        bytes[..w.bytes.len()].copy_from_slice(&w.bytes);
+        let mut w = Writer { bytes };
+        // The first bangle packet and the count, then the bit of each bangle there is.
+        w.at(0x400).u8(1).u8(1).u16(0b101);
+        w.put(&[1, 1, 0, 0]).put(&[9, 9, 9, 9]).put(&[0, 0, 1, 1]);
+        w.at(0x480);
+        w.bytes
+    }
+
+    #[test]
+    fn reads_the_bangles_a_class_lists() {
+        let bytes = bangled_class();
+        let image = Image::new(&bytes, 0);
+        let bangles = MobyClass::read_bangles(&image, 0, Placement::Packed).unwrap();
+        let slots: Vec<usize> = bangles.iter().map(|b| b.slot).collect();
+        assert_eq!(slots, [0, 2]);
+        let kinds: Vec<Vec<PacketKind>> = bangles
+            .iter()
+            .map(|b| b.packets.iter().map(|p| p.kind).collect())
+            .collect();
+        assert_eq!(kinds, [vec![PacketKind::High], vec![PacketKind::Low]]);
+        let mesh = bangles[0].mesh(PacketKind::High).unwrap();
+        assert_eq!(mesh.vertices[0].position, [10, -20, 30]);
+        assert!(
+            bangles[0]
+                .mesh(PacketKind::Low)
+                .unwrap()
+                .vertices
+                .is_empty()
+        );
+        assert_eq!(bangles[1].mesh(PacketKind::Low).unwrap().vertices.len(), 3);
+    }
+
+    #[test]
+    fn a_class_without_a_bangle_table_has_no_bangles() {
+        let mut bytes = bangled_class();
+        bytes[0x2C] = 0;
+        let image = Image::new(&bytes, 0);
+        assert!(
+            MobyClass::read_bangles(&image, 0, Placement::Packed)
+                .unwrap()
+                .is_empty()
+        );
+        // A table in a class with no packets is nonsense, and one past the data too.
+        let mut bytes = bangled_class();
+        bytes[..4].copy_from_slice(&[0; 4]);
+        assert!(MobyClass::read_bangles(&Image::new(&bytes, 0), 0, Placement::Packed).is_err());
+        let bytes = bangled_class();
+        assert!(
+            MobyClass::read_bangles(&Image::new(&bytes[..0x402], 0), 0, Placement::Packed).is_err()
+        );
     }
 }

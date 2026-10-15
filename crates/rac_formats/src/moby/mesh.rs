@@ -588,7 +588,7 @@ fn vif_unpacks(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::moby::tests::Writer;
 
@@ -701,7 +701,7 @@ mod tests {
 
     /// A packet table entry, a vertex table with one transfer, two vertices and one
     /// duplicate, and a VIF list of texture coordinates and strips around other commands.
-    fn one_packet() -> (Vec<u8>, u32) {
+    pub(crate) fn one_packet() -> (Vec<u8>, u32) {
         let mut w = Writer::default();
         let entry = 0x100;
         // VIF list at 0x200 (6 quadwords), vertex table at 0x300 (5 quadwords).

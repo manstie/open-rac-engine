@@ -24,7 +24,7 @@ use std::collections::HashSet;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{Image, ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
-use bevy::math::{Quat, Vec2, Vec3};
+use bevy::math::{Vec2, Vec3};
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -37,7 +37,7 @@ use rac_formats::texture::Texture;
 use rac_formats::{DiscReader, FormatError};
 use rac_rig::{JointDef, ModelData, Paint, RigModels, SkeletonMap, Surface, joint, model};
 
-use crate::hero_anims::{pose, rest_orientation, skeleton_map, to_bevy};
+use crate::hero_anims::{joint_positions, skeleton_map, skinning, to_bevy};
 
 const WRENCH_CLASS: u32 = 0x47;
 const CLANK_CLASS: u32 = 0x259;
@@ -105,37 +105,39 @@ pub struct Suit {
 
 /// The suits offered as models: every distinct mesh entry of UYA's armor WAD, the armor a
 /// new game starts in first (`moby-format.md`, "The armor WAD"). Entries 15–28 repeat 14,
-/// and 29–34 are the wrench and two like it. The titles describe how each looks.
+/// and 29–34 are the wrench and two like it. The titles are the game's own names for its
+/// armors and skins ("Armor numbers and names"); entry 14 has none, and its title says how
+/// it looks.
 pub const SUITS: &[Suit] = &[
     Suit {
         entry: 0,
         name: "uya",
-        title: "UYA Ratchet",
+        title: "Alpha Combat Suit",
     },
     Suit {
         entry: 1,
         name: "uya-blue",
-        title: "Blue armor",
+        title: "Magnaplate Armor",
     },
     Suit {
         entry: 2,
         name: "uya-rust",
-        title: "Rust armor",
+        title: "Adamantine Armor",
     },
     Suit {
         entry: 3,
         name: "uya-green",
-        title: "Green armor",
+        title: "Aegis Mark V Armor",
     },
     Suit {
         entry: 4,
         name: "uya-flame",
-        title: "Flame armor",
+        title: "Infernox Armor",
     },
     Suit {
         entry: 5,
         name: "uya-casual",
-        title: "Casual wear",
+        title: "Old School Ratchet",
     },
     Suit {
         entry: 6,
@@ -145,37 +147,37 @@ pub const SUITS: &[Suit] = &[
     Suit {
         entry: 7,
         name: "uya-tuxedo",
-        title: "Tuxedo",
+        title: "Tuxedo Ratchet",
     },
     Suit {
         entry: 8,
         name: "uya-bug",
-        title: "Bug alien",
+        title: "Buginoid",
     },
     Suit {
         entry: 9,
         name: "uya-dome",
-        title: "Dome robot",
+        title: "Brainius",
     },
     Suit {
         entry: 10,
         name: "uya-brown-robot",
-        title: "Brown robot",
+        title: "Constructobot",
     },
     Suit {
         entry: 11,
         name: "uya-goggles",
-        title: "Goggle robot",
+        title: "Robo Rooster",
     },
     Suit {
         entry: 12,
         name: "uya-red-robot",
-        title: "Red robot",
+        title: "Trooper",
     },
     Suit {
         entry: 13,
         name: "uya-mohawk",
-        title: "Mohawk robot",
+        title: "Robo",
     },
     Suit {
         entry: 14,
@@ -210,6 +212,8 @@ pub fn import(
                     name: suit.name.into(),
                     title: suit.title.into(),
                     rest: kit.rest.clone(),
+                    // Bound as the hero's class is, with his eyes and brows turned at rest.
+                    turns: map.turns(),
                     surfaces,
                     wrench_spin: kit.wrench_spin,
                 },
@@ -412,13 +416,19 @@ pub const DL_SUITS: &[Suit] = &[
 ];
 
 /// The joint of DL's player skeleton each rig joint stands for (107 joints, the same in
-/// every skin; `moby-format.md`, "DL's player skeleton"). DL numbers the left limbs first;
-/// it has no tail, and its Ratchet carries no Clank.
-const DL_SOURCES: [(usize, usize); 29] = [
+/// every skin; `moby-format.md`, "DL's player skeleton"), matched by where they sit and
+/// what they carry. DL numbers the left limbs first, and its palm (57, 79) and the thumb's
+/// last joint have no UYA joint, so they follow the hand and the thumb. Its face is laid
+/// out differently from UYA's, so only the jaw and ears line up; it has no tail, and its
+/// Ratchet carries no Clank.
+const DL_SOURCES: &[(usize, usize)] = &[
     (joint::ROOT, 0),
-    (joint::HIPS, 3),
+    (joint::HIPS, 4),
+    (joint::WAIST, 5),
     (joint::SPINE, 6),
+    (joint::SPINE_UPPER, 8),
     (joint::CHEST, 9),
+    (joint::CHEST_UPPER, 10),
     (joint::NECK, 11),
     (joint::HEAD, 12),
     (joint::JAW, 19),
@@ -426,23 +436,53 @@ const DL_SOURCES: [(usize, usize); 29] = [
     (joint::EAR_L_TIP, 30),
     (joint::EAR_R, 31),
     (joint::EAR_R_TIP, 32),
+    (joint::CLAVICLE_L, 51),
     (joint::SHOULDER_L, 52),
     (joint::ELBOW_L, 54),
+    (joint::FOREARM_L, 55),
     (joint::HAND_L, 56),
-    (joint::FINGERS_L, 57),
+    (joint::INDEX_L[0], 58),
+    (joint::INDEX_L[1], 59),
+    (joint::INDEX_L[2], 60),
+    (joint::MIDDLE_L[0], 61),
+    (joint::MIDDLE_L[1], 62),
+    (joint::MIDDLE_L[2], 63),
+    (joint::RING_L[0], 64),
+    (joint::RING_L[1], 65),
+    (joint::RING_L[2], 66),
+    (joint::PINKY_L[0], 67),
+    (joint::PINKY_L[1], 68),
+    (joint::PINKY_L[2], 69),
     (joint::THUMB_L, 70),
+    (joint::THUMB_L_TIP, 71),
+    (joint::CLAVICLE_R, 73),
     (joint::SHOULDER_R, 74),
     (joint::ELBOW_R, 76),
+    (joint::FOREARM_R, 77),
     (joint::HAND_R, 78),
-    (joint::FINGERS_R, 79),
+    (joint::INDEX_R[0], 80),
+    (joint::INDEX_R[1], 81),
+    (joint::INDEX_R[2], 82),
+    (joint::MIDDLE_R[0], 83),
+    (joint::MIDDLE_R[1], 84),
+    (joint::MIDDLE_R[2], 85),
+    (joint::RING_R[0], 86),
+    (joint::RING_R[1], 87),
+    (joint::RING_R[2], 88),
+    (joint::PINKY_R[0], 89),
+    (joint::PINKY_R[1], 90),
+    (joint::PINKY_R[2], 91),
     (joint::THUMB_R, 92),
+    (joint::THUMB_R_TIP, 93),
     (joint::THIGH_L, 97),
     (joint::KNEE_L, 98),
     (joint::ANKLE_L, 99),
+    (joint::HEEL_L, 100),
     (joint::TOE_L, 101),
     (joint::THIGH_R, 102),
     (joint::KNEE_R, 103),
     (joint::ANKLE_R, 104),
+    (joint::HEEL_R, 105),
     (joint::TOE_R, 106),
 ];
 
@@ -450,7 +490,7 @@ const DL_SOURCES: [(usize, usize); 29] = [
 fn dl_skeleton_map(class: &MobyClass) -> Result<SkeletonMap, rac_rig::LineUpError> {
     let rig = model::hero().joints;
     let mut sources = vec![None; rig.len()];
-    for (rig_joint, source) in DL_SOURCES {
+    for &(rig_joint, source) in DL_SOURCES {
         sources[rig_joint] = Some(source);
     }
     let parents: Vec<Option<usize>> = class.joints.iter().map(|j| j.parent).collect();
@@ -460,7 +500,9 @@ fn dl_skeleton_map(class: &MobyClass) -> Result<SkeletonMap, rac_rig::LineUpErro
         .iter()
         .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
         .collect();
-    SkeletonMap::new(&rig, &sources, &parents, &rest)
+    // The skins are placed at rest and posed by turns from rest, so their own turns at rest
+    // (the right ear's, half a turn) don't matter.
+    SkeletonMap::new(&rig, &sources, &parents, &rest, &[])
 }
 
 /// Each of `suits` from DL's skin table, on the rig's skeleton. DL's wrench is a class in
@@ -502,6 +544,7 @@ pub fn import_dl(
                     name: suit.name.into(),
                     title: suit.title.into(),
                     rest,
+                    turns: Vec::new(),
                     surfaces,
                     wrench_spin: open.wrench_spin + shift,
                 },
@@ -535,7 +578,7 @@ fn clank_map(clank: &MobyClass) -> Result<SkeletonMap, rac_rig::LineUpError> {
         .iter()
         .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
         .collect();
-    SkeletonMap::new(&sub, &sources, &parents, &rest)
+    SkeletonMap::new(&sub, &sources, &parents, &rest, &[])
 }
 
 /// Which of `mesh`'s triangles the metal packets `metal` draw over: those with the same
@@ -616,37 +659,11 @@ fn baked(
         .and_then(Option::as_ref)
         .and_then(|s| s.keyframes.get(keyframe))
         .ok_or(ImportError::Pose(what, sequence, keyframe))?;
-    let (rotations, positions) = pose(class, frame);
+    // As the game skins: each joint's posed transform, scales carried to its children,
+    // times its inverse bind. A keyframe's scale can hide a piece: Clank's standing pose
+    // scales two pieces of his eyes to nothing.
+    let skin = skinning(class, frame);
     let unit = class.unit();
-    let rest: Vec<Vec3> = class
-        .joints
-        .iter()
-        .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
-        .collect();
-    // A keyframe can scale a joint along its own axes; Clank's standing pose hides two
-    // pieces of his eyes by scaling them to nothing. Only the joint's own vertices are
-    // scaled here. Whether its children inherit it isn't read; the only scaled joint with
-    // children here, Clank's hips, stays within 1.2% of 1.
-    let mut scales = vec![Vec3::ONE; class.joints.len()];
-    for entry in &frame.scales {
-        if let Some(scale) = scales.get_mut(entry.joint as usize) {
-            // `to_bevy` permutes the axes, with signs a scale doesn't have.
-            let [x, y, z] = entry.scale;
-            *scale = Vec3::new(y, z, x);
-        }
-    }
-    let skin = |joint: usize, at: Vec3| -> Vec3 {
-        let turn = rotations.get(joint).copied().unwrap_or_default();
-        let position = positions.get(joint).copied().unwrap_or_default();
-        let rest = rest.get(joint).copied().unwrap_or_default();
-        let orientation = class
-            .joints
-            .get(joint)
-            .map_or(Quat::IDENTITY, rest_orientation);
-        let scale = scales.get(joint).copied().unwrap_or(Vec3::ONE);
-        // Into the joint's own axes at rest, scaled there, then turned and moved with it.
-        position + turn * (orientation * (scale * (orientation.inverse() * (at - rest))))
-    };
     let vertices = mesh
         .vertices
         .iter()
@@ -655,10 +672,12 @@ fn baked(
             let normal_at = to_bevy(Vec3::from_array(normal(v.normal)));
             let (mut placed, mut turned) = (Vec3::ZERO, Vec3::ZERO);
             for (&joint, &weight) in v.skin.joints.iter().zip(&v.skin.weights) {
-                let joint = joint as usize;
+                let Some(transform) = skin.get(joint as usize) else {
+                    continue;
+                };
                 let weight = weight as f32 / 256.0;
-                placed += weight * skin(joint, at);
-                turned += weight * (rotations.get(joint).copied().unwrap_or_default() * normal_at);
+                placed += weight * transform.transform_point3(at);
+                turned += weight * transform.transform_vector3(normal_at);
             }
             Placed {
                 position: attach + placed,
@@ -668,10 +687,8 @@ fn baked(
             }
         })
         .collect();
-    Ok((
-        vertices,
-        positions.into_iter().map(|p| attach + p).collect(),
-    ))
+    let joints = joint_positions(class, frame);
+    Ok((vertices, joints.into_iter().map(|p| attach + p).collect()))
 }
 
 fn bounds(points: impl Iterator<Item = Vec3>) -> (Vec3, Vec3) {
@@ -862,7 +879,7 @@ mod tests {
         for suits in [SUITS, DL_SUITS] {
             for (index, suit) in suits.iter().enumerate() {
                 assert!(
-                    suit.title.len() <= 13,
+                    suit.title.len() <= 20,
                     "{} is too long for the button",
                     suit.title
                 );
@@ -937,6 +954,7 @@ mod tests {
 mod disc_tests {
     use super::*;
     use crate::discs::{Release, find};
+    use bevy::math::Quat;
 
     fn veldin() -> Core {
         let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
@@ -978,14 +996,11 @@ mod disc_tests {
         let mesh = clank.mesh(PacketKind::High).unwrap();
         let (vertices, _) = baked(&clank, &mesh, CLANK_POSE, "Clank", Vec3::ZERO, |_| 0).unwrap();
         let frame = &clank.sequences[CLANK_POSE.0].as_ref().unwrap().keyframes[CLANK_POSE.1];
-        let (rotations, positions) = pose(&clank, frame);
+        let skin = skinning(&clank, frame);
         // Where his head (joint 4) alone would carry a vertex from rest.
         const HEAD: usize = 4;
         let unit = clank.unit();
-        let head_rest = to_bevy(Vec3::from(clank.joints[HEAD].rest) * unit);
-        let carried = |v: &MeshVertex| {
-            positions[HEAD] + rotations[HEAD] * (to_bevy(position(v) * unit) - head_rest)
-        };
+        let carried = |v: &MeshVertex| skin[HEAD].transform_point3(to_bevy(position(v) * unit));
         // His eyes and lids hang from joints 14-25, turned at rest. The pupils (16, 22) and
         // the pieces this pose hides (18, 24) move on their own.
         let on = |v: &MeshVertex, joints: &[u8]| {
