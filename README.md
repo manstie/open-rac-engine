@@ -33,9 +33,13 @@ remaster, using your own game discs. That covers *Ratchet & Clank* (2002) throug
 
   A classic mode keeps the original look for comparison.
 - **Controller, keyboard and mouse support**, with every action remappable.
-- **Two-player online co-op in every game, over a direct IP connection**, with mechanics
-  based on *Ratchet: Gladiator*'s co-op. Every game shares one movement and camera
-  controller with the newer games' feel, while keeping its own abilities and gadgets.
+- **Two-player online co-op in every game, connecting the players directly** with no
+  servers to host, and with mechanics based on *Ratchet: Gladiator*'s co-op. Local
+  split-screen follows.
+- **One hero controller for every game.** The older games get the newer games' controls
+  and the moves that need no item, while keeping their own movement (jump heights,
+  speeds), abilities and gadgets. Their original movement stays available as an option
+  in single-player.
 
 ## Games
 

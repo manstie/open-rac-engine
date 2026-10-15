@@ -48,7 +48,7 @@ progress, `[ ]` not started, `[-]` dropped or moved.
 5. At lower priority: the disc layer, P2.2–P2.6.
 
 **Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
-(`docs/re-setup.md`, "Still wanted"), and decision D9.
+(`docs/re-setup.md`, "Still wanted").
 
 ---
 
@@ -57,14 +57,15 @@ progress, `[ ]` not started, `[-]` dropped or moved.
 | ID | Goal | Done when |
 |---|---|---|
 | **G1** | Rewrite the engine of Ratchet & Clank (2002) through Ratchet: Gladiator (2005) in Rust with Bevy. The first deliverable is an **ISO-free hero kit**: the R&C3/Gladiator player controller, camera and weapons on a **placeholder rig built from primitive shapes**, packaged as Bevy plugins that other projects and game mash-ups can reuse. It comes with a standalone demo level. | The demo is playable for 5–10 minutes on Windows and Linux with no game data. The kit crates work in an unrelated Bevy app (P1.16) and depend on no disc crate. Measured movement matches the originals within agreed tolerances (RE.6). |
-| **G2** | Run each game **natively** on Windows and Linux (DX12 and Vulkan), with users supplying their own ISOs in `./source`. Every game shares one movement and camera controller with the R&C3/Gladiator feel, while keeping its own abilities. | Each supported release can be completed start to finish (Phase 5), with no emulator in the shipped path. |
+| **G2** | Run each game **natively** on Windows and Linux (DX12 and Vulkan), with users supplying their own ISOs in `./source`. Every game runs on one shared hero controller with the R&C3/Gladiator controls, using that game's own movement values and abilities (D7). | Each supported release can be completed start to finish (Phase 5), with no emulator in the shipped path. |
 | **G3** | Controller and keyboard+mouse support, with **key remapping**. | Every action can be remapped and the bindings persist. Gamepad and KB+M both work in menus and gameplay. |
 | **G4** | **Direct-IP two-player online co-op in every game**, with mechanics derived from Ratchet: Gladiator. | Two PCs connect by IP address and play a campaign together in every supported game (Phase 6). The demo gets co-op first (P1.18). |
 | **G5** | **A full PC remaster by default** (D4): widescreen and ultrawide, any resolution, high frame rates over a 60 Hz simulation, modern anti-aliasing and post-processing, mouse-first controls and complete settings menus. | Every enhancement is on by default and can be switched off individually. A "classic" mode reproduces the original presentation for comparison. |
 
 **Non-goals for now:**
 - Competitive online multiplayer, matchmaking or hosted servers (Horizon already revives UYA
-  and DL online). Co-op connects by direct IP only.
+  and DL online). Co-op connects the two players directly, with no servers of our own
+  (D8).
 - The PS3, PS4 or PS5 versions.
 - A pixel-exact emulator.
 - Shipping any game data.
@@ -147,7 +148,7 @@ code when an ISO is first selected. **We do both, by layer:**
 | Engine services: rendering (classic and remaster), audio engine, file and disc I/O, saves, input mapping | **Our Rust code** | Native |
 | Assets: levels, models, textures, animation, collision, sound, video | The user's ISO, **extracted and converted on first run** into a local cache | Native data |
 | Game logic: thousands of per-class update functions, missions, bosses, menus | The user's ISO, **statically recompiled on first run** (R5900 → Cranelift → native code, cached) | Native code, on top of our runtime, which emulates the hardware and IOP services at a high level (HLE) |
-| Rewritten systems: the hero and camera (one controller with the R&C3/Gladiator feel for every game, each game keeping its own abilities), weapons, HUD, co-op and netcode | **Our Rust code (the hero kit)**, replacing recompiled functions through hooks | Native |
+| Rewritten systems: the hero and camera (one controller for every game, with the R&C3/Gladiator controls and each game's own movement values and abilities), weapons, HUD, co-op and netcode | **Our Rust code (the hero kit)**, replacing recompiled functions through hooks | Native |
 
 - **Why it fits:** formats are shared but code isn't. Recompiling scales to 4 engines × ~50
   overlays without hand-porting, and keeps the game logic faithful. Our own code provides
@@ -169,8 +170,12 @@ native rewrite of each game's core, using the decompilations as the specificatio
 
 ### 4.2 Co-op and networking
 
-- **Topology:** two peers. One hosts on a UDP port and the other joins by `IP:port`. No
-  servers. UPnP port mapping (`igd-next`) is optional (D8).
+- **Topology:** two peers, and no servers of our own (D8). One hosts on a UDP port and
+  the other joins by `IP:port`. The host's port is opened automatically where the router
+  allows (UPnP IGD via `igd-next`, NAT-PMP or PCP). Otherwise the players swap join
+  codes, each holding that peer's public address (learned from public STUN servers), and
+  both peers punch through their NATs at once. IPv6 connects directly when both peers
+  have it.
 - **Model:** like GGPO, both peers simulate the whole game deterministically, and only
   player inputs cross the network, via `ggrs`.
   - **The demo** (Phase 1) uses **rollback**: its state is small and easy to snapshot, and
@@ -184,8 +189,8 @@ native rewrite of each game's core, using the decompilations as the specificatio
   resend a full snapshot to resync.
 - **Mechanics:** taken from Gladiator's co-op (RE.10), implemented once in the native hero
   and co-op layer, and applied to every game through per-game adapters (Phase 6).
-- **Rendering:** each peer renders its own view. Local split-screen is an optional extra
-  on the same foundation (D6).
+- **Rendering:** each peer renders its own view. Local split-screen comes after online
+  co-op, on the same foundation (D6).
 
 ### 4.3 Architecture
 
@@ -195,7 +200,7 @@ All crates live in `crates/`. Libraries are prefixed `rac_*`; the binary is `ope
 ISO-free hero kit: reusable in any Bevy app; never depends on the game-layer crates
   rac_sim      fixed 60 Hz clock, system order, render interpolation, seeded RNG
   rac_input    actions, bindings, remapping, per-tick input snapshots (G3)
-  rac_hero     kinematic controller (R&C3/Gladiator feel), movement profiles, camera
+  rac_hero     kinematic controller (R&C3/Gladiator controls), per-game profiles, camera
   rac_rig      the hero's skeleton, the models it wears, procedural poses and clips
   rac_combat   health and damage, melee, weapons, projectiles, pickups, quick-select
   rac_net      direct-IP sessions over ggrs: rollback or lockstep, desync checks (G4)
@@ -229,26 +234,22 @@ App
 - NTSC-U builds are the primary references: they have 60 Hz data and the community's
   symbols. PAL releases are supported variants with their own address maps, languages and
   50 Hz handling (RE.8).
-- The hero kit implements the UYA/DL move set, tuned against both games (RE.3–RE.6). Its
-  movement and camera are what R&C1 and GC get too; their abilities stay their own.
+- The hero kit implements the UYA/DL move set, with each game's values in its own profile
+  (RE.3–RE.6). R&C1 and GC get its controls and the moves that need no item, with their
+  own movement values and abilities (D7).
 
 ## 5. Decisions
 
 ### Open, needing the owner
 
-| ID | Question | Options | Recommendation |
-|---|---|---|---|
-| **D6** | Also offer local split-screen co-op, as Gladiator originally did? | Yes / no | **Yes, after direct-IP co-op works.** It reuses the same multi-hero foundation. |
-| **D7** | In the older games, offer the original hero ("classic movement") as an option alongside the backported R&C3/Gladiator hero? | Yes / no | **Yes, for single-player only.** It comes almost free, because the recompiled original hero code is there anyway. Co-op always uses the native hero. |
-| **D8** | How far beyond direct IP should connectivity go? | Direct IP only / plus UPnP / plus NAT hole punching or a relay | **Direct IP plus optional UPnP** (`igd-next`). No hosted services. |
-| **D9** | The open model (`rac_rig`) is a recognisable Ratchet and Clank, which goes further than G1's primitive-shape placeholder. Keep it in the public repo? | Keep / a less recognisable stand-in | Decide with P7.5's legal review, before the demo is published. |
+None at the moment.
 
 ### Made
 
 | Date | Decision |
 |---|---|
 | 2026-10-11 | **D1:** An independent project, broader than ReRAC: an ISO-free, reusable hero kit (usable in mash-ups) and direct-IP two-player co-op in every game, with mechanics from Ratchet: Gladiator. ReRAC and OpenRAC stay references; permissively licensed code may be reused with attribution. |
-| 2026-10-11 | **D2:** Match the player-controller feel of R&C3 and Gladiator, and backport it to the older games. UYA/R&C3 and DL/Gladiator come first (section 4.4). |
+| 2026-10-11 | **D2:** Match R&C3's and Gladiator's player controller, and backport its controls and the moves that need no item to the older games (D7). UYA/R&C3 and DL/Gladiator come first (section 4.4). |
 | 2026-10-11 | **D3:** R&C1 and GC use their NTSC-U discs as references, as UYA and DL do; the owner supplied both on 2026-10-15. They come after UYA/R&C3 and DL/Gladiator (section 4.4). |
 | 2026-10-11 | **D4:** A full PC remaster by default (G5), with a classic mode for comparison. |
 | 2026-10-11 | **D5:** The repository is public. No contributions to other repositories are planned. |
@@ -269,13 +270,16 @@ App
 | 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials. Health is a `Health` component beside the controller, which only reports hazard contact and whether a hit is fatal. |
 | 2026-10-12 | Rules the games time by **animation frame** assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts once, within its move's window. |
 | 2026-10-12 | The dev profile keeps **line tables only**, and heavy cargo commands run at reduced priority with fewer jobs (CLAUDE.md, "Commands"): full debug info and unrestricted parallel links froze a 31 GB machine. |
-| 2026-10-12 | **"Backport" means one movement and camera controller for every game; each game keeps its own abilities.** Moves the games grant as items (charge boots, heli-pack and thruster-pack moves, glide, grind boots, gadgets) are per-hero ability flags that each game sets from its own items and saves, so R&C1 never gets charge boots. The demo turns every flag on. |
+| 2026-10-12 | **"Backport" means one controller for every game, carrying the controls and the moves that need no item; each game keeps its own abilities** and its own movement values (D7). Moves the games grant as items (charge boots, heli-pack and thruster-pack moves, glide, grind boots, gadgets) are per-hero ability flags that each game sets from its own items and saves, so R&C1 never gets charge boots. The demo turns every flag on. |
 | 2026-10-12 | **Nothing is left only in a session's context:** work is written into PLAN.md and `docs/` as it happens, and every savestate, recording, script and layout goes into `source/<game>/` (CLAUDE.md, "Every session"). |
-| 2026-10-13 | **The open model** is a blocky, flat-shaded gold Ratchet with Clank and the wrench, made in code with UYA's hero as the visual reference (see D9). It lives in the kit crate **`rac_rig`**, so `rac_hero` stays free of rendering, and follows UYA's joint layout so animations from the user's disc can drive it. |
+| 2026-10-13 | **The open model** is a blocky, flat-shaded gold Ratchet with Clank and the wrench, made in code with UYA's hero as the visual reference. It is an acceptable placeholder for the public repository. It lives in the kit crate **`rac_rig`**, so `rac_hero` stays free of rendering, and follows UYA's joint layout so animations from the user's disc can drive it. |
 | 2026-10-13 | **Game data reaches the kit only at run time, through kit types.** `openrac` reads the user's disc at start-up and hands `rac_rig` clips and models on the rig's joints. The kit never reads a disc, and nothing read is stored. The disc folder is `source/` by default (`--discs`). |
 | 2026-10-13 | **The hero's model is selectable:** the open model or one imported from the user's discs. Every model wears the rig's skeleton. An import is offered only when its bones line up: each rig joint has a source joint descending from the rig parent's, and the other source joints fold into their nearest such ancestor. Clips carry offsets from the source's rest pose, so each model keeps its proportions. Joints whose frame matters follow UYA's convention (`model::wrench_points`). Chosen in the menus (saved in `settings.toml`) or with `--model`. |
 | 2026-10-13 | **parry3d's `enhanced-determinism` stays off.** It turns on glam's `scalar-math`, which drops `Vec4`'s 16-byte alignment that Bevy's GPU mesh buffers rely on (the app quit on a wgpu validation error). `rac_hero` depends on `glamx` for its `libm` feature, so parry's scalar maths still avoid each platform's C library; `openrac` asserts the alignment at compile time. Determinism relies on building x86-64 without FMA. |
 | 2026-10-15 | **Each game is a movement profile; the controller is shared.** Where the games differ in numbers, the profile holds them; where a rule differs, the profile gets a switch (`strafe.flips`), not a second controller. A game's profile keeps UYA's value, marked "not read in DL" (or that game's equivalent), until its code is read, and a test lists the fields that differ from UYA's. `uya` is the default; the app chooses with `--moves` or the menus. |
+| 2026-10-15 | **D6:** Local split-screen co-op, as Gladiator had, comes after direct-IP co-op works, on the same multi-hero foundation (P6.6). |
+| 2026-10-15 | **D7:** Each game's hero moves with that game's own values (jump heights, speeds, timings), read from its code into its own profile. What carries across the games ("backported") is the controls and the moves that need no item; moves granted by items stay with the games that have them (2026-10-12). The older games also offer their original hero ("classic movement") as an option in single-player; co-op always uses the native hero. |
+| 2026-10-15 | **D8:** Connectivity goes as far as it can without servers of our own: direct IP; automatic port mapping (UPnP IGD via `igd-next`, NAT-PMP, PCP); IPv6 where both peers have it; and UDP hole punching, with each peer's public address (learned from public STUN servers) carried in join codes the two players swap themselves. No master, rendezvous or relay servers. Two peers both behind symmetric NATs may still need a forwarded port. |
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
 
 ## 6. Roadmap
@@ -420,7 +424,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     up to 0.25 u need no code.
   - **Profiles:** each game's numbers are a RON profile, each value's source in a comment:
     `assets/uya.ron` (the default) and `assets/dl.ron` (section 5, 2026-10-15). R&C1 and
-    GC will get the backport profile (P5.7).
+    GC will get profiles of their own, read from their code (D7, P5.7).
   - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), crouch; standing,
     run, long, flip and heli jumps, the double jump, glide, fall and air control; moving
     platforms; the wall jump; ledges (grab, hang, shimmy, climb, let go); hits, hazards,
@@ -509,9 +513,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     Ratchet's head for DL's five armors (they stop at the neck); DL's own wrench (class
     0x23FA in its level cores; the skins hold the open wrench meanwhile); the game's names
     for UYA's suits; UYA's armor entries 35–55; the gadget texture slot.
-  - D9 is open on the open model's likeness.
 - [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
-  - Host and join by `IP:port` over UDP.
+  - Host and join by `IP:port`, or by swapping join codes, over UDP.
+  - Port mapping (UPnP IGD, NAT-PMP, PCP) and hole punching (D8).
   - A handshake checking the build and settings.
   - A `ggrs` session with rollback and configurable input delay.
   - Snapshot and restore of the demo's simulation.
@@ -519,7 +523,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - A second hero in player-2 colours.
   - Disconnect handling.
   - Tests with simulated latency and packet loss, then real runs over LAN and over the
-    internet (port forwarding or UPnP, per D8).
+    internet, including behind NATs.
 - [ ] **P1.19** Determinism tests:
   - Replaying recorded inputs twice must give identical state hashes.
   - CI runs the same replays on Linux and on Windows and compares the hashes across the two
@@ -709,13 +713,15 @@ Order: section 4.4.
   - rebinding everywhere.
 - [ ] **P5.6** Compatibility tracker at `docs/compat.md`, listing each release and level
   with its status.
-- [ ] **P5.7** Bring the shared movement and camera controller to R&C1 and GC (D2):
-  - The native hero replaces the recompiled one, with a backport movement profile.
-  - Only the movement and camera change. Each game keeps its own abilities, gated by its
-    own items (section 5, 2026-10-12): no charge boots in R&C1.
+- [ ] **P5.7** Bring the shared hero controller to R&C1 and GC (D2, D7):
+  - The native hero replaces the recompiled one, with a movement profile read from that
+    game's own code (RE.3 for R&C1 and GC).
+  - What carries across is the controls and the moves that need no item. Each game keeps
+    its own movement values and its own abilities, gated by its own items (section 5,
+    2026-10-12): no charge boots in R&C1.
   - Fix individual levels where the new moves break assumptions: sequence breaks, triggers,
     camera volumes.
-  - Offer the classic hero as an option (D7).
+  - Offer the classic hero as a single-player option (D7).
 - **Done when (for each release):** it can be finished start to finish, including 100%
   completion, with no softlocks, and its behaviour matches PCSX2 in the spot checks.
 
@@ -766,10 +772,11 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
   - Extract and recompile, with a progress UI.
 - [ ] **P7.4** Polish:
   - Controller glyphs, accessibility options and crash logs.
-  - Networking help: firewall, port forwarding, UPnP.
+  - Networking help: firewall, and a forwarded port for when mapping and hole punching
+    fail (D8).
   - Possibly mod support.
-- [ ] **P7.5** Legal review of disclaimers, branding (trademark use in the project name)
-  and the open model's likeness (D9).
+- [ ] **P7.5** Legal review of disclaimers and branding (trademark use in the project
+  name).
 
 ## 7. Cross-cutting
 
