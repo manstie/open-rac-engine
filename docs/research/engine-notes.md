@@ -10,8 +10,8 @@ docs and Horizon's headers. Entries that our own disc inspection confirmed are m
 uncertain are marked **[unverified]**. Everything else is "reported" and should be
 re-checked against the disc before you depend on it.
 
-All of this is written in our own words. Do not paste code or verbatim struct definitions
-from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
+All of this is written in our own words. Code reused from other projects belongs in the
+code, with its notices, not here; what may be reused is in `CLAUDE.md`'s legal rules.
 
 ## Engine generations and families
 

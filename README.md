@@ -113,8 +113,9 @@ where things stand, before opening a pull request. The legal rules matter most:
 
 - **Never commit game data:** no disc images, nothing extracted from a disc, no savestates.
 - **Never commit decompiled game code.**
-- **Copyleft code is reference only.** The project is MIT-licensed, so code from GPL
-  projects can be read to learn how things work, but never copied.
+- **Reused code keeps its notices.** The project is GPL-licensed, so code from projects
+  under compatible licences (Wrench, PCSX2, the permissive ones) can be reused with its
+  copyright and licence notices kept.
 
 ## Acknowledgements
 
@@ -148,5 +149,12 @@ legitimately obtained copies of the games.
 
 ## License
 
-The code in this repository is released under the [MIT License](LICENSE). The license covers
-this project's own code only, not the games or their content.
+This program is free software: you can redistribute it and/or modify it under the terms of
+the [GNU General Public License](LICENSE) as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version. It is distributed
+in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the license for
+details.
+
+The license covers this project's own code only, not the games or their content. It covers
+the hero kit's crates too, so a project that reuses them must be GPL-compatible.

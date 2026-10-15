@@ -5,11 +5,12 @@ old and change daily, so re-check them before you rely on any detail. Entries ma
 were confirmed this session through the GitHub API or the project's README. Everything
 else comes from web research and has not been re-checked.
 
-**Licence rule for this repo (MIT):**
-- Code from permissively licensed projects (MIT, ISC, BSD, Apache, zlib, AFL) may be reused
-  with attribution.
-- GPL and LGPL projects are reference only. Read them to learn facts, then write our own
-  implementation. Never translate their code line by line.
+**Licence rule for this repo (GPL-3.0-or-later since 2026-10-15; MIT before):**
+- Code under a licence GPLv3 can absorb may be reused, keeping its copyright and licence
+  notice in the file header and listed below: permissive licences (MIT, ISC, BSD,
+  Apache-2.0, zlib, AFL-2.0), GPL-3.0, GPL-2.0-or-later, and LGPL.
+- GPL-2.0-only code and code with no licence are reference only. Read them to learn facts,
+  then write our own implementation. Never translate their code line by line.
 - Never commit decompiled game code, game data or Sony SDK code, whatever licence label a
   project puts on it.
 
@@ -190,6 +191,6 @@ only from the decompilation projects.
 
 ## Reuse summary for this repo
 
-| Use freely, with attribution | Reference only (read, never copy) | Never commit |
+| Reuse, keeping its notices | Reference only (read, never copy) | Never commit |
 |---|---|---|
-| ReRAC (ISC), OpenGOAL (ISC), Play! (BSD-2), ico-recomp crates (MIT), libdl and libuya (MIT), Pipe (MIT), rabbitizer (MIT), CCC (MIT), pine-ipc (MIT), Cranelift (Apache), ggrs (MIT/Apache), igd-next (MIT), Wrench's `memmap.c` (BSD-2), PS2SDK (AFL-2.0), rac-modding-resources (CC0) | Wrench, Replanetizer, OpenRAC's GPL parts, rac1-decomp, Lombyte, PCSX2, DobieStation, PS2Recomp, m2c (all GPL), paraLLEl-GS (LGPL), ps2tek (no licence), Sony's manuals | Decompiled game code (whatever its label), game data or anything extracted from it, Sony SDK code or NDA material |
+| ReRAC (ISC), OpenGOAL (ISC), Play! (BSD-2), ico-recomp crates (MIT), libdl and libuya (MIT), Pipe (MIT), rabbitizer (MIT), CCC (MIT), pine-ipc (MIT), Cranelift (Apache), ggrs (MIT/Apache), igd-next (MIT), PS2SDK (AFL-2.0), rac-modding-resources (CC0); Wrench, Replanetizer, PCSX2, DobieStation, PS2Recomp, m2c, and the tooling of OpenRAC, rac1-decomp and Lombyte (all GPL-3.0), paraLLEl-GS (LGPL) | ps2tek and RCMemory (no licence), any GPL-2.0-only code, Sony's manuals | Decompiled game code (whatever its label, so the decompiled sources of rac1-decomp, Lombyte and OpenRAC's decompilations), game data or anything extracted from it, Sony SDK code or NDA material |

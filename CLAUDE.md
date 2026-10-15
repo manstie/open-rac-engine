@@ -86,13 +86,19 @@ The repository is public, so everything committed here is published.
 - Test fixtures our tests generate themselves.
 - Checksums of extracted data.
 
-**Licences.** This repo is MIT.
-- GPL and LGPL projects are **reference only**: read them for facts, then implement
-  independently, and never translate their code line by line. That covers Wrench, PCSX2,
-  OpenRAC, rac1-decomp, Lombyte, Replanetizer, PS2Recomp and m2c.
-- Permissively licensed code may be reused with attribution, given both in the file header
-  and in `docs/research/prior-art.md`. Examples: ReRAC (ISC), OpenGOAL (ISC), Play! (BSD),
-  ico-recomp (MIT), libdl and libuya (MIT).
+**Licences.** This repo is GPL-3.0-or-later (PLAN §5, 2026-10-15).
+- Code under a licence GPLv3 can absorb may be reused: keep its copyright and licence
+  notice in the file header, and list it in `docs/research/prior-art.md`.
+  - Permissive: ReRAC (ISC), OpenGOAL (ISC), Play! (BSD), ico-recomp (MIT), libdl and
+    libuya (MIT).
+  - Copyleft: GPL-3.0, GPL-2.0-or-later and LGPL projects such as Wrench, PCSX2,
+    Replanetizer, PS2Recomp, DobieStation, m2c and the decompilation projects' own
+    tooling.
+- **Reference only** (read them for facts, then implement independently; never translate
+  their code line by line): GPL-2.0-only code, and code with no licence (ps2tek,
+  RCMemory).
+- Decompiled game code stays forbidden whatever licence its project puts on it
+  (rac1-decomp, Lombyte, OpenRAC's decompilations): the game's copyright is Sony's.
 - The full licence table is in [docs/research/prior-art.md](docs/research/prior-art.md).
 
 ## Environment
@@ -238,8 +244,8 @@ Setup, launchers, menu paths, gotchas and the catalogue of savestates and traces
   comes from savestates until PLAN P2.6: `tools/ghidra/import-savestate.sh <state.p2s>
   <name> [symbols.toml]` imports a savestate's EE memory into Ghidra and analyses it
   (about 3 minutes); use a savestate in a level, not the title screen. `DecompileAt.java`
-  dumps chosen functions into `cache/`, never the repo. `wrenchbuild unpack` also works:
-  using a GPL tool is fine, copying its code is not.
+  dumps chosen functions into `cache/`, never the repo. `wrenchbuild unpack` also works,
+  and Wrench's code may be reused with its notices ("Licences").
 - **Measuring the hero:** `tools/pine-probe/replay.sh` replays a recording, or `boot.sh`
   plus xdotool plays a scripted take, and `pine-probe capture` logs the hero every frame
   from a layout; `pine-probe export` writes CSV. Where the hero lives per release is in

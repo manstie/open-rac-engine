@@ -80,8 +80,9 @@ session is working on the task now; notes on problems met stay with their task (
 The full rules are in CLAUDE.md ("Legal rules", "Workspace conventions"). Those that shape
 the plan:
 - **No game data in the repo.** Anything derived from a disc is generated on the user's
-  machine, from their own disc, into a local cache. GPL code is reference only. CI blocks
-  data files (P0.12).
+  machine, from their own disc, into a local cache. CI blocks data files (P0.12).
+- **GPL-3.0-or-later.** Code under compatible licences (Wrench, PCSX2, permissive
+  projects) may be reused with its notices; decompiled game code never.
 - **A fixed, deterministic 60 Hz simulation** with interpolated rendering: lockstep and
   rollback co-op need bit-identical state on Windows and Linux.
 - **The hero kit is ISO-free** (`rac_sim`, `rac_input`, `rac_hero`, `rac_rig`,
@@ -165,7 +166,7 @@ code when an ISO is first selected. **We do both, by layer:**
   changes); Dark Cloud's PC port (fixed 60 Hz logic, interpolated rendering).
 
 **Rejected:** hand-rewriting all gameplay (too large, given how little code is shared);
-embedding an emulator core (not native, and the cores are GPL); compiling decompiled C
+embedding an emulator core (not native); compiling decompiled C
 (ships game-derived code, and only R&C1's decompilation is mature).
 
 **Phase 4 is the decision gate.** If the recompilation spike fails, we fall back to a
@@ -284,6 +285,7 @@ None at the moment.
 | 2026-10-15 | **D7:** Each game's hero moves with that game's own values (jump heights, speeds, timings), read from its code into its own profile. What carries across the games ("backported") is the controls and the moves that need no item; moves granted by items stay with the games that have them (2026-10-12). The older games also offer their original hero ("classic movement") as an option in single-player; co-op always uses the native hero. |
 | 2026-10-15 | **D8:** Connectivity goes as far as it can without servers of our own: direct IP; automatic port mapping (UPnP IGD via `igd-next`, NAT-PMP, PCP); IPv6 where both peers have it; and UDP hole punching, with each peer's public address (learned from public STUN servers) carried in join codes the two players swap themselves. No master, rendezvous or relay servers. Two peers both behind symmetric NATs may still need a forwarded port. |
 | 2026-10-15 | **The rig's skeleton is UYA's hero's whole skeleton** (111 joints in his order, then Clank's and the wrench's), replacing the 44-joint one, so clips drive the face and fingers joint for joint. Poses carry a scale per joint, which its children take on as in the games; a model bound to joints turned at rest says so (`ModelData::turns`). A rig joint a source skeleton lacks may sit between two it has. Which clip plays, and how fast, follows the game's own rules (`rac_rig/src/play.rs`); a game hands the rig its rules for fidgets with its clips. |
+| 2026-10-15 | **The repository is GPL-3.0-or-later, replacing MIT**, the hero kit included, so projects reusing the kit must be GPL-compatible. Code under licences GPLv3 can absorb (permissive, GPL-3.0, GPL-2.0-or-later, LGPL; so Wrench and PCSX2) may be reused with its notices kept and listed in `prior-art.md`; GPL-2.0-only and unlicensed code stay reference only, and decompiled game code is never committed. GPLv2 was ruled out because several dependencies (parry3d, winit, cpal) are Apache-2.0 only. Copies of the MIT commits that were already pushed stay MIT. |
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
 
 ## 6. Roadmap
@@ -313,6 +315,9 @@ every phase. Every task follows CLAUDE.md's definition of done.
 - [x] **P0.12** Data-hygiene guard: `tools/check-data-hygiene.sh`, the `data-hygiene` CI
   job and `.githooks/pre-commit`. It rejects disc-derived file types, savestates, memory
   cards, recordings, traces and dumps, and any binary over 1 MB not on its allowlist.
+- [x] **P0.13** Relicense the repository from MIT to GPL-3.0-or-later (section 5):
+  `LICENSE`, the workspace's `license`, the README's notice, and the licence rules in
+  CLAUDE.md, CONTRIBUTING.md and `prior-art.md`.
 
 ### Track RE: Reverse engineering and the knowledge base
 
@@ -857,7 +862,7 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 | Determinism breaks between machines or operating systems | Co-op desyncs | `libm` math, no reliance on iteration order, replay tests across operating systems in CI, per-tick checksums, resync by snapshot. |
 | Lockstep feels laggy in a fast shooter | Poor co-op | Low input delay; rollback for the demo; reconsider rollback for the full games once runtime snapshots are fast (P6.2). |
 | Backported moves break older levels (sequence breaks, triggers, cameras) | Bugs and softlocks | Per-level fixes, the classic hero option (D7), and the compatibility list (P5.6). |
-| Legal problems in a public repo (GPL contamination, derived data, trademarks) | Takedown or relicensing | The CLAUDE.md rules, the CI data guard (P0.12), generating everything at install, reference-only use of GPL, and P7.5. |
+| Legal problems in a public repo (incompatible or unlicensed code, derived data, trademarks) | Takedown or relicensing | The CLAUDE.md rules (GPL-3.0-or-later; reused code keeps its notices; GPL-2.0-only and unlicensed code reference only), the CI data guard (P0.12), generating everything at install, and P7.5. |
 | VU1 and GS semantics (bloom, render-to-texture, texture paging) | Visual bugs | Native renderers per renderer type, OpenGOAL as precedent, the PCSX2 GameDB fixes as a map of hard spots, PCSX2 comparisons. |
 | Recompiler complexity (overlays, indirect jumps, asynchronous VU0, non-IEEE floats) | G2 slips | The Phase 4 spike and gate; reuse rabbitizer and ico-recomp; differential testing. |
 | IOP and sound gaps (989snd variants, "stash", DL's streamer) | Missing audio | Port OpenGOAL's 989snd; emulate at the RPC level (RE.12). |

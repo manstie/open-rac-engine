@@ -6,7 +6,8 @@ assistants alike. This page is the short version.
 
 ## The legal rules (non-negotiable)
 
-The repository is public and MIT-licensed, so everything committed here is published.
+The repository is public and licensed under the GPL, version 3 or later, so everything
+committed here is published, and your contributions are licensed the same way.
 
 **Never commit:**
 - disc images;
@@ -27,10 +28,12 @@ The repository is public and MIT-licensed, so everything committed here is publi
 - Your discs go in `source/`, which git ignores.
 - Anything derived from them goes in `cache/`, which git also ignores.
 
-**Copyleft code is reference only.** GPL and LGPL projects (Wrench, PCSX2, OpenRAC,
-rac1-decomp and others) may be read to learn facts, never copied or translated line by line.
-Permissively licensed code may be reused with attribution, both in the file header and in
-[docs/research/prior-art.md](docs/research/prior-art.md).
+**Reusing other projects' code.** Code under a licence GPLv3 can absorb (permissive
+licences, GPL-3.0, GPL-2.0-or-later and LGPL, so Wrench and PCSX2 among others) may be
+reused, keeping its copyright and licence notice in the file header and listing it in
+[docs/research/prior-art.md](docs/research/prior-art.md). GPL-2.0-only code and code with
+no licence may be read to learn facts, never copied or translated line by line. Decompiled
+game code is never committed, whatever licence a decompilation project puts on it.
 
 **The guard.** `tools/check-data-hygiene.sh` rejects disc-derived file types and files
 over 1 MB. CI runs it on every push. To run it before every commit too, enable the hook
