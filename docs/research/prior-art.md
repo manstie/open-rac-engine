@@ -63,7 +63,11 @@ only from the decompilation projects.
   - **libdl** ✔ ([Dnawrkshp/libdl](https://github.com/Dnawrkshp/libdl), MIT ✔) targets DL
     NTSC-U SCUS-97465 only.
     - Headers: `Moby` (about 400 moby IDs), `Player`, `HeroPlayerConstants`, `GadgetDef`.
-    - It also lists function addresses.
+    - It also lists function addresses. Its fixed addresses for the resident program
+      (library code, the network library high in memory, globals) hold in single player
+      too; its `_inGame` and `_inLobby` ones are multiplayer overlays. They seeded
+      `re/SCUS-97465/symbols.toml` on 2026-10-15, and through matching code, the other
+      three releases' (`engine-notes.md`, "Code layout and overlays").
     - Its `Player.SkinMoby` and skin and wrench class IDs led to DL's skins on 2026-10-15
       (`moby-format.md`, "DL's skins"); everything used was checked in the game's code
       and data.
@@ -73,6 +77,11 @@ only from the decompilation projects.
         `moby-format.md` (2026-10-13). Everything used was re-checked against UYA NTSC's
         data. Its `Moby` animation fields don't match UYA's single-player hero.
     - It lists per-map overlay addresses.
+    - **Its addresses are the multiplayer program's**, which is linked differently from
+      single player: none of its data addresses is used by single-player code, and its
+      library functions sit 0x32D0 to 0x57D38 higher than in single player
+      (`engine-notes.md`, "Code layout and overlays"). Using them needs a multiplayer
+      memory image, or matching each function's code into single player.
 - **Lists of memory addresses:** Programie/RCMemory covers PAL R&C1–3 in PCSX2 format. It
   has no licence, so we take single addresses from it as facts and re-verify them (its R&C3
   hero position, 0x1A4C60, checked out on 2026-10-11).

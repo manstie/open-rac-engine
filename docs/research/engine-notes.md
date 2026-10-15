@@ -126,6 +126,28 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
   - Overlay code regions seen: R&C3/UYA Veldin about 0x2F8000–0x524000; Gladiator/DL
     DreadZone Station about 0x3C8000–0x6CC000.
   - Addresses: `re/<serial>/symbols.toml`.
+- **The resident program** (checked 2026-10-15 on our EE images, PLAN RE.2):
+  - UYA's memory below about 0x1D4000 is nearly all the same in the title screen, Veldin,
+    Florana and Sewers **[verified]**: resident code and constants.
+  - UYA NTSC and R&C3 PAL have the same library code at the same addresses **[verified on
+    37 functions]**. libuya says the same of the multiplayer program.
+  - **UYA's multiplayer runs a separately linked program** **[verified by code]**. libuya's
+    addresses are for it, and none hold in single player: single-player code never touches
+    its data addresses, and its library functions are higher than single player's by
+    shifts that vary by stretch of code: 0x32D0 (memcpy, memmove, memset), 0x74A8 and
+    0x7608 (the Sif RPC calls), 0x8438 (`SifIopReset`), 0x87B0 (the 64-bit and soft-float
+    helpers), 0xD680 (`matrix_unit`) and 0x57D38 (`wad_get_sectors`).
+  - **DL's single player and multiplayer share one resident program** **[verified]**:
+    libdl's fixed addresses for library code, its network library (about 0x1E9E000) and
+    36 globals are called or used by DreadZone Station's code.
+  - Gladiator PAL has most library functions at DL NTSC's addresses **[verified by code,
+    53 functions]**; two higher up (`voice_enable_global_chat`, `wad_get_sectors`) are 8
+    and 0x30 bytes later.
+  - Matching was done on code with relocations masked (`j`/`jal` targets and the
+    immediates of `lui`, `addiu`, `ori`, loads and stores), against call targets in the
+    other image. The libc in UYA and R&C3 is a slightly different build from DL's, so
+    most string and `printf` functions don't match. memcpy, memmove, memset and strncpy
+    match 70–97%.
 
 ## Gameplay objects ("mobys")
 

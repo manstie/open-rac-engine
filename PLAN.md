@@ -42,12 +42,11 @@ session is working on the task now; notes on problems met stay with their task (
 **Next actions, in order:**
 1. **Owner:** push `re/hero-movement` so CI runs (it needs the owner's credentials). Then
    fix anything Windows-specific it finds (P0.7).
-2. RE.2: seed the knowledge base from libuya and libdl (MIT).
-3. RE.3 and P1.5 for DL: its lock-strafe camera (DL's default), where its flips come
+2. RE.3 and P1.5 for DL: its lock-strafe camera (DL's default), where its flips come
    from, its crouch moves (a savestate past the tutorial), and the `dl.ron` sections
    marked "not read in DL".
-4. P1.9: weapons, which also read the lock-on target.
-5. At lower priority: the disc layer, P2.2–P2.6.
+3. P1.9: weapons, which also read the lock-on target.
+4. At lower priority: the disc layer, P2.2–P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
 (`docs/re-setup.md`, "Still wanted").
@@ -325,10 +324,18 @@ committed (names, addresses, layouts, derived constants).
   - Done: `re/<serial>/hero.toml` (the hero struct, verified fields and a frame counter,
     read by `pine-probe`) for R&C3 PAL, Gladiator PAL, UYA NTSC-U and DL NTSC-U; and
     `symbols.toml` for those four, each symbol with a confidence and source, checked by
-    `pine-probe`'s tests.
-  - To do: seed UYA and DL NTSC-U from libuya and libdl (MIT, attributed);
-    `structs.toml` and `memory-map.md`; map the PAL builds by function hashing; generate a
-    Ghidra import script and the Rust hook tables (P4.7).
+    `pine-probe`'s tests. Seeded from libdl (MIT, attributed): DL NTSC-U's resident
+    library functions and globals (100 symbols), and the library functions found by
+    matching code in UYA NTSC-U, R&C3 PAL and Gladiator PAL (37, 37 and 53; method in
+    `engine-notes.md`, "Code layout and overlays").
+  - To do: libuya's addresses, which need a memory image of UYA's multiplayer program (a
+    savestate in a local multiplayer map); a code-matching tool in `tools/` in place of
+    the throwaway script used for the seeds, to map the PAL builds' level overlays and to
+    carry libuya's names into single player; `structs.toml` and `memory-map.md`; a Ghidra
+    import script and the Rust hook tables (P4.7).
+  - libuya's addresses are for UYA's multiplayer program, which is linked differently from
+    single player, so none could be copied. UYA and R&C3 got libdl's library functions by
+    matching code instead.
 - [~] **RE.3** **Hero controller**, the first priority, for UYA and DL
   (`hero-controller.md`; addresses in `re/<serial>/symbols.toml`). Feeds P1.5.
   - Read in code and checked against traces: the stick pipeline, walking and the

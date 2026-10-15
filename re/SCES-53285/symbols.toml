@@ -74,3 +74,378 @@ address = 0x00685DD0
 kind = "function"
 confidence = "medium"
 note = "(hero). Air control of jump-type states, the counterpart of R&C3's; includes the flip speeds: towards 4.2 u/s at 8 u/s^2, or while strafing towards max(2, 5.5 * stick) u/s at 47 u/s^2. The strafe flip is checked in the gladpal-dreadzone-4 trace."
+
+# Seeded 2026-10-15 (PLAN.md RE.2): libdl's library functions, found here by their code
+# against DL NTSC's (re/SCUS-97465/symbols.toml). Most are at the same address as on DL
+# NTSC. The names are libdl's and unchecked.
+
+[[symbol]]
+name = "memcmp"
+address = 0x0011A2DC
+kind = "function"
+confidence = "low"
+note = "libdl's memcmp, found by code: identical to DL NTSC's (relocations masked, 32 instructions), at the same address as DL's. Called from 8 places."
+
+[[symbol]]
+name = "memcpy"
+address = 0x0011A370
+kind = "function"
+confidence = "low"
+note = "libdl's memcpy, found by code: identical to DL NTSC's (relocations masked, 43 instructions), at the same address as DL's. Called from 74 places."
+
+[[symbol]]
+name = "memmove"
+address = 0x0011A41C
+kind = "function"
+confidence = "low"
+note = "libdl's memmove, found by code: identical to DL NTSC's (relocations masked, 21 instructions), at the same address as DL's. Called from 7 places."
+
+[[symbol]]
+name = "memset"
+address = 0x0011A518
+kind = "function"
+confidence = "low"
+note = "libdl's memset, found by code: identical to DL NTSC's (relocations masked, 46 instructions), at the same address as DL's. Called from 94 places."
+
+[[symbol]]
+name = "strcat"
+address = 0x0011A5D0
+kind = "function"
+confidence = "low"
+note = "libdl's strcat, found by code: identical to DL NTSC's (relocations masked, 76 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "strcmp"
+address = 0x0011A8A0
+kind = "function"
+confidence = "low"
+note = "libdl's strcmp, found by code: identical to DL NTSC's (relocations masked, 41 instructions), at the same address as DL's. Called from 29 places."
+
+[[symbol]]
+name = "strlen"
+address = 0x0011AB04
+kind = "function"
+confidence = "low"
+note = "libdl's strlen, found by code: identical to DL NTSC's (relocations masked, 81 instructions), at the same address as DL's. Called from 35 places."
+
+[[symbol]]
+name = "strncpy"
+address = 0x0011AFC8
+kind = "function"
+confidence = "low"
+note = "libdl's strncpy, found by code: identical to DL NTSC's (relocations masked, 15 instructions), at the same address as DL's. Called from 25 places."
+
+[[symbol]]
+name = "printf"
+address = 0x0011D5D8
+kind = "function"
+confidence = "low"
+note = "libdl's printf, found by code: identical to DL NTSC's (relocations masked, 25 instructions), at the same address as DL's. Called from 78 places."
+
+[[symbol]]
+name = "snprintf"
+address = 0x0011D878
+kind = "function"
+confidence = "low"
+note = "libdl's snprintf, found by code: identical to DL NTSC's (relocations masked, 41 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "sprintf"
+address = 0x0011D920
+kind = "function"
+confidence = "low"
+note = "libdl's sprintf, found by code: identical to DL NTSC's (relocations masked, 32 instructions), at the same address as DL's. Called from 158 places."
+
+[[symbol]]
+name = "malloc"
+address = 0x0011EF60
+kind = "function"
+confidence = "low"
+note = "libdl's malloc, found by code: identical to DL NTSC's (relocations masked, 20 instructions), at the same address as DL's. Called from 3 places."
+
+[[symbol]]
+name = "free"
+address = 0x0011EFB0
+kind = "function"
+confidence = "low"
+note = "libdl's free, found by code: identical to DL NTSC's (relocations masked, 18 instructions), at the same address as DL's. Called from 2 places."
+
+[[symbol]]
+name = "SifWriteBackDCache"
+address = 0x00129CE0
+kind = "function"
+confidence = "low"
+note = "libdl's SifWriteBackDCache, found by code: identical to DL NTSC's (relocations masked, 43 instructions), at the same address as DL's. Called from 26 places."
+
+[[symbol]]
+name = "SifInitRpc"
+address = 0x00129D90
+kind = "function"
+confidence = "low"
+note = "libdl's SifInitRpc, found by code: identical to DL NTSC's (relocations masked, 96 instructions), at the same address as DL's. Called from 13 places."
+
+[[symbol]]
+name = "SifExitRpc"
+address = 0x00129F30
+kind = "function"
+confidence = "low"
+note = "libdl's SifExitRpc, found by code: identical to DL NTSC's (relocations masked, 9 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "SifBindRpc"
+address = 0x0012A538
+kind = "function"
+confidence = "low"
+note = "libdl's SifBindRpc, found by code: identical to DL NTSC's (relocations masked, 83 instructions), at the same address as DL's. Called from 16 places."
+
+[[symbol]]
+name = "SifCallRpc"
+address = 0x0012A718
+kind = "function"
+confidence = "low"
+note = "libdl's SifCallRpc, found by code: identical to DL NTSC's (relocations masked, 96 instructions), at the same address as DL's. Called from 74 places."
+
+[[symbol]]
+name = "SifCheckStatRpc"
+address = 0x0012A918
+kind = "function"
+confidence = "low"
+note = "libdl's SifCheckStatRpc, found by code: identical to DL NTSC's (relocations masked, 13 instructions), at the same address as DL's. Called from 14 places."
+
+[[symbol]]
+name = "SifIopReset"
+address = 0x0012CC30
+kind = "function"
+confidence = "low"
+note = "libdl's SifIopReset, found by code: identical to DL NTSC's (relocations masked, 85 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "timer_get_system_time"
+address = 0x0012E370
+kind = "function"
+confidence = "low"
+note = "libdl's timerGetSystemTime, found by code: identical to DL NTSC's (relocations masked, 31 instructions), at the same address as DL's. Called from 17 places."
+
+[[symbol]]
+name = "__fixunsdfdi"
+address = 0x0012F650
+kind = "function"
+confidence = "low"
+note = "libdl's __fixunsdfdi, found by code: identical to DL NTSC's (relocations masked, 59 instructions), at the same address as DL's. Called from 3 places."
+
+[[symbol]]
+name = "__floatdidf"
+address = 0x0012F748
+kind = "function"
+confidence = "low"
+note = "libdl's __floatdidf, found by code: identical to DL NTSC's (relocations masked, 38 instructions), at the same address as DL's. Called from 5 places."
+
+[[symbol]]
+name = "__moddi3"
+address = 0x0012F7E0
+kind = "function"
+confidence = "low"
+note = "libdl's __moddi3, found by code: identical to DL NTSC's (relocations masked, 96 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "__muldi3"
+address = 0x0012FE48
+kind = "function"
+confidence = "low"
+note = "libdl's __muldi3, found by code: identical to DL NTSC's (relocations masked, 24 instructions), at the same address as DL's. Called from 9 places."
+
+[[symbol]]
+name = "__divdi3"
+address = 0x0012FEB0
+kind = "function"
+confidence = "low"
+note = "libdl's __divdi3, found by code: identical to DL NTSC's (relocations masked, 86 instructions), at the same address as DL's. Called from 25 places."
+
+[[symbol]]
+name = "__umoddi3"
+address = 0x00130480
+kind = "function"
+confidence = "low"
+note = "libdl's __umoddi3, found by code: identical to DL NTSC's (relocations masked, 16 instructions), at the same address as DL's. Called from 7 places."
+
+[[symbol]]
+name = "dpadd"
+address = 0x00130DD0
+kind = "function"
+confidence = "low"
+note = "libdl's dpadd, found by code: identical to DL NTSC's (relocations masked, 22 instructions), at the same address as DL's. Called from 65 places."
+
+[[symbol]]
+name = "dpsub"
+address = 0x00130E28
+kind = "function"
+confidence = "low"
+note = "libdl's dpsub, found by code: identical to DL NTSC's (relocations masked, 25 instructions), at the same address as DL's. Called from 83 places."
+
+[[symbol]]
+name = "dpmul"
+address = 0x00130E90
+kind = "function"
+confidence = "low"
+note = "libdl's dpmul, found by code: identical to DL NTSC's (relocations masked, 96 instructions), at the same address as DL's. Called from 115 places."
+
+[[symbol]]
+name = "dpdiv"
+address = 0x00131138
+kind = "function"
+confidence = "low"
+note = "libdl's dpdiv, found by code: identical to DL NTSC's (relocations masked, 90 instructions), at the same address as DL's. Called from 14 places."
+
+[[symbol]]
+name = "dpcmp"
+address = 0x001313B8
+kind = "function"
+confidence = "low"
+note = "libdl's dpcmp, found by code: identical to DL NTSC's (relocations masked, 19 instructions), at the same address as DL's. Called from 64 places."
+
+[[symbol]]
+name = "litodp"
+address = 0x00131408
+kind = "function"
+confidence = "low"
+note = "libdl's litodp, found by code: identical to DL NTSC's (relocations masked, 46 instructions), at the same address as DL's. Called from 14 places."
+
+[[symbol]]
+name = "dptoli"
+address = 0x001314C0
+kind = "function"
+confidence = "low"
+note = "libdl's dptoli, found by code: identical to DL NTSC's (relocations masked, 37 instructions), at the same address as DL's. Called from 11 places."
+
+[[symbol]]
+name = "dptofp"
+address = 0x00131628
+kind = "function"
+confidence = "low"
+note = "libdl's dptofp, found by code: identical to DL NTSC's (relocations masked, 21 instructions), at the same address as DL's. Called from 16 places."
+
+[[symbol]]
+name = "fptodp"
+address = 0x00131918
+kind = "function"
+confidence = "low"
+note = "libdl's fptodp, found by code: identical to DL NTSC's (relocations masked, 16 instructions), at the same address as DL's. Called from 47 places."
+
+[[symbol]]
+name = "ceilf"
+address = 0x00135770
+kind = "function"
+confidence = "low"
+note = "libdl's ceilf, found by code: identical to DL NTSC's (relocations masked, 31 instructions), at the same address as DL's. Called from 5 places."
+
+[[symbol]]
+name = "floorf"
+address = 0x001359A8
+kind = "function"
+confidence = "low"
+note = "libdl's floorf, found by code: identical to DL NTSC's (relocations masked, 34 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "pow"
+address = 0x00135D38
+kind = "function"
+confidence = "low"
+note = "libdl's pow, found by code: identical to DL NTSC's (relocations masked, 96 instructions), at the same address as DL's. Called from 2 places."
+
+[[symbol]]
+name = "sqrt"
+address = 0x00136168
+kind = "function"
+confidence = "low"
+note = "libdl's sqrt, found by code: identical to DL NTSC's (relocations masked, 67 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "asinf"
+address = 0x00136278
+kind = "function"
+confidence = "low"
+note = "libdl's asinf, found by code: identical to DL NTSC's (relocations masked, 63 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "logf"
+address = 0x001364F0
+kind = "function"
+confidence = "low"
+note = "libdl's logf, found by code: identical to DL NTSC's (relocations masked, 82 instructions), at the same address as DL's. Called from 1 places."
+
+[[symbol]]
+name = "log10f"
+address = 0x00136638
+kind = "function"
+confidence = "low"
+note = "libdl's log10f, found by code: identical to DL NTSC's (relocations masked, 83 instructions), at the same address as DL's. Called from 2 places."
+
+[[symbol]]
+name = "powf"
+address = 0x00136788
+kind = "function"
+confidence = "low"
+note = "libdl's powf, found by code: identical to DL NTSC's (relocations masked, 16 instructions), at the same address as DL's. Called from 2 places."
+
+[[symbol]]
+name = "mc_open"
+address = 0x0013A160
+kind = "function"
+confidence = "low"
+note = "libdl's McOpen, found by code: identical to DL NTSC's (relocations masked, 74 instructions), at the same address as DL's. Called from 9 places."
+
+[[symbol]]
+name = "mc_close"
+address = 0x0013A2C0
+kind = "function"
+confidence = "low"
+note = "libdl's McClose, found by code: identical to DL NTSC's (relocations masked, 47 instructions), at the same address as DL's. Called from 11 places."
+
+[[symbol]]
+name = "mc_seek"
+address = 0x0013A380
+kind = "function"
+confidence = "low"
+note = "libdl's McSeek, found by code: identical to DL NTSC's (relocations masked, 56 instructions), at the same address as DL's. Called from 2 places."
+
+[[symbol]]
+name = "mc_read"
+address = 0x0013A510
+kind = "function"
+confidence = "low"
+note = "libdl's McRead, found by code: identical to DL NTSC's (relocations masked, 69 instructions), at the same address as DL's. Called from 8 places."
+
+[[symbol]]
+name = "mc_write"
+address = 0x0013A628
+kind = "function"
+confidence = "low"
+note = "libdl's McWrite, found by code: identical to DL NTSC's (relocations masked, 94 instructions), at the same address as DL's. Called from 5 places."
+
+[[symbol]]
+name = "matrix_unit"
+address = 0x0013C478
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_unit, found by code: identical to DL NTSC's (relocations masked, 10 instructions), at the same address as DL's. Called from 5 places."
+
+[[symbol]]
+name = "wad_get_sectors"
+address = 0x00159A30
+kind = "function"
+confidence = "low"
+note = "libdl's internal_wadGetSectors, found by code: identical to DL NTSC's (relocations masked, 20 instructions), at 0x30 above DL's. Called from 6 places."
+
+[[symbol]]
+name = "voice_enable_global_chat"
+address = 0x00162768
+kind = "function"
+confidence = "low"
+note = "libdl's internal_voiceEnableGlobalChat, found by code: identical to DL NTSC's (relocations masked, 40 instructions), at 0x8 above DL's. Called from 2 places."
+
+[[symbol]]
+name = "net_send_app_message"
+address = 0x01E9E270
+kind = "function"
+confidence = "low"
+note = "libdl's internal_netSendAppMessage, found by code: identical to DL NTSC's (relocations masked, 54 instructions), at the same address as DL's. Called from 29 places."

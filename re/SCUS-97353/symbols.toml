@@ -1193,3 +1193,269 @@ address = 0x0040CEC8
 kind = "function"
 confidence = "high"
 note = "a + b wrapped into -pi..pi."
+
+# Seeded 2026-10-15 (PLAN.md RE.2): libdl's library functions, found in UYA by their code.
+# libuya's own addresses don't hold in single player: they are the multiplayer program's,
+# which is linked differently (docs/research/engine-notes.md, "Code layout and overlays").
+# Each function below has the same code as DL NTSC's once relocations are masked, unless
+# its note says otherwise, and the same bytes in the title, Veldin, Florana and Sewers
+# images, so it holds in every level. The names are libdl's and unchecked.
+
+[[symbol]]
+name = "memcmp"
+address = 0x0011A01C
+kind = "function"
+confidence = "low"
+note = "libdl's memcmp, found by code: identical to DL's (relocations masked, 32 instructions) at 0x11A2DC. Called from 13 places."
+
+[[symbol]]
+name = "memcpy"
+address = 0x0011A0B0
+kind = "function"
+confidence = "low"
+note = "libdl's memcpy, found by code: the closest code to DL's (97% of 40 masked instructions; the next best under 15%) at 0x11A370. Called from 34 places. libuya's multiplayer-build address, 0x11D380, is 0x32D0 higher."
+
+[[symbol]]
+name = "memmove"
+address = 0x0011A160
+kind = "function"
+confidence = "low"
+note = "libdl's memmove, found by code: the closest code to DL's (81% of 21 masked instructions; the next best under 15%) at 0x11A41C. Called from 12 places. libuya's multiplayer-build address, 0x11D430, is 0x32D0 higher."
+
+[[symbol]]
+name = "memset"
+address = 0x0011A264
+kind = "function"
+confidence = "low"
+note = "libdl's memset, found by code: the closest code to DL's (70% of 40 masked instructions; the next best under 15%) at 0x11A518. Called from 52 places. libuya's multiplayer-build address, 0x11D534, is 0x32D0 higher."
+
+[[symbol]]
+name = "strncpy"
+address = 0x0011BB58
+kind = "function"
+confidence = "low"
+note = "libdl's strncpy, found by code: the closest code to DL's (80% of 15 masked instructions; the next best under 15%) at 0x11AFC8. Called from 13 places. libuya's multiplayer-build address, 0x120D28, is 0x51D0 higher."
+
+[[symbol]]
+name = "SifWriteBackDCache"
+address = 0x00121F38
+kind = "function"
+confidence = "low"
+note = "libdl's SifWriteBackDCache, found by code: identical to DL's (relocations masked, 43 instructions) at 0x129CE0. Called from 40 places. libuya's multiplayer-build address, 0x1293E0, is 0x74A8 higher."
+
+[[symbol]]
+name = "SifInitRpc"
+address = 0x00121FE8
+kind = "function"
+confidence = "low"
+note = "libdl's SifInitRpc, found by code: identical to DL's (relocations masked, 96 instructions) at 0x129D90. Called from 20 places. libuya's multiplayer-build address, 0x129490, is 0x74A8 higher."
+
+[[symbol]]
+name = "SifExitRpc"
+address = 0x00122188
+kind = "function"
+confidence = "low"
+note = "libdl's SifExitRpc, found by code: identical to DL's (relocations masked, 9 instructions) at 0x129F30. Called from 2 places. libuya's multiplayer-build address, 0x129630, is 0x74A8 higher."
+
+[[symbol]]
+name = "SifBindRpc"
+address = 0x00122630
+kind = "function"
+confidence = "low"
+note = "libdl's SifBindRpc, found by code: identical to DL's (relocations masked, 83 instructions) at 0x12A538. Called from 28 places. libuya's multiplayer-build address, 0x129C38, is 0x7608 higher."
+
+[[symbol]]
+name = "SifCallRpc"
+address = 0x00122810
+kind = "function"
+confidence = "low"
+note = "libdl's SifCallRpc, found by code: identical to DL's (relocations masked, 96 instructions) at 0x12A718. Called from 95 places. libuya's multiplayer-build address, 0x129E18, is 0x7608 higher."
+
+[[symbol]]
+name = "SifCheckStatRpc"
+address = 0x00122A10
+kind = "function"
+confidence = "low"
+note = "libdl's SifCheckStatRpc, found by code: identical to DL's (relocations masked, 13 instructions) at 0x12A918. Called from 24 places. libuya's multiplayer-build address, 0x12A018, is 0x7608 higher."
+
+[[symbol]]
+name = "SifIopReset"
+address = 0x00124138
+kind = "function"
+confidence = "low"
+note = "libdl's SifIopReset, found by code: identical to DL's (relocations masked, 85 instructions) at 0x12CC30. Called from 2 places. libuya's multiplayer-build address, 0x12C570, is 0x8438 higher."
+
+[[symbol]]
+name = "__fixunsdfdi"
+address = 0x00127750
+kind = "function"
+confidence = "low"
+note = "libdl's __fixunsdfdi, found by code: identical to DL's (relocations masked, 59 instructions) at 0x12F650. Called from 2 places."
+
+[[symbol]]
+name = "__floatdidf"
+address = 0x00127848
+kind = "function"
+confidence = "low"
+note = "libdl's __floatdidf, found by code: identical to DL's (relocations masked, 38 instructions) at 0x12F748. Called from 4 places."
+
+[[symbol]]
+name = "__moddi3"
+address = 0x001278E0
+kind = "function"
+confidence = "low"
+note = "libdl's __moddi3, found by code: identical to DL's (relocations masked, 96 instructions) at 0x12F7E0. Called from 2 places."
+
+[[symbol]]
+name = "__muldi3"
+address = 0x00127F48
+kind = "function"
+confidence = "low"
+note = "libdl's __muldi3, found by code: identical to DL's (relocations masked, 24 instructions) at 0x12FE48. Called from 14 places."
+
+[[symbol]]
+name = "__divdi3"
+address = 0x00127FB0
+kind = "function"
+confidence = "low"
+note = "libdl's __divdi3, found by code: identical to DL's (relocations masked, 86 instructions) at 0x12FEB0. Called from 10 places. libuya's multiplayer-build address, 0x130760, is 0x87B0 higher."
+
+[[symbol]]
+name = "__umoddi3"
+address = 0x00128580
+kind = "function"
+confidence = "low"
+note = "libdl's __umoddi3, found by code: identical to DL's (relocations masked, 16 instructions) at 0x130480. Called from 8 places."
+
+[[symbol]]
+name = "dpadd"
+address = 0x00128ED0
+kind = "function"
+confidence = "low"
+note = "libdl's dpadd, found by code: identical to DL's (relocations masked, 22 instructions) at 0x130DD0. Called from 18 places."
+
+[[symbol]]
+name = "dpsub"
+address = 0x00128F28
+kind = "function"
+confidence = "low"
+note = "libdl's dpsub, found by code: identical to DL's (relocations masked, 25 instructions) at 0x130E28. Called from 38 places."
+
+[[symbol]]
+name = "dpmul"
+address = 0x00128F90
+kind = "function"
+confidence = "low"
+note = "libdl's dpmul, found by code: identical to DL's (relocations masked, 96 instructions) at 0x130E90. Called from 46 places."
+
+[[symbol]]
+name = "dpdiv"
+address = 0x00129238
+kind = "function"
+confidence = "low"
+note = "libdl's dpdiv, found by code: identical to DL's (relocations masked, 90 instructions) at 0x131138. Called from 10 places."
+
+[[symbol]]
+name = "dpcmp"
+address = 0x001294B8
+kind = "function"
+confidence = "low"
+note = "libdl's dpcmp, found by code: identical to DL's (relocations masked, 19 instructions) at 0x1313B8. Called from 68 places."
+
+[[symbol]]
+name = "litodp"
+address = 0x00129508
+kind = "function"
+confidence = "low"
+note = "libdl's litodp, found by code: identical to DL's (relocations masked, 46 instructions) at 0x131408. Called from 18 places."
+
+[[symbol]]
+name = "dptoli"
+address = 0x001295C0
+kind = "function"
+confidence = "low"
+note = "libdl's dptoli, found by code: identical to DL's (relocations masked, 37 instructions) at 0x1314C0. Called from 17 places."
+
+[[symbol]]
+name = "dptofp"
+address = 0x00129728
+kind = "function"
+confidence = "low"
+note = "libdl's dptofp, found by code: identical to DL's (relocations masked, 21 instructions) at 0x131628. Called from 2 places."
+
+[[symbol]]
+name = "fptodp"
+address = 0x00129A18
+kind = "function"
+confidence = "low"
+note = "libdl's fptodp, found by code: identical to DL's (relocations masked, 16 instructions) at 0x131918. Called from 14 places. libuya's multiplayer-build address, 0x1321C8, is 0x87B0 higher."
+
+[[symbol]]
+name = "mc_open"
+address = 0x0012DCA0
+kind = "function"
+confidence = "low"
+note = "libdl's McOpen, found by code: identical to DL's (relocations masked, 74 instructions) at 0x13A160. Called from 9 places."
+
+[[symbol]]
+name = "mc_close"
+address = 0x0012DE00
+kind = "function"
+confidence = "low"
+note = "libdl's McClose, found by code: identical to DL's (relocations masked, 47 instructions) at 0x13A2C0. Called from 10 places."
+
+[[symbol]]
+name = "mc_seek"
+address = 0x0012DEC0
+kind = "function"
+confidence = "low"
+note = "libdl's McSeek, found by code: identical to DL's (relocations masked, 56 instructions) at 0x13A380. Called from 2 places."
+
+[[symbol]]
+name = "mc_read"
+address = 0x0012E050
+kind = "function"
+confidence = "low"
+note = "libdl's McRead, found by code: identical to DL's (relocations masked, 69 instructions) at 0x13A510. Called from 6 places."
+
+[[symbol]]
+name = "mc_write"
+address = 0x0012E168
+kind = "function"
+confidence = "low"
+note = "libdl's McWrite, found by code: identical to DL's (relocations masked, 94 instructions) at 0x13A628. Called from 4 places."
+
+[[symbol]]
+name = "matrix_unit"
+address = 0x0012FF40
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_unit, found by code: identical to DL's (relocations masked, 10 instructions) at 0x13C478. Called from 4 places. libuya's multiplayer-build address, 0x13D5C0, is 0xD680 higher."
+
+[[symbol]]
+name = "matrix_rotate_z"
+address = 0x0012FFE0
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_z, found by code: the same as DL's in 40 of 42 instructions; the three rotations follow matrix_unit in the same order and spacing as in DL at 0x13C518. Called from 4 places. libuya's multiplayer-build address, 0x13D660, is 0xD680 higher."
+
+[[symbol]]
+name = "matrix_rotate_x"
+address = 0x00130088
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_x, found by code: the same as DL's in 40 of 42 instructions; the three rotations follow matrix_unit in the same order and spacing as in DL at 0x13C5C0. Called from 4 places. libuya's multiplayer-build address, 0x13D708, is 0xD680 higher."
+
+[[symbol]]
+name = "matrix_rotate_y"
+address = 0x00130130
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_y, found by code: the same as DL's in 40 of 42 instructions; the three rotations follow matrix_unit in the same order and spacing as in DL at 0x13C668. Called from 4 places. libuya's multiplayer-build address, 0x13D7B0, is 0xD680 higher."
+
+[[symbol]]
+name = "wad_get_sectors"
+address = 0x0013D290
+kind = "function"
+confidence = "low"
+note = "libdl's internal_wadGetSectors, found by code: identical to DL's (relocations masked, 20 instructions) at 0x159A00. Called from 8 places. libuya's multiplayer-build address, 0x194FC8, is 0x57D38 higher."

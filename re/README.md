@@ -14,10 +14,9 @@ sizes, names, constants and checksums are fine.
 | `<serial>/hero.toml` | `tools/pine-probe` | Where the hero lives in EE memory, a per-frame counter, and typed fields |
 | `<serial>/symbols.toml` | `tools/ghidra/ApplySymbols.java`, and `tools/pine-probe`'s tests | Our names for code and data addresses, each with a confidence and how it was found |
 
-Folders so far: SCES-52456 (R&C3 PAL), SCES-53285 (Gladiator PAL) and SCUS-97353 (UYA)
-have both files. SCUS-97465 (Deadlocked) has `symbols.toml` only: its hero layout needs a
-frame counter, which needs a gameplay savestate or trace. UYA's layout adds a `pad` region,
-so its traces record the inputs too.
+Folders so far: SCES-52456 (R&C3 PAL), SCES-53285 (Gladiator PAL), SCUS-97353 (UYA) and
+SCUS-97465 (Deadlocked), each with both files. UYA's hero layout adds a `pad` region, so
+its traces record the inputs too.
 
 Planned (RE.2): `structs.toml` and `memory-map.md` per release.
 
@@ -82,7 +81,14 @@ note = "What it does and how it was identified, on one line."
 
 - Our own measurements: savestates and input-recording replays, see `docs/re-setup.md`.
 - [libuya and libdl](https://github.com/Horizon-Private-Server) (MIT, © 2021 Daniel
-  Gerendasy) for struct layouts and enum numbering. We cite them and do not copy their
-  headers.
+  Gerendasy) for struct layouts, enum numbering and addresses. We cite them and do not
+  copy their headers.
+  - Each `symbols.toml` has a section of symbols seeded from them, with `low` confidence
+    until someone reads the code. Every seeded address was checked against our own
+    memory image: a function must be called there, a global used by the code.
+  - libdl's resident addresses hold in Deadlocked's single player. libuya's are the
+    multiplayer program's and don't hold in UYA's single player, so UYA, R&C3 and
+    Gladiator got libdl's library functions by matching code
+    (`docs/research/engine-notes.md`, "Code layout and overlays").
 - [Programie/RCMemory](https://github.com/Programie/RCMemory) for PAL addresses. It has no
   licence, so only individual addresses (facts) are used, each re-verified.

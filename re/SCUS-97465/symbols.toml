@@ -535,3 +535,710 @@ address = 0x0068BBA0
 kind = "function"
 confidence = "medium"
 note = "Copies camera_option into control_scheme and sets hero+0x1AE0, the camera type, from it; L2 in lock-strafe switches to first person (state 29)."
+
+# Seeded 2026-10-15 from libdl (MIT, re/README.md "Sources"; PLAN.md RE.2). Deadlocked's
+# single player and multiplayer share one resident program, so libdl's fixed addresses for
+# it hold here: each function below is the target of calls in this image, and each global
+# is read or written by its code. These are resident: they hold in every level. libdl's
+# in-game and lobby addresses are multiplayer overlays and are left out. The names are
+# libdl's and unchecked, hence low confidence.
+
+[[symbol]]
+name = "memcmp"
+address = 0x0011A2DC
+kind = "function"
+confidence = "low"
+note = "libdl's memcmp. Called or jumped to from 8 places in this image."
+
+[[symbol]]
+name = "memcpy"
+address = 0x0011A370
+kind = "function"
+confidence = "low"
+note = "libdl's memcpy. Called or jumped to from 74 places in this image."
+
+[[symbol]]
+name = "memmove"
+address = 0x0011A41C
+kind = "function"
+confidence = "low"
+note = "libdl's memmove. Called or jumped to from 7 places in this image."
+
+[[symbol]]
+name = "memset"
+address = 0x0011A518
+kind = "function"
+confidence = "low"
+note = "libdl's memset. Called or jumped to from 92 places in this image."
+
+[[symbol]]
+name = "strcat"
+address = 0x0011A5D0
+kind = "function"
+confidence = "low"
+note = "libdl's strcat. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "strcmp"
+address = 0x0011A8A0
+kind = "function"
+confidence = "low"
+note = "libdl's strcmp. Called or jumped to from 29 places in this image."
+
+[[symbol]]
+name = "strcpy"
+address = 0x0011A9EC
+kind = "function"
+confidence = "low"
+note = "libdl's strcpy. Called or jumped to from 88 places in this image."
+
+[[symbol]]
+name = "strlen"
+address = 0x0011AB04
+kind = "function"
+confidence = "low"
+note = "libdl's strlen. Called or jumped to from 33 places in this image."
+
+[[symbol]]
+name = "strncmp"
+address = 0x0011AE00
+kind = "function"
+confidence = "low"
+note = "libdl's strncmp. Called or jumped to from 9 places in this image."
+
+[[symbol]]
+name = "strncpy"
+address = 0x0011AFC8
+kind = "function"
+confidence = "low"
+note = "libdl's strncpy. Called or jumped to from 15 places in this image."
+
+[[symbol]]
+name = "printf"
+address = 0x0011D5D8
+kind = "function"
+confidence = "low"
+note = "libdl's printf. Called or jumped to from 78 places in this image."
+
+[[symbol]]
+name = "snprintf"
+address = 0x0011D878
+kind = "function"
+confidence = "low"
+note = "libdl's snprintf. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "sprintf"
+address = 0x0011D920
+kind = "function"
+confidence = "low"
+note = "libdl's sprintf. Called or jumped to from 157 places in this image."
+
+[[symbol]]
+name = "malloc"
+address = 0x0011EF60
+kind = "function"
+confidence = "low"
+note = "libdl's malloc. Called or jumped to from 3 places in this image."
+
+[[symbol]]
+name = "free"
+address = 0x0011EFB0
+kind = "function"
+confidence = "low"
+note = "libdl's free. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "strstr"
+address = 0x00122160
+kind = "function"
+confidence = "low"
+note = "libdl's strstr. Called or jumped to from 4 places in this image."
+
+[[symbol]]
+name = "SifDmaStat"
+address = 0x00126F40
+kind = "function"
+confidence = "low"
+note = "libdl's SifDmaStat. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "SifSetDma"
+address = 0x00126F60
+kind = "function"
+confidence = "low"
+note = "libdl's SifSetDma. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "SifWriteBackDCache"
+address = 0x00129CE0
+kind = "function"
+confidence = "low"
+note = "libdl's SifWriteBackDCache. Called or jumped to from 26 places in this image."
+
+[[symbol]]
+name = "SifInitRpc"
+address = 0x00129D90
+kind = "function"
+confidence = "low"
+note = "libdl's SifInitRpc. Called or jumped to from 12 places in this image."
+
+[[symbol]]
+name = "SifExitRpc"
+address = 0x00129F30
+kind = "function"
+confidence = "low"
+note = "libdl's SifExitRpc. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "SifBindRpc"
+address = 0x0012A538
+kind = "function"
+confidence = "low"
+note = "libdl's SifBindRpc. Called or jumped to from 16 places in this image."
+
+[[symbol]]
+name = "SifCallRpc"
+address = 0x0012A718
+kind = "function"
+confidence = "low"
+note = "libdl's SifCallRpc. Called or jumped to from 74 places in this image."
+
+[[symbol]]
+name = "SifCheckStatRpc"
+address = 0x0012A918
+kind = "function"
+confidence = "low"
+note = "libdl's SifCheckStatRpc. Called or jumped to from 14 places in this image."
+
+[[symbol]]
+name = "SifIopReset"
+address = 0x0012CC30
+kind = "function"
+confidence = "low"
+note = "libdl's SifIopReset. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "timer_get_system_time"
+address = 0x0012E370
+kind = "function"
+confidence = "low"
+note = "libdl's timerGetSystemTime. Called or jumped to from 17 places in this image."
+
+[[symbol]]
+name = "__fixunsdfdi"
+address = 0x0012F650
+kind = "function"
+confidence = "low"
+note = "libdl's __fixunsdfdi. Called or jumped to from 3 places in this image."
+
+[[symbol]]
+name = "__floatdidf"
+address = 0x0012F748
+kind = "function"
+confidence = "low"
+note = "libdl's __floatdidf. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "__moddi3"
+address = 0x0012F7E0
+kind = "function"
+confidence = "low"
+note = "libdl's __moddi3. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "__muldi3"
+address = 0x0012FE48
+kind = "function"
+confidence = "low"
+note = "libdl's __muldi3. Called or jumped to from 9 places in this image."
+
+[[symbol]]
+name = "__divdi3"
+address = 0x0012FEB0
+kind = "function"
+confidence = "low"
+note = "libdl's __divdi3. Called or jumped to from 25 places in this image."
+
+[[symbol]]
+name = "__umoddi3"
+address = 0x00130480
+kind = "function"
+confidence = "low"
+note = "libdl's __umoddi3. Called or jumped to from 7 places in this image."
+
+[[symbol]]
+name = "dpadd"
+address = 0x00130DD0
+kind = "function"
+confidence = "low"
+note = "libdl's dpadd. Called or jumped to from 65 places in this image."
+
+[[symbol]]
+name = "dpsub"
+address = 0x00130E28
+kind = "function"
+confidence = "low"
+note = "libdl's dpsub. Called or jumped to from 83 places in this image."
+
+[[symbol]]
+name = "dpmul"
+address = 0x00130E90
+kind = "function"
+confidence = "low"
+note = "libdl's dpmul. Called or jumped to from 115 places in this image."
+
+[[symbol]]
+name = "dpdiv"
+address = 0x00131138
+kind = "function"
+confidence = "low"
+note = "libdl's dpdiv. Called or jumped to from 14 places in this image."
+
+[[symbol]]
+name = "dpcmp"
+address = 0x001313B8
+kind = "function"
+confidence = "low"
+note = "libdl's dpcmp. Called or jumped to from 64 places in this image."
+
+[[symbol]]
+name = "litodp"
+address = 0x00131408
+kind = "function"
+confidence = "low"
+note = "libdl's litodp. Called or jumped to from 14 places in this image."
+
+[[symbol]]
+name = "dptoli"
+address = 0x001314C0
+kind = "function"
+confidence = "low"
+note = "libdl's dptoli. Called or jumped to from 11 places in this image."
+
+[[symbol]]
+name = "dptofp"
+address = 0x00131628
+kind = "function"
+confidence = "low"
+note = "libdl's dptofp. Called or jumped to from 16 places in this image."
+
+[[symbol]]
+name = "fptodp"
+address = 0x00131918
+kind = "function"
+confidence = "low"
+note = "libdl's fptodp. Called or jumped to from 47 places in this image."
+
+[[symbol]]
+name = "ceilf"
+address = 0x00135770
+kind = "function"
+confidence = "low"
+note = "libdl's ceilf. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "fabsf"
+address = 0x00135960
+kind = "function"
+confidence = "low"
+note = "libdl's fabsf. Called or jumped to from 4 places in this image."
+
+[[symbol]]
+name = "floorf"
+address = 0x001359A8
+kind = "function"
+confidence = "low"
+note = "libdl's floorf. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "pow"
+address = 0x00135D38
+kind = "function"
+confidence = "low"
+note = "libdl's pow. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "sqrt"
+address = 0x00136168
+kind = "function"
+confidence = "low"
+note = "libdl's sqrt. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "asinf"
+address = 0x00136278
+kind = "function"
+confidence = "low"
+note = "libdl's asinf. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "logf"
+address = 0x001364F0
+kind = "function"
+confidence = "low"
+note = "libdl's logf. Called or jumped to from 1 place in this image."
+
+[[symbol]]
+name = "log10f"
+address = 0x00136638
+kind = "function"
+confidence = "low"
+note = "libdl's log10f. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "powf"
+address = 0x00136788
+kind = "function"
+confidence = "low"
+note = "libdl's powf. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "mc_open"
+address = 0x0013A160
+kind = "function"
+confidence = "low"
+note = "libdl's McOpen. Called or jumped to from 9 places in this image."
+
+[[symbol]]
+name = "mc_close"
+address = 0x0013A2C0
+kind = "function"
+confidence = "low"
+note = "libdl's McClose. Called or jumped to from 11 places in this image."
+
+[[symbol]]
+name = "mc_seek"
+address = 0x0013A380
+kind = "function"
+confidence = "low"
+note = "libdl's McSeek. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "mc_read"
+address = 0x0013A510
+kind = "function"
+confidence = "low"
+note = "libdl's McRead. Called or jumped to from 8 places in this image."
+
+[[symbol]]
+name = "mc_write"
+address = 0x0013A628
+kind = "function"
+confidence = "low"
+note = "libdl's McWrite. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "matrix_unit"
+address = 0x0013C478
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_unit. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "matrix_rotate_z"
+address = 0x0013C518
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_z. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "matrix_rotate_x"
+address = 0x0013C5C0
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_x. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "matrix_rotate_y"
+address = 0x0013C668
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_y. Called or jumped to from 5 places in this image."
+
+[[symbol]]
+name = "wad_get_sectors"
+address = 0x00159A00
+kind = "function"
+confidence = "low"
+note = "libdl's internal_wadGetSectors. Called or jumped to from 4 places in this image."
+
+[[symbol]]
+name = "ui_run_callbacks"
+address = 0x0015A050
+kind = "function"
+confidence = "low"
+note = "libdl's uiRunCallbacks. Called or jumped to from 9 places in this image."
+
+[[symbol]]
+name = "voice_enable_global_chat"
+address = 0x00162760
+kind = "function"
+confidence = "low"
+note = "libdl's internal_voiceEnableGlobalChat. Called or jumped to from 2 places in this image."
+
+[[symbol]]
+name = "rand_seed"
+address = 0x001633C0
+kind = "function"
+confidence = "low"
+note = "libdl's randSeed. Called or jumped to from 10 places in this image."
+
+[[symbol]]
+name = "mc_sema"
+address = 0x00167BFC
+kind = "data"
+confidence = "low"
+note = "libdl's MC_SEMA. Read or written by 13 instructions in this image."
+
+[[symbol]]
+name = "game_client_id"
+address = 0x00172170
+kind = "data"
+confidence = "low"
+note = "libdl's GAME_CLIENT_ID. Read or written by 10 instructions in this image."
+
+[[symbol]]
+name = "local_player_count"
+address = 0x00172174
+kind = "data"
+confidence = "low"
+note = "libdl's PLAYER_LOCAL_COUNT. Read or written by 7 instructions in this image. It holds 1 in single player."
+
+[[symbol]]
+name = "player_1_id"
+address = 0x0017218C
+kind = "data"
+confidence = "low"
+note = "libdl's PLAYER_1_ID. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "game_time"
+address = 0x00172378
+kind = "data"
+confidence = "low"
+note = "libdl's GAME_TIME. Read or written by 31 instructions in this image. It counts up: 84 in the DreadZone image, 8134 in the -play one."
+
+[[symbol]]
+name = "game_host_id"
+address = 0x001723B4
+kind = "data"
+confidence = "low"
+note = "libdl's GAME_HOST_ID. Read or written by 9 instructions in this image."
+
+[[symbol]]
+name = "mc_result"
+address = 0x001AEE40
+kind = "data"
+confidence = "low"
+note = "libdl's MC_RESULT. Read or written by 13 instructions in this image."
+
+[[symbol]]
+name = "pad_p0"
+address = 0x001EE600
+kind = "data"
+confidence = "low"
+note = "libdl's PAD_P0. Read or written by 9 instructions in this image."
+
+[[symbol]]
+name = "music_current_track"
+address = 0x00206990
+kind = "data"
+confidence = "low"
+note = "libdl's CURRENT_TRACK. Read or written by 2 instructions in this image."
+
+[[symbol]]
+name = "weapon_equip_slots"
+address = 0x0020C690
+kind = "data"
+confidence = "low"
+note = "libdl's WEAPON_EQUIPSLOT. Read or written by 13 instructions in this image."
+
+[[symbol]]
+name = "dme_callback_table"
+address = 0x00212148
+kind = "data"
+confidence = "low"
+note = "libdl's DME_CALLBACK_TABLE. Read or written by 4 instructions in this image."
+
+[[symbol]]
+name = "pad_pointer"
+address = 0x0021DDD8
+kind = "data"
+confidence = "low"
+note = "libdl's PAD_POINTER. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "cheat_mirror_world"
+address = 0x0021DE31
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_MIRROR_WORLD. Read or written by 12 instructions in this image."
+
+[[symbol]]
+name = "cheat_hud_color"
+address = 0x0021DE32
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_HUD_COLOR. Read or written by 10 instructions in this image."
+
+[[symbol]]
+name = "cheat_smf_wrench"
+address = 0x0021DE35
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_SMF_WRENCH. Read or written by 5 instructions in this image."
+
+[[symbol]]
+name = "cheat_vehicle_morph_mod"
+address = 0x0021DE36
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_VEHICLE_MORPH_MOD. Read or written by 7 instructions in this image."
+
+[[symbol]]
+name = "cheat_super_bloom"
+address = 0x0021DE37
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_SUPER_BLOOM. Read or written by 5 instructions in this image."
+
+[[symbol]]
+name = "cheat_colorblind_mode"
+address = 0x0021DE38
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_COLORBLIND_MODE. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "cheat_weather_mode"
+address = 0x0021DE39
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_WEATHER_MODE. Read or written by 4 instructions in this image."
+
+[[symbol]]
+name = "cheat_gangsta_guns"
+address = 0x0021DE3A
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_GANGSTA_GUNS. Read or written by 3 instructions in this image."
+
+[[symbol]]
+name = "cheat_kill_qwark"
+address = 0x0021DE3B
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_KILL_QWARK. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "cheat_ninja_ratchet"
+address = 0x0021DE3C
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_NINJA_RATCHET. Read or written by 13 instructions in this image."
+
+[[symbol]]
+name = "cheat_remove_helmet"
+address = 0x0021DE3D
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_REMOVE_HELMET. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "cheat_cached_mirror_world"
+address = 0x0021DE41
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_CACHED_MIRROR_WORLD. Read or written by 2 instructions in this image."
+
+[[symbol]]
+name = "cheat_cached_hud_color"
+address = 0x0021DE42
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_CACHED_HUD_COLOR. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "cheat_cached_weather_mode"
+address = 0x0021DE49
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_CACHED_WEATHER_MODE. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "cheat_cached_kill_qwark"
+address = 0x0021DE4B
+kind = "data"
+confidence = "low"
+note = "libdl's CHEAT_CACHED_KILL_QWARK. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "game_settings_ptr"
+address = 0x0021DFE8
+kind = "data"
+confidence = "low"
+note = "libdl's GLOBAL_GAMESETTINGS. Read or written by 157 instructions in this image. Holds a pointer (0x223E40 here) to the game settings."
+
+[[symbol]]
+name = "game_options_ptr"
+address = 0x0021DFF0
+kind = "data"
+confidence = "low"
+note = "libdl's GLOBAL_GAMEOPTIONS. Read or written by 215 instructions in this image. Holds a pointer to the game options; 0 in single player."
+
+[[symbol]]
+name = "game_active"
+address = 0x0021E1EC
+kind = "data"
+confidence = "low"
+note = "libdl's GAME_ACTIVE. Read or written by 6 instructions in this image."
+
+[[symbol]]
+name = "music_track_range_min"
+address = 0x0021EC08
+kind = "data"
+confidence = "low"
+note = "libdl's TRACK_RANGE_MIN. Read or written by 7 instructions in this image."
+
+[[symbol]]
+name = "music_track_range_max"
+address = 0x0021EC0C
+kind = "data"
+confidence = "low"
+note = "libdl's TRACK_RANGE_MAX. Read or written by 14 instructions in this image."
+
+[[symbol]]
+name = "first_guber_moby"
+address = 0x00220710
+kind = "data"
+confidence = "low"
+note = "libdl's FIRST_GUBER_MOBY_PTR. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "moby_list_end"
+address = 0x002227B0
+kind = "data"
+confidence = "low"
+note = "libdl's END_MOBY_PTR. Read or written by 2 instructions in this image."
+
+[[symbol]]
+name = "spawn_points"
+address = 0x00222820
+kind = "data"
+confidence = "low"
+note = "libdl's SPAWNPOINTS. Read or written by 2 instructions in this image."
+
+[[symbol]]
+name = "spawn_point_count"
+address = 0x00222824
+kind = "data"
+confidence = "low"
+note = "libdl's SP_COUNT. Read or written by 1 instruction in this image."
+
+[[symbol]]
+name = "net_send_app_message"
+address = 0x01E9E270
+kind = "function"
+confidence = "low"
+note = "libdl's internal_netSendAppMessage. Called or jumped to from 29 places in this image."

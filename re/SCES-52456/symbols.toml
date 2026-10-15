@@ -186,3 +186,266 @@ address = 0x001CD0C0
 kind = "data"
 confidence = "medium"
 note = "Pad state for port 1: raw DualShock bytes from +0 (sticks at +4..+7), processed stick floats at +0x108/+0x10C, held buttons at +0x1A0."
+
+# Seeded 2026-10-15 (PLAN.md RE.2): the library functions found in UYA NTSC by their code
+# (re/SCUS-97353/symbols.toml) are at the same addresses here, with the same bytes. They
+# are resident, so they hold in every level. The names are libdl's and unchecked.
+
+[[symbol]]
+name = "memcmp"
+address = 0x0011A01C
+kind = "function"
+confidence = "low"
+note = "libdl's memcmp: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "memcpy"
+address = 0x0011A0B0
+kind = "function"
+confidence = "low"
+note = "libdl's memcpy: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "memmove"
+address = 0x0011A160
+kind = "function"
+confidence = "low"
+note = "libdl's memmove: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "memset"
+address = 0x0011A264
+kind = "function"
+confidence = "low"
+note = "libdl's memset: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "strncpy"
+address = 0x0011BB58
+kind = "function"
+confidence = "low"
+note = "libdl's strncpy: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifWriteBackDCache"
+address = 0x00121F38
+kind = "function"
+confidence = "low"
+note = "libdl's SifWriteBackDCache: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifInitRpc"
+address = 0x00121FE8
+kind = "function"
+confidence = "low"
+note = "libdl's SifInitRpc: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifExitRpc"
+address = 0x00122188
+kind = "function"
+confidence = "low"
+note = "libdl's SifExitRpc: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifBindRpc"
+address = 0x00122630
+kind = "function"
+confidence = "low"
+note = "libdl's SifBindRpc: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifCallRpc"
+address = 0x00122810
+kind = "function"
+confidence = "low"
+note = "libdl's SifCallRpc: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifCheckStatRpc"
+address = 0x00122A10
+kind = "function"
+confidence = "low"
+note = "libdl's SifCheckStatRpc: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "SifIopReset"
+address = 0x00124138
+kind = "function"
+confidence = "low"
+note = "libdl's SifIopReset: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "__fixunsdfdi"
+address = 0x00127750
+kind = "function"
+confidence = "low"
+note = "libdl's __fixunsdfdi: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "__floatdidf"
+address = 0x00127848
+kind = "function"
+confidence = "low"
+note = "libdl's __floatdidf: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "__moddi3"
+address = 0x001278E0
+kind = "function"
+confidence = "low"
+note = "libdl's __moddi3: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "__muldi3"
+address = 0x00127F48
+kind = "function"
+confidence = "low"
+note = "libdl's __muldi3: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "__divdi3"
+address = 0x00127FB0
+kind = "function"
+confidence = "low"
+note = "libdl's __divdi3: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "__umoddi3"
+address = 0x00128580
+kind = "function"
+confidence = "low"
+note = "libdl's __umoddi3: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dpadd"
+address = 0x00128ED0
+kind = "function"
+confidence = "low"
+note = "libdl's dpadd: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dpsub"
+address = 0x00128F28
+kind = "function"
+confidence = "low"
+note = "libdl's dpsub: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dpmul"
+address = 0x00128F90
+kind = "function"
+confidence = "low"
+note = "libdl's dpmul: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dpdiv"
+address = 0x00129238
+kind = "function"
+confidence = "low"
+note = "libdl's dpdiv: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dpcmp"
+address = 0x001294B8
+kind = "function"
+confidence = "low"
+note = "libdl's dpcmp: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "litodp"
+address = 0x00129508
+kind = "function"
+confidence = "low"
+note = "libdl's litodp: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dptoli"
+address = 0x001295C0
+kind = "function"
+confidence = "low"
+note = "libdl's dptoli: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "dptofp"
+address = 0x00129728
+kind = "function"
+confidence = "low"
+note = "libdl's dptofp: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "fptodp"
+address = 0x00129A18
+kind = "function"
+confidence = "low"
+note = "libdl's fptodp: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "mc_open"
+address = 0x0012DCA0
+kind = "function"
+confidence = "low"
+note = "libdl's McOpen: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "mc_close"
+address = 0x0012DE00
+kind = "function"
+confidence = "low"
+note = "libdl's McClose: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "mc_seek"
+address = 0x0012DEC0
+kind = "function"
+confidence = "low"
+note = "libdl's McSeek: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "mc_read"
+address = 0x0012E050
+kind = "function"
+confidence = "low"
+note = "libdl's McRead: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "mc_write"
+address = 0x0012E168
+kind = "function"
+confidence = "low"
+note = "libdl's McWrite: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "matrix_unit"
+address = 0x0012FF40
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_unit: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "matrix_rotate_z"
+address = 0x0012FFE0
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_z: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "matrix_rotate_x"
+address = 0x00130088
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_x: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "matrix_rotate_y"
+address = 0x00130130
+kind = "function"
+confidence = "low"
+note = "libdl's matrix_rotate_y: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
+
+[[symbol]]
+name = "wad_get_sectors"
+address = 0x0013D290
+kind = "function"
+confidence = "low"
+note = "libdl's internal_wadGetSectors: the same code at the same address as in UYA NTSC (re/SCUS-97353/symbols.toml), which was matched to DL's by code."
