@@ -16,8 +16,10 @@ The source of truth for **scope, strategy, decisions, status and next steps**.
 - The reverse-engineering setup, and the catalogue of savestates, recordings and traces:
   [docs/re-setup.md](docs/re-setup.md).
 
-Task IDs (`P2.4`, `RE.3`) are stable; use them in commits. Markers: `[x]` done, `[~]` in
-progress, `[ ]` not started, `[-]` dropped or moved.
+Task IDs (`P2.4`, `RE.3`) are stable; use them in commits. Markers: `[x]` done, `[~]` started,
+`[ ]` not started, `[-]` dropped or moved. An `In progress (<date>)` sub-bullet means a
+session is working on the task now; notes on problems met stay with their task (CLAUDE.md,
+"Mark your work in PLAN.md").
 
 ---
 

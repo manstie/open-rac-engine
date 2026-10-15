@@ -14,6 +14,23 @@ How to work in this repository, for Claude sessions and for people.
    unless the owner asks.
 2. Run `git status` and `git log --oneline -15`.
 3. Do what the owner asks. If they name nothing, take the next action in §0.
+4. Before you begin, mark the work in PLAN.md ("Mark your work in PLAN.md", below).
+
+**Mark your work in PLAN.md.** Several sessions can run at once and any of them can end
+without warning, so PLAN.md has to show what is under way and what went wrong on the way:
+- **In progress.** Before starting work you've been asked for, find the PLAN task it
+  belongs to; if none fits, use the closest one or add a task. Set its marker to `[~]`,
+  then add a sub-bullet saying what you're doing, for example `- In progress (2026-10-15):
+  fixing Clank's eyes.` Chores such as committing or tidying docs don't need one. Leave
+  other sessions' `In progress` notes alone unless the owner asks you to take one over.
+- **Problems met.** When something important comes up that has to be dealt with (a bug, a
+  wrong assumption, a format quirk, a workaround), add a sub-bullet to the same task. Say
+  what it was and how it was fixed, or that it is still open, for example `- glam's
+  scalar-math broke Bevy's GPU mesh buffers; turned off, determinism comes from building
+  without FMA (§5).` Keep it to one or two lines and point to `docs/research/` or a code
+  comment for the details. Write it as soon as the problem is understood, not at the end.
+- **When you stop**, replace your `In progress` note with what's done, what isn't, and the
+  exact next step.
 
 **As you go.** A session can end without warning, and anything only in the conversation,
 `cache/` or the scratchpad is then lost. So:
@@ -28,13 +45,16 @@ How to work in this repository, for Claude sessions and for people.
   may be wiped.
 
 **At the end:** tick or update the tasks you touched in PLAN.md and §0's next actions,
-record new decisions in §5 with the date, and leave the tree green ("Definition of done").
+replace your `In progress` notes, record new decisions in §5 with the date, and leave the
+tree green ("Definition of done").
 
 **How to write PLAN.md.** It records the current state, not the history: git log is the
 history. Keep each task to what is done, what isn't and the next step, pointing to
-`docs/research/` and the code rather than repeating them. No session log, no dated
-progress diaries, no test counts, and no notes on who asked for something or whether it is
-committed.
+`docs/research/` and the code rather than repeating them. Two kinds of sub-bullet are
+allowed beyond that: a dated `In progress` note, which goes when the work stops, and notes
+on problems met, which stay with the task while they help whoever works on it next. No
+session log, no dated progress diaries, no test counts, and no notes on who asked for
+something or whether it is committed.
 
 ## Legal rules (non-negotiable)
 
