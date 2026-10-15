@@ -7,17 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use rac_formats::elf::{self, Program, SectionKind};
-use rac_iso::Disc;
-
-/// The executable a `SYSTEM.CNF` boots, from its `BOOT2` line (`cdrom0:\SCUS_973.53;1`).
-fn boot_name(cnf: &str) -> Option<&str> {
-    let line = cnf
-        .lines()
-        .find(|line| line.trim_start().starts_with("BOOT2"))?;
-    let path = line.split_once('=')?.1.trim();
-    let name = path.rsplit(['\\', ':']).next()?;
-    name.split(';').next()
-}
+use rac_iso::{Disc, SystemCnf};
 
 /// `file`, or else the executable the disc boots, read from the disc image at `iso`.
 fn read_executable(iso: &Path, file: Option<&str>) -> Result<(String, Vec<u8>)> {
@@ -25,15 +15,7 @@ fn read_executable(iso: &Path, file: Option<&str>) -> Result<(String, Vec<u8>)> 
     let mut disc = Disc::open(BufReader::new(image))?;
     let name = match file {
         Some(name) => name.to_owned(),
-        None => {
-            let cnf = disc
-                .find("SYSTEM.CNF")?
-                .context("the disc has no SYSTEM.CNF")?;
-            let text = String::from_utf8_lossy(&disc.read_file(&cnf)?).into_owned();
-            boot_name(&text)
-                .context("SYSTEM.CNF names no boot executable")?
-                .to_owned()
-        }
+        None => SystemCnf::read(&mut disc)?.boot,
     };
     let entry = disc
         .find(&name)?
@@ -77,38 +59,10 @@ fn describe(name: &str, program: &Program) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_the_boot_executable_from_system_cnf() {
-        let cnf = "BOOT2 = cdrom0:\\SCUS_973.53;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n";
-        assert_eq!(boot_name(cnf), Some("SCUS_973.53"));
-        assert_eq!(boot_name("BOOT2=cdrom0:\\SLES_123.45"), Some("SLES_123.45"));
-        assert_eq!(boot_name("VER = 1.00"), None);
-    }
-}
-
 /// Reads the real discs: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.
 #[cfg(test)]
 mod disc_tests {
     use super::*;
-    use std::path::PathBuf;
-
-    fn images(folder: &Path, out: &mut Vec<PathBuf>) {
-        for entry in std::fs::read_dir(folder).unwrap().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                images(&path, out);
-            } else if path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("iso"))
-            {
-                out.push(path);
-            }
-        }
-    }
 
     #[test]
     #[ignore = "needs game discs"]
@@ -146,10 +100,8 @@ mod disc_tests {
             ),
         ];
         let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
-        let mut isos = Vec::new();
-        images(Path::new(&folder), &mut isos);
         let mut unpacked = Vec::new();
-        for iso in isos {
+        for iso in rac_iso::find_images(Path::new(&folder), 2) {
             let (name, bytes) = read_executable(&iso, None).unwrap();
             let Some(&(_, entry, gp, text, size)) = expected.iter().find(|e| e.0 == name) else {
                 // R&C1's and GC's are plain ELFs.

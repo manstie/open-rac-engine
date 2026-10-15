@@ -1,6 +1,6 @@
 [package]
 name = "rac_iso"
-description = "Reads the user's disc images: ISO9660 files and raw sectors (no Bevy)"
+description = "Reads the user's disc images: ISO9660 files, raw sectors and which release each is (no Bevy)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+sha1_smol.workspace = true
 thiserror.workspace = true
 
 [lints]

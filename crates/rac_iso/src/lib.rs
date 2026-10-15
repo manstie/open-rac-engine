@@ -1,5 +1,5 @@
 //! Reads the user's disc images (PLAN.md P2.1): raw 2048-byte sectors, and the files the
-//! ISO9660 file system lists.
+//! ISO9660 file system lists; and tells which release each image is ([`Release`], P2.2).
 //!
 //! Most game data isn't in the file system at all: R&C3, UYA, Deadlocked and Gladiator
 //! reach it by sector numbers from their own table of contents
@@ -8,7 +8,12 @@
 //!
 //! Nothing is read until it's asked for, so a 4 GB image is never loaded whole.
 
+mod release;
+
 use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+
+pub use release::{Game, IdentifyError, Region, Release, ReleaseInfo, SystemCnf};
 
 /// Bytes per sector.
 pub const SECTOR: u64 = 2048;
@@ -157,12 +162,40 @@ fn record_extent(record: &[u8]) -> Extent {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
+/// The disc images (`.iso` files) in `folder` and in the folders inside it, down to `depth`
+/// levels, sorted by path.
+pub fn find_images(folder: &Path, depth: u32) -> Vec<PathBuf> {
+    fn collect(folder: &Path, depth: u32, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if depth > 0 {
+                    collect(&path, depth - 1, out);
+                }
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("iso"))
+            {
+                out.push(path);
+            }
+        }
+    }
+    let mut images = Vec::new();
+    collect(folder, depth, &mut images);
+    images.sort();
+    images
+}
 
-    fn record(name: &[u8], sector: u32, size: u32, dir: bool) -> Vec<u8> {
+/// Tiny disc images for tests.
+#[cfg(test)]
+mod fixture {
+    use super::SECTOR;
+
+    /// A directory record.
+    pub fn record(name: &[u8], sector: u32, size: u32, dir: bool) -> Vec<u8> {
         let mut r = vec![0u8; 33];
         r[2..6].copy_from_slice(&sector.to_le_bytes());
         r[6..10].copy_from_slice(&sector.to_be_bytes());
@@ -178,16 +211,53 @@ mod tests {
         r
     }
 
-    /// A tiny image: the root holds `SYSTEM.CNF;1` and a directory `G` holding `A.WAD;1`.
-    fn image() -> Vec<u8> {
-        let mut image = vec![0u8; 24 * SECTOR as usize];
-        let sector = |n: usize| n * SECTOR as usize;
-        let pvd = sector(16);
+    /// An image of `sectors` sectors whose primary volume descriptor names a root
+    /// directory at sector 18.
+    pub fn blank(sectors: usize) -> Vec<u8> {
+        let mut image = vec![0u8; sectors * SECTOR as usize];
+        let pvd = 16 * SECTOR as usize;
         image[pvd] = 1;
         image[pvd + 1..pvd + 6].copy_from_slice(b"CD001");
         image[pvd + 40..pvd + 72].copy_from_slice(b"TEST_VOLUME                     ");
         let root = record(&[0], 18, SECTOR as u32, true);
         image[pvd + 156..pvd + 156 + root.len()].copy_from_slice(&root);
+        image
+    }
+
+    /// An image whose root directory holds `files`, one sector each from sector 19.
+    pub fn image(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut image = blank(19 + files.len());
+        let mut dir = Vec::new();
+        dir.extend(record(&[0], 18, SECTOR as u32, true));
+        dir.extend(record(&[1], 18, SECTOR as u32, true));
+        for (n, (name, data)) in files.iter().enumerate() {
+            let sector = 19 + n;
+            let name = format!("{name};1");
+            dir.extend(record(
+                name.as_bytes(),
+                sector as u32,
+                data.len() as u32,
+                false,
+            ));
+            let at = sector * SECTOR as usize;
+            image[at..at + data.len()].copy_from_slice(data);
+        }
+        let root = 18 * SECTOR as usize;
+        image[root..root + dir.len()].copy_from_slice(&dir);
+        image
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixture::{blank, record};
+    use super::*;
+    use std::io::Cursor;
+
+    /// A tiny image: the root holds `SYSTEM.CNF;1` and a directory `G` holding `A.WAD;1`.
+    fn image() -> Vec<u8> {
+        let mut image = blank(24);
+        let sector = |n: usize| n * SECTOR as usize;
         let mut dir = Vec::new();
         dir.extend(record(&[0], 18, SECTOR as u32, true));
         dir.extend(record(&[1], 18, SECTOR as u32, true));
@@ -224,6 +294,33 @@ mod tests {
         let mut disc = Disc::open(Cursor::new(image())).unwrap();
         assert_eq!(&disc.sectors(21, 1).unwrap()[..3], b"WAD");
         assert!(disc.sectors(100, 1).is_err());
+    }
+
+    #[test]
+    fn finds_images_down_to_a_depth() {
+        let root = std::env::temp_dir().join(format!("rac_iso_images_{}", std::process::id()));
+        let deeper = root.join("game").join("deeper");
+        std::fs::create_dir_all(&deeper).unwrap();
+        for file in [
+            "a.iso",
+            "B.ISO",
+            "notes.txt",
+            "game/c.iso",
+            "game/deeper/d.iso",
+        ] {
+            std::fs::write(root.join(file), b"").unwrap();
+        }
+        let found = find_images(&root, 1);
+        std::fs::remove_dir_all(&root).unwrap();
+        let names: Vec<_> = found
+            .iter()
+            .map(|path| path.strip_prefix(&root).unwrap().to_path_buf())
+            .collect();
+        let expected: Vec<PathBuf> = ["B.ISO", "a.iso", "game/c.iso"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        assert_eq!(names, expected);
     }
 
     #[test]

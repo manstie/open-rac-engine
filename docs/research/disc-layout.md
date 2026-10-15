@@ -56,8 +56,19 @@ matching disc page lists the same SHA-1 (PLAN.md P0.10):
 | SCUS-97465 | `a85482348f741d848dd2ff4e4c3ba7c2c40f431d` | 2,127,392 | `SCUS_974.65` | 1,692,216 | `aa91b1c3b9b1a244320c47580b77342ef9856e95` |
 | SCES-53285 | `092b5cf23f309b8426cdec2b8a871da939c2bbf7` | 2,158,240 | `SCES_532.85` | 1,696,356 | `2ca8d367f625001a4da12fcf466b7d218431bfd0` |
 
-Game identification should use `SYSTEM.CNF` (`BOOT2` serial, `VER`, `VMODE`) plus the
-boot-ELF hash. That is cheap, and hashing a whole 4 GB image is not.
+**Identification** [code, verified on all eight discs 2026-10-15]:
+`rac_iso::Release::identify` takes the boot executable's name from `SYSTEM.CNF`'s `BOOT2`
+and pins the build by that file's SHA-1 (the table above). That is cheap, and hashing a
+whole 4 GB image is not. A known serial with another hash (GC USA v1.01, say) is refused
+with its SHA-1, because every address we know belongs to one build. `openrac-tool identify
+[images or folders]` says what each image is.
+
+- `SYSTEM.CNF` is at LBA 289 on both R&C1 discs and LBA 1000 on the other six. Its lines
+  end in CRLF, and on all but R&C1's discs each value is followed by a space
+  (`VER = 1.00 `).
+- The disc tests check each release's `VER` and `VMODE`, the first words at its TOC
+  sector, and that exactly the R&C3, UYA, DL and Gladiator boot executables are stubs
+  entered at `0x800008` (`rac_iso`, `every_disc_identifies`).
 
 ## What the ISO9660 filesystem exposes
 

@@ -1,11 +1,12 @@
 //! `openrac-tool`: extracts and inspects the games' data (PLAN.md P2.7).
 //!
 //! Everything it writes is derived from the user's own disc, so it goes in `cache/`, never
-//! the repository. `hero`, `rails` and `unpack-elf` read the disc itself; `moby` reads EE
-//! memory images made from savestates (`tools/ghidra/import-savestate.sh` writes them), for
-//! reverse engineering.
+//! the repository. `identify`, `hero`, `rails` and `unpack-elf` read the disc itself;
+//! `moby` reads EE memory images made from savestates (`tools/ghidra/import-savestate.sh`
+//! writes them), for reverse engineering.
 
 mod glb;
+mod identify;
 mod pose;
 mod unpack;
 
@@ -30,6 +31,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Say which release each disc image is: game, region, serial and build, from its
+    /// SYSTEM.CNF and its boot executable's SHA-1.
+    Identify {
+        /// Disc images (.iso), or folders to search for them two levels deep.
+        #[arg(default_value = "source")]
+        paths: Vec<PathBuf>,
+    },
     /// Describe a moby class in an EE memory image, and optionally write it as a binary
     /// glTF with its skeleton, mesh and animations.
     Moby {
@@ -159,6 +167,7 @@ fn parse_hex(text: &str) -> Result<u32, String> {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Identify { paths } => identify::run(&paths)?,
         Command::Moby {
             ee,
             moby,

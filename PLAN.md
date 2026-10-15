@@ -37,7 +37,7 @@ session is working on the task now; notes on problems met stay with their task (
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
-  R&C1 and GC, are identified in `disc-layout.md`.
+  R&C1 and GC, are identified by their boot executables' hashes (P2.2).
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
@@ -47,7 +47,7 @@ session is working on the task now; notes on problems met stay with their task (
    from, its crouch moves (a savestate past the tutorial), and the `dl.ron` sections
    marked "not read in DL".
 3. P1.9: weapons, which also read the lock-on target.
-4. At lower priority: the disc layer, P2.2–P2.4 and P2.6, and the rest of RE.2.
+4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
 (`docs/re-setup.md`, "Still wanted").
@@ -556,14 +556,14 @@ level code still needs savestates or Wrench, until P2.6 extracts the overlays.
 
 - [x] **P2.1** `rac_iso` reads ISO9660 over `Read + Seek` (PVD, directories, file extents)
   with a raw sector API, never loading a whole image.
-- [~] **P2.2** Disc identification. Done: `openrac/src/discs.rs` recognises UYA NTSC-U,
-  DL NTSC-U and Gladiator PAL images in a folder by `SYSTEM.CNF`'s boot executable.
-  - To do: read `SYSTEM.CNF` (`BOOT2`, `VER`, `VMODE`) and the boot ELF's SHA-1, map them
-    to a `Release { game, region, version, serial }` from a table of known releases (the
-    eight discs in `disc-layout.md`, each with its TOC LBA, `SYSTEM.CNF` LBA and whether
-    the ELF is packed, `rac_formats::elf::is_packed`), and give unknown discs a clear
-    error. GC USA shipped as v1.01 and v2.00 under one serial, so `VER` and the ELF hash
-    tell them apart.
+- [x] **P2.2** Disc identification (`rac_iso::Release`; `disc-layout.md`,
+  "Identification"): a table of the eight releases (game, region, title, serial, version,
+  boot executable and its SHA-1, TOC sector, packed or not), and `Release::identify`,
+  which reads `SYSTEM.CNF` and hashes the boot executable. Unknown discs get an error
+  saying why, with the SHA-1 of an unknown build of a known game. `openrac` finds its discs
+  with it, and `openrac-tool identify` lists them. Every disc identifies.
+  - `SYSTEM.CNF`'s own sector was left out of the table: nothing reads it, and rebuilt
+    images move it.
 - [~] **P2.3** TOC parsers. Done: UYA's (`rac_formats::level::Toc`; `disc-layout.md`,
   "Level data"), and DL's and Gladiator's eight global headers (`Toc::read_dl_disc`).
   - To do: DL's level table (what follows its global headers isn't UYA's), with its
@@ -585,8 +585,8 @@ level code still needs savestates or Wrench, until P2.6 extracts the overlays.
   `rac_formats::elf::Program` already reads the records and writes ELFs (P2.5); what's
   left is finding each level's overlay on the disc and the loader that applies it.
 - [~] **P2.7** `openrac-tool` CLI. Done: `moby` (a class from an EE memory image, or as a
-  `.glb` into `cache/`), `hero`, `rails` and `unpack-elf`.
-  - To do: `identify`, `toc`, `extract --out cache/<release>/` and `dump-overlay`.
+  `.glb` into `cache/`), `hero`, `rails`, `unpack-elf` and `identify`.
+  - To do: `toc`, `extract --out cache/<release>/` and `dump-overlay`.
 - [ ] **P2.8** Cache layout and versioning:
   - Path: `cache/<serial>-<elfsha1[0..8]>/…`.
   - A manifest records the tool version and source hashes, so extraction can be incremental
