@@ -29,6 +29,11 @@
         dead_zone: 48.0,
         live_range: 76.0,
         cut_off: 0.25,
+        // "Flips": a flick, which the pad layer (0x45D5C8) marks as a press of its own:
+        // from under 0.25 to past 0.9 within 3 frames, or swung more than 55 degrees
+        // (0.9599311 rad) from any of the last 4 frames at past 0.9 [code; flicks seen in
+        // uyantsc-veldin-crouchflip-1 on UYA NTSC].
+        flick: (from: 0.25, to: 0.9, within_ticks: 3, swing_degrees: 55.0, swing_ticks: 4),
     ),
     walk: (
         // "Ground movement" [verified on UYA NTSC and R&C3 PAL].
@@ -74,6 +79,10 @@
         turn_stall_stick: 0.9,
         turn_stall_degrees: 45.0,
         crouch_brake: 27.0, // [verified on UYA NTSC]
+        // Turning in a crouch (0x4F2090, state 4) [code; verified on UYA NTSC, all 34
+        // frames of uyantsc-veldin-crouchflip-1's take 5].
+        crouch_turn: (gain: 0.002, damping: 0.07, cap: 0.165806),
+        crouch_turn_stick: 0.2,
         // "Long jump", run or standing jump: picked by the stick, not the speed [code].
         run_jump_stick: 0.85,
         // A press in the last 7 frames (idle) or 9 (walking) still jumps [code].
@@ -98,6 +107,10 @@
         // Facing in the air: R&C3 PAL's gain 0.0576 and damping 0.288 ÷ 1.44 [code], and
         // the jump block's 0.25016 rad per frame cap [code].
         turn: (gain: 0.04, damping: 0.2, cap: 0.25016),
+        // "Flips": a jump that lands with the stick under 0.2 keeps at most 2.5 u/s
+        // (0.041666668 u per frame, 0x503B68) [code; verified on UYA NTSC].
+        land_release_stick: 0.2,
+        land_release_speed: 2.5,
     ),
     fall: (
         // "Falling": gravity [measured on Gladiator PAL, code on R&C3 PAL], braking with
@@ -163,6 +176,30 @@
         min_speed: 2.0,
         start_speed: 5.0,
         accel: 47.0,
+        // The flip is the strafe flip only while strafing with the stick past 0.3
+        // (0x4FC518) [code].
+        strafe_stick: 0.3,
+        // "Flips", the crouch flip [code, UYA NTSC 0x502ED8, 0x502368, 0x503B68, 0x4EDE80;
+        // verified on UYA NTSC in uyantsc-veldin-crouchflip-1].
+        crouch: (
+            press_gap: 12,
+            crouch_window: 17,
+            early_window: 5,
+            early_before_tick: 12,
+            speed: 4.2, // 0.07 u per frame
+            accel: 8.0, // 0.0022222 u per frame
+            slow_within_ticks: 11,
+            carry_above: 1.5, // 0.025 u per frame
+            facing_ticks_back: 10,
+            turn: (gain: 0.04, damping: 0.2, cap: 0.116355),
+            // The stop short of a drop [code; not traced].
+            edge_from_tick: 13,
+            edge_height: 3.0,
+            edge_near: 0.57,
+            edge_far: 5.5,
+            edge_rise: 2.0,
+            edge_drop: 3.0,
+        ),
     ),
     // Strafing, the walk with L2 or R2 held: "Strafing" [verified on UYA NTSC: the turn,
     // the speeds and the stop; the side change and flip_stick are code]. The turn is

@@ -341,16 +341,17 @@ committed (names, addresses, layouts, derived constants).
   (`hero-controller.md`; addresses in `re/<serial>/symbols.toml`). Feeds P1.5.
   - Read in code and checked against traces: the stick pipeline, walking and the
     sharp-turn skid, every jump type with its entry rules and parameters, air control, the
-    double jump, glide, heli jump, long jump, flips, falling, the wall jump, ledges, the
-    slope limit, getting hit and dying, melee, swimming, zip lines, strafing, DL's charge
-    boots, the animation each state plays, the moves that need items, and DL's
-    differences from UYA.
+    double jump, glide, heli jump, long jump, flips (strafe and crouch), the crouch turn,
+    falling, the wall jump, ledges, the slope limit, getting hit and dying, melee,
+    swimming, zip lines, strafing, DL's charge boots, the animation each state plays, the
+    moves that need items, and DL's differences from UYA.
   - Read in code only: grinding (no UYA level can be grinded, so a trace waits for GC or
     DL), lock-on (needs a weapon none of our savestates holds), changing strafe sides.
   - To do (`hero-controller.md`, "Next steps"): DL's lock-strafe camera, the source of
     DL's flips, DL's crouch moves, which item gives DL's glide, the `dl.ron` sections
-    marked "not read in DL", UYA's crouch flip (its pad bits), wading (state 117), how the
-    games carry the hero on moving platforms, and a half-tilt stick on NTSC.
+    marked "not read in DL" (the crouch flip among them: DL's R1 didn't crouch where it was
+    traced), wading (state 117), how the games carry the hero on moving platforms, and a
+    half-tilt stick on NTSC.
 - [~] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
   - Done: UYA's follow camera, read in code and checked against `uyantsc-veldin-cam-1`;
     lock-on's steering; `GameCamera` at 0x1E2A40 on R&C3 PAL and UYA NTSC.
@@ -435,19 +436,25 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - **Profiles:** each game's numbers are a RON profile, each value's source in a comment:
     `assets/uya.ron` (the default) and `assets/dl.ron` (section 5, 2026-10-15). R&C1 and
     GC will get profiles of their own, read from their code (D7, P5.7).
-  - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), crouch; standing,
-    run, long, flip and heli jumps, the double jump, glide, fall and air control; moving
-    platforms; the wall jump; ledges (grab, hang, shimmy, climb, let go); hits, hazards,
-    death and checkpoints; DL's charge boots; the ability flags; grinding; swimming; zip
-    lines; strafing and lock-on (`lock_on.rs`); melee (P1.8). Tests: `rac_hero/tests/`
-    and `rac_demo/tests/greybox_moves.rs`.
-  - **To do:** the grind attack, auto-jumping rails, UYA's crouch flip, wading, and DL's
-    open items under RE.3.
+  - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), crouch and its
+    turn; standing, run, long and heli jumps, flips (strafe and crouch), the double jump,
+    glide, fall and air control; moving platforms; the wall jump; ledges (grab, hang,
+    shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge boots; the
+    ability flags; grinding; swimming; zip lines; strafing and lock-on (`lock_on.rs`);
+    melee (P1.8). Tests: `rac_hero/tests/` and `rac_demo/tests/greybox_moves.rs`.
+  - **To do:** the grind attack, auto-jumping rails, wading, and DL's open items under
+    RE.3.
+  - The crouch turned on the walk's setting-off spring, about four times faster than UYA's
+    own, which closed the crouch flip's window; it now has the game's (`walk.crouch_turn`),
+    verified on UYA NTSC.
+  - The rig took a flip's side from its velocity, which a crouch flip from a run points
+    forward; the controller now records the side (`HeroMotion::flip_side`).
   - **Placeholders:** the death's length, the hazard's damage and push, the starting
     health, and the end of the charge's bounce.
   - **Known mismatch:** a long jump from a 7-tick crouch leaves at 8.2 u/s in the kit and
     7.8 u/s in the trace: the game's first crouch frame brakes less, and its jump frame
-    brakes once more.
+    brakes once more. A crouch flip from a run carries one crouch tick's braking more
+    speed than the game's for the same reason.
 - [-] **P1.6** Movement feel reference. Moved to RE.3, RE.5 and RE.6.
 - [~] **P1.7** Third-person camera (`rac_hero/src/camera.rs`, the profile's `camera`
   section), from RE.4: UYA's drag camera with a lagging look point, the distance and

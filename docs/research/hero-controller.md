@@ -2,8 +2,9 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-15 (Deadlocked's movement against UYA's, with DL NTSC
-traces, for the kit's per-game profiles; strafing and lock-on; zip lines).
+(RE.6). Last updated 2026-10-15 (the crouch flip and the crouch turn, traced on UYA NTSC;
+Deadlocked's movement against UYA's, with DL NTSC traces, for the kit's per-game profiles;
+strafing and lock-on; zip lines).
 
 ## Status and method
 
@@ -79,7 +80,7 @@ to the d-pad when the stick is near the centre.
      `v − 127`. So there is a 48-count dead zone, and full output 124 counts from centre.
    - Stick y is negated, so forward is positive.
    - This fits 3,150 of 3,183 frames across both R&C3 traces exactly, two frames after
-     the recording frame. The code that does it is in the pad library and not located yet.
+     the recording frame. On UYA NTSC it is the pad update, 0x45D5C8 [code].
 2. **Cut-off, in the hero code [verified on R&C3 PAL, code on UYA NTSC]:**
    - If the vector's length is under 0.25, the stick is ignored and the d-pad is used
      instead, each direction giving ±1.
@@ -91,7 +92,19 @@ to the d-pad when the stick is near the centre.
    - `m = clamp((max(|x|, |y|) + length) / 2, 0, 1)`.
    - A diagonal therefore counts as fuller than its Euclidean length.
 4. **Direction:** the stick vector rotated by the camera yaw.
-5. **Buttons on UYA [verified on UYA NTSC]:**
+5. **The stick as presses [code, UYA NTSC 0x45D5C8; seen in
+   `uyantsc-veldin-crouchflip-1`]:** the pad update also turns the stick into button
+   presses, kept with the others in its 30-frame history (`pad_pressed_within`).
+   - Each axis sets a d-pad bit while it is past its dead zone (x below 0 left, 0x8000;
+     above 0 right, 0x2000; y up 0x1000, down 0x4000). So an axis leaving its dead zone,
+     or crossing to the other side, presses that direction.
+   - **A flick** sets 0x10000 on a frame the stick is past 0.9, either up from under 0.25
+     within 3 frames (passing nothing past 0.9), or pointing more than 55 degrees
+     (0.9599311 rad) from where it pointed in any of the last 4 frames. A centred stick's
+     angle is 0, so a push from rest flicks for 4 frames, as long as it points more than
+     55 degrees from "right".
+   - The crouch flip looks for any of these (the mask 0x1F000; "Flips").
+6. **Buttons on UYA [verified on UYA NTSC]:**
    - X jumps.
    - R1 crouches.
    - Square swings the wrench.
@@ -121,6 +134,11 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
   - Walking with the stick pulled back to a lower target speed: 30 u/s², 0.008333 per
     frame (0.012).
   - Crouching: 27 u/s², 0.0075 per frame (0.0108) **[verified on UYA NTSC]**.
+- **Turning in a crouch [code, UYA NTSC state 4 in `hero_update_state`; verified on UYA
+  NTSC]:** with the stick past 0.2 he turns to it on a slow spring of his own: gain 0.002,
+  damping 0.07, cap 0.1658 rad a frame. That reproduces all 34 frames of the crouch turn
+  in `uyantsc-veldin-crouchflip-1` (take 5) to 3×10⁻⁶ rad: about 0.17 rad in the first 12
+  frames, so a stick pushed to a side stays there long enough to flip.
 - **Skid [code]:** there are two different skids.
   - **The walk's skid flag (state 2) [code, UYA NTSC `hero_update_state`]:** with
     `err` the angle between the stick's direction and the facing, and a full stick:
@@ -236,10 +254,8 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
   is past 0.9 and its sector isn't forward. A diagonal is a jump.
   - **Otherwise a standing jump (7), never a run jump [verified]:** the run jump needs
     the stick past 0.85 and no strafing. The trace's forward strafe jump was a 7.
-  - **A second way to flip [code, partly read]:** with R1 held, the stick not forward
-    against the facing, and X pressed within 12 frames of a press of the pad bits
-    0x1F000 (perhaps the directions). That is the flip without strafing in "Flips"; the
-    kit leaves it out until the bits are read.
+  - **A second way to flip [verified on UYA NTSC]:** with R1 held, the stick pushed to a
+    side or back and X close together. That is the crouch flip in "Flips".
 - **Animation:** strafing backwards plays sequence 20 (walking backwards) at 25 × the
   speed in u per frame, 0.7 to 2.2 (`hero_walk_anim`). Sideways, the run plays with a
   procedural twist (`hero_body_twist`): one joint slot turns by the angle from the facing
@@ -434,20 +450,91 @@ Most jump-type states steer the same way after push-off:
 
 ### Flips (state 11) [verified on UYA NTSC and Gladiator PAL]
 
-- **Input:** while strafing (L2 or R2), push left, right or back past 0.9 and press X, for
-  a side or back flip. Strafing forwards, or exactly diagonally, X is an ordinary jump
-  (section "Strafing and lock-on").
+There are two ways in: the strafe flip, and the crouch flip, which the controls call the
+"backflip / sideflip" ("R1 + stick + X: flip in the air from a crouching position in the
+intended direction"). Both enter state 11 through the jump entry (0x4FC518). Every flip
+records its side (left 0, right 1, forward 2, back 3; `hero_strafe_side`, 0x4FB758), and the
+animation is sequence 28 plus that side ("Animations per state").
+
+- **The side:** while strafing, where the stick points; otherwise the stick (the move
+  angle, or the facing with the stick released) against the hero's yaw, in the same
+  90-degree sectors with an exact diagonal as forward. A forward side never flips.
+- **Which motion:** the strafe flip's while strafing with the stick past 0.3 when the flip
+  starts (a flag at 0x1A50DD), otherwise the crouch flip's.
+- **Vertical:** the standard model with 3.2–3.25 u, for both.
+
+#### The strafe flip
+
+- **Input:** while strafing (L2 or R2), push left, right or back past 0.9 and press X. A
+  diagonal or forward strafe is an ordinary jump ("Strafing and lock-on").
 - **Horizontal:**
-  - The flip moves in the stick direction at `max(2, 5.5 × stick)` u/s: 0.091667 u/frame
-    at full tilt, 0.11 on PAL.
+  - The flip moves in the stick direction at `max(2, 5.5 × m)` u/s: 0.091667 u/frame at
+    full tilt, 0.11 on PAL. m is the stick magnitude each frame, so the speed follows the
+    stick through the flip [code].
   - It starts at 5 u/s and closes the gap at 47 u/s², so at full tilt it is at speed on
     the first frame.
-- **Vertical:** the standard model with 3.2–3.25 u.
-- **Without strafing [code]:** a flip eases from its take-off speed towards 4.2 u/s at
-  8 u/s². It seems to be entered with R1 held, the stick away from forward, and X soon
-  after a direction press ("Strafing and lock-on").
 - Gladiator's traced flip was a strafe side flip at the same 5.5 u/s, so Gladiator's
   default controls strafe there.
+
+#### The crouch flip [code, verified on UYA NTSC, 2026-10-15]
+
+Read in Veldin's build (`hero_crouch_jump` 0x502ED8, `hero_walk_jump` 0x502368,
+`hero_transitions` 0x503B68, the air update 0x4EDE80, the flip's block at 0x1A5070–0x1A50DD),
+and traced in `uyantsc-veldin-crouchflip-1` (seven takes: left, right and back from a
+crouch, X before the stick, a long crouch turn, from a run, and all three buttons at once
+from standing). Over the six flips' 316 frames in the air, the rules below reproduce the
+flip's own speed and the horizontal velocity to 10⁻⁸ u a frame, and the facing to 6×10⁻⁶
+rad.
+- **The stick press:** the pad layer turns the stick into presses ("Input"): a direction
+  press when an axis leaves its dead zone or crosses to the other side, and a flick. The
+  flip looks for any of them (the mask 0x1F000), so the stick has to be pushed at about
+  the time of X. Held to the side, it only turns him (take 5).
+- **Three ways in, all with R1 held and the side not forward:**
+  1. **From a crouch (state 4):** X and a stick press, each within the last 17 frames
+     and fewer than 12 frames apart (`pad_pressed_together`, 0x45D3E8). Unlike the
+     crouch's other jumps, it doesn't wait for the crouch to be 7 frames old: take 6
+     flipped on its crouch's 5th frame.
+  2. **From idle or a walk:** X within the walk's jump window (7 frames idle, 9 walking),
+     with a stick press within that plus 12 frames and fewer than 12 apart. Pressing R1,
+     the stick and X on one frame flips straight from idle (take 7).
+  3. **From a jump still on the ground:** a standing, run, long or heli jump before its
+     12th frame, on the ground (the ground counter at 0x1A4F40 non-zero), with a stick
+     press in the last 5 frames, becomes the flip. In take 4, X from an old crouch gave
+     the heli jump, and the stick pushed 6 frames later, during its push-off, flipped.
+     The flip itself can only flip again this way once it has landed.
+- **Horizontal:**
+  - **Its own speed** starts at 0 and grows by 8 u/s² (0.0022222 u a frame) to 4.2 u/s
+    (0.07) along the stick's direction at take-off, reached on its 32nd frame.
+  - **Near the landing it slows:** once past the apex (0x1A504E), with 11 or fewer
+    frames to the landing, it eases back to 0 at the same 8 u/s². The frames to the
+    landing are worked out each frame (`hero_ticks_to_land`, 0x50C4A0) as the whole
+    number of frames t for which h + v·t − g·t(t + 1)/2 reaches 0 (per-frame units, h the
+    height over the ground the path meets), and the next frame acts on them. Take 1 held
+    4.2 u/s for 11 frames and slowed for 10.
+  - **The run carries on:** the speed he had when it started (0x1A4D54), if over 1.5 u/s
+    (0.025 u a frame), carries on along the way he faced 10 frames before the flip, scaled
+    by the sine of the angle from there to the flip's way. A side flip from a run keeps its
+    whole speed forward while it moves sideways; a back flip keeps almost none. Take 6
+    carried 3.82 u/s.
+  - **Short of a drop [code]:** from frame 13, under 3 u over the ground, the flip looks
+    0.57 u and 5.5 u ahead along its motion for ground between 2 u above and 3 u below its
+    take-off height. With neither, its own speed is zeroed, for both kinds of flip.
+- **Facing:** he turns back to the way he faced 10 frames before the flip (the hero keeps
+  his yaw at the start of each of the last 32 frames, 0x1A724C; `hero_yaw_back`,
+  0x4E5630), on the spring 0.04 gain, 0.2 damping, 0.11636 rad a frame cap. So the turn a
+  crouch made towards the stick is undone. While strafing, it turns to the camera instead.
+- **Landing:** the ground speed it lands with (0x1A4D94) is the carried speed, or none from
+  a back flip. As for every jump-type state, landing with the stick under 0.2 caps the
+  ground speed at 2.5 u/s (0.041666668 u a frame): take 6 carried 3.82 u/s and landed at
+  2.5 with the stick let go.
+- **In the kit:** `rac_hero`'s `controller.rs` (`flip_side`, `crouch_flip_due`,
+  `flip_tick`, `ticks_to_land`, `flip_over_drop`) and `stick.rs` (`StickPresses`), with the
+  profile's `flip.crouch`, `stick.flick`, `walk.crouch_turn` and `air.land_release_*`.
+  Simplified:
+  - the frames to the landing use the ground straight below, not where the path meets
+    the ground (the same on flat ground);
+  - the carried speed is the last tick's, where the game first brakes the crouch once
+    more, as with the long jump (PLAN.md P1.5, "Known mismatch").
 
 ### Double jump (state 14) [verified on UYA NTSC, R&C3 and Gladiator PAL]
 

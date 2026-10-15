@@ -119,7 +119,7 @@ name = "hero_crouch_jump"
 address = 0x00502ED8
 kind = "function"
 confidence = "medium"
-note = "X from a crouch at least 7 frames old: long jump (10) with the stick past 0.7 and speed above 0.9 u/s, otherwise the heli jump (15); with the thruster-pack item, states 16 and 13."
+note = "The crouch's X. First the crouch flip (11): R1 held, hero_flip_window non-zero, and X and a stick press (0x1F000) each within 17 frames and fewer than 12 apart, at any crouch age. Then, from a crouch at least 7 frames old: long jump (10) with the stick past 0.7 and speed above 0.9 u/s, otherwise the heli jump (15); with the thruster-pack item, states 16 and 13. Verified on UYA NTSC (uyantsc-veldin-crouchflip-1)."
 
 [[symbol]]
 name = "pad_pressed_within"
@@ -320,7 +320,7 @@ name = "pad_update"
 address = 0x0045D5C8
 kind = "function"
 confidence = "medium"
-note = "Per-frame pad update: the dead zone, the button edges, and a 30-frame ring of button presses (+0x1E0), stick lengths (+0x2D0) and stick angles (+0x258)."
+note = "Per-frame pad update: the dead zone, the button edges, and a 30-frame ring of button presses (+0x1E0), stick lengths (+0x2D0) and stick angles (+0x258). The left stick also sets d-pad bits by its signs (left 0x8000, right 0x2000, up 0x1000, down 0x4000), and a flick sets the press bit 0x10000: past 0.9 from under 0.25 within 3 frames, or more than 55 degrees from any of the last 4 frames' angles."
 
 [[symbol]]
 name = "pad_stick_angle_back"
@@ -712,7 +712,7 @@ name = "hero_ticks_to_land"
 address = 0x0050C4A0
 kind = "function"
 confidence = "medium"
-note = "Predicts how many frames until the hero lands; the jump attack times its animation with it."
+note = "(cap, gravity, ground z or -1): the whole frames until the hero lands, the positive root of -g/2 t^2 + (vz + g/2) t + (z - ground) = 0, with the ground from a ray along the next 60 frames' path when given -1; cap when none. The jump attack times its animation with it, and the flip slows when it says 11 or fewer (0x1A505E). Verified on UYA NTSC for the flip."
 
 [[symbol]]
 name = "anim_frame_crossed"
@@ -1115,7 +1115,7 @@ name = "hero_walk_jump"
 address = 0x00502368
 kind = "function"
 confidence = "medium"
-note = "The walk's X press: a flip (11) while strafing with the stick past 0.9 and hero_strafe_side not forward; also a flip with R1 held, the stick not forward against the facing, and X within 12 frames of a press of pad bits 0x1F000 (not read further); otherwise a jump (7)."
+note = "(window, no_jump): X within window frames (7 idle, 9 walking). A crouch flip (11) with R1 held and X and a stick press (pad bits 0x1F000) within window + 12 frames and fewer than 12 apart; a flip while strafing with the stick past 0.9 and hero_strafe_side not forward; otherwise a jump (7), or none when no_jump. Verified on UYA NTSC (uyantsc-veldin-crouchflip-1)."
 
 [[symbol]]
 name = "hero_walk_anim"
@@ -1193,6 +1193,129 @@ address = 0x0040CEC8
 kind = "function"
 confidence = "high"
 note = "a + b wrapped into -pi..pi."
+
+# 2026-10-15, the crouch flip (docs/research/hero-controller.md, "Flips"). Read in code on
+# Veldin and checked against the trace uyantsc-veldin-crouchflip-1 (layout
+# uyantsc-veldin-crouchflip.toml, kept with it in source/).
+
+[[symbol]]
+name = "pad_pressed_together"
+address = 0x0045D3E8
+kind = "function"
+confidence = "high"
+note = "(mask a, mask b, n, gap): whether both masks were pressed in the last n frames, their latest presses fewer than gap frames apart (pad_pressed_within for each)."
+
+[[symbol]]
+name = "hero_flip_window"
+address = 0x004FB720
+kind = "function"
+confidence = "high"
+note = "12 unless hero_strafe_side is forward, then 0: the crouch flip's gap between X and the stick press, and its permission."
+
+[[symbol]]
+name = "hero_yaw_back"
+address = 0x004E5630
+kind = "function"
+confidence = "high"
+note = "The hero's yaw n frames back (at most 31, and no further than recorded) from hero_yaw_history. The flip keeps the yaw from 10 frames before it."
+
+[[symbol]]
+name = "hero_yaw_history"
+address = 0x001A724C
+kind = "data"
+confidence = "high"
+note = "32 floats: the hero's yaw at the start of each frame, written by hero_update; the next slot at 0x1A72CC, the count at 0x1A72D0."
+
+[[symbol]]
+name = "hero_ground_frames"
+address = 0x001A4F40
+kind = "data"
+confidence = "high"
+note = "Frames the hero has stood on the ground, from the ground probe (0 in the air). Crouching and the early crouch flip need it non-zero."
+
+[[symbol]]
+name = "hero_air_frames"
+address = 0x001A4F4E
+kind = "data"
+confidence = "medium"
+note = "i16: frames off the ground, 0 while standing."
+
+[[symbol]]
+name = "hero_last_ground"
+address = 0x001A4EE0
+kind = "data"
+confidence = "high"
+note = "The ground point the hero last stood on (vec4). The flip looks for ground near its z before going over a drop."
+
+[[symbol]]
+name = "jump_landed"
+address = 0x001A504C
+kind = "data"
+confidence = "medium"
+note = "u8: counts up from 1 once a jump-type state lands; the state ends a couple of frames later. A landed flip can flip again on X, R1 and a stick press."
+
+[[symbol]]
+name = "jump_past_apex"
+address = 0x001A504E
+kind = "data"
+confidence = "medium"
+note = "u8: set once a jump-type state is past its push-off and its vertical speed is under 0.001 u a frame."
+
+[[symbol]]
+name = "jump_frames_to_land"
+address = 0x001A505E
+kind = "data"
+confidence = "high"
+note = "i16: hero_ticks_to_land's answer, worked out each frame past the apex while the animation is early enough; the crouch flip slows from the frame after it reaches 11."
+
+[[symbol]]
+name = "jump_can_flip"
+address = 0x001A50DE
+kind = "data"
+confidence = "medium"
+note = "u8: set on entering the standing, run, long, heli and some other jumps; with it, R1 and a stick press in the last 5 frames turn the jump into the flip while it is still on the ground before frame 12."
+
+[[symbol]]
+name = "flip_move_angle"
+address = 0x001A5070
+kind = "data"
+confidence = "high"
+note = "The flip's way: the move angle (the stick's) when it started."
+
+[[symbol]]
+name = "flip_facing"
+address = 0x001A5074
+kind = "data"
+confidence = "high"
+note = "The yaw the flip turns back to, hero_yaw_back(10) when it started (with its vector at 0x1A5030); spring gain 0.04, damping 0.2, cap 0.11636 rad a frame."
+
+[[symbol]]
+name = "flip_side"
+address = 0x001A5084
+kind = "data"
+confidence = "high"
+note = "i32: hero_strafe_side when the flip started (left 0, right 1, forward 2, back 3). A back flip lands with no speed."
+
+[[symbol]]
+name = "flip_carry"
+address = 0x001A5088
+kind = "data"
+confidence = "high"
+note = "The ground speed at the start (0x1A4D54) if over 0.025 u a frame, else 0; it carries on along flip_facing, scaled by the sine of the angle from there to flip_move_angle, and is the speed the flip lands with."
+
+[[symbol]]
+name = "flip_speed"
+address = 0x001A508C
+kind = "data"
+confidence = "high"
+note = "The flip's own speed along flip_move_angle: the crouch flip's from 0 to 0.07 by 0.0022222 a frame and back to 0 near the landing; the strafe flip's from 0.083333 to max(0.033333, 0.091667 × stick) by 0.013056."
+
+[[symbol]]
+name = "flip_strafing"
+address = 0x001A50DD
+kind = "data"
+confidence = "high"
+note = "u8: the flip moves as the strafe flip (started while strafing with the stick past 0.3), else as the crouch flip."
 
 # Seeded 2026-10-15 (PLAN.md RE.2): libdl's library functions, found in UYA by their code.
 # libuya's own addresses don't hold in single player: they are the multiplayer program's,

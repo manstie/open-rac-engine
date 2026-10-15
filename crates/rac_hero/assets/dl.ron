@@ -35,6 +35,8 @@
         dead_zone: 48.0,
         live_range: 76.0,
         cut_off: 0.25,
+        // As UYA [not read in DL]: "Flips", the pad layer's flick.
+        flick: (from: 0.25, to: 0.9, within_ticks: 3, swing_degrees: 55.0, swing_ticks: 4),
     ),
     walk: (
         // "Ground movement": DL's walk update (0x695CB8) and turn (0x67D100) hold UYA's
@@ -83,6 +85,9 @@
         turn_stall_stick: 0.9,
         turn_stall_degrees: 45.0,
         crouch_brake: 27.0, // [verified on UYA NTSC]
+        // As UYA [not read in DL]: turning in a crouch.
+        crouch_turn: (gain: 0.002, damping: 0.07, cap: 0.165806),
+        crouch_turn_stick: 0.2,
         // "Long jump", run or standing jump: picked by the stick, not the speed [code].
         run_jump_stick: 0.85,
         // A press in the last 7 frames (idle) or 9 (walking) still jumps [code].
@@ -108,6 +113,9 @@
         // Facing in the air: R&C3 PAL's gain 0.0576 and damping 0.288 ÷ 1.44 [code], and
         // the jump block's 0.25016 rad per frame cap [code].
         turn: (gain: 0.04, damping: 0.2, cap: 0.25016),
+        // As UYA [not read in DL]: "Flips", the landing with the stick released.
+        land_release_stick: 0.2,
+        land_release_speed: 2.5,
     ),
     fall: (
         // "Falling": gravity [measured on Gladiator PAL, code on DL NTSC], braking with
@@ -178,6 +186,27 @@
         min_speed: 2.0,
         start_speed: 5.0,
         accel: 47.0,
+        // As UYA [not read in DL]: the strafe flip's stick, and the crouch flip. DL's
+        // R1 didn't crouch where it was traced, so the crouch flip couldn't be tried.
+        strafe_stick: 0.3,
+        crouch: (
+            press_gap: 12,
+            crouch_window: 17,
+            early_window: 5,
+            early_before_tick: 12,
+            speed: 4.2,
+            accel: 8.0,
+            slow_within_ticks: 11,
+            carry_above: 1.5,
+            facing_ticks_back: 10,
+            turn: (gain: 0.04, damping: 0.2, cap: 0.116355),
+            edge_from_tick: 13,
+            edge_height: 3.0,
+            edge_near: 0.57,
+            edge_far: 5.5,
+            edge_rise: 2.0,
+            edge_drop: 3.0,
+        ),
     ),
     // Strafing, the walk with L2 or R2 held in DL's third-person camera; DL's default
     // lock-strafe camera strafes always, which the kit doesn't have yet. The walk's speeds

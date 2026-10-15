@@ -135,6 +135,7 @@ fn spawn_pause_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
 const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick. Pause: Esc / Start.\n\
     Jump: Space / Cross. Again in the air: double jump; keep holding: glide.\n\
     Crouch: Ctrl / R1. Then jump: heli jump, or a long jump while running.\n\
+    Crouch, then push sideways or back as you jump: flip.\n\
     Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.\n\
     Lock on (gamepad): L2 and R2 together.";
 

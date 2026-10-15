@@ -23,7 +23,7 @@ use crate::{
     motor::{self, Ground},
     profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
     rail::{GrindRail, RailKind, RailPoint},
-    stick::{Stick, read_stick},
+    stick::{Stick, StickPresses, read_axes, read_stick},
     water,
 };
 
@@ -36,6 +36,9 @@ const GROUND_SEARCH: f32 = 32.0;
 /// Ticks of stick history kept, as many as UYA's pad keeps.
 const STICK_HISTORY: usize = 30;
 
+/// Ticks of facing kept, as many as UYA's hero keeps (0x1A724C).
+const YAW_HISTORY: usize = 32;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JumpKind {
     /// From standing.
@@ -44,7 +47,7 @@ pub enum JumpKind {
     Run,
     /// From a running crouch.
     Long,
-    /// While strafing, to the side or back.
+    /// To a side or back: while strafing, or from a crouch.
     Flip,
     /// From a standing crouch: UYA's jump with the heli-pack's thrust.
     Heli,
@@ -368,6 +371,9 @@ pub struct HeroMotion {
     pub strafing: bool,
     /// Where the stick last pointed while strafing.
     pub strafe_side: StrafeSide,
+    /// Which way the current or last flip went, relative to his facing; its animation
+    /// follows it.
+    pub flip_side: StrafeSide,
     /// Strafing backwards with the stick past `strafe.back_stick`, which walks backwards.
     pub strafing_back: bool,
     /// The camera's yaw this tick, which strafing turns him to.
@@ -398,13 +404,25 @@ pub struct HeroMotion {
     double_jumped: bool,
     flip_direction: Vec3,
     flip_speed: f32,
-    flip_target: f32,
+    /// The flip moves as the strafe flip; otherwise as the crouch flip, which turns back
+    /// to `flip_facing` and carries `flip_carry` (u/s) along it.
+    flip_strafing: bool,
+    flip_facing: f32,
+    flip_carry: f32,
+    /// The crouch flip found no ground ahead to land on this tick.
+    flip_over_drop: bool,
+    /// His yaw at the start of each tick, newest at `yaw_newest`.
+    yaw_history: [f32; YAW_HISTORY],
+    yaw_newest: usize,
     /// The long jump's base speed, before its per-tick push.
     long_jump_base: f32,
     /// The glide's vertical spring rate, u/s per tick.
     glide_rate: f32,
     jump_press: PressAge,
     crouch_press: PressAge,
+    /// The stick pushed a new way ([`StickPresses`]). Never used up, as in the game.
+    stick_press: PressAge,
+    stick_presses: StickPresses,
     /// A wall in reach, and for how many more ticks.
     wall: Option<Wall>,
     wall_ticks: u32,
@@ -496,6 +514,7 @@ impl HeroMotion {
             strikes: Vec::new(),
             strafing: false,
             strafe_side: StrafeSide::Forward,
+            flip_side: StrafeSide::Forward,
             strafing_back: false,
             camera_yaw: yaw,
             strafe_yaw_rate: 0.0,
@@ -514,11 +533,18 @@ impl HeroMotion {
             double_jumped: false,
             flip_direction: Vec3::ZERO,
             flip_speed: 0.0,
-            flip_target: 0.0,
+            flip_strafing: false,
+            flip_facing: yaw,
+            flip_carry: 0.0,
+            flip_over_drop: false,
+            yaw_history: [yaw; YAW_HISTORY],
+            yaw_newest: 0,
             long_jump_base: 0.0,
             glide_rate: 0.0,
             jump_press: PressAge::NEVER,
             crouch_press: PressAge::NEVER,
+            stick_press: PressAge::NEVER,
+            stick_presses: StickPresses::default(),
             wall: None,
             wall_ticks: 0,
             last_wall: None,
@@ -607,6 +633,17 @@ impl HeroMotion {
         self.stick_newest = (self.stick_newest + 1) % STICK_HISTORY;
         // The games' atan2 gives 0 for a released stick, and so does this one.
         self.stick_angles[self.stick_newest] = ops::atan2(stick.vector.y, stick.vector.x);
+    }
+
+    fn record_yaw(&mut self) {
+        self.yaw_newest = (self.yaw_newest + 1) % YAW_HISTORY;
+        self.yaw_history[self.yaw_newest] = self.yaw;
+    }
+
+    /// His yaw at the start of the tick `ticks` before this one.
+    fn yaw_back(&self, ticks: usize) -> f32 {
+        let ticks = ticks.min(YAW_HISTORY - 1);
+        self.yaw_history[(self.yaw_newest + YAW_HISTORY - ticks) % YAW_HISTORY]
     }
 
     /// How far the stick's direction turned over the last `ticks`.
@@ -852,6 +889,10 @@ pub fn step(
     let stick = read_stick(input.move_stick, &profile.stick);
     let wish = stick_on_ground(stick.vector, camera_yaw);
     hero.record_stick(&stick);
+    let axes = read_axes(input.move_stick, &profile.stick);
+    let pushed = hero.stick_presses.update(axes, &profile.stick.flick);
+    hero.stick_press.update(pushed);
+    hero.record_yaw();
     hero.camera_yaw = camera_yaw;
     // Locking on holds both strafe buttons in UYA, so it strafes too.
     hero.strafing = input.held(Action::Strafe) || input.held(Action::LockOn);
@@ -892,6 +933,7 @@ pub fn step(
         hero.position += motion;
     }
     hero.height_above_ground = height_above_ground(world, hero.position);
+    hero.flip_over_drop = flip_over_drop(hero, profile, world);
 
     // The charge boots: a crouch press within the window the previous one opened dashes
     // off.
@@ -1048,7 +1090,7 @@ fn move_hero(
     if let Some(ground) = outcome.ground
         && hero.velocity.y <= 0.0
     {
-        land(hero, ground, stick);
+        land(hero, ground, stick, profile);
         return;
     }
     hero.ground = None;
@@ -1066,12 +1108,28 @@ fn move_hero(
     try_grab(hero, profile, world);
 }
 
-fn land(hero: &mut HeroMotion, ground: Ground, stick: &Stick) {
+fn land(hero: &mut HeroMotion, ground: Ground, stick: &Stick, profile: &HeroProfile) {
     let horizontal = hero.horizontal_velocity();
     let landing_from_long_jump = hero.state == HeroState::Jump(JumpKind::Long);
     hero.ground = Some(ground);
     hero.velocity.y = 0.0;
-    hero.speed = horizontal.length();
+    hero.speed = match hero.state {
+        // A crouch flip lands with the speed it carried, a back flip with none (UYA
+        // 0x4EDE80).
+        HeroState::Jump(JumpKind::Flip) if !hero.flip_strafing => {
+            if hero.flip_side == StrafeSide::Back {
+                0.0
+            } else {
+                hero.flip_carry
+            }
+        }
+        _ => horizontal.length(),
+    };
+    // A jump that lands with the stick let go keeps little of its speed (UYA 0x503B68).
+    if matches!(hero.state, HeroState::Jump(_)) && stick.magnitude < profile.air.land_release_stick
+    {
+        hero.speed = hero.speed.min(profile.air.land_release_speed);
+    }
     hero.stop_ticks = 0;
     hero.wall = None;
     if landing_from_long_jump {
@@ -1121,15 +1179,20 @@ fn ground_tick(
         walk.jump_buffer_idle
     };
     if hero.state != HeroState::Crouch && hero.jump_press.within(jump_buffer) {
+        // With crouch held and the stick just pushed to a side or back, a jump is a flip;
+        // so is one while strafing with the stick well over to a side or back; otherwise
+        // it is a jump (UYA 0x502368). DL's walk doesn't flip while strafing.
+        let side = flip_side(hero, wish_direction);
+        let window = jump_buffer + profile.flip.crouch.press_gap;
+        let crouch_flip = crouch_flip_due(hero, input, side, window, profile);
         hero.jump_press.used = true;
-        // While strafing, a jump with the stick well over to a side or back is a flip;
-        // otherwise it is a jump (UYA 0x502368). DL's walk doesn't flip.
-        if hero.strafing
-            && profile.strafe.flips
-            && stick.magnitude > profile.strafe.flip_stick
-            && hero.strafe_side != StrafeSide::Forward
+        if crouch_flip
+            || (hero.strafing
+                && profile.strafe.flips
+                && stick.magnitude > profile.strafe.flip_stick
+                && side != StrafeSide::Forward)
         {
-            start_flip(hero, wish_direction, stick, profile);
+            start_flip(hero, wish_direction, stick, side, profile);
         } else {
             // Strafing never run-jumps.
             let kind = if stick.magnitude > walk.run_jump_stick && !hero.strafing {
@@ -1145,6 +1208,22 @@ fn ground_tick(
 
     if input.held(Action::Crouch) || hero.state == HeroState::Crouch {
         let long = &profile.long_jump;
+        // A flip from a crouch doesn't wait for it to be old enough (UYA 0x502ED8).
+        if hero.state == HeroState::Crouch {
+            let side = flip_side(hero, wish_direction);
+            if crouch_flip_due(
+                hero,
+                input,
+                side,
+                profile.flip.crouch.crouch_window,
+                profile,
+            ) {
+                hero.jump_press.used = true;
+                start_flip(hero, wish_direction, stick, side, profile);
+                air_tick(hero, input, stick, wish, profile);
+                return;
+            }
+        }
         // A jump from a crouch waits until the crouch is old enough; the press is kept.
         if hero.state == HeroState::Crouch
             && hero.ticks >= long.crouch_ticks
@@ -1165,12 +1244,9 @@ fn ground_tick(
         if input.held(Action::Crouch) {
             hero.set_state(HeroState::Crouch);
             hero.speed = approach(hero.speed, 0.0, walk.crouch_brake * TICK);
-            if stick.is_active() {
-                turn(
-                    hero,
-                    yaw_of(wish_direction),
-                    walk.turn_setting_off.at(stick.magnitude),
-                );
+            // A slow turn of its own, so a stick pushed to a side stays there for a flip.
+            if stick.magnitude > walk.crouch_turn_stick {
+                turn(hero, yaw_of(wish_direction), walk.crouch_turn);
             }
             let facing = hero.facing();
             hero.set_horizontal_velocity(facing * hero.speed);
@@ -1397,12 +1473,133 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
     }
 }
 
-fn start_flip(hero: &mut HeroMotion, direction: Vec3, stick: &Stick, profile: &HeroProfile) {
+/// Which way a flip from here would go (UYA 0x4FB758): where the stick points while
+/// strafing, otherwise the stick against his facing, in the same 90° sectors. A centred
+/// stick is forward, which doesn't flip.
+fn flip_side(hero: &HeroMotion, wish_direction: Vec3) -> StrafeSide {
+    if hero.strafing {
+        return hero.strafe_side;
+    }
+    let facing = hero.facing();
+    let right = facing.cross(Vec3::Y);
+    StrafeSide::of(Vec2::new(
+        wish_direction.dot(right),
+        wish_direction.dot(facing),
+    ))
+}
+
+/// UYA's flip from a crouch (0x502ED8, 0x502368): crouch held, the stick to a side or
+/// back, and a jump press and a stick press both within `window` ticks, fewer than
+/// `press_gap` ticks apart. So the stick has to be pushed at about the time of the jump;
+/// held there, it only turns him.
+fn crouch_flip_due(
+    hero: &HeroMotion,
+    input: &PlayerInput,
+    side: StrafeSide,
+    window: u32,
+    profile: &HeroProfile,
+) -> bool {
+    input.held(Action::Crouch)
+        && side != StrafeSide::Forward
+        && hero.jump_press.within(window)
+        && hero.stick_press.within(window)
+        && hero.jump_press.ticks.abs_diff(hero.stick_press.ticks) < profile.flip.crouch.press_gap
+}
+
+fn start_flip(
+    hero: &mut HeroMotion,
+    direction: Vec3,
+    stick: &Stick,
+    side: StrafeSide,
+    profile: &HeroProfile,
+) {
+    // The game measures the speed before the jump changes anything (UYA 0x4FC518).
+    let ground_speed = flat_length(hero.velocity);
     start_jump(hero, JumpKind::Flip, profile);
     let flip = &profile.flip;
+    let crouch = &flip.crouch;
+    hero.flip_side = side;
     hero.flip_direction = direction;
-    hero.flip_speed = flip.start_speed;
-    hero.flip_target = (flip.speed * stick.vector.length().min(1.0)).max(flip.min_speed);
+    hero.flip_facing = hero.yaw_back(crouch.facing_ticks_back);
+    hero.flip_strafing = hero.strafing && stick.magnitude > flip.strafe_stick;
+    if hero.flip_strafing {
+        hero.flip_speed = flip.start_speed;
+        hero.flip_carry = 0.0;
+    } else {
+        hero.flip_speed = 0.0;
+        hero.flip_carry = if ground_speed > crouch.carry_above {
+            ground_speed
+        } else {
+            0.0
+        };
+    }
+}
+
+/// A flip's own motion each tick (UYA 0x4EDE80, state 11). `falling` and `to_land` are
+/// what the game worked out at the end of the last tick.
+fn flip_tick(
+    hero: &mut HeroMotion,
+    stick: &Stick,
+    falling: bool,
+    to_land: f32,
+    profile: &HeroProfile,
+) {
+    let flip = &profile.flip;
+    let crouch = &flip.crouch;
+    // While strafing he turns to the camera, otherwise back to the way he faced before.
+    if hero.strafing {
+        turn_to_camera(hero, profile);
+    } else {
+        turn(hero, hero.flip_facing, crouch.turn);
+    }
+    if hero.flip_over_drop {
+        hero.flip_speed = 0.0;
+    } else if hero.flip_strafing {
+        // The stick sets the speed as it goes, not only at the start.
+        let target = (flip.speed * stick.magnitude).max(flip.min_speed);
+        hero.flip_speed = approach(hero.flip_speed, target, flip.accel * TICK);
+    } else {
+        // The game counts the ticks to the landing in whole ticks.
+        let landing = falling && to_land.floor() <= crouch.slow_within_ticks as f32;
+        let target = if landing { 0.0 } else { crouch.speed };
+        hero.flip_speed = approach(hero.flip_speed, target, crouch.accel * TICK);
+    }
+    let mut velocity = hero.flip_direction * hero.flip_speed;
+    if !hero.flip_strafing {
+        // His run carries on the way he faced, as far as the flip goes across it.
+        let across = ops::sin(wrap(yaw_of(hero.flip_direction) - hero.flip_facing).abs());
+        velocity += facing(hero.flip_facing) * hero.flip_carry * across;
+    }
+    hero.set_horizontal_velocity(velocity);
+}
+
+/// Ticks until he comes down to the ground below, as UYA works it out for the flip
+/// (0x50C4A0): the t at which h + v·t − g·t(t + 1)/2 reaches 0, in per-tick units.
+fn ticks_to_land(hero: &HeroMotion) -> f32 {
+    let g = hero.jump.gravity * TICK * TICK;
+    let b = hero.velocity.y * TICK + g / 2.0;
+    (b + ops::sqrt(b * b + 2.0 * g * hero.height_above_ground)) / g
+}
+
+/// Whether a flip is carrying him off a drop (UYA 0x4EDE80): low over the ground late in
+/// the flip, with no ground near his take-off height either just ahead along his motion
+/// or a good way further.
+fn flip_over_drop(hero: &HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) -> bool {
+    let crouch = &profile.flip.crouch;
+    if hero.state != HeroState::Jump(JumpKind::Flip)
+        || hero.ticks < crouch.edge_from_tick
+        || hero.height_above_ground >= crouch.edge_height
+    {
+        return false;
+    }
+    let ahead = hero.velocity.normalize_or_zero();
+    let ground_at = |distance: f32| {
+        let point = hero.position + ahead * distance;
+        let top = Vec3::new(point.x, hero.take_off_height + crouch.edge_rise, point.z);
+        let down = Vec3::NEG_Y * (crouch.edge_rise + crouch.edge_drop);
+        world.cast_ray(top, down).is_some()
+    };
+    !ground_at(crouch.edge_near) && !ground_at(crouch.edge_far)
 }
 
 fn start_wall_jump(hero: &mut HeroMotion, wall: Wall, profile: &HeroProfile) {
@@ -2630,8 +2827,11 @@ fn air_tick(
     let t = hero.ticks;
     match hero.state {
         HeroState::Jump(kind) => {
-            if let Some(next) = jump_transition(hero, kind, profile) {
+            if let Some(next) = jump_transition(hero, kind, input, wish, profile) {
                 match next {
+                    Transition::Flip(side) => {
+                        start_flip(hero, wish.normalize_or_zero(), stick, side, profile);
+                    }
                     Transition::Wall(wall) => start_wall_jump(hero, wall, profile),
                     Transition::Long => start_jump(hero, JumpKind::Long, profile),
                     Transition::Double => {
@@ -2647,6 +2847,8 @@ fn air_tick(
 
             let params = jump_params(profile, kind).clone();
             let past_pushoff = t >= params.pushoff_ticks;
+            let falling = hero.jump.past_apex;
+            let to_land = ticks_to_land(hero);
             jump_vertical(hero, &params, input.held(Action::Jump), profile);
             if kind == JumpKind::Heli {
                 let heli = &profile.heli_jump;
@@ -2681,14 +2883,7 @@ fn air_tick(
                 JumpKind::Long => {}
                 // Following a rail, or flying on from its end (`follow_rail_in_air`).
                 JumpKind::Grind | JumpKind::GrindSwitch => {}
-                JumpKind::Flip => {
-                    if hero.strafing {
-                        turn_to_camera(hero, profile);
-                    }
-                    hero.flip_speed =
-                        approach(hero.flip_speed, hero.flip_target, profile.flip.accel * TICK);
-                    hero.set_horizontal_velocity(hero.flip_direction * hero.flip_speed);
-                }
+                JumpKind::Flip => flip_tick(hero, stick, falling, to_land, profile),
                 JumpKind::Wall => {
                     // Off the wall along its normal, turning to face that way.
                     let wall_jump = &profile.wall_jump;
@@ -2789,6 +2984,7 @@ fn air_tick(
 }
 
 enum Transition {
+    Flip(StrafeSide),
     Wall(Wall),
     Long,
     Double,
@@ -2799,9 +2995,27 @@ enum Transition {
 fn jump_transition(
     hero: &mut HeroMotion,
     kind: JumpKind,
+    input: &PlayerInput,
+    wish: Vec3,
     profile: &HeroProfile,
 ) -> Option<Transition> {
     let t = hero.ticks;
+    // A jump still on the ground turns into a flip with crouch held and the stick just
+    // pushed to a side or back (UYA 0x503B68).
+    let crouch = &profile.flip.crouch;
+    if matches!(
+        kind,
+        JumpKind::Standing | JumpKind::Run | JumpKind::Long | JumpKind::Heli
+    ) && t < crouch.early_before_tick
+        && hero.ground.is_some()
+        && input.held(Action::Crouch)
+        && hero.stick_press.within(crouch.early_window)
+    {
+        let side = flip_side(hero, wish.normalize_or_zero());
+        if side != StrafeSide::Forward {
+            return Some(Transition::Flip(side));
+        }
+    }
     let long = &profile.long_jump;
     if matches!(kind, JumpKind::Standing | JumpKind::Run)
         && hero.abilities.heli_pack

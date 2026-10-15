@@ -81,6 +81,21 @@ pub struct StickProfile {
     pub live_range: f32,
     /// Stick vectors shorter than this are ignored.
     pub cut_off: f32,
+    /// What counts as a flick of the stick, which the crouch flip looks for.
+    pub flick: FlickProfile,
+}
+
+/// UYA's pad layer marks a flick of the stick as a press of its own (0x45D5C8;
+/// `hero-controller.md`, "Flips"): the stick reaching past `to`, either from under `from`
+/// within `within_ticks`, or swung more than `swing_degrees` from where it pointed in any
+/// of the last `swing_ticks`. Both are measured after the dead zone, before the cut-off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlickProfile {
+    pub from: f32,
+    pub to: f32,
+    pub within_ticks: usize,
+    pub swing_degrees: f32,
+    pub swing_ticks: usize,
 }
 
 /// A damped spring for turning: each tick the rate gains `gain × error`, loses
@@ -164,6 +179,9 @@ pub struct WalkProfile {
     pub turn_stall_stick: f32,
     pub turn_stall_degrees: f32,
     pub crouch_brake: f32,
+    /// Crouching with the stick past `crouch_turn_stick` turns him on a spring of its own.
+    pub crouch_turn: TurnSpring,
+    pub crouch_turn_stick: f32,
     /// A jump from walking is a run jump when the stick is past this.
     pub run_jump_stick: f32,
     /// On the ground a jump press is kept this many ticks, standing and walking, so one
@@ -191,6 +209,10 @@ pub struct AirProfile {
     /// Vertical speed below which a jump is past its apex.
     pub apex_below: f32,
     pub turn: TurnSpring,
+    /// A jump that lands with the stick under `land_release_stick` keeps at most
+    /// `land_release_speed` of its ground speed.
+    pub land_release_stick: f32,
+    pub land_release_speed: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,6 +254,8 @@ pub struct LongJumpProfile {
     pub crouch_window: u32,
 }
 
+/// Flips (state 11, `hero-controller.md`, "Flips"). The strafe flip, X while strafing,
+/// moves with the stick at `speed`; the crouch flip has its own motion in `crouch`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlipProfile {
     pub params: JumpParams,
@@ -239,6 +263,44 @@ pub struct FlipProfile {
     pub min_speed: f32,
     pub start_speed: f32,
     pub accel: f32,
+    /// A flip moves as the strafe flip only while strafing with the stick past this.
+    pub strafe_stick: f32,
+    pub crouch: CrouchFlipProfile,
+}
+
+/// The flip from a crouch: R1 held, the stick pushed a new way to a side or back, and X,
+/// the two presses close together (UYA 0x502ED8, 0x502368).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CrouchFlipProfile {
+    /// The jump press and the stick press must be fewer than this many ticks apart.
+    pub press_gap: u32,
+    /// From a crouch, both presses within this many ticks. From idle or a walk, within
+    /// the walk's jump buffer plus `press_gap`.
+    pub crouch_window: u32,
+    /// A standing, run, long or heli jump still on the ground before `early_before_tick`
+    /// becomes the flip on a stick press within `early_window`, with crouch held.
+    pub early_window: u32,
+    pub early_before_tick: u32,
+    /// The flip's own speed eases from 0 to `speed` at `accel` along the stick...
+    pub speed: f32,
+    pub accel: f32,
+    /// ...and back to 0 once past the apex with `slow_within_ticks` or fewer to the landing.
+    pub slow_within_ticks: u32,
+    /// The ground speed he had, if over `carry_above`, carries on along the way he faced
+    /// `facing_ticks_back` ticks before the flip, scaled by the sine of the angle from
+    /// there to the flip's way. He turns back to that facing on `turn`.
+    pub carry_above: f32,
+    pub facing_ticks_back: usize,
+    pub turn: TurnSpring,
+    /// From tick `edge_from_tick`, under `edge_height` above the ground, the flip stops short
+    /// of a drop: when no ground lies between `edge_rise` above and `edge_drop` below the
+    /// take-off height, either `edge_near` or `edge_far` ahead, its own speed is zeroed.
+    pub edge_from_tick: u32,
+    pub edge_height: f32,
+    pub edge_near: f32,
+    pub edge_far: f32,
+    pub edge_rise: f32,
+    pub edge_drop: f32,
 }
 
 /// Strafing, UYA's walk with L2 or R2 held (`hero-controller.md`, "Strafing"): the walk's

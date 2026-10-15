@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
-use rac_hero::{HeroMotion, HeroState, JumpKind, Side};
+use rac_hero::{HeroMotion, HeroState, JumpKind, Side, StrafeSide};
 
 /// A move the rig can play a clip for: roughly one per hero state, split where the games
 /// animate a state differently (walking off and running, crouching still and moving).
@@ -124,19 +124,15 @@ impl RigMove {
     }
 }
 
-/// The flip's direction, from where he moves against where he faces.
+/// The flip's direction, as the controller chose it: the game plays sequence 28 plus that
+/// side (`hero-controller.md`, "Animations per state"). A crouch flip from a run moves
+/// forward as much as sideways, so the motion can't tell.
 fn flip_side(hero: &HeroMotion) -> FlipSide {
-    let local = Quat::from_rotation_y(hero.yaw).inverse() * hero.velocity;
-    if local.x.abs() > local.z.abs() {
-        if local.x < 0.0 {
-            FlipSide::Left
-        } else {
-            FlipSide::Right
-        }
-    } else if local.z < 0.0 {
-        FlipSide::Forward
-    } else {
-        FlipSide::Back
+    match hero.flip_side {
+        StrafeSide::Left => FlipSide::Left,
+        StrafeSide::Right => FlipSide::Right,
+        StrafeSide::Forward => FlipSide::Forward,
+        StrafeSide::Back => FlipSide::Back,
     }
 }
 
@@ -304,9 +300,9 @@ mod tests {
         hero.velocity = Vec3::new(0.0, 0.0, -6.0);
         assert_eq!(RigMove::of(&hero), Some(RigMove::Run));
         hero.state = HeroState::Jump(JumpKind::Flip);
-        hero.velocity = Vec3::new(0.0, 3.0, 5.0);
+        hero.flip_side = StrafeSide::Back;
         assert_eq!(RigMove::of(&hero), Some(RigMove::Flip(FlipSide::Back)));
-        hero.velocity = Vec3::new(-5.0, 3.0, 0.0);
+        hero.flip_side = StrafeSide::Left;
         assert_eq!(RigMove::of(&hero), Some(RigMove::Flip(FlipSide::Left)));
         hero.state = HeroState::Combo(2);
         assert!(RigMove::of(&hero).unwrap().follows_attack_frame());
