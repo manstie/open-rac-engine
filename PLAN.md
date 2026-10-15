@@ -542,7 +542,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     in its sequence 1 (DL classes' sequences don't read as UYA's do yet: read them
     first); offer the multiplayer skins with the wrench and without Clank; warp the jump's
     air animation to its peak and landing frames; the landing lockout in the controller
-    (P1.5); firing poses (P1.9).
+    (P1.5); firing poses (P1.9; DL's gadget table names each weapon's firing sequence:
+    `moby-format.md`, "DL's skins").
   - `wrench_points` had been measured on a bake that ignored the wrench's rest turn (P3.7).
     It is now (0.47, −0.12, −0.87), forward from the fist, which matches the game's
     screenshot. Every model's wrench and the procedural poses follow it.

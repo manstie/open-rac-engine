@@ -507,8 +507,9 @@ skin's skeleton and textures come out identical.
   (486 triangles, to 1.29 m, on the head joint alone, in the first texture). The other
   skins have no bangles. In play the game sets the player's mask every frame
   (0x684EF0) from the global at 0x2206B0, which holds 0x1002 (collar 1 and the helmet)
-  in all four of our DL and Gladiator images, where he wears armor 0; in a mode of the
-  player's (its + 0x418 set) it shows 0xFFE instead (1–11: the bare head).
+  in all four of our DL and Gladiator images, where he wears armor 0; while the player's
+  + 0x418 is set it shows 0xFFE instead (1–11: the bare head). The Remove Helmet cheat
+  (libdl's flag at 0x21DE3D) sets it to 2 when the player is set up (0x674978) [code].
 - **Each skin is a whole class**, pointers counted from its start, with UYA's header
   for the packet table, packet counts, joint count and scale (0.2083, as UYA's hero),
   but:
@@ -523,7 +524,14 @@ skin's skeleton and textures come out identical.
     seven bits (0x7F for the root); the skins set the high bit, another class (a
     winged pack, 0x246B) doesn't;
   - one sequence (+0x48), which doesn't read as UYA's sequences do (tried 2026-10-15),
-    not read.
+    not read;
+  - lists of joints at +0x1C [code, DreadZone Station image]: a count, then a pointer
+    for each list. A list holds a u16 length *n* and a u16 not read, then *n* joints
+    from the root down to the one it is for, which the byte at + 4 + *n* names (0x5893C0
+    looks it up; 0x58AD98 and 0x58ADE0 then give that joint's position or matrix from the
+    moby's joint matrices at moby + 0x58, 0x40 bytes each). The player's class has 28:
+    list 0 ends at joint 78 (the right hand), 1 at 77, 4 at 11, 17 at 12 (the head) and
+    19 at 56 (the left hand).
 - **Meshes and textures** decode with UYA's rules unchanged: 1,692 to 5,640 triangles,
   no metal packets, a low level of detail on most skins; two PIF2 textures each
   (256² and 128² for the armors, two 128² for the rest).
@@ -536,11 +544,26 @@ skin's skeleton and textures come out identical.
 - **The wrench** is class 0x23FA (libdl's name) in every level core but the menu's
   [verified 2026-10-15, `Core::read_dl` and its disc tests]: 17 joints, every one turned
   as UYA's wrench's are, scale 0.2083, 834 triangles at high detail and 498 at low, no
-  bangles, and one 128² texture of the level's own (`Core::moby_textures`). Its moby's
-  parent is the player's, it hangs from his right hand (joint 78: the first of his class's
-  joint lists, which the wrench's code asks for), and while he stands it plays its
-  sequence 1 from keyframe 0, as UYA's does [data, DreadZone Station image]. Its
-  sequences aren't read yet, as the skins' aren't.
+  bangles, and one 128² texture of the level's own (`Core::moby_textures`), kept in EE
+  memory (kind 1), the same pixels on Gladiator PAL. Its moby's parent is the player's,
+  it hangs from his right hand (joint 78: the first of his class's joint lists, which the
+  wrench's code asks for), and while he stands it plays its sequence 1 from keyframe 0,
+  as UYA's does [data, DreadZone Station image].
+  - **What isn't read yet** [data, DL NTSC level 1 and our DreadZone Station image]: its
+    packet table holds four more packets (19–22) past the high-detail (0–11),
+    low-detail (12–18) and metal (none) ones, 202 triangles on joints 0–13 in its
+    texture and as long as the wrench; what draws them is open. Its 20 sequences
+    (header byte 0x0C) aren't read, as the skins' aren't: each starts with four floats,
+    then its keyframe count (sequence 1 has one) and 0xFF, two pointers at +0x18 and
+    +0x1C, then four bytes for each keyframe, and its rotations look like 16-bit
+    quaternions (±0x5A82 for ±0.7071).
+  - **The gadget table** [data, DreadZone Station image]: the game finds the wrench's
+    class in its gadget definitions at 0x3BF460, 0xB0 bytes each in libdl's `GadgetDef`
+    layout, indexed by libdl's weapon ids: 1 the wrench (class 0x23FA, not a weapon,
+    no firing sequence), then the Dual Vipers 0x1094, Magma Cannon 0x1087, Arbiter
+    0x1864, Fusion Rifle 0x1096 and Mine Launcher 0x2094, whose whole-body firing
+    sequences of the player's class (+0x30) are 65, 61, 63, 67 and 60 (the Vipers'
+    arm-only one, +0x32, is 65 too).
 
 ## Bangles [verified on DL NTSC, 2026-10-15]
 

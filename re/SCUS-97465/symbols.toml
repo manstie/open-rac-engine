@@ -117,7 +117,7 @@ name = "hero_update_timers"
 address = 0x00684EF0
 kind = "function"
 confidence = "medium"
-note = "Counts down the hero's frame timers, among them the charge cooldown at hero+0x2E54."
+note = "Counts down the hero's frame timers, among them the charge cooldown at hero+0x2E54. Also sets the player moby's scale to its class's x 1.2 and its bangle mask (moby + 0x74) to player_bangles, or to 0xFFE (bangles 1-11, the bare head) while player + 0x418 is set."
 
 [[symbol]]
 name = "hero_stick_move"
@@ -1143,7 +1143,7 @@ name = "cheat_remove_helmet"
 address = 0x0021DE3D
 kind = "data"
 confidence = "low"
-note = "libdl's CHEAT_REMOVE_HELMET. Read or written by 1 instruction in this image."
+note = "libdl's CHEAT_REMOVE_HELMET. Read by player_helmet_setup, which then sets player + 0x418 to 2 (the bare head)."
 
 [[symbol]]
 name = "cheat_cached_mirror_world"
@@ -1269,15 +1269,43 @@ confidence = "medium"
 note = "Copies the data table's first 0x70 bytes, unpacks the core, sends the GS RAM image, and gives classes with a texture group (class entry +8) the skin WAD's textures."
 
 [[symbol]]
-name = "player_draw_setup"
-address = 0x00684EF0
-kind = "function"
-confidence = "low"
-note = "Per frame: sets the player moby's scale to its class's x 1.2 and its bangle mask (moby + 0x74) to player_bangles, or to 0xFFE (bangles 1-11, the bare head) while player + 0x418 is set."
-
-[[symbol]]
 name = "player_bangles"
 address = 0x002206B0
 kind = "data"
 confidence = "medium"
 note = "u16 bangle mask the player wears in play: 0x1002 (collar 1 and the helmet, 12) in all our images."
+
+[[symbol]]
+name = "player_helmet_setup"
+address = 0x00674978
+kind = "function"
+confidence = "low"
+note = "Sets player + 0x418 to 2 while cheat_remove_helmet is on, which makes hero_update_timers show the bare head's bangles."
+
+[[symbol]]
+name = "class_joint_list"
+address = 0x005893C0
+kind = "function"
+confidence = "medium"
+note = "(list, class): the joint that the class's joint list (class + 0x1C) ends at. List 0 of the player's class is joint 78, the right hand, which the wrench asks for."
+
+[[symbol]]
+name = "moby_joint_position"
+address = 0x0058AD98
+kind = "function"
+confidence = "medium"
+note = "(moby, list): the position row (+0x30) of the moby's joint matrix (moby + 0x58, 0x40 bytes a joint) for class_joint_list's joint."
+
+[[symbol]]
+name = "moby_joint_matrix"
+address = 0x0058ADE0
+kind = "function"
+confidence = "medium"
+note = "(moby, list): the moby's joint matrix (moby + 0x58, 0x40 bytes a joint) for class_joint_list's joint."
+
+[[symbol]]
+name = "gadget_defs"
+address = 0x003BF460
+kind = "data"
+confidence = "medium"
+note = "Gadget definitions, 0xB0 bytes each in libdl's GadgetDef layout, indexed by libdl's weapon id: 1 the wrench (class 0x23FA), 2-6 the Dual Vipers, Magma Cannon, Arbiter, Fusion Rifle and Mine Launcher. Found in the DreadZone Station image."

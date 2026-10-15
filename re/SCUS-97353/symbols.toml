@@ -530,7 +530,7 @@ name = "hero_timers_update"
 address = 0x004FAA68
 kind = "function"
 confidence = "medium"
-note = "Per-frame bookkeeping: increments the state timer at 0x1A4D98 and counts down the hero's i16 timers at 0x1A4DB0-0x1A4DFC, among them the no-grab timer (0x1A4DB0), the wall window (0x1A4DB4) and hero_no_dive_timer, which it holds at 10 on levels 2 and 4."
+note = "Per-frame bookkeeping: increments the state timer at 0x1A4D98 and counts down the hero's i16 timers at 0x1A4DB0-0x1A4DFC, among them the no-grab timer (0x1A4DB0), the wall window (0x1A4DB4) and hero_no_dive_timer, which it holds at 10 on levels 2 and 4; the fidget cooldowns among them."
 
 [[symbol]]
 name = "hero_wall_slide"
@@ -1780,13 +1780,6 @@ address = 0x001A4DE8
 kind = "data"
 confidence = "high"
 note = "Frames before another fidget may play; set to 120 when one starts."
-
-[[symbol]]
-name = "hero_timers_tick"
-address = 0x004FAA68
-kind = "function"
-confidence = "medium"
-note = "Per frame: counts down the hero's timers, the fidget cooldowns among them."
 
 [[symbol]]
 name = "hero_low_health"
