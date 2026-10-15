@@ -19,6 +19,8 @@ pub enum RigMove {
     /// Starting to walk.
     SetOff,
     Run,
+    /// Strafing backwards: walking backwards.
+    StrafeBack,
     Skid,
     Crouch,
     CrouchMove,
@@ -45,6 +47,7 @@ pub enum RigMove {
     ShimmyLeft,
     ShimmyRight,
     Grind,
+    ZipLine,
     Swim,
     SwimIdle,
     SwimFast,
@@ -68,6 +71,7 @@ impl RigMove {
         let horizontal = Vec2::new(hero.velocity.x, hero.velocity.z).length();
         Some(match hero.state {
             HeroState::Idle => RigMove::Idle,
+            HeroState::Walk if hero.strafing_back => RigMove::StrafeBack,
             // UYA's walk sets off below 2.35 u/s (`hero-controller.md`).
             HeroState::Walk if horizontal < 2.35 => RigMove::SetOff,
             HeroState::Walk => RigMove::Run,
@@ -98,6 +102,7 @@ impl RigMove {
             HeroState::LedgeShimmy(Side::Left) => RigMove::ShimmyLeft,
             HeroState::LedgeShimmy(Side::Right) => RigMove::ShimmyRight,
             HeroState::Grind => RigMove::Grind,
+            HeroState::ZipLine => RigMove::ZipLine,
             HeroState::UnderwaterSwim => RigMove::Swim,
             HeroState::UnderwaterIdle => RigMove::SwimIdle,
             HeroState::UnderwaterFast => RigMove::SwimFast,
@@ -305,5 +310,9 @@ mod tests {
         assert_eq!(RigMove::of(&hero), Some(RigMove::Flip(FlipSide::Left)));
         hero.state = HeroState::Combo(2);
         assert!(RigMove::of(&hero).unwrap().follows_attack_frame());
+        hero.state = HeroState::Walk;
+        hero.strafing = true;
+        hero.strafing_back = true;
+        assert_eq!(RigMove::of(&hero), Some(RigMove::StrafeBack));
     }
 }

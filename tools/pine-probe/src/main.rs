@@ -60,12 +60,17 @@ enum Command {
         /// The address, in hex (for example 0x1D45B4).
         #[arg(value_parser = parse_hex)]
         addr: u32,
-        /// A byte, or with `--word` a 32-bit word (decimal, or hex with 0x).
-        #[arg(value_parser = parse_number)]
-        value: u32,
-        /// Write a little-endian 32-bit word instead of a byte.
-        #[arg(long)]
+        /// A byte, or with `--word` a 32-bit word (decimal, or hex with 0x), or with
+        /// `--f32` a float. Several words or floats go to consecutive addresses in one
+        /// request, so a position's three coordinates change in the same frame.
+        #[arg(required = true, allow_negative_numbers = true)]
+        values: Vec<String>,
+        /// Write little-endian 32-bit words instead of a byte.
+        #[arg(long, conflicts_with = "f32")]
         word: bool,
+        /// Write 32-bit floats, such as a position.
+        #[arg(long)]
+        f32: bool,
         #[arg(long, default_value_t = DEFAULT_SLOT)]
         slot: u16,
     },
@@ -175,14 +180,29 @@ fn main() -> Result<()> {
         }
         Command::Poke {
             addr,
-            value,
+            values,
             word,
+            f32,
             slot,
         } => {
-            let mut pine = Pine::connect(slot)?;
-            if word {
-                pine.write_u32(addr, value)?;
+            let words = if f32 {
+                values
+                    .iter()
+                    .map(|text| Ok(text.parse::<f32>()?.to_bits()))
+                    .collect::<Result<Vec<u32>>>()?
             } else {
+                values
+                    .iter()
+                    .map(|text| parse_number(text).map_err(anyhow::Error::msg))
+                    .collect::<Result<Vec<u32>>>()?
+            };
+            let mut pine = Pine::connect(slot)?;
+            if word || f32 {
+                pine.write_words(addr, &words)?;
+            } else {
+                let [value] = words[..] else {
+                    bail!("a byte poke takes one value; use --word or --f32 for several");
+                };
                 let byte = u8::try_from(value).context("a byte poke takes 0..=255; use --word")?;
                 pine.write_u8(addr, byte)?;
             }

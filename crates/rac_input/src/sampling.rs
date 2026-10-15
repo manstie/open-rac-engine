@@ -74,6 +74,7 @@ impl Devices<'_> {
             Binding::Key(key) => self.keys.pressed(key),
             Binding::Mouse(button) => self.mouse.pressed(button),
             Binding::Pad(button) => self.pads.iter().any(|pad| pad.pressed(button)),
+            Binding::PadBoth(a, b) => self.pads.iter().any(|pad| pad.pressed(a) && pad.pressed(b)),
             Binding::Wheel(direction) => self.wheel_turned(direction),
         }
     }
@@ -83,6 +84,9 @@ impl Devices<'_> {
             Binding::Key(key) => self.keys.just_pressed(key),
             Binding::Mouse(button) => self.mouse.just_pressed(button),
             Binding::Pad(button) => self.pads.iter().any(|pad| pad.just_pressed(button)),
+            Binding::PadBoth(a, b) => self.pads.iter().any(|pad| {
+                pad.pressed(a) && pad.pressed(b) && (pad.just_pressed(a) || pad.just_pressed(b))
+            }),
             Binding::Wheel(direction) => self.wheel_turned(direction),
         }
     }
@@ -136,11 +140,17 @@ pub(crate) fn sample_devices(
     let previous = *actions;
     let mut current = ActionState::default();
     for action in Action::ALL {
-        let bindings = settings.bindings_for(action);
+        let bindings = || {
+            settings
+                .bindings_for(action)
+                .iter()
+                .copied()
+                .filter(|binding| !action.is_gamepad_only() || binding.is_gamepad())
+        };
         current.set(
             action,
-            bindings.iter().any(|&b| devices.held(b)),
-            bindings.iter().any(|&b| devices.just_pressed(b)),
+            bindings().any(|b| devices.held(b)),
+            bindings().any(|b| devices.just_pressed(b)),
         );
     }
     // The movement stick also navigates menus, with an edge each time it crosses the

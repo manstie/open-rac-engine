@@ -15,6 +15,7 @@ clap.workspace = true
 directories.workspace = true
 rac_demo.workspace = true
 rac_formats.workspace = true
+rac_hero.workspace = true
 rac_input.workspace = true
 rac_iso.workspace = true
 thiserror.workspace = true

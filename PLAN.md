@@ -15,6 +15,8 @@ project owner and for every Claude session that picks this work up.
   - [camera.md](docs/research/camera.md): how the camera follows him (RE.4, started).
   - [moby-format.md](docs/research/moby-format.md): moby skeletons, animation and meshes
     (P3.7, started).
+  - [gameplay-format.md](docs/research/gameplay-format.md): levels' gameplay files, so far
+    their rails (P3.10, started).
 - How to set up and run the reverse-engineering tools, and the catalogue of savestates,
   recordings and traces: [docs/re-setup.md](docs/re-setup.md).
 
@@ -24,7 +26,7 @@ moved (say why).
 
 ---
 
-## 0. Status (updated 2026-10-13)
+## 0. Status (updated 2026-10-15)
 
 **Phase 0 (foundations) is done apart from CI's first run (P0.7). Phase 1 has started: the
 app flow, the 60 Hz simulation core, the input layer and the greybox level are in
@@ -36,8 +38,11 @@ the game itself.**
   He walks, jumps, double jumps, glides, long jumps, flips and heli jumps with the UYA
   NTSC numbers. Since P1.5's second chunk he also wall jumps, grabs, hangs from, shimmies
   along and climbs ledges, gets hurt on hazards, dies and comes back at checkpoints. He
-  dashes with DL's charge boots (crouch twice), grinds rails, and the moves the games
-  grant as items are gated by per-hero ability flags.
+  dashes with DL's charge boots (crouch twice), grinds rails, rides zip lines, strafes as
+  UYA does, and with a gamepad locks on to targets; the moves the games grant as items
+  are gated by per-hero ability flags.
+  He can also move like Deadlocked's Ratchet: each game is a movement profile
+  (`uya.ron`, `dl.ron`), chosen with `--moves` or the menus' Moves button.
   Input can be recorded and replayed (`--record-input`, `--replay-input`).
 - The owner has decided D1–D5 (section 5):
   - an independent project with an ISO-free, reusable hero kit;
@@ -100,6 +105,10 @@ the game itself.**
     disc at start-up (P1.17, `hero-controller.md`, "Animations per state").
 
 **Next actions, in order:**
+0. **Fixed 2026-10-15:** `re/SCUS-97353/symbols.toml` on HEAD (`c055a91`)
+   named 0x4FAA68 twice, `hero_frame_timers` and `hero_timers_update`, which failed
+   `pine-probe`'s `committed_symbols_are_valid`. The two are now one entry,
+   `hero_timers_update`, with both notes.
 1. **Trace the moves that need a particular place (RE.3, RE.5):** wall jump, ledges,
    grinding and swimming.
    - **Since 2026-10-13 we can get there ourselves:** `tools/pine-probe/warp.sh` sends a
@@ -119,14 +128,24 @@ the game itself.**
    - **The wall jump is traced (2026-10-13)** against a side wall of the Starship
      Phoenix (`uyantsc-phoenix-wall.p2s`): its parameters, the cling, 4.9 u/s along the
      normal and the turn all match the code, and the kit already had them.
-   - **Next: a rail.** UYA's rail list is at 0x1DFD10, with the count at 0x1DFD14; the grind
-     boots are at 0x142CAE. Read in normal play, once the level is up (straight after a
-     warp they still show Veldin's), levels 2, 4, 5, 7–10, 13, 14, 16, 17 and 24 have none.
-     Level 11 read pointer 0x6E, count 960, which looks like a different layout; check it
-     first. Not scanned yet: 19, 21, 22, 6, 27 and the vid-comics. The research boot is
-     `uya-place` (`docs/re-setup.md`, swim traces row). Its scan script is lost with the
-     scratchpad: warp from Veldin, press Start through cutscenes until `game_mode` is 0,
-     then peek both words.
+   - **Rails, 2026-10-15: UYA has nowhere to grind, but it has zip lines.**
+     - The rails are read from each level's gameplay file now (`rac_formats::gameplay`,
+       `openrac-tool rails`; `gameplay-format.md`). Levels 2, 11, 17, 19 and the
+       vid-comics 30, 32–35 have some. The earlier memory scan was wrong: the rail list's
+       address moves with each level's build (0x1DE690 on Florana).
+     - **Florana's and Crash Site's are zip lines** (state 118, which libuya calls
+       `DEATH_FALL`). Read in code and traced on Florana (`uyantsc-florana-zip-{1,2}`):
+       the catch by the hands, the speed ramp to 14 u/s, the end and the no-catch timer
+       all match (`hero-controller.md`, "Zip lines").
+     - **Grinding can't be traced on UYA:** Florana's build has no grind code, and levels
+       11, 17 and 19 have it but no grind animations. With the grind boots set, a grind
+       at Crash Site makes PCSX2 abort. So a grind trace waits for GC or DL.
+     - `pine-probe poke` takes several words or floats in one request now (`--f32`); and
+       PINE serves one client at a time, so place the hero before starting a capture.
+     - **Done the same day (P1.5):** zip lines in the hero kit, and one in the greybox
+       from the high platform (`rac_hero` tests `a_jump_under_a_zip_line…` and four more;
+       `rac_demo` test `the_zip_line_carries_the_hero_down…`).
+     - Next here: nothing on UYA. A grind trace needs GC's or DL's rails.
    - **Owner, when convenient:** a half-tilt stick recording on an NTSC disc (`docs/re-setup.md`,
      "Still wanted"). Recordings of the place-bound moves are still welcome, but no
      longer needed to reach them.
@@ -138,7 +157,27 @@ the game itself.**
 4. What P1.5 still lacks:
    - **Done 2026-10-12 and 13:** the charge boots (from DL's code), the ability flags,
      the walk's sharp-turn skid, grinding and swimming (from UYA's code).
-   - strafe speeds and lock-on, with targets from P1.9.
+   - **Done 2026-10-15:** strafing and lock-on, read in UYA's code
+     (`hero-controller.md`, "Strafing and lock-on"; `camera.md`, "Lock-on").
+     - Strafing is verified against our existing trace `uyantsc-veldin-moves-3`: the
+       turn spring on 224 walking and 106 flip frames, the speeds, the stop that waits
+       until he faces the camera, and the standing jump. Changing sides is code only.
+     - Lock-on: L2 and R2 together, a target within 25 u and 35° of the view, kept to
+       30 u; the camera turns to look past the hero at it. Untraced, because it needs a
+       weapon none of our savestates holds (`item_flags`, unknown which).
+     - In the kit it is **gamepad only** (owner's instruction, §5): `Action::LockOn`,
+       bound to both triggers; `rac_input` ignores keyboard and mouse bindings for it.
+     - Not done: UYA's crouch flip (R1, a direction, then X; its pad bits aren't read),
+       and weapons reading the lock (P1.9).
+   - **Done 2026-10-15 (owner's request): a movement profile per game.**
+     Deadlocked's values that differ from UYA's (walk 7.25 u/s, the double jump's 7 u/s
+     cap and earlier start, the glide, the ledge jump's push-off, no flips from the walk)
+     were read in DL's code and checked against new DL NTSC traces
+     (`hero-controller.md`, "Differences between the games"). The kit ships `dl.ron`
+     beside `uya.ron`; the app picks one with `--moves` or the menus.
+     - Next here: DL's lock-strafe camera (its default), where DL's flips come from, its
+       crouch moves (a savestate past the tutorial), and the parts of `dl.ron` still
+       marked "not read in DL".
 5. **Done 2026-10-13:** swimming (P1.5), the level warp (RE.5), melee (P1.8), the
    placeholder model with the moby reader (P1.17, P3.7, P2.7), and the disc layer for UYA
    with the real animations (P2.1–P2.4, P3.3). Committed together as `f695bfb`.
@@ -152,8 +191,19 @@ the game itself.**
        `moby-format.md`, "Mesh", "The armor WAD"). The mesh decode is complete.
      - The menus' "Model" button and `--model` choose; the choice is saved in
        `settings.toml`. Both models checked on Xvfb with the disc's animations.
-     - Next, if wanted: the other armors as models (entries 0–34 decode; 35–55 are whole
-       classes), metal packets (the wrench's chrome), and the gadget texture slot.
+     - **Done 2026-10-15:** all 15 distinct suits in the armor WAD are models
+       ("uya", "uya-blue", "uya-snowman" …), with metal packets drawn as polished metal,
+       and the Model button steps both ways (P1.17, P3.7).
+     - **Done 2026-10-15 (owner's request): Deadlocked's skins.** From a DL
+       NTSC-U or Gladiator PAL disc, the twelve complete skins in DL's skin WAD are models
+       ("dl-ratchet", "dl-alpha-clank" … "dl-jak", with the game's names), each on its own
+       107-joint skeleton lined up with the rig's (P1.17, P2.2, P2.3, P3.7;
+       `moby-format.md`, "DL's skins").
+     - Next, if wanted: Ratchet's head for DL's five armors (Marauder … Liberator; the
+       armors stop at the neck and the head's source isn't found), DL's own wrench (class
+       0x23FA in its level cores, so DL's level files first; the skins hold the open
+       wrench meanwhile), the game's names for UYA's suits, UYA entries 35–55 (whole
+       classes, probably the multiplayer characters), and the gadget texture slot.
    - **Owner, before publishing the model:** `rac_rig` is a recognisable Ratchet and
      Clank, which goes further than G1's primitive-shape placeholder (§5, 2026-10-13).
      Keep it, or ask for a less recognisable stand-in.
@@ -416,6 +466,8 @@ App
 | 2026-10-13 | **The hero's model is selectable: the open-source rig model or a model imported from one of the user's own discs** (owner's request). Every model wears the **rig's skeleton** (`rac_rig::model::joint`): it gives its own rest position for each joint and a mesh whose skin weights name those joints, so one character controller and one set of clips (procedural or from a disc) drive any of them. An import is offered only when its bones line up: each rig joint has a joint in the game's skeleton that descends from the rig parent's, and the game's other joints fold into their nearest such ancestor. Clips carry joint offsets from the source skeleton's rest, so each model keeps its own proportions. Joints whose frame matters beyond their position follow the game's convention: every model's wrench points from the hand at rest the way UYA's held wrench does (`model::wrench_points`). Imports are converted at run time like the animations; none is stored. The player picks the model in the menus (saved in `settings.toml`) or with `--model`. |
 | 2026-10-13 | The same research instances may be sent to any level by writing the games' own level-change request (`tools/pine-probe/warp.sh`), so traces of place-bound moves don't wait on a play-through. The catalogue says which savestates were reached this way, and with which items. |
 | 2026-10-13 | **parry3d's `enhanced-determinism` feature is off, and must stay off.** It turns on glam's `scalar-math` for the whole build, so `Vec4` loses its 16-byte alignment. Bevy sizes its GPU mesh buffers with `size_of`, so `MeshUniform` became 168 bytes against the shaders' 176. Every render phase's buffer then fell 8 bytes per mesh short, and a phase holding one mesh (the demo's water) failed wgpu validation and quit the app. Determinism keeps the rest of what the feature gave: `rac_hero` depends on `glamx` only to turn on its `libm` feature, so parry's scalar maths (through simba's `libm_force`) still avoid each platform's C library. The ordered hash maps it also gave are only used by parry's mesh building and voxels, never by the kit's queries (balls, capsules, cuboids, rays). glam's SSE2 path rounds identically on Windows and Linux as long as FMA is off (section 2). `openrac` asserts the alignment at compile time. |
+| 2026-10-15 | **Each game is a movement profile; the controller is shared** (owner's request). Where the games differ only in numbers, the profile holds them; where a rule differs, the profile gets a switch (`strafe.flips`), not a second controller. A game's profile keeps UYA's value, marked "not read in DL" (or the game's equivalent), until that game's code is read, and a test lists the fields that differ from UYA's. `uya` stays the default; the app chooses with `--moves` or the menus. |
+| 2026-10-15 | **Lock-on is gamepad only** (owner's instruction). With a mouse the player aims themselves, so `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`. Its default binding is UYA's: both triggers together. |
 | 2026-10-12 | **Nothing is left only in a session's context** (owner's request, after a session was cut off by a usage limit). Ongoing work is written into PLAN.md and `docs/` as it happens. Every savestate, input recording, input script and capture layout a session makes is saved straight away in `source/<game>/` (gitignored), with traces that can't be regenerated, and listed in `docs/re-setup.md`. `cache/` only holds working copies. The rules are in CLAUDE.md, "Every session". |
 
 ## 6. Roadmap
@@ -589,6 +641,10 @@ also works: using a GPL tool is fine, copying its code is not.
   - 2026-10-13: **grinding read in UYA's code**: the rail search and getting on, the
     speed model, the grind and switch jumps, and the rail's end (`hero-controller.md`,
     "Grinding"). Untraced: Veldin's start has no rail.
+  - 2026-10-15: **no UYA level can be grinded** (Florana's build has no grind code;
+    levels 11, 17 and 19 lack the grind animations), so grinding stays code only until
+    GC or DL. **Zip lines (state 118) read in code and traced on Florana**
+    (`hero-controller.md`, "Zip lines").
   - The hero's update entry points and its state machine: states, transitions, and the
     input conditions for each.
   - Physics for each state:
@@ -783,7 +839,10 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
     - a check of the full stick curve, because Bevy's own axis processing runs before
       ours (P1.5).
   - Actions: Move, Look, Jump, Crouch, Melee, Fire, QuickSelect (hold for the ring),
-    Strafe/Lock, FirstPerson, Next/PrevWeapon, Map, Pause, and UI navigation.
+    Strafe, LockOn, FirstPerson, Next/PrevWeapon, Map, Pause, and UI navigation.
+  - 2026-10-15: `Action::LockOn` (bit 9), gamepad only; `Binding::PadBoth` for two pad
+    buttons held together (L2 and R2 lock on, as in UYA). Saved settings that predate an
+    action get its default bindings.
   - Defaults for a PS-layout gamepad and for KB+M (WASD plus mouse look and aim).
   - Dead zones, sensitivity and invert options.
   - A rebinding UI, with bindings saved to settings.
@@ -907,7 +966,55 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
           - The greybox has a raised pool with steps up to its wall; the hero's model
             pitches with him. 13 new tests, one of them swimming across the greybox pool
             and jumping out.
-        - Still to do: strafe speeds and lock-on (with P1.9).
+        - **Zip lines, done 2026-10-15:** read in UYA's code and traced on
+          Florana (`hero-controller.md`, "Zip lines"), and implemented:
+          - rails have a kind now, `RailKind::Grind` or `RailKind::ZipLine`
+            (`GrindRail::zip_line`), as the games keep both in one list;
+          - `HeroState::ZipLine` (118): the hands (1.34 u up) catch a cable from 0.7 u
+            under it to 0.4 u over, from a jump, a fall or a grind; the speed starts at
+            half the velocity along the cable and builds at 9 u/s² to 14 u/s whatever the
+            slope; the feet hang 1.63 u under on the game's spring; input does nothing; 6
+            ticks past the end he lets go, and can't catch a cable for 30 ticks;
+          - the rig's `RigMove::ZipLine`, a procedural hanging pose, and UYA's sequence 90
+            for it from the disc;
+          - a zip line in the greybox from the high platform. 5 new `rac_hero` tests and
+            1 greybox test.
+        - **Strafing and lock-on, done 2026-10-15:** read in UYA's code,
+          strafing verified against `uyantsc-veldin-moves-3` (`hero-controller.md`,
+          "Strafing and lock-on"), and implemented:
+          - the strafe walk at the walk's speeds along the stick, turning to the camera
+            on its own spring; the side-change damping; the stop that keeps walking
+            until he faces the camera; push-offs along the strafe and turning to the
+            camera in the air; flips only with the stick past 0.9 and off forward,
+            otherwise a standing jump (`HeroMotion::strafing`, `StrafeSide`);
+          - `rac_hero::lock_on` (`LockOn` on each hero): pick, keep and drop a target
+            among the `AimTarget`s; the follow camera turns to it;
+          - the rig walks backwards (UYA's sequence 20) and twists the hips sideways;
+          - the demo rings the locked target, and the controls help mentions lock-on.
+          - Checked on Xvfb with a hand-made replay (UYA model): strafing, the lock on a
+            crate, its ring, and the camera turning to look past him at it.
+          - Tests: `rac_hero/tests/strafe.rs` (14), 2 camera tests, 2 `rac_rig` tests,
+            3 `rac_input` tests, 1 greybox test.
+          - Not done: UYA's crouch flip, and the lock-strafe and first-person cameras.
+        - **A movement profile per game, done 2026-10-15 (owner's request:
+          "ensure the profiles of values that differ between games can be used e.g. if
+          deadlocked has a different jump height"):**
+          - DL's hero code compared with UYA's function by function, and seven DL NTSC
+            traces (`dlntsc-dreadzone-moves-{1..7}`, with a third-person savestate made
+            by writing DL's camera option). Same in both: the jump heights and model, the
+            walk's rates and springs, air control, the heli thrust, the fall. Different:
+            the walk speed and the jump block's air speed (7.25 against 6.17), the double
+            jump's cap (7 against 8.75) and start (t > 10 against t > 14), the glide (5 and
+            3.6 u/s against 3 and 2.16), the ledge jump's push-off (2 against 4), and DL's
+            walk never flips.
+          - `crates/rac_hero/assets/dl.ron` (`HeroProfile::dl()`, `profile::BUNDLED`),
+            with UYA's values kept, and marked, where DL's code isn't read yet;
+            `StrafeProfile::flips`; the air release compares the speed asked for with
+            0.2 of the walk speed, as both games do.
+          - `openrac`: `--moves uya|dl|FILE`, the menus' Moves button, `hero_moves` in
+            `settings.toml` (checked on Xvfb).
+          - Tests: `rac_hero/tests/deadlocked.rs` (6, against the DL traces), the profile
+            test listing the fields that differ, 2 `openrac` tests.
         - **Charge boots and ability flags, done 2026-10-12:**
           - The charge boots are read in DL's code (`hero-controller.md`, "Charge boots"):
             crouch twice within 15 ticks dashes at 30 u/s for 61 ticks, steering like a
@@ -973,7 +1080,9 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
       - the pitch the player sets stays put, where the game's pad tilt springs back
         (mouse-first, G5).
     - Still to do: the vertical state machine's details, the obstacle pull-in helpers,
-      and the strafe, first-person and volume modes.
+      and the lock-strafe, first-person and volume modes.
+    - 2026-10-15: lock-on in the follow camera (`camera.md`, "Lock-on"): the target
+      steers the camera like the right stick, ramping up over 400 ticks.
   - The look stick's default speed is UYA's at its default camera speed, 3.01 rad/s.
   - Still to do: the other modes, and the parts listed above.
   - Follows with lag and recentres automatically behind the hero.
@@ -1112,6 +1221,36 @@ Crates: `rac_input`, `rac_hero`, `rac_combat`, `rac_net` and `rac_demo`, wired u
       skeleton check, and two disc tests: the import, and every armor mesh decodes).
     - Not done: the idle fidgets (1, 2), landing animations (12), the walk's speed
       thresholds read in code (5 u/s is from the trace), and facial and finger joints.
+  - **2026-10-15, done (owner's goal, continued): every suit on the UYA disc
+    is a model, with its chrome.**
+    - The armor WAD's 15 distinct mesh entries (armors, casual clothes, a snowman, a
+      tuxedo, aliens and robots; `moby-format.md`, "Which entry is what") are the models
+      "uya", "uya-blue" … "uya-orange" (`hero_model::SUITS`). All are skinned to the
+      hero's own joints and fit the rig; each was looked at on Xvfb. The wrench and Clank
+      are read once and shared. Their titles describe how they look: which of the game's
+      armor names goes with which entry isn't read yet.
+    - Metal packets (P3.7) mark the triangles they redraw, which are drawn as polished
+      metal: Clank, the wrench's head and the plates of armors 1, 2, 4 and 14.
+    - The menus' Model button also steps back and forth with left and right, and is
+      wider for the longer titles.
+    - Tests: metal packets (2, `rac_formats`), `chromed`, the suits' names and titles,
+      `RigModels::choose_previous`, and disc tests: every suit fits the rig, and every
+      metal triangle redraws exactly one high-detail triangle (all armors and Clank).
+  - **2026-10-15, done (owner's request): Deadlocked's skins.**
+    - DL's skin WAD (the fifth global header, as UYA's armors) holds 17 whole classes:
+      Ratchet's five armors (headless), the eleven skins of the game's skin menu, and
+      Ratchet in DL's helmet. Which is which was read in DL's code (`vendor_list`,
+      `skin_load`; `re/SCUS-97465/symbols.toml`) and its text, and checked by wearing
+      each on Xvfb.
+    - `rac_formats` reads DL's classes (`MobyClass::read_dl`: inverse-bind skeletons and
+      parent bytes), the skin table and skins (`armor::{SkinTable, Skin}`); the meshes
+      decode with UYA's rules unchanged.
+    - `openrac` finds a DL NTSC-U or Gladiator PAL disc and offers the twelve complete
+      skins (`DL_SUITS`), lined up with the rig by `DL_SOURCES` (DL's 107-joint player
+      skeleton has no tail, so the rig's tail has no weight in them). DL's wrench is in
+      its level cores, not read yet, so they hold the open model's wrench.
+    - Tests: DL class (2) and skin table (1) on synthetic data; disc tests: all 17 skins
+      decode, the twelve fit the rig at Ratchet's height, and Gladiator's match DL's.
 - [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
   - Host and join by `IP:port` over UDP.
   - A handshake checking the build and settings.
@@ -1146,6 +1285,7 @@ Wrench.
 - [~] **P2.2** Disc identification:
   - 2026-10-13: a first part in `openrac` (`discs.rs`): disc images in a folder,
     recognised by `SYSTEM.CNF`'s boot executable. UYA NTSC-U only so far.
+  - 2026-10-15: DL NTSC-U and Gladiator PAL too.
   - Read `SYSTEM.CNF` (`BOOT2`, `VER`, `VMODE`) and the SHA-1 of the boot ELF.
   - Map them to a `Release { game: Rac1|Gc|Uya|Dl, region, version, serial }`.
   - Build a table of known releases: the six discs in `disc-layout.md`, plus SCUS-97199 and
@@ -1155,6 +1295,8 @@ Wrench.
 - [~] **P2.3** TOC parsers:
   - 2026-10-13: UYA's is done (`rac_formats::level::Toc`; `disc-layout.md`, "Level
     data"). GC, DL and R&C1 aren't.
+  - 2026-10-15: DL's (and Gladiator's) eight global headers (`Toc::read_dl_disc`); what
+    follows them isn't UYA's level table and isn't read yet.
   - GC/UYA/DL at LBA 1001: global WAD headers identified by size, and a level table whose
     order differs by game. Include DL's missions.
   - R&C1 at LBA 1500: the header, global ranges and `levels[19]`, which point to level
@@ -1176,6 +1318,7 @@ Wrench.
   - 2026-10-13: the crate `rac_tool` exists with one command, `moby`, which reads a moby
     class from an EE memory image and can write it as a `.glb` (skeleton, mesh, every
     sequence) into `cache/` (`docs/re-setup.md`, "Extracting a model").
+  - 2026-10-15: `rails` lists the rails in each level of a UYA disc (P3.10).
 - [ ] **P2.8** Cache layout and versioning:
   - Path: `cache/<serial>-<elfsha1[0..8]>/…`.
   - A manifest records the tool version and source hashes, so extraction can be incremental
@@ -1227,12 +1370,23 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     texture switches, following ReRAC's notes (ISC) and checked on every UYA armor mesh,
     the wrench and Clank. The armor WAD is read (`rac_formats::armor`). Not yet: metal
     packets, bangles, and armors 35–55 (whole classes).
+  - 2026-10-15: **metal packets decode** (`PacketKind::Metal`, `moby-format.md`, "Metal
+    packets"), following ReRAC's R&C1 notes (ISC): their own vertex records with joints
+    and weights, and strips that switch to the chrome map (texture −2). Every metal
+    triangle redraws exactly one high-detail triangle, in every armor, the wrench and
+    Clank; the import paints those triangles as polished metal. Not yet: bangles, and
+    armors 35–55.
+  - 2026-10-15: **DL's classes** (`MobyClass::read_dl`): UYA's header and mesh, with
+    inverse-bind skeletons and parent bytes of their own (`moby-format.md`, "DL's
+    skins"). Their sequences aren't read.
 - [ ] **P3.8** Sky: shells, and rotation converted from per-frame to per-second using the
   region's refresh rate.
 - [ ] **P3.9** Collision: the octant grid and triangle/quad faces with their type byte.
   - Debug overlay.
   - **Colliders for the hero kit.**
-- [ ] **P3.10** Gameplay data:
+- [~] **P3.10** Gameplay data:
+  - 2026-10-15: UYA's grind paths (`rac_formats::gameplay`, `gameplay-format.md`), read
+    from the disc and checked against the game's own list on Florana.
   - Level settings.
   - Moby/tie/shrub instances with their pvars and per-game record sizes.
   - Paths, grind paths, volumes, cameras, lights, sound instances and areas.
@@ -1458,6 +1612,30 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 ## 9. Session log
 
 Newest first. One or two lines per session: what was done, and what's next.
+
+- **2026-10-15 (per-game profiles):** RE.3, RE.6, P1.5, owner's request.
+  Read DL's movement against UYA's, traced it on DL NTSC (7 takes), and added `dl.ron` and
+  the app's Moves choice. Next: DL's lock-strafe camera and flips, or RE.2.
+
+- **2026-10-15 (strafing and lock-on):** RE.3, P1.5, P1.7, P1.3, owner's request. Read
+  in UYA's code; strafing verified against `uyantsc-veldin-moves-3`; added to the kit,
+  with lock-on gamepad-only (§5). Next: RE.2, or P1.9's weapons, which would read the
+  lock.
+
+- **2026-10-15 (zip lines):** RE.3, RE.5, P3.10, P2.7, P1.5. Fixed the duplicate
+  symbol. The rails come from the gameplay file now; UYA's are zip lines, read
+  in code, traced on Florana and added to the kit and the greybox; UYA can't be grinded.
+  Next: §0's remaining actions (strafe and lock-on with P1.9, RE.2).
+
+- **2026-10-15 (Deadlocked's skins):** P1.17, P2.2, P2.3, P3.7, owner's request. DL's
+  skin WAD read in code and on the disc; its twelve complete skins are models with the
+  game's names (DL or Gladiator disc). Next: Ratchet's head for DL's armors, and DL's
+  own wrench (its level files first).
+- **2026-10-15 (every suit, chrome):** P1.17, P3.7, owner's goal.
+  Metal packets decode and are drawn as polished metal; every distinct suit in UYA's armor
+  WAD (15) is a model; the Model button steps both ways. `pine-probe`'s symbols test fails
+  on HEAD: `c055a91` names 0x4FAA68 twice (`hero_frame_timers`, `hero_timers_update`);
+  merge the two. Next: the game's armor names, or entries 35–55.
 
 - **2026-10-13 (place-bound moves):** RE.3, RE.5, P1.5. Traced swimming (Aquatos sewers),
   ledges (Veldin's crates) and the wall jump (Starship Phoenix) with scripted play in a

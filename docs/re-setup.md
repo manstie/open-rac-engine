@@ -299,6 +299,11 @@ Found 2026-10-13 in UYA's and DL's code (`re/<serial>/symbols.toml`: `level_next
   - Then look around and take savestates with F1, or `pine-probe save-state <n>`.
   - pine-probe's `peek`, `poke --word`, `load-state` and `save-state` commands do the
     single steps.
+- **Each level has its own build of the game, and some globals move with it.** The hero
+  struct (0x1A4BC0) and the addresses in this section stayed put in every level tried,
+  but the rail list is at 0x1DFD10 on Veldin and 0x1DE690 on Florana. Check an address
+  in the level's own savestate before trusting it, or read the data from the disc (for
+  rails, `openrac-tool rails`).
 - **UYA: warp from Veldin's savestate (slot 1 in the `uya` boot), not from a planet you
   warped to.**
   - Arriving by the flight in leaves the game in ship mode. The next change then goes
@@ -411,6 +416,14 @@ target/release/pine-probe capture --layout re/SCUS-97353/hero.toml --slot 28013 
 - **Keyboard limits:** the keys give full stick tilt only, so stick-response tests still
   need a real controller or a recording.
 - **Capture in gameplay only:** UYA's frame counter runs faster on the title screen.
+- **Writes and the capture can't overlap.** PCSX2's PINE server serves one client at a
+  time, so a `poke` sent while `capture` is running waits until the capture ends. To
+  place the hero for a trace, write first and start the capture straight after, as
+  `uyantsc-florana-zip.sh` does.
+- **Write a position in one request:** `pine-probe poke --f32 0x1A4C60 x y z`. Written
+  one coordinate at a time, the game ran between the writes and snapped the hero back.
+- **Square is S** on the keyboard pad (`tools/pine-probe/src/pcsx2_config.rs` has the
+  whole list).
 - **Keep the script and the trace together.** Write the key sequence as a script, not
   ad-hoc commands, and save it as `source/<game>/<trace name>.sh`.
   - Give it a header saying which savestate and boot it ran from.
@@ -433,9 +446,11 @@ stays out of the repository.
 | UYA NTSC-U (SCUS-97353), Veldin | `source/Ratchet & Clank 3/uyantsc-veldin-intro.p2s` | Not from the owner: a headless new game (`tools/pine-probe/boot.sh`), saved during Veldin's opening cutscene. Used for static analysis; no recording. |
 | Deadlocked NTSC-U (SCUS-97465), DreadZone Station | `source/Ratchet Gladiator/dlntsc-dreadzone-intro.p2s` | The same, saved during DreadZone Station's opening cutscene. |
 | UYA NTSC-U, Veldin gameplay | `source/Ratchet & Clank 3/uyantsc-veldin-play.p2s` and `uyantsc-veldin-play-2.p2s` | Headless, at the start of Veldin's gameplay (enemies ahead). The second was taken 76 frames later, standing still, to find the frame counter. The first is the starting point for the traces below. |
-| UYA NTSC-U traces | `source/Ratchet & Clank 3/uyantsc-veldin-moves-{1,2,3}.trace`, each with the `.sh` input script that drove it | Self-made with scripted keyboard play: 1, jumps (tapped and held), double jump, glide, heli jump, walk and stop, run jump and long jump; 2, wrench combo, jump attack and L1 look; 3, strafe walk, side and back flips. 2,069, 1,195 and 1,075 frames. |
+| UYA NTSC-U traces | `source/Ratchet & Clank 3/uyantsc-veldin-moves-{1,2,3}.trace`, each with the `.sh` input script that drove it | Self-made with scripted keyboard play: 1, jumps (tapped and held), double jump, glide, heli jump, walk and stop, run jump and long jump; 2, wrench combo, jump attack and L1 look; 3, strafe walk, side and back flips. 2,069, 1,195 and 1,075 frames. Each holds the whole hero block, so later questions can be answered from them: on 2026-10-15, 3 verified strafing through the export layout `uyantsc-veldin-strafe.toml` (`hero.toml` plus the lock-on block's fields). |
 | DL NTSC-U, DreadZone Station gameplay | `source/Ratchet Gladiator/dlntsc-dreadzone-play.p2s`, `-boots.p2s`, `-open.p2s` | Headless, 2026-10-12. `play`: just after the opening cutscene. `boots`: after the tutorial's look and fire steps, with the charge boots poked in. `open`: after its jump step too, facing the longest open floor; the start for the charge takes. |
 | DL NTSC-U charge traces | `source/Ratchet Gladiator/dlntsc-dreadzone-charge-1.trace` (script `-charge-1.sh`) and `-charge-3-{1..5}.trace` (script `-charge-3.sh <take>`) | Self-made, 2026-10-12, layout `re/SCUS-97465/hero.toml`. Take 1: three charges that bounce off a nearby block. Takes 3-1 to 3-5: a charge from standing, a steered one, a missed double tap (16 frames apart), single taps, and a full 61-frame charge ending in the skid. |
+| DL NTSC-U, DreadZone Station in third person | `source/Ratchet Gladiator/dlntsc-dreadzone-third.p2s` | Made 2026-10-15 in the `dl` boot (slot 2 there) from `dlntsc-dreadzone-open.p2s` (slot 1) by writing 0 to the camera option word at 0x1711D0 (`pine-probe poke --word`), so the hero's camera type is third person and the stick turns him as in UYA. Only ever poke the private boot instance. |
+| DL NTSC-U moves traces | `source/Ratchet Gladiator/dlntsc-dreadzone-moves-{1..7}.trace`, script `dlntsc-dreadzone-moves.sh <take>`, layout `dlntsc-dreadzone-moves.toml` | Self-made, 2026-10-15, for the kit's DL profile (`hero-controller.md`, "Deadlocked's moves"). Takes 1, 2, 4, 5 and 7 from the third-person state, 3 and 6 from `-open.p2s` (lock-strafe). 1: a walk and stop, held and tapped jumps, a run jump, a late second press, R1 and X, R1 while running then X. 2: strafing with L2, jumps to the sides and back. 3: lock-strafe walks and jumps. 4: second presses at eight delays. 5: early second presses, a held double jump, R1 while walking. 6, 7: flip attempts with L2 or R1 held. 1,559, 924, 713, 1,320, 1,020, 837 and 754 frames. The layout adds the camera type, the strafe flag, the facing spring, the glide rate and the jump block's flags to `re/SCUS-97465/hero.toml`. |
 | UYA NTSC-U melee trace | `source/Ratchet & Clank 3/uyantsc-veldin-melee-1.trace`, script `uyantsc-veldin-melee-1.sh`, layout `uyantsc-veldin-melee.toml` | Self-made, 2026-10-13, from the uya boot's slot 1 (P1.8). It holds two standing throws, a throw from a walking crouch, a combo with the stick held and a run-jump attack, with the hero's hand and wrench tip, the animation frame, the attack row and the wrench object (at 0x1D63E00 in that boot). 2,383 frames. Older traces export with the layout once its `wrench` region is removed. |
 | UYA NTSC-U animation trace | `source/Ratchet & Clank 3/uyantsc-veldin-anim-1.trace`, script `uyantsc-veldin-anim-1.sh`, layout `uyantsc-veldin-anim.toml` | Self-made, 2026-10-13, from the uya boot's slot 1 (P1.17). Idle, walking, jumps, double jump and glide, run jumps, crouching, a heli jump, three flips, the combo, a jump attack, a throw, and walking off the cliff, with the hero's moby's sequence, keyframe and blend (moby at 0x1D36D00 in that boot). 4,425 frames. Gives `hero-controller.md`, "Animations per state". |
 | UYA NTSC-U camera trace | `source/Ratchet & Clank 3/uyantsc-veldin-cam-1.trace`, with its script `uyantsc-veldin-cam-1.sh` and layout `uyantsc-veldin-cam.toml` | Self-made, 2026-10-12, for the camera (RE.4): left stick only (runs in each direction and a circle, a held jump, a double jump, a run jump), with the camera, its update object and its follow block captured. The hero ran off the cliff ahead of the start twice and respawned. 2,673 frames. |
@@ -446,6 +461,10 @@ stays out of the repository.
 | UYA NTSC-U, Starship Phoenix at a wall | `source/Ratchet & Clank 3/uyantsc-phoenix-wall.p2s` | Made 2026-10-13 in the `uya-place` boot (slot 8 there): warped from Veldin to level 3 (`warp.sh 3 --from-state 1`, Start to skip the first-visit cutscene). Then the hero was placed at (172.65, 100.26), yaw −0.7325, against a side wall of the bridge corridor between two low blocks, by writing his position and yaw. A jump there opens the wall window. |
 | UYA NTSC-U wall-jump traces | `source/Ratchet & Clank 3/uyantsc-phoenix-wall-{1,2}.trace`, each with its `.sh` script; layout `uyantsc-phoenix-wall.toml` | Self-made, 2026-10-13, from the wall savestate: a standing jump, then X 0.13 s later, tapped (1) or held (2), giving a wall jump each time. 351 and 350 frames. The layout adds the wall window and wall normals to `re/SCUS-97353/hero.toml`. |
 | UYA NTSC-U swim traces | `source/Ratchet & Clank 3/uyantsc-sewers-swim-{1..4}.trace`, each with its `.sh` script; layout `uyantsc-sewers-swim.toml` | Self-made, 2026-10-13, from a `boot.sh` instance named `uya-place` (`DISPLAY_NUM=96 PINE_SLOT=28014`, slot 2 the swim state, slot 3 the dive state). 1 (swim state): surface idle, a surface swim and a water jump that landed on the bank (then a cutscene). 2 (swim state): a water jump and the bob after it, a dive refused, a surface swim. 3 (dive state): dives, underwater swimming, surfacing. 4 (dive state): a dive into the fast swim, a fast dive, underwater idle. 1,193, 608, 1,394 and 948 frames. The layout adds the water, float, swim-block and animation fields to `re/SCUS-97353/hero.toml`. |
+| UYA NTSC-U, Florana | `source/Ratchet & Clank 3/uyantsc-florana-play.p2s` | Made 2026-10-15 in the `uya-place` boot (slot 9 there): warped from Veldin to level 2 (`warp.sh 2 --from-state 1 --slot 28014`), with the grind boots byte 0x142CAE set to 1. The hero stands idle at (478.85, 597.55, 315.44). |
+| UYA NTSC-U zip-line traces, Florana | `source/Ratchet & Clank 3/uyantsc-florana-zip-{1,2}.trace`, script `uyantsc-florana-zip.sh <n>`, layout `uyantsc-florana-zip.toml` | Self-made, 2026-10-15, from the Florana savestate. The script places the hero over the first zip line and starts the capture itself. 1: no input; the catch, the ride and the drop at the end. 2: X, Square and the stick during the ride. 376 and 374 frames. The layout adds the zip-line block (0x1A5250) and the no-catch timer to `re/SCUS-97353/hero.toml`. |
+| UYA NTSC-U, Crash Site | `source/Ratchet & Clank 3/uyantsc-crash-play.p2s` | Made 2026-10-15 in the `uya-place` boot (slot 6 there): warped from Veldin to level 17, grind boots byte set, saved once the arrival's scripted walk (state 101) had ended. The hero stands idle on the landing pad at (575.74, 456.20, 115.17). |
+| UYA NTSC-U zip-line trace, Crash Site | `source/Ratchet & Clank 3/uyantsc-crash-zip-1.trace`, script `uyantsc-crash-zip.sh 1`, layout `uyantsc-florana-zip.toml` | Self-made, 2026-10-15, from the Crash Site savestate with the grind boots cleared. Dropped 1 u above the cable, the hero lands on top of it and slides off into the chasm, then comes back at the landing pad. 1,728 frames. **Don't drop him on this cable with the grind boots set:** the grind starts, the level has no grind animations, and PCSX2 aborts. |
 | R&C3 PAL camera trace | `cache/pcsx2/traces/rc3pal-veldin-5-cam.trace`, layout `source/Ratchet & Clank 3/rc3pal-veldin-5-cam.toml` | A replay of the owner's recording 5 with the camera block added (RE.4, `docs/research/camera.md`). It can be regenerated from the layout. |
 
 Working copies of the self-made savestates and traces are also in `cache/pcsx2/ntsc-states/`
@@ -463,7 +482,8 @@ reading, not for measuring. On UYA NTSC we can also make our own traces with scr
 keyboard play ("Making traces with scripted play"). From the owner, these still help:
 
 1. **Moves that need a particular place:** wall jump, ledge grab and ledge jump,
-   grinding, swimming and charge boots, on any release. A savestate next to each is
+   grinding, swimming and charge boots, on any release. For grinding it has to be DL or
+   GC: UYA has no rail to grind on (`hero-controller.md`, "Grinding"). A savestate next to each is
    enough, and we can script the move from there. A recording is better.
 2. **Half-tilted stick:** keyboard play only gives full tilt. A recording that holds the
    stick part-way for a few seconds, on UYA or DL NTSC, would check the dead zone and

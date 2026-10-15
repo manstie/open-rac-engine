@@ -11,11 +11,13 @@
 //! - [`texture`]: indexed images as the GS draws them.
 //! - [`wad`]: the games' LZ compression.
 //! - [`level`]: UYA's table of contents and level files, down to the moby classes.
+//! - [`gameplay`]: a level's gameplay file: its grind paths so far.
 //!
 //! Bad data gives a [`FormatError`], never a panic: users' discs can be damaged or of a
 //! release we haven't seen.
 
 pub mod armor;
+pub mod gameplay;
 pub mod image;
 pub mod level;
 pub mod moby;

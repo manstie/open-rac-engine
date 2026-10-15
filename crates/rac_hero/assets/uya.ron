@@ -91,6 +91,7 @@
         control_accel: 20.0,
         control_factor_min: 1.0,
         control_factor_max: 3.0,
+        // The speed asked for against 0.2 of the walk speed (0x4EDE80) [code].
         release_below: 0.2,
         release_brake: 8.0,
         apex_below: 0.06, // 0.001 u per frame
@@ -162,6 +163,25 @@
         min_speed: 2.0,
         start_speed: 5.0,
         accel: 47.0,
+    ),
+    // Strafing, the walk with L2 or R2 held: "Strafing" [verified on UYA NTSC: the turn,
+    // the speeds and the stop; the side change and flip_stick are code]. The turn is
+    // 0x4EA5B0's; the walk's speeds apply.
+    strafe: (
+        turn: (gain: 0.042, damping: 0.25, cap: 0.319977),
+        reverse_ticks: 3,
+        flips: true,
+        flip_stick: 0.9,
+        back_stick: 0.15,
+        idle_within_degrees: 2.0,
+    ),
+    // L2 and R2 together: "Lock-on" [code, UYA NTSC, 2026-10-15; untraced, as no
+    // savestate holds a weapon that allows it]. The search is 0x503428's.
+    lock_on: (
+        aim: (range: 25.0, cone_degrees: 35.0, rise_degrees: 70.0),
+        sight_height: 0.7,
+        sight_short: 0.75, // [simplified]
+        keep_range: 30.0,
     ),
     // State 15, "Heli jump thrust" [verified on UYA NTSC].
     heli_jump: (
@@ -399,6 +419,27 @@
         switch_far: 4.25,
         switch_step: 0.75,
         switch_ticks: 48,
+    ),
+    // State 118, "Zip lines" [code, then verified on UYA NTSC's Florana, 2026-10-15].
+    // Per-frame values are given as the code has them.
+    zip_line: (
+        hands_up: 1.34,
+        reach: 0.9,
+        reach_vertical: 1.5,
+        below: 0.7,
+        above: 0.4,
+        no_catch_ticks: 30,
+        catch_share: 0.5,
+        speed: 14.0, // 0.23333334 u per frame
+        accel: 9.0, // 0.0025 u per frame per frame
+        // Where the feet settle under the cable [measured: 1.59-1.64 u on the ride], and
+        // the game's hang spring that pulls them there [code; it acts on the hands].
+        hang_below: 1.63,
+        hang: (gain: 0.05, damping: 0.3),
+        hang_cap: 0.16666667,
+        turn: (gain: 0.018, damping: 0.2, cap: 0.10763),
+        end_ticks: 6,
+        end_gravity: 22.0, // 0.0061111115 u per frame per frame
     ),
     // States 50-54 and 18, "Swimming" [code, UYA NTSC, 2026-10-13; untraced].
     swim: (
@@ -777,5 +818,9 @@
         // The game pushes the camera out of geometry with a 0.25 u sphere; the kit casts
         // that sphere from the aim point instead [simplified].
         collision_radius: 0.25,
+        // Locked on, the target steers the camera like the right stick, at up to
+        // (ticks / 400) × π/2 rad a frame (0x3E42C0) [code, untraced].
+        lock_turn: 1.5707964,
+        lock_ramp_ticks: 400,
     ),
 )

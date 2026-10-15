@@ -170,6 +170,64 @@ mod tests {
         assert_eq!(local_input(&replay), PlayerInput::default());
     }
 
+    fn pad(app: &mut App, pad: Entity, buttons: &[GamepadButton]) {
+        let mut entity = app.world_mut().entity_mut(pad);
+        let mut gamepad = entity.get_mut::<Gamepad>().unwrap();
+        gamepad.digital_mut().clear();
+        for &button in buttons {
+            gamepad.digital_mut().press(button);
+        }
+    }
+
+    #[test]
+    fn both_triggers_lock_on_and_one_strafes() {
+        let mut app = app();
+        let gamepad = app.world_mut().spawn(Gamepad::default()).id();
+        pad(&mut app, gamepad, &[GamepadButton::LeftTrigger2]);
+        app.update();
+        let input = local_input(&app);
+        assert!(input.held(Action::Strafe));
+        assert!(!input.held(Action::LockOn));
+
+        pad(
+            &mut app,
+            gamepad,
+            &[GamepadButton::LeftTrigger2, GamepadButton::RightTrigger2],
+        );
+        app.update();
+        let input = local_input(&app);
+        assert!(input.held(Action::LockOn) && input.pressed(Action::LockOn));
+        assert!(input.held(Action::Strafe));
+
+        // Held on, the second tick is no new press.
+        let mut entity = app.world_mut().entity_mut(gamepad);
+        entity.get_mut::<Gamepad>().unwrap().digital_mut().clear();
+        app.update();
+        let input = local_input(&app);
+        assert!(input.held(Action::LockOn) && !input.pressed(Action::LockOn));
+    }
+
+    #[test]
+    fn keys_and_the_mouse_never_lock_on() {
+        let mut app = app();
+        app.world_mut()
+            .resource_mut::<InputSettings>()
+            .bindings
+            .insert(
+                Action::LockOn,
+                vec![
+                    Binding::Key(KeyCode::KeyL),
+                    Binding::Mouse(MouseButton::Middle),
+                ],
+            );
+        press(&mut app, KeyCode::KeyL);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Middle);
+        app.update();
+        assert!(!local_input(&app).held(Action::LockOn));
+    }
+
     #[test]
     fn nothing_is_saved_up_while_paused() {
         let mut app = app();

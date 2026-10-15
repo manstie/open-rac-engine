@@ -17,7 +17,7 @@ else comes from web research and has not been re-checked.
 
 | Project | What it is | Target | Licence | Status |
 |---|---|---|---|---|
-| **ReRAC** ✔ [re-rac/rerac](https://github.com/re-rac/rerac) | A native PC port of R&C1 written in **Rust on Bevy** (0.19). Crates for formats, game logic, engine and extractor, plus `cargo xtask`. Format specs in `docs/formats/` were written from Wrench's behaviour without copying its code. Its `moby_rac1.md` (vertex IDs, the vertex cache, the VU0 skinning slots, normals and texture switches) was the reference for our moby mesh decoder on 2026-10-13; our code is our own, and every rule was checked on UYA's data (`moby-format.md`, "Mesh"). | One disc: R&C1 NTSC-U SCUS-97199 v1.00 | **ISC** ✔ | Created 2026-09-26 ✔. "All levels load and render", not playable start to finish ✔. Only macOS on Apple Silicon has been tested ✔. Has a launcher repo and a Discord. |
+| **ReRAC** ✔ [re-rac/rerac](https://github.com/re-rac/rerac) | A native PC port of R&C1 written in **Rust on Bevy** (0.19). Crates for formats, game logic, engine and extractor, plus `cargo xtask`. Format specs in `docs/formats/` were written from Wrench's behaviour without copying its code. Its `moby_rac1.md` (vertex IDs, the vertex cache, the VU0 skinning slots, normals and texture switches) was the reference for our moby mesh decoder on 2026-10-13, and its `moby_skinning_lighting.md` (the metal packets' vertex layout and what R&C1's code does with them) for our metal packets on 2026-10-15; our code is our own, and every rule was checked on UYA's data (`moby-format.md`, "Mesh", "Metal packets"). | One disc: R&C1 NTSC-U SCUS-97199 v1.00 | **ISC** ✔ | Created 2026-09-26 ✔. "All levels load and render", not playable start to finish ✔. Only macOS on Apple Silicon has been tested ✔. Has a launcher repo and a Discord. |
 | **OpenRAC** ✔ [OpenRAC/OpenRAC](https://github.com/OpenRAC/OpenRAC) | A hub for matching decomps of all four games, plus a planned OpenGOAL-style native port (C++20, OpenGL 4.1, SDL3, no emulation) | All four games | NOASSERTION ✔ (GPL-3.0-or-later) | Created 2026-10-03 ✔. Port design in `docs/port`: 989snd replaced at its API, no IOP model, rendering hooks at `VU1_sendChain`, `VU1_syncChain` and `sceGsSyncV`. Cross-game docs in `docs/engine/`. |
 | **rac1-decomp** ✔ [OpenRAC/rac1-decomp](https://github.com/OpenRAC/rac1-decomp) | Matching decompilation of R&C1 | **SCES_509.16 PAL v2.00 with SHA-1 `79956931…`, which is exactly the user's disc** ✔ | GPL-3.0 ✔ (MIT before 2026-10-07) | About 78% of code matched (decomp.dev). Covers the boot ELF and all 19 overlays. Has `config/names.tsv` and `symbol_addrs.txt`. |
 | **Lombyte** ✔ [lombyte-project/Lombyte](https://github.com/lombyte-project/Lombyte) | Matching decompilation of R&C1. Its long-term goal is a native Rust port. | SCUS-97199 | GPL-3.0 ✔ | About 70% |
@@ -63,6 +63,9 @@ only from the decompilation projects.
     NTSC-U SCUS-97465 only.
     - Headers: `Moby` (about 400 moby IDs), `Player`, `HeroPlayerConstants`, `GadgetDef`.
     - It also lists function addresses.
+    - Its `Player.SkinMoby` and skin and wrench class IDs led to DL's skins on 2026-10-15
+      (`moby-format.md`, "DL's skins"); everything used was checked in the game's code
+      and data.
   - **libuya** (`horizon-uya-patch/libuya`, MIT) builds for both UYA NTSC and PAL.
     - It defines `MobyClass` and `Moby`.
       - Its `MobyClass` and `MobySeq` layouts were the starting point for

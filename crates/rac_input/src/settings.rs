@@ -1,7 +1,7 @@
 //! Bindings and input options, saved with the player's settings.
 
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
 use crate::Action;
@@ -12,8 +12,17 @@ pub enum Binding {
     Key(KeyCode),
     Mouse(MouseButton),
     Pad(GamepadButton),
+    /// Two buttons of one gamepad held together, as UYA locks on with L2 and R2. It counts
+    /// as pressed on the frame either goes down while the other is held.
+    PadBoth(GamepadButton, GamepadButton),
     /// A notch of the mouse wheel. It counts as pressed for the frame it turns.
     Wheel(WheelDirection),
+}
+
+impl Binding {
+    pub fn is_gamepad(self) -> bool {
+        matches!(self, Binding::Pad(_) | Binding::PadBoth(..))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -48,6 +57,9 @@ impl Default for MoveKeys {
 #[derive(Resource, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InputSettings {
+    /// Each action's bindings. An action missing from a saved file gets its default ones,
+    /// so actions added since the file was written are bound.
+    #[serde(deserialize_with = "bindings_or_defaults")]
     pub bindings: BTreeMap<Action, Vec<Binding>>,
     pub move_keys: MoveKeys,
     /// Radial dead zone of the movement stick, as a fraction of full tilt. Below it the
@@ -69,7 +81,7 @@ pub struct InputSettings {
 
 impl Default for InputSettings {
     fn default() -> Self {
-        use Binding::{Key, Mouse, Pad, Wheel};
+        use Binding::{Key, Mouse, Pad, PadBoth, Wheel};
         // The gamepad follows UYA's layout (`docs/re-setup.md`, "Moves on UYA").
         let bindings = [
             (
@@ -99,6 +111,13 @@ impl Default for InputSettings {
                     Pad(GamepadButton::RightTrigger2),
                     Mouse(MouseButton::Right),
                 ],
+            ),
+            (
+                Action::LockOn,
+                vec![PadBoth(
+                    GamepadButton::LeftTrigger2,
+                    GamepadButton::RightTrigger2,
+                )],
             ),
             (
                 Action::FirstPerson,
@@ -191,6 +210,16 @@ impl Default for InputSettings {
     }
 }
 
+fn bindings_or_defaults<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<Action, Vec<Binding>>, D::Error> {
+    let mut bindings = BTreeMap::<Action, Vec<Binding>>::deserialize(deserializer)?;
+    for (action, defaults) in InputSettings::default().bindings {
+        bindings.entry(action).or_insert(defaults);
+    }
+    Ok(bindings)
+}
+
 impl InputSettings {
     /// The bindings for `action`, which may be none.
     pub fn bindings_for(&self, action: Action) -> &[Binding] {
@@ -249,6 +278,28 @@ mod tests {
         let settings: InputSettings = toml::from_str("invert_look_y = true").unwrap();
         assert!(settings.invert_look_y);
         assert_eq!(settings.bindings, InputSettings::default().bindings);
+    }
+
+    #[test]
+    fn actions_missing_from_a_saved_file_get_their_defaults() {
+        let mut saved = InputSettings::default();
+        saved.bindings.remove(&Action::LockOn);
+        saved
+            .bindings
+            .insert(Action::Jump, vec![Binding::Key(KeyCode::KeyJ)]);
+        saved.bindings.insert(Action::Map, Vec::new());
+        let back: InputSettings = toml::from_str(&toml::to_string(&saved).unwrap()).unwrap();
+        let defaults = InputSettings::default();
+        assert_eq!(
+            back.bindings_for(Action::LockOn),
+            defaults.bindings_for(Action::LockOn)
+        );
+        // What the file says stays, an empty list too.
+        assert_eq!(
+            back.bindings_for(Action::Jump),
+            [Binding::Key(KeyCode::KeyJ)]
+        );
+        assert!(back.bindings_for(Action::Map).is_empty());
     }
 
     #[test]

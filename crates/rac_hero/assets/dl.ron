@@ -1,0 +1,849 @@
+// Ratchet's movement in Ratchet: Deadlocked (NTSC-U, SCUS-97465).
+//
+// Units: u/s and u/s², frame counts at 60 Hz. Turning springs are per tick (= per NTSC
+// frame). Sources are sections of docs/research/hero-controller.md, with its labels:
+// [verified] read in code and reproduced by traces, [code] read in code only,
+// [measured] from traces only, [reported] from libuya/libdl. [placeholder] means not yet
+// found in the game: a guess to be replaced.
+//
+// DL's hero code is UYA's engine with its literals scaled by frame_dt at run time. It was
+// compared with UYA's in DL's DreadZone Station overlay (2026-10-15; addresses in
+// re/SCUS-97465/symbols.toml), and the traces dlntsc-dreadzone-moves-{1..5} check the
+// walk, the jumps and the double jump. Values marked "DL:" differ from UYA's (uya.ron).
+// Sections marked "as UYA [not read in DL]" keep UYA's numbers until DL's code for them
+// is read; everything else was read the same in DL's code.
+(
+    name: "Deadlocked NTSC-U",
+    body: (
+        // "Differences between the games": libdl's HeroPlayerConstants capsule, which
+        // Gladiator/DL read in their collision code [code].
+        radius: 0.45,
+        bottom: 0.7,
+        bottom_airborne: 0.5,
+        top: 1.05,
+        // "Slope limit": the ground probe stands the hero on ground at most 0.8727 rad
+        // steep [code].
+        slope_limit_degrees: 50.0,
+        ground_snap: 0.3, // [placeholder]
+        // "Charge boots": DL caps the intended velocity at the collision radius less 0.02
+        // a frame, 25.8 u/s; only the charge reaches it [measured on DL NTSC].
+        max_step: 0.43,
+    ),
+    stick: (
+        // As UYA [not read in DL]: "Input": per-axis dead zone and range [verified on R&C3
+        // PAL], and the cut-off below which the stick is ignored [code on UYA NTSC].
+        dead_zone: 48.0,
+        live_range: 76.0,
+        cut_off: 0.25,
+    ),
+    walk: (
+        // "Ground movement": DL's walk update (0x695CB8) and turn (0x67D100) hold UYA's
+        // numbers apart from the speed [code; the speed and accel verified on DL NTSC].
+        speed: 7.25, // DL: the walk speed global 0x3B01A0, libdl's maxWalkSpeed
+        accel: 37.0,
+        brake: 30.0, // stick pulled back to a lower target [code]
+        setting_off_below: 2.5, // "about 2.5 u/s" [verified on R&C3 PAL]
+        // Turning springs, UYA per-frame values [verified on R&C3 PAL, whose values are
+        // these × 1.44 for gains and damping and × 1.2 for caps].
+        turn_setting_off: (
+            gain_per_m: 0.02,
+            gain_min: 0.01,
+            gain_max: 0.022,
+            damping: 0.27,
+            cap_per_m: 0.064,
+            cap_min: 0.032,
+            cap_max: 0.0931,
+        ),
+        turn_moving: (gain: 0.037, damping: 0.13, cap: 0.2036),
+        // Skidding: the setting-off spring's damping with its own gain and cap [code].
+        turn_skidding: (gain: 0.035, damping: 0.27, cap: 0.1949),
+        // Letting go of the stick [verified on UYA NTSC]. With a gun in hand DL brakes one
+        // tick at 30 and idles instead: the release skid depends on the held item, which
+        // UYA's trace had as the wrench [measured on DL NTSC].
+        skid_brake: 17.0,
+        // The skid state (3) brakes at 0.0075 u per frame, in UYA's and DL's code [code].
+        skid_state_brake: 27.0,
+        stop_skid_ticks: 2,
+        stop_residual: 1.5,
+        stop_brake: 17.7,
+        // The walk's skid and slide, "Ground movement" [code, UYA NTSC; untraced].
+        slide_below: 1.7, // 0.028333 u per frame
+        slide_until_degrees: 5.0, // 0.08726646 rad
+        skid_slow_degrees: 120.0, // 2.0943952 rad
+        skid_swing_degrees: 110.0, // 1.9198622 rad, stick angle now against 6 frames ago
+        skid_swing_ticks: 6,
+        skid_swing_error_degrees: 70.0, // 1.2217305 rad
+        skid_until_degrees: 4.0, // 0.06981317 rad
+        skid_speed_loss: 5.5, // 0.091667 u per frame per π
+        skid_scale_degrees: 150.0, // 2.6179938 rad
+        skid_scale_min: 0.2,
+        turn_slow_stick: 0.75,
+        turn_slow_degrees: 35.0, // 0.61086524 rad
+        turn_slow_per_radian: 0.4,
+        turn_stall_stick: 0.9,
+        turn_stall_degrees: 45.0,
+        crouch_brake: 27.0, // [verified on UYA NTSC]
+        // "Long jump", run or standing jump: picked by the stick, not the speed [code].
+        run_jump_stick: 0.85,
+        // A press in the last 7 frames (idle) or 9 (walking) still jumps [code].
+        jump_buffer_idle: 7,
+        jump_buffer_walk: 9,
+    ),
+    air: (
+        // "Vertical model" and "Jump parameters by state" defaults, read the same in DL's
+        // jump entry (0x699C70), jump update (0x696620) and air control (0x680A88) [code;
+        // the vertical model verified on DL NTSC].
+        pushoff_press: 48.0,
+        pushoff_towards_cap: 20.0,
+        pushoff_brake: 11.0,
+        fall_speed_cap: 50.0,
+        // "Air control" [verified on R&C3 PAL].
+        control_accel: 20.0,
+        control_factor_min: 1.0,
+        control_factor_max: 3.0,
+        // The speed asked for against 0.2 of the walk speed (0x4EDE80) [code].
+        release_below: 0.2,
+        release_brake: 8.0,
+        apex_below: 0.06, // 0.001 u per frame
+        // Facing in the air: R&C3 PAL's gain 0.0576 and damping 0.288 ÷ 1.44 [code], and
+        // the jump block's 0.25016 rad per frame cap [code].
+        turn: (gain: 0.04, damping: 0.2, cap: 0.25016),
+    ),
+    fall: (
+        // "Falling": gravity [measured on Gladiator PAL, code on DL NTSC], braking with
+        // the stick released [code].
+        gravity: 22.0,
+        air_speed: 7.25, // DL: it steers to the walk's speed target (0x67CAF8) [code]
+        release_brake: 7.0,
+    ),
+    // "Jump parameters by state", state 7 [verified on DL NTSC: held fully, a jump peaks
+    // 1.8865 u up].
+    jump: (
+        height_min: 1.42,
+        height_max: 2.7,
+        hold_ticks: 17,
+        pushoff_ticks: 1,
+        gravity: 29.7,
+        apex_gravity_factor: 1.17,
+        air_speed: 7.25, // DL: the jump block's default, the walk speed
+    ),
+    // State 9 [verified on DL NTSC: 7.25 u/s in the air]. Its extra forward push during
+    // push-off is not characterised and is left out.
+    run_jump: (
+        height_min: 1.42,
+        height_max: 2.7,
+        hold_ticks: 17,
+        pushoff_ticks: 1,
+        gravity: 29.7,
+        apex_gravity_factor: 1.0,
+        air_speed: 7.25, // DL
+    ),
+    // State 10, "Long jump": DL's state entry sets UYA's numbers [code]. No air control:
+    // air_speed is unused. Where the moves were traced, DL's crouch didn't respond, so
+    // the entry rules below are as UYA [not read in DL].
+    long_jump: (
+        params: (
+            height_min: 1.9,
+            height_max: 1.95,
+            hold_ticks: 14,
+            pushoff_ticks: 5,
+            gravity: 11.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 0.0,
+        ),
+        // "Which jump a crouch gives" [code; the 7-frame crouch is verified on UYA NTSC:
+        // the moves-1 long jump left a crouch at frame 7].
+        min_speed: 0.9, // 0.015 u per frame
+        min_stick: 0.7,
+        forward_push: 0.88332, // 0.014722 u per frame per push-off frame
+        crouch_ticks: 7,
+        press_window: 9,
+        from_jump_before_tick: 3,
+        crouch_window: 2,
+    ),
+    // State 11, "Flips": DL's state entry sets UYA's numbers [code; the speed verified on
+    // Gladiator PAL]. DL's walk never flips (strafe.flips); where its flips come from
+    // isn't found yet.
+    flip: (
+        params: (
+            height_min: 3.2,
+            height_max: 3.25,
+            hold_ticks: 14,
+            pushoff_ticks: 1,
+            gravity: 29.7,
+            apex_gravity_factor: 1.0,
+            air_speed: 5.5,
+        ),
+        speed: 5.5,
+        min_speed: 2.0,
+        start_speed: 5.0,
+        accel: 47.0,
+    ),
+    // Strafing, the walk with L2 or R2 held in DL's third-person camera; DL's default
+    // lock-strafe camera strafes always, which the kit doesn't have yet. The walk's speeds
+    // apply [verified on DL NTSC]; the turn and the side change are as UYA [not read in
+    // DL].
+    strafe: (
+        turn: (gain: 0.042, damping: 0.25, cap: 0.319977),
+        reverse_ticks: 3,
+        // DL: 0x687430 works out the flip, then always jumps (state 7). Strafing sideways
+        // and back with X gave standing jumps (dlntsc-dreadzone-moves-2) [verified].
+        flips: false,
+        flip_stick: 0.9,
+        back_stick: 0.15,
+        idle_within_degrees: 2.0,
+    ),
+    // As UYA [not read in DL]: "Lock-on" [code, UYA NTSC].
+    lock_on: (
+        aim: (range: 25.0, cone_degrees: 35.0, rise_degrees: 70.0),
+        sight_height: 0.7,
+        sight_short: 0.75, // [simplified]
+        keep_range: 30.0,
+    ),
+    // State 15, "Heli jump thrust": DL's state entry and its thrust table (0x2207D0, 49
+    // u/s² from frame 35 to 70) are UYA's [code]. DL's crouch didn't respond where traced.
+    heli_jump: (
+        params: (
+            height_min: 1.65,
+            height_max: 1.7,
+            hold_ticks: 5,
+            pushoff_ticks: 9,
+            gravity: 29.7,
+            apex_gravity_factor: 1.0,
+            air_speed: 3.3,
+        ),
+        thrust: 49.0,
+        thrust_from_tick: 35,
+        thrust_to_tick: 70,
+    ),
+    // State 14, "Double jump" (DL's 0x6804C8 and 0x6A48D8) [verified on DL NTSC: the cap,
+    // and a press on the jump's 9th frame waiting to its 11th; the height factors are
+    // code]. Past the apex a press 5.2 u/s down was refused: the game compares the speed
+    // after the tick's gravity.
+    double_jump: (
+        gravity: 29.7,
+        boost_accel: 150.0,
+        cap: 7.0, // DL: 7 u/s, without UYA's × 1.25
+        boost_ticks: 8,
+        hold_ticks: 1,
+        air_speed: 4.75,
+        high_above: 2.2,
+        high_factor: 0.7,
+        higher_above: 2.8,
+        higher_factor: 0.47,
+        after_tick: 10, // DL: from t > 10, against UYA's t > 14
+        press_skip: 4,
+        press_window_min: 2,
+        press_window_max: 30,
+        past_apex_min_height: 0.7,
+        past_apex_max_speed: 5.8, // 0.09667 u per frame
+    ),
+    // State 8, "Glide": DL's update (in 0x690F18) [code]. DL's hero didn't glide with X
+    // held through a double jump 3 u up, so it needs an item or a mode not found yet. The
+    // double and heli jumps' limits for it read the same in DL (0x6A4A44) [code].
+    glide: (
+        // Entered by holding X: in a double jump after its 30th tick and 1.5 u up, or in a
+        // heli jump after its 85th and 0.6 u up [code; the moves-1 glide began on the
+        // double jump's 31st frame].
+        after_double_jump_tick: 30,
+        double_jump_min_height: 1.5,
+        after_heli_jump_tick: 85,
+        heli_jump_min_height: 0.6,
+        sink: 3.6, // DL: 5 u/s × 0.72, against UYA's 3 u/s × 0.72
+        spring: (gain: 0.025, damping: 0.3, cap: 17.0),
+        speed: 5.0, // DL: always 5 u/s; UYA glides at 3, and 5 in one gadget mode
+        accel: 15.0,
+        brake: 7.0,
+    ),
+    // State 17, "Wall jump": the turn and the 4.9 u/s away from the wall read the same in
+    // DL's air control (0x680A88) [code]; the rest as UYA [not read in DL]. Ticks stand
+    // for the game's frame counts, compared the way its transitions compare them ("t > 8"
+    // is from_tick 9).
+    wall_jump: (
+        params: (
+            height_min: 1.8,
+            height_max: 1.85,
+            hold_ticks: 12,
+            pushoff_ticks: 9, // spent clinging to the wall
+            gravity: 29.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 4.9,
+        ),
+        surface_height_min: 3.3,
+        surface_height_max: 3.35,
+        speed: 4.9, // 0.081667 u per frame along the wall's normal
+        away_from_tick: 9,
+        turn: (gain: 0.042, damping: 0.2, cap: 0.197804),
+        turn_from_tick: 10,
+        window_ticks: 6,
+        press_window: 7,
+        again_after_tick: 25,
+        probe_height: 3.0,
+        probe_height_chained: 1.7,
+        probe_reach: 1.4,
+        foot_probe_height: 0.2,
+        max_distance: 0.72,
+        max_distance_chained: 0.95,
+        min_steepness_degrees: 75.0, // 1.3089969 rad
+        max_facing_degrees: 50.0, // 0.87266463 rad
+        min_turn_degrees: 170.0, // 2.9670596 rad
+        min_height: 0.4,
+        max_fall_speed: 20.0, // 0.33333 u per frame
+        ordinary_chain: 2,
+        ledge_lookahead_ticks: 20,
+    ),
+    // States 23-27, "Ledges": as UYA [not read in DL], apart from the climb (state 27),
+    // read in DL's state entry and air control [code]. Rules the game times by animation
+    // frame assume one frame per tick.
+    ledge: (
+        probe_above: 1.65, // 1.5 + 0.15
+        probe_below: 1.15,
+        probe_step: 0.075, // 0.3 × 0.25
+        probe_tries: 4,
+        max_top_slope_degrees: 20.0, // 0.34906584 rad
+        min_rise: 0.5,
+        max_rise: 1.5,
+        min_drop: 1.8,
+        clear_back: 1.0,
+        face_below: 0.7,
+        face_tries: 5,
+        face_step: 0.14, // 0.7 / 5
+        face_reach: 1.0,
+        lip_step: 0.03,
+        lip_search: 2.4,
+        hang_out: 0.5,
+        hang_below: 1.43,
+        grab_rising_below: 3.5, // 0.058333 u per frame
+        double_jump_after_tick: 37, // animation frame 37
+        grab_speed: 4.0, // 0.066667 u per frame
+        grab_turn: (gain: 0.04, damping: 0.2, cap: 0.10472),
+        grab_ticks: 13, // hangs once the grab animation passes frame 12
+        no_grab_ticks: 10,
+        no_grab_ticks_shimmy: 40,
+        climb_press_window: 17,
+        shimmy_climb_press_window: 9,
+        let_go_degrees: 135.0,
+        shimmy_stick: 0.5,
+        shimmy_degrees: 45.0,
+        shimmy_probe: 0.3,
+        // The shimmy steps by its animation's table [verified on UYA NTSC, 2026-10-13]:
+        // towards the ledge 0.1 u to the side (0.2 × the hang's 0.5 u offset), 0.5 × the
+        // frame's entry long. The animation sits at frame 0 for 6 ticks, then runs half a
+        // frame a tick; a cycle ends on frame 14, before its last entry, so covers 0.623 u.
+        shimmy_look: 0.1,
+        shimmy_steps: [0.0, 0.0, 0.025, 0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037, 0.037, -0.017, -0.017, -0.035, -0.035],
+        shimmy_step_scale: 0.5,
+        shimmy_blend_ticks: 6,
+        shimmy_frames_per_tick: 0.5,
+        shimmy_cycle_frames: 14.0,
+        shimmy_turn: (gain: 0.02, damping: 0.2, cap: 0.0785398),
+        // State 27, the ledge jump: 2.0-2.05 u, hold 1, push-off 2, gravity 25 [code].
+        climb: (
+            height_min: 2.0,
+            height_max: 2.05,
+            hold_ticks: 1,
+            pushoff_ticks: 2, // DL: 2 frames, against UYA's 4
+            gravity: 25.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 7.25, // DL: the jump block's default
+        ),
+        // The game moves forward towards 2 u/s at 8 u/s² between the climbing animation's
+        // frames 13 and 27, back towards 0 until 30, and leaves the speed alone outside
+        // them [code]. The animation reached 13 on the climb's 5th tick and jumped to
+        // another clip past 30 on its 36th, so the speed held at 2 u/s until he landed
+        // [verified on UYA NTSC, 2026-10-13].
+        climb_forward_speed: 2.0,
+        climb_forward_accel: 8.0,
+        climb_forward_from_tick: 5,
+        climb_forward_until_tick: 35,
+        climb_forward_stop_tick: 35,
+        climb_turn_after_tick: 40,
+    ),
+    // State 125, "Charge boots" [verified on DL NTSC, apart from the descent and the wall
+    // probe, which are code]. DL multiplies its literals by frame_dt at run time, so they
+    // are per second already.
+    charge: (
+        tap_window: 15, // R1 pressed again within 15 frames
+        cooldown_ticks: 30,
+        speed: 30.0,
+        fast_ticks: 60,
+        // DL heads for 11.5 u/s once the fast part is over, which in single player is
+        // the charge's last tick. A global that is 0 in single player makes it the whole
+        // charge's target; probably multiplayer.
+        late_speed: 11.5,
+        accel: 100.0,
+        brake: 15.0,
+        last_tick: 60, // ends when the state's frame count reaches 61
+        turn_rate: 1.2217305, // 70°/s
+        turn_ramp_ticks: 50,
+        turn_min_stick: 0.2,
+        steer_step: 0.17,
+        // DL holds the hero 0.17 u above the ground on this spring; the kit keeps his
+        // feet on the ground and uses it only to sink after running off an edge
+        // [simplified].
+        descent_spring: (gain: 0.04, damping: 0.3),
+        descent_cap: 7.5,
+        end_lock_ticks: 30,
+        blocked_below: 0.75,
+        wall_probe_height: 1.0,
+        wall_probe_reach: 1.25,
+        // State 121, "jump bounce" [verified on DL NTSC; its gravity is code]. It lasts as
+        // long as its animation, 54 frames [measured].
+        bounce_speed: 9.0,
+        bounce_brake: 24.0,
+        bounce_gravity: 25.0,
+        bounce_ticks: 54,
+    ),
+    // States 39-41, "Grinding": the jumps (40, 41) read the same in DL's state entry
+    // [code]; the rest as UYA [not read in DL]. Per-frame values are given as UYA's code
+    // has them.
+    grind: (
+        reach: 0.9,
+        reach_on_ground: 0.3,
+        reach_vertical: 1.5,
+        below: 0.5,
+        above: 0.57,
+        no_rail_ticks: 8,
+        speed: 12.0, // 0.2 u per frame
+        accel: 15.0, // 0.0041667 u per frame per frame
+        pitch_probe: 0.3,
+        uphill_per_radian: 4.7746483, // 15/π: θ × 1.9098593 × 0.041666668 u per frame
+        downhill_per_radian: 22.918312, // 72/π: θ × 2.864789 × 0.13333334 u per frame
+        slope_rise: 8.0, // 0.0022222 u per frame per frame
+        slope_fall: 2.0, // 0.00055556
+        slope_min: -2.5, // -0.041666668 u per frame
+        slope_max: 12.0, // 0.2 u per frame
+        turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
+        jump_press_window: 7,
+        // States 40 and 41, "Jump parameters by state" [code].
+        jump: (
+            height_min: 2.4,
+            height_max: 2.45,
+            hold_ticks: 17,
+            pushoff_ticks: 5,
+            gravity: 27.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 0.0, // it follows the rail instead
+        ),
+        switch_jump: (
+            height_min: 2.5,
+            height_max: 2.55,
+            hold_ticks: 10,
+            pushoff_ticks: 2,
+            gravity: 24.0,
+            apex_gravity_factor: 1.0,
+            air_speed: 0.0,
+        ),
+        switch_window_ticks: 10,
+        switch_stick: 0.5,
+        switch_degrees: 70.0, // 1.2217305 rad either side of square
+        switch_lookahead_ticks: 48,
+        switch_near: 2.0,
+        switch_far: 4.25,
+        switch_step: 0.75,
+        switch_ticks: 48,
+    ),
+    // As UYA [not read in DL]: "Zip lines" [code, then verified on UYA NTSC]. Per-frame
+    // values are given as UYA's code has them.
+    zip_line: (
+        hands_up: 1.34,
+        reach: 0.9,
+        reach_vertical: 1.5,
+        below: 0.7,
+        above: 0.4,
+        no_catch_ticks: 30,
+        catch_share: 0.5,
+        speed: 14.0, // 0.23333334 u per frame
+        accel: 9.0, // 0.0025 u per frame per frame
+        // Where the feet settle under the cable [measured: 1.59-1.64 u on the ride], and
+        // the game's hang spring that pulls them there [code; it acts on the hands].
+        hang_below: 1.63,
+        hang: (gain: 0.05, damping: 0.3),
+        hang_cap: 0.16666667,
+        turn: (gain: 0.018, damping: 0.2, cap: 0.10763),
+        end_ticks: 6,
+        end_gravity: 22.0, // 0.0061111115 u per frame per frame
+    ),
+    // States 50-54 and 18, "Swimming": as UYA [not read in DL], apart from the water jump
+    // (18), read in DL's state entry [code].
+    swim: (
+        entry_below: 0.45,
+        entry_slack: 0.2,
+        entry_slack_extra: 0.07,
+        entry_depth: 0.8,
+        deep_below: 0.8,
+        jump_back_below: 0.7,
+        surface_below: 0.4,
+        float_below: 0.12, // Clank 0.05
+        surface_follow: (gain: 0.027, damping: 0.3), // no cap
+        bob_entry_scale: 0.37,
+        bob_entry_max: 7.0, // 0.116667 u per frame
+        bob_free_ticks: 10,
+        bob_stiffness: 0.005,
+        bob_damping: 0.045,
+        bob_swim: (gain: 0.03, damping: 0.3),
+        bob_swim_cap: 1.5, // 0.025 u per frame
+        bob_sink: 0.7, // 0.011667 u per frame
+        drift_max: 5.5, // 0.091667 u per frame
+        drift_brake: 4.2, // 0.0011667 u per frame per frame
+        surface_speed: 3.0, // 0.05 u per frame
+        surface_min_speed: 1.5, // 0.025
+        stroke_ticks: 45,
+        surface_turn_limit_degrees: 45.0, // 0.7853982 rad
+        surface_accel: 4.0, // 0.0011111 u per frame per frame
+        surface_brake: 5.0, // 0.0013889
+        surface_stroke: 5.5,
+        surface_stroke_rate: 0.6,
+        turn: (gain: 0.007, damping: 0.08, cap: 0.08726647),
+        jump_press_window: 8,
+        idle_jump_after_tick: 10,
+        // State 18, "Jump parameters by state" [code].
+        jump: (
+            height_min: 1.95,
+            height_max: 1.98,
+            hold_ticks: 10,
+            pushoff_ticks: 5,
+            gravity: 29.7,
+            apex_gravity_factor: 1.0,
+            air_speed: 7.25, // DL: the jump block's default
+        ),
+        dive_press_window: 7,
+        stop_stick: 0.1,
+        start_stick: 0.2,
+        start_after_tick: 10,
+        stand_depth_swimming: 0.7,
+        stand_depth_idle: 0.4,
+        pitch_max: 1.3613569, // 78 degrees
+        pitch_spring: (gain: 0.015, damping: 0.2),
+        pitch_cap: 0.011635529,
+        pitch_cap_pressed: 0.008726647, // × the button's pressure; the kit has full presses
+        dive_ticks: 40,
+        dive_min_pitch: 0.35,
+        dive_speed: 6.0, // 0.1 u per frame
+        under_speed: 3.0, // 0.05
+        fast_speed: 7.0, // 0.116667
+        fast_coast_speed: 2.8, // 0.046667
+        scale_from: 0.15,
+        min_scale: 0.35,
+        fast_min_scale: 0.4,
+        under_accel: 7.0, // 0.0019444 u per frame per frame
+        under_brake: 4.0, // 0.0011111
+        fast_accel: 13.0, // 0.0036111
+        fast_brake: 8.0, // 0.0022222
+        under_stroke: 5.0,
+        after_fast_ticks: 15,
+        after_fast_min_speed: 4.5, // 0.075 u per frame
+        idle_brake: 4.0,
+        idle_brake_after_fast: 8.0,
+        fast_after_tick: 20,
+        fast_to_swim_stick: 0.5,
+        fast_to_idle_stick: 0.7,
+        idle_speed: 2.0, // 0.033333 u per frame
+        idle_stroke_from: 9.0,
+        idle_stroke_to: 19.0,
+        // The table at 0x2F6630.
+        stroke: [
+            0.4, 0.4, 0.45, 0.52, 0.6, 0.68, 0.78, 0.89, 1.0, 1.0,
+            1.0, 1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6,
+            0.55, 0.5, 0.45, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4,
+        ],
+        stroke_frames_per_rate: 0.5, // a global, 0.5 in the Veldin image
+        under_stroke_rate_per_speed: 0.25, // 15 per u per frame
+        under_stroke_rate_min: 0.25,
+        under_stroke_rate_max: 0.75,
+    ),
+    // As UYA [not read in DL]: "Melee" [code, UYA NTSC; the wrench's line from UYA's
+    // traces]. Frame windows are rows of UYA's attack table at 0x2F6310; per-frame game
+    // values are given in comments.
+    melee: (
+        frames_per_tick: 0.5, // the animation global 0x1A57E4
+        ground_press_window: 10,
+        crouch_press_window: 15,
+        air_press_window: 14,
+        air_press_window_late: 18, // after a flip or double jump
+        air_after_tick: 10, // the game's state timer at least 11
+        double_jump_after_tick: 19, // its animation past frame 32 [traced]
+        flip_after_tick: 30, // past frame 18 [traced]; 20 for one flip kind, not read
+        combo_below_height: 0.1,
+        chain_press_max: 15,
+        chain_memory_ticks: 27,
+        walk_out_frame: 34.0,
+        walk_out_stick: 0.9,
+        end_walk_stick: 0.8,
+        end_idle_frames: 5.0,
+        lunge_accel: 37.0, // 0.010278 u per frame per frame
+        lunge_brake: 28.0, // 0.0077778
+        air_gravity: 25.0, // 0.0069444
+        turn: (gain: 0.05, damping: 0.2, cap: 0.28216156),
+        throw_turn: (gain: 0.057, damping: 0.2, cap: 0.28216156),
+        lock_stick: 0.5,
+        edge_lookahead_ticks: 3.7,
+        edge_probe_above: 0.3,
+        edge_probe_below: 0.35,
+        combo: [
+            // Swing 1, right to left [lunge traced].
+            (
+                start_frame: 16.0,
+                blend_ticks: 5,
+                chain_before: 33.0,
+                buffer_from: 19.0,
+                chain_from: 23.0,
+                jump_from: 24.0,
+                end: 26.0,
+                hit_from: 17.0,
+                hit_to: 23.0,
+                lunge: [(18.0, 4.4)], // 0.073333 u per frame
+                reach: Some((offset: 0.75, range: 0.8, max_scale: 4.0)),
+                damage: 1.0, // the wrench's weapon row (0x2C56AC)
+                knockback: 1.0,
+                push: Left,
+                head_radius: 0.35,
+                swing: [
+                    (frame: 16.5, hand: (-0.30, -0.35, 0.57), tip: (-0.81, 0.02, 0.97)),
+                    (frame: 17.0, hand: (-0.06, -0.51, 0.51), tip: (-0.90, -0.58, 0.71)),
+                    (frame: 17.5, hand: (0.36, -0.48, 0.46), tip: (-0.45, -0.95, 0.72)),
+                    (frame: 18.0, hand: (0.65, -0.19, 0.41), tip: (-0.03, -1.14, 0.55)),
+                    (frame: 18.5, hand: (0.76, 0.20, 0.37), tip: (1.34, -1.24, 0.52)),
+                    (frame: 19.0, hand: (0.63, 0.51, 0.37), tip: (2.46, 0.04, 0.45)),
+                    (frame: 19.5, hand: (0.47, 0.52, 0.38), tip: (2.42, 0.74, 0.48)),
+                    (frame: 20.0, hand: (0.33, 0.51, 0.41), tip: (1.71, 1.24, 0.52)),
+                    (frame: 20.5, hand: (0.24, 0.52, 0.43), tip: (1.14, 1.35, 0.54)),
+                    (frame: 21.0, hand: (0.16, 0.52, 0.46), tip: (0.77, 1.45, 0.54)),
+                    (frame: 21.5, hand: (0.08, 0.52, 0.47), tip: (0.34, 1.45, 0.59)),
+                    (frame: 22.0, hand: (0.01, 0.50, 0.48), tip: (-0.02, 1.37, 0.59)),
+                    (frame: 22.5, hand: (-0.03, 0.48, 0.50), tip: (-0.27, 1.23, 0.64)),
+                    (frame: 23.0, hand: (-0.06, 0.45, 0.52), tip: (-0.49, 1.08, 0.65)),
+                ],
+            ),
+            // Swing 2, left to right.
+            (
+                start_frame: 7.0,
+                blend_ticks: 7,
+                chain_before: 25.0,
+                buffer_from: 7.0,
+                chain_from: 11.0,
+                jump_from: 13.0,
+                end: 15.0,
+                hit_from: 8.0,
+                hit_to: 13.0,
+                lunge: [(7.0, 5.7), (8.0, 4.5), (9.0, 3.0)], // 0.095, 0.075, 0.05
+                reach: Some((offset: 0.6, range: 1.7, max_scale: 4.0)),
+                damage: 1.0,
+                knockback: 1.0,
+                push: Right,
+                head_radius: 0.35,
+                swing: [
+                    (frame: 7.5, hand: (0.32, 0.36, 0.49), tip: (-0.55, 0.48, 0.47)),
+                    (frame: 8.0, hand: (0.45, 0.24, 0.51), tip: (-0.54, 0.63, 0.42)),
+                    (frame: 8.5, hand: (0.53, 0.03, 0.51), tip: (-0.14, 1.13, 0.43)),
+                    (frame: 9.0, hand: (0.52, -0.20, 0.53), tip: (0.56, 1.70, 0.51)),
+                    (frame: 9.5, hand: (0.38, -0.41, 0.55), tip: (1.40, 1.59, 0.40)),
+                    (frame: 10.0, hand: (0.17, -0.52, 0.59), tip: (2.16, 0.99, 0.44)),
+                    (frame: 10.5, hand: (-0.03, -0.51, 0.62), tip: (2.38, 0.10, 0.36)),
+                    (frame: 11.0, hand: (-0.21, -0.42, 0.64), tip: (1.87, -0.74, 0.44)),
+                    (frame: 11.5, hand: (-0.29, -0.33, 0.64), tip: (1.12, -1.03, 0.46)),
+                    (frame: 12.0, hand: (-0.35, -0.23, 0.63), tip: (0.60, -1.13, 0.48)),
+                    (frame: 12.5, hand: (-0.35, -0.21, 0.63), tip: (0.29, -1.09, 0.51)),
+                    (frame: 13.0, hand: (-0.36, -0.19, 0.62), tip: (0.05, -1.02, 0.54)),
+                ],
+            ),
+            // Swing 3, left to right; the next press starts the combo over.
+            (
+                start_frame: 2.0,
+                blend_ticks: 7,
+                chain_before: 0.0,
+                buffer_from: 16.0,
+                chain_from: 19.0,
+                jump_from: 19.0,
+                end: 21.0,
+                hit_from: 12.0,
+                hit_to: 16.0,
+                lunge: [(12.0, 3.7)], // 0.061667
+                reach: Some((offset: 1.3, range: 1.7, max_scale: 1.9)),
+                damage: 1.0,
+                knockback: 1.0,
+                push: Left,
+                head_radius: 0.35,
+                swing: [
+                    (frame: 11.5, hand: (-0.05, 0.32, 0.65), tip: (-0.67, -0.21, 0.56)),
+                    (frame: 12.0, hand: (0.15, 0.33, 0.65), tip: (-0.72, 0.15, 0.58)),
+                    (frame: 12.5, hand: (0.38, 0.17, 0.64), tip: (-0.38, 0.76, 0.64)),
+                    (frame: 13.0, hand: (0.42, -0.10, 0.63), tip: (0.27, 1.25, 0.65)),
+                    (frame: 13.5, hand: (0.26, -0.30, 0.64), tip: (1.40, 1.35, 0.66)),
+                    (frame: 14.0, hand: (0.02, -0.33, 0.65), tip: (2.04, 0.17, 0.68)),
+                    (frame: 14.5, hand: (-0.14, -0.26, 0.60), tip: (1.56, -0.97, 0.72)),
+                    (frame: 15.0, hand: (-0.20, -0.12, 0.56), tip: (0.55, -1.35, 0.59)),
+                    (frame: 15.5, hand: (-0.19, -0.07, 0.55), tip: (0.15, -1.20, 0.60)),
+                    (frame: 16.0, hand: (-0.17, -0.01, 0.54), tip: (-0.11, -1.10, 0.58)),
+                ],
+            ),
+        ],
+        // Up and over from behind, down in front at the landing.
+        jump_attack: (
+            start_frame: 19.0,
+            blend_ticks: 11,
+            chain_before: 99.0,
+            buffer_from: 32.0,
+            chain_from: 28.0,
+            jump_from: 28.0,
+            end: 30.0,
+            hit_from: 1.0,
+            hit_to: 28.0,
+            lunge: [],
+            reach: None,
+            damage: 2.0, // 0x2C56B0
+            knockback: 1.55,
+            push: Forward,
+            head_radius: 0.47,
+            swing: [
+                (frame: 19.0, hand: (-0.43, -0.26, 1.34), tip: (-1.78, 0.16, 0.48)),
+                (frame: 19.5, hand: (-0.42, -0.28, 1.37), tip: (-1.84, 0.18, 0.45)),
+                (frame: 20.0, hand: (-0.42, -0.30, 1.40), tip: (-1.82, 0.19, 0.46)),
+                (frame: 20.5, hand: (-0.42, -0.32, 1.42), tip: (-1.81, 0.20, 0.48)),
+                (frame: 21.0, hand: (-0.41, -0.33, 1.46), tip: (-1.80, 0.22, 0.52)),
+                (frame: 21.5, hand: (-0.36, -0.32, 1.49), tip: (-1.78, 0.25, 0.61)),
+                (frame: 22.0, hand: (-0.29, -0.29, 1.52), tip: (-1.75, 0.29, 0.71)),
+                (frame: 22.5, hand: (-0.23, -0.26, 1.55), tip: (-1.72, 0.31, 0.80)),
+                (frame: 23.0, hand: (-0.09, -0.20, 1.53), tip: (-1.66, 0.35, 0.99)),
+                (frame: 23.5, hand: (0.20, -0.08, 1.40), tip: (-1.44, 0.44, 1.39)),
+                (frame: 24.0, hand: (0.52, -0.00, 1.12), tip: (-0.95, 0.56, 1.80)),
+                (frame: 24.5, hand: (0.73, 0.00, 0.76), tip: (-0.25, 0.58, 2.05)),
+                (frame: 25.0, hand: (0.82, -0.04, 0.44), tip: (0.53, 0.44, 2.09)),
+                (frame: 25.5, hand: (0.74, -0.09, 0.33), tip: (1.18, 0.47, 1.93)),
+                (frame: 26.0, hand: (0.65, -0.11, 0.28), tip: (1.69, 0.36, 1.58)),
+                (frame: 26.5, hand: (0.56, -0.13, 0.25), tip: (2.06, 0.14, 1.04)),
+                (frame: 27.0, hand: (0.47, -0.14, 0.24), tip: (2.21, -0.05, 0.35)),
+                (frame: 27.5, hand: (0.44, -0.14, 0.29), tip: (2.19, -0.02, 0.34)),
+                (frame: 28.0, hand: (0.42, -0.15, 0.33), tip: (2.16, 0.01, 0.34)),
+            ],
+        ),
+        // The throw hits only with the thrown wrench (`thrown`).
+        throw: (
+            start_frame: 30.0,
+            blend_ticks: 5,
+            chain_before: 99.0,
+            buffer_from: 83.0,
+            chain_from: 88.0,
+            jump_from: 35.0,
+            end: 91.0,
+            hit_from: 99.0,
+            hit_to: 99.0,
+            lunge: [],
+            reach: None,
+            damage: 0.0,
+            knockback: 0.0,
+            push: Forward,
+            head_radius: 0.0,
+            swing: [],
+        ),
+        combo_aim: (range: 5.0, cone_degrees: 45.0, rise_degrees: 45.0),
+        jump_aim: (range: 8.0, cone_degrees: 60.0, rise_degrees: 0.0),
+        throw_aim: (range: 14.0, cone_degrees: 30.0, rise_degrees: 0.0),
+        jump: (
+            rise: 7.7, // 0.128333 u per frame [traced]
+            rise_high: 5.39, // 0.089833 [traced]
+            high_above: 1.8,
+            rise_higher: 3.85, // 0.064167 [traced]
+            higher_above: 2.25,
+            rise_accel: 150.0, // 0.041667
+            rise_until_tick: 8,
+            hold_until_tick: 14,
+            gravity: 130.0, // 0.036111 [traced]
+            fall_cap: 37.0, // 0.616667
+            brake: 15.0, // 0.0041667 [traced]
+            carry_speed: 4.5, // 0.075
+            carry_above: 4.0,
+            carry_until_tick: 70,
+            target_accel: 25.0, // 0.0069444
+            target_near: 2.0,
+            target_far: 5.0,
+            aim_until_frame: 25.0,
+            rise_rate: 0.33, // [traced]
+            strike_frame: 26.0, // lands on it [traced]
+            low_rate_below: 0.7,
+            low_rate_min: 0.75,
+            landed_rate: 2.0,
+            blend_after_flip: 17,
+            after_flip_ticks: 42,
+            slam_from_frame: 23.5,
+            slam_below: 0.5,
+            slam_radius: 0.4,
+            slam_damage: 2.0,
+            slam_knockback: 2.0,
+        ),
+        // [code; the flight traced in uyantsc-veldin-melee-1: out 8.65 u in 30 ticks, back
+        // in 25].
+        thrown: (
+            release_frame: 33.0,
+            hand: (0.67, -0.5, 0.39), // [traced]
+            speed: 23.0, // 0.383333 u per frame
+            jerk: 170.0, // its slowing grows 0.000787 u per frame per frame each frame
+            return_jerk: 54.0, // 0.00025
+            height: 0.55,
+            height_within: 0.8,
+            rise: 4.0, // 0.066667
+            sink: 1.0, // 0.016667
+            wall_slow: 0.5,
+            lost_beyond: 32.0,
+            radius: 0.4,
+            damage: 1.0, // the wrench's weapon row (0x2C56AC)
+            knockback_out: 1.2,
+            knockback_back: 0.37,
+            hold_frame: 81.0, // [simplified]: the game's animation runs on, then switches
+            catch_frame: 82.0, // [traced]
+            catch_ahead_ticks: 4.0,
+            catch_after_tick: 101,
+            blend_again: 3, // [traced]
+            again_after_tick: 30,
+            jump_out_window: 8,
+        ),
+    ),
+    // As UYA [not read in DL]: state 22, "Getting hit and dying" [code, UYA NTSC].
+    hit: (
+        max_speed: 7.0, // 0.11667 u per frame
+        brake: 4.0,
+        brake_later: 10.0,
+        brake_later_from_tick: 11,
+        ticks: 28,
+        safe_ticks: 77,
+        hazard_safe_ticks: 90,
+        // The game's hazard damage is a per-level global, and its push comes from the
+        // attacker; health is UYA's starting nanotech as remembered [placeholder].
+        hazard_damage: 1,
+        hazard_knockback: 4.0,
+        hazard_lift: 6.0,
+        max_health: 10,
+    ),
+    death: (
+        ticks: 120, // [placeholder]: the death state's timing isn't read yet
+    ),
+    // As UYA [not read in DL]: camera.md, "How the follow camera works" [UYA NTSC].
+    camera: (
+        distance: 4.64, // [verified]
+        height: 2.0,
+        look_height: 1.5,
+        distance_spring: (gain: 0.003, damping: 0.2), // [verified]
+        height_spring: (gain: 0.003, damping: 0.2),
+        look_spring: (gain: 0.015, damping: 0.2), // [verified]
+        look_spring_vertical: (gain: 0.0125, damping: 0.2),
+        drag: 0.85, // [verified]
+        arm_spring: (gain: 0.015, damping: 0.2), // yaw [verified]
+        arm_length_spring: (gain: 0.02, damping: 0.2),
+        arm_length_spring_approach: (gain: 0.04, damping: 0.3),
+        approach_distance: 6.0,
+        approach_full_speed: 4.2, // 0.07 u per frame
+        approach_facing: -0.3,
+        pitch_limit_degrees: 40.0, // 0.6981 rad
+        pitch_step: 0.030543,
+        // The game blends heights through a state machine not read yet; 0.1 u per frame
+        // is its fastest blend rate [placeholder].
+        landing_catch_up: 6.0,
+        // The game pushes the camera out of geometry with a 0.25 u sphere; the kit casts
+        // that sphere from the aim point instead [simplified].
+        collision_radius: 0.25,
+        // Locked on, the target steers the camera like the right stick, at up to
+        // (ticks / 400) × π/2 rad a frame (0x3E42C0) [code, untraced].
+        lock_turn: 1.5707964,
+        lock_ramp_ticks: 400,
+    ),
+)

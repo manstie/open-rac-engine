@@ -17,8 +17,11 @@ pub enum Action {
     Fire,
     /// Tap to swap to the last weapon, hold for the quick-select ring.
     QuickSelect,
-    /// Strafe and lock-on.
+    /// Hold to strafe: the hero faces the camera and moves with the stick.
     Strafe,
+    /// Lock on to a target, as UYA's L2 and R2 held together. Gamepad only: with a mouse
+    /// the player aims for themselves, so keyboard and mouse bindings for it are ignored.
+    LockOn,
     FirstPerson,
     NextWeapon,
     PrevWeapon,
@@ -33,13 +36,14 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 17] = [
+    pub const ALL: [Action; 18] = [
         Action::Jump,
         Action::Crouch,
         Action::Melee,
         Action::Fire,
         Action::QuickSelect,
         Action::Strafe,
+        Action::LockOn,
         Action::FirstPerson,
         Action::NextWeapon,
         Action::PrevWeapon,
@@ -65,6 +69,7 @@ impl Action {
             Action::FirstPerson => 6,
             Action::NextWeapon => 7,
             Action::PrevWeapon => 8,
+            Action::LockOn => 9,
             _ => return None,
         };
         Some(1 << index)
@@ -73,6 +78,11 @@ impl Action {
     /// Whether this action is part of the simulation's input.
     pub fn is_gameplay(self) -> bool {
         self.bit().is_some()
+    }
+
+    /// Whether only gamepad bindings can trigger this action.
+    pub fn is_gamepad_only(self) -> bool {
+        self == Action::LockOn
     }
 }
 
@@ -127,7 +137,7 @@ mod tests {
             assert_eq!(seen & bit, 0, "{action:?} shares a bit");
             seen |= bit;
         }
-        assert_eq!(seen.count_ones(), 9);
+        assert_eq!(seen.count_ones(), 10);
     }
 
     #[test]

@@ -2,17 +2,34 @@
 //! the moves it is built for (PLAN.md P1.4, P1.5).
 
 use bevy::prelude::*;
-use rac_demo::{Shape, greybox_level};
+use rac_demo::{CRATE_HALF, DUMMY_HEIGHT, Shape, TargetKind, greybox_level, melee_targets};
 use rac_hero::{
-    BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
-    controller::step, water::WaterVolume,
+    BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, LockOn, ParryWorld,
+    controller::step, lock_on, water::WaterVolume,
 };
 use rac_input::{Action, Buttons, PlayerInput};
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 /// Every solid box of the level, with moving ones where they start.
 fn level_world() -> ParryWorld {
-    let bodies: Vec<BodyPlacement> = greybox_level()
+    let rails = greybox_level()
+        .iter()
+        .filter_map(|piece| piece.rail())
+        .collect();
+    let water = greybox_level()
+        .iter()
+        .filter_map(|piece| {
+            let water = piece.water()?;
+            Some(WaterVolume::new(piece.translation, water.half_extents))
+        })
+        .collect();
+    ParryWorld::new(&level_bodies())
+        .with_rails(rails)
+        .with_water(water)
+}
+
+fn level_bodies() -> Vec<BodyPlacement> {
+    greybox_level()
         .into_iter()
         .filter(|piece| piece.surface.is_solid())
         .filter_map(|piece| match piece.shape {
@@ -28,19 +45,7 @@ fn level_world() -> ParryWorld {
             }),
             _ => None,
         })
-        .collect();
-    let rails = greybox_level()
-        .iter()
-        .filter_map(|piece| piece.grind_rail())
-        .collect();
-    let water = greybox_level()
-        .iter()
-        .filter_map(|piece| {
-            let water = piece.water()?;
-            Some(WaterVolume::new(piece.translation, water.half_extents))
-        })
-        .collect();
-    ParryWorld::new(&bodies).with_rails(rails).with_water(water)
+        .collect()
 }
 
 fn input(stick: Option<[i8; 2]>, held: &[Action], pressed: &[Action]) -> PlayerInput {
@@ -172,6 +177,48 @@ fn the_grind_rail_carries_the_hero_up_to_its_end() {
 }
 
 #[test]
+fn the_zip_line_carries_the_hero_down_from_the_high_platform() {
+    let world = level_world();
+    let profile = HeroProfile::uya();
+    // On the high platform (top at 12 u), under the cable's start 2.2 u up, facing along
+    // it (-z).
+    let mut hero = HeroMotion::new(Vec3::new(28.25, 12.0, -35.0), 0.0);
+    step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+    step(
+        &mut hero,
+        &input(None, &[], &[Action::Jump]),
+        0.0,
+        &profile,
+        &world,
+    );
+    let held = input(None, &[Action::Jump], &[]);
+    let mut ticks = 0;
+    while hero.state != HeroState::ZipLine {
+        step(&mut hero, &held, 0.0, &profile, &world);
+        ticks += 1;
+        assert!(
+            ticks < 60,
+            "never caught the cable: {:?} at {}",
+            hero.state,
+            hero.position
+        );
+    }
+    while hero.state == HeroState::ZipLine {
+        step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+        ticks += 1;
+        assert!(ticks < 600, "still on the cable at {}", hero.position);
+    }
+    // Let go past the cable's end at z = -84, 3 u up, then down to the floor.
+    assert!(hero.position.z < -84.0, "{}", hero.position);
+    while hero.ground.is_none() {
+        step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+        ticks += 1;
+        assert!(ticks < 900, "never landed: {}", hero.position);
+    }
+    assert!(hero.position.y.abs() < 0.01, "{}", hero.position);
+}
+
+#[test]
 fn the_pool_is_climbed_into_swum_across_and_jumped_out_of() {
     let world = level_world();
     let profile = HeroProfile::uya();
@@ -218,4 +265,47 @@ fn the_pool_is_climbed_into_swum_across_and_jumped_out_of() {
     }
     assert!(!hero.state.is_swimming());
     assert!(hero.position.z < -36.0, "{}", hero.position);
+}
+
+#[test]
+fn the_melee_yard_has_a_dummy_to_lock_on_to() {
+    // The yard's crates are solid, as in the demo, and each target is aimed at its middle.
+    let mut bodies = level_bodies();
+    let mut targets = Vec::new();
+    for (index, target) in melee_targets().into_iter().enumerate() {
+        let middle = match target.kind {
+            TargetKind::Crate => {
+                let centre = target.position + Vec3::Y * CRATE_HALF;
+                bodies.push(BodyPlacement::fixed(
+                    Collider::Cuboid {
+                        half_extents: Vec3::splat(CRATE_HALF),
+                    },
+                    centre,
+                    Quat::IDENTITY,
+                ));
+                centre
+            }
+            TargetKind::Dummy => target.position + Vec3::Y * DUMMY_HEIGHT / 2.0,
+        };
+        targets.push((Entity::from_raw_u32(index as u32 + 1).unwrap(), middle));
+    }
+    let world = ParryWorld::new(&bodies);
+    let profile = HeroProfile::uya();
+    // Past the crates on the right, facing the dummies with the camera behind him.
+    let hero = HeroMotion::new(Vec3::new(6.0, 0.0, 9.0), PI);
+    let mut lock = LockOn::default();
+    lock_on::update(
+        &mut lock,
+        &hero,
+        &input(None, &[Action::LockOn], &[Action::LockOn]),
+        PI,
+        &targets,
+        &profile.lock_on,
+        &world,
+    );
+    let dummy = melee_targets()
+        .iter()
+        .position(|target| target.name == "dummy 2")
+        .unwrap();
+    assert_eq!(lock.target, Some(targets[dummy].0));
 }

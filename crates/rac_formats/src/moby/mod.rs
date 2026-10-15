@@ -1,14 +1,16 @@
 //! Moby classes: the games' animated objects, with their skeleton, animation and mesh
 //! (`docs/research/moby-format.md`, PLAN.md P3.7).
 //!
-//! The layout was read on UYA NTSC-U, in memory and on the disc. R&C3, DL and Gladiator
-//! are expected to match, which isn't checked yet.
+//! The layout was read on UYA NTSC-U, in memory and on the disc. DL's classes differ in
+//! their skeleton ([`MobyClass::read_dl`]); R&C3 and Gladiator aren't checked yet.
 
 mod anim;
 mod mesh;
 
 pub use anim::{JointScale, JointTranslation, Keyframe, Sequence};
-pub use mesh::{Mesh, MeshTriangle, MeshVertex, Packet, PacketKind, Skin, Vertex, normal};
+pub use mesh::{
+    CHROME, GLASS, Mesh, MeshTriangle, MeshVertex, Packet, PacketKind, Skin, Vertex, normal,
+};
 
 use crate::{FormatError, Image};
 
@@ -38,7 +40,7 @@ pub struct MobyClass {
     pub joints: Vec<Joint>,
     /// By sequence number; unused numbers are `None`.
     pub sequences: Vec<Option<Sequence>>,
-    /// The mesh's packets, high detail first and then low.
+    /// The mesh's packets: high detail, low detail, then metal.
     pub packets: Vec<Packet>,
 }
 
@@ -95,6 +97,8 @@ impl MobyClass {
         let packet_table = pointer(address)?;
         let high = image.u8(address + 0x04)? as u32;
         let low = image.u8(address + 0x05)? as u32;
+        let metal = image.u8(address + 0x06)? as u32;
+        let metal_begin = image.u8(address + 0x07)? as u32;
         let joint_count = image.u8(address + 0x08)? as usize;
         let sequence_count = image.u8(address + 0x0C)? as u32;
         let skeleton = pointer(address + 0x14)?;
@@ -144,21 +148,11 @@ impl MobyClass {
         }
 
         // On the disc the hero has no mesh of his own: it comes from the armor WAD.
-        let packet_count = if packet_table == 0 { 0 } else { high + low };
-        let mut packets = Vec::with_capacity(packet_count as usize);
-        for index in 0..packet_count {
-            let kind = if index < high {
-                PacketKind::High
-            } else {
-                PacketKind::Low
-            };
-            packets.push(Packet::read(
-                image,
-                packet_table + index * 0x10,
-                kind,
-                from,
-            )?);
-        }
+        let packets = if packet_table == 0 {
+            Vec::new()
+        } else {
+            read_packets(image, packet_table, [high, low, metal, metal_begin], from)?
+        };
 
         Ok(Self {
             scale,
@@ -168,21 +162,123 @@ impl MobyClass {
         })
     }
 
+    /// Reads a DL class as stored on the disc, with pointers from its start. Its header
+    /// keeps UYA's packet table, counts and scale, but its skeleton differs (`moby-format.md`,
+    /// "DL's classes"):
+    /// - the skeleton (+0x14) is a 3×4 inverse bind matrix per joint (0x30 bytes, rows of
+    ///   rotation then translation), and a joint may be turned at rest, so its rest
+    ///   position is the matrix's inverse applied to the origin;
+    /// - the joint offsets (+0x18) end with a byte naming the parent by its number in the
+    ///   low seven bits, 0x7F for the root's none; the high bit is a flag we don't use.
+    ///
+    /// Its sequences aren't read.
+    pub fn read_dl(image: &Image, address: u32) -> Result<Self, FormatError> {
+        let pointer = |at: u32| -> Result<u32, FormatError> { Ok(address + image.u32(at)?) };
+        let packet_table = image.u32(address)?;
+        let count = |at: u32| image.u8(address + at).map(u32::from);
+        let counts = [count(4)?, count(5)?, count(6)?, count(7)?];
+        let joint_count = image.u8(address + 0x08)? as u32;
+        let skeleton = pointer(address + 0x14)?;
+        let offsets = pointer(address + 0x18)?;
+        let scale = image.f32(address + 0x24)?;
+
+        let mut joints = Vec::with_capacity(joint_count as usize);
+        for index in 0..joint_count {
+            let record = offsets + index * 0x10;
+            let parent = match (index, image.u32(record + 0x0C)?) {
+                (0, code) if code & 0x7F == 0x7F => None,
+                (_, code) if code < 0x100 && code & 0x7F < index => Some((code & 0x7F) as usize),
+                (_, code) => {
+                    return Err(FormatError::Invalid {
+                        what: "joint parent",
+                        address: record + 0x0C,
+                        detail: format!("{code:#x} for joint {index}"),
+                    });
+                }
+            };
+            let bind = skeleton + index * 0x30;
+            let rows = [
+                image.f32s::<4>(bind)?,
+                image.f32s::<4>(bind + 0x10)?,
+                image.f32s::<4>(bind + 0x20)?,
+            ];
+            joints.push(Joint {
+                parent,
+                offset: image.f32s::<3>(record)?,
+                rest: unbind(rows).ok_or_else(|| FormatError::Invalid {
+                    what: "joint bind matrix",
+                    address: skeleton + index * 0x30,
+                    detail: format!("joint {index}'s doesn't invert"),
+                })?,
+            });
+        }
+        let packets = if packet_table == 0 {
+            Vec::new()
+        } else {
+            read_packets(image, address + packet_table, counts, address)?
+        };
+        Ok(Self {
+            scale,
+            joints,
+            sequences: Vec::new(),
+            packets,
+        })
+    }
+
     /// World units per class unit.
     pub fn unit(&self) -> f32 {
         self.scale / 1024.0
     }
 
-    /// The mesh at one level of detail.
+    /// The mesh at one level of detail, or of the metal packets.
     pub fn mesh(&self, kind: PacketKind) -> Result<Mesh, FormatError> {
-        let packets: Vec<Packet> = self
-            .packets
-            .iter()
-            .filter(|p| p.kind == kind)
-            .cloned()
-            .collect();
-        Mesh::assemble(&packets)
+        mesh_of(&self.packets, kind)
     }
+}
+
+/// Where an inverse bind matrix (rows of rotation and translation) puts the joint: the
+/// point it takes to the origin.
+fn unbind(rows: [[f32; 4]; 3]) -> Option<[f32; 3]> {
+    let m = |r: usize, c: usize| rows[r][c] as f64;
+    let minor =
+        |r0: usize, r1: usize, c0: usize, c1: usize| m(r0, c0) * m(r1, c1) - m(r0, c1) * m(r1, c0);
+    let det =
+        m(0, 0) * minor(1, 2, 1, 2) - m(0, 1) * minor(1, 2, 0, 2) + m(0, 2) * minor(1, 2, 0, 1);
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    // The inverse's rows, by cofactors.
+    let inverse = [
+        [minor(1, 2, 1, 2), -minor(0, 2, 1, 2), minor(0, 1, 1, 2)],
+        [-minor(1, 2, 0, 2), minor(0, 2, 0, 2), -minor(0, 1, 0, 2)],
+        [minor(1, 2, 0, 1), -minor(0, 2, 0, 1), minor(0, 1, 0, 1)],
+    ];
+    let t = [m(0, 3), m(1, 3), m(2, 3)];
+    Some(inverse.map(|row| (-(row[0] * t[0] + row[1] * t[1] + row[2] * t[2]) / det) as f32))
+}
+
+/// Reads a packet table: `counts` are the high-detail, low-detail and metal packet counts
+/// and the metal packets' first entry, as a class header and an armor's mesh file both
+/// keep them.
+pub(crate) fn read_packets(
+    image: &Image,
+    table: u32,
+    [high, low, metal, metal_begin]: [u32; 4],
+    from: u32,
+) -> Result<Vec<Packet>, FormatError> {
+    let kinds = (0..high)
+        .map(|index| (index, PacketKind::High))
+        .chain((high..high + low).map(|index| (index, PacketKind::Low)))
+        .chain((metal_begin..metal_begin + metal).map(|index| (index, PacketKind::Metal)));
+    kinds
+        .map(|(index, kind)| Packet::read(image, table + index * 0x10, kind, from))
+        .collect()
+}
+
+/// The mesh `packets` of one kind make.
+pub(crate) fn mesh_of(packets: &[Packet], kind: PacketKind) -> Result<Mesh, FormatError> {
+    let packets: Vec<Packet> = packets.iter().filter(|p| p.kind == kind).cloned().collect();
+    Mesh::assemble(&packets)
 }
 
 #[cfg(test)]
@@ -353,6 +449,64 @@ pub(crate) mod tests {
         assert_eq!((keyframe.ticks(), keyframe.stamp), (6.0, 16));
         // Read as if loaded, the relative pointers point nowhere sensible.
         assert!(MobyClass::read(&image, class).is_err());
+    }
+
+    /// A DL class at 0 (pointers from its start) with three joints: the root, a hip 5
+    /// units up, and a joint turned a quarter turn about z at (2, 0, 5).
+    fn dl_class() -> Vec<u8> {
+        let mut w = Writer::default();
+        w.u32(0).u8(0).u8(0).u8(0).u8(0).u8(3).put(&[0; 0xB]);
+        w.u32(0x100).u32(0x200).put(&[0; 8]).f32(1024.0);
+        w.at(0x100);
+        // Inverse binds: identity, a translation, and a rotation then a translation. The
+        // turned joint's inverse takes (2, 0, 5) to the origin: R⁻¹ = [[0,1,0],[-1,0,0],
+        // [0,0,1]], so t = -R⁻¹·(2, 0, 5) = (0, 2, -5).
+        let binds: [[[f32; 4]; 3]; 3] = [
+            [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]],
+            [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., -5.]],
+            [[0., 1., 0., 0.], [-1., 0., 0., 2.], [0., 0., 1., -5.]],
+        ];
+        for row in binds.iter().flatten().flatten() {
+            w.f32(*row);
+        }
+        w.at(0x200);
+        // Parents as the skins name them (the flag set) and as other classes may (unset).
+        for (offset, parent) in [
+            ([0., 0., 0.], 0xFF),
+            ([0., 0., 5.], 0x80),
+            ([2., 0., 0.], 0x01),
+        ] {
+            for value in offset {
+                w.f32(value);
+            }
+            w.u32(parent);
+        }
+        w.bytes
+    }
+
+    #[test]
+    fn reads_a_dl_skeleton_from_its_inverse_binds() {
+        let bytes = dl_class();
+        let class = MobyClass::read_dl(&Image::new(&bytes, 0), 0).unwrap();
+        assert_eq!(class.unit(), 1.0);
+        let parents: Vec<Option<usize>> = class.joints.iter().map(|j| j.parent).collect();
+        assert_eq!(parents, [None, Some(0), Some(1)]);
+        assert_eq!(class.joints[1].rest, [0.0, 0.0, 5.0]);
+        let turned = class.joints[2].rest;
+        assert!(
+            (turned[0] - 2.0).abs() < 1e-6 && turned[1].abs() < 1e-6,
+            "{turned:?}"
+        );
+        assert!((turned[2] - 5.0).abs() < 1e-6);
+        assert!(class.packets.is_empty() && class.sequences.is_empty());
+    }
+
+    #[test]
+    fn a_dl_parent_after_its_child_is_an_error() {
+        let mut w = Writer { bytes: dl_class() };
+        // Joint 1's parent, made joint 1 itself.
+        w.poke_u32(0x21C, 0x81);
+        assert!(MobyClass::read_dl(&Image::new(&w.bytes, 0), 0).is_err());
     }
 
     #[test]

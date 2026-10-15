@@ -273,6 +273,7 @@ fn animate(
         animator.phase = pose::advance_phase(animator.phase, hero, seconds);
         let mut target = pose::target(&rig.skeleton, hero, animator.phase, animator.time);
         let playing = play_clip(animator, animations.as_deref(), hero, seconds, &mut target);
+        pose::twist_for_strafe(&mut target, hero);
         // Attacks and clips track closely; procedural poses ease in.
         let speed = if hero.state.is_attacking() {
             40.0
@@ -323,6 +324,10 @@ fn play_clip(
             // The run cycle plays faster the faster he runs: 1.25 times at UYA's 6.2 u/s.
             Some(RigMove::Run) => {
                 (Vec2::new(hero.velocity.x, hero.velocity.z).length() / 5.0).clamp(0.5, 1.5)
+            }
+            // UYA plays walking backwards at 25 × its speed in u per frame, 0.7 to 2.2.
+            Some(RigMove::StrafeBack) => {
+                (Vec2::new(hero.velocity.x, hero.velocity.z).length() / 2.4).clamp(0.7, 2.2)
             }
             Some(RigMove::DoubleJump) => 0.8,
             _ => 1.0,

@@ -122,13 +122,6 @@ confidence = "medium"
 note = "X from a crouch at least 7 frames old: long jump (10) with the stick past 0.7 and speed above 0.9 u/s, otherwise the heli jump (15); with the thruster-pack item, states 16 and 13."
 
 [[symbol]]
-name = "hero_frame_timers"
-address = 0x004FAA68
-kind = "function"
-confidence = "medium"
-note = "Per-frame bookkeeping: increments the state timer at 0x1A4D98 and counts down the hero's short timers, among them the wall window (0x1A4DB4) and the no-grab timer (0x1A4DB0)."
-
-[[symbol]]
 name = "pad_pressed_within"
 address = 0x0045D358
 kind = "function"
@@ -427,7 +420,7 @@ name = "rail_list"
 address = 0x001DFD10
 kind = "data"
 confidence = "medium"
-note = "Pointer to the level's rails, 0x20 bytes each: bounding sphere centre and radius, spline, flags. The count is at 0x1DFD14."
+note = "Pointer to the level's rails, 0x20 bytes each: bounding sphere centre and radius, spline, flags. The count is at 0x1DFD14. Filled by level_load_gameplay from the gameplay file. Veldin's build; on Florana (level 2) the list is at 0x1DE690."
 
 [[symbol]]
 name = "grind_speed"
@@ -478,7 +471,7 @@ name = "hero_stick_move_angle"
 address = 0x004EAA78
 kind = "function"
 confidence = "medium"
-note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length."
+note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length. While strafing it also sorts the stick into strafe_direction (left 0, right 1, forward 2, back 3; 45-degree sectors either side of each, an exact diagonal counting as forward) and sets strafe_back for back with the stick past 0.15."
 
 [[symbol]]
 name = "anim_table_over_step"
@@ -537,7 +530,7 @@ name = "hero_timers_update"
 address = 0x004FAA68
 kind = "function"
 confidence = "medium"
-note = "Counts down the hero's i16 timers at 0x1A4DB0-0x1A4DFC each frame, among them hero_no_dive_timer, which it holds at 10 on levels 2 and 4."
+note = "Per-frame bookkeeping: increments the state timer at 0x1A4D98 and counts down the hero's i16 timers at 0x1A4DB0-0x1A4DFC, among them the no-grab timer (0x1A4DB0), the wall window (0x1A4DB4) and hero_no_dive_timer, which it holds at 10 on levels 2 and 4."
 
 [[symbol]]
 name = "hero_wall_slide"
@@ -677,7 +670,7 @@ name = "target_search"
 address = 0x004E5BB8
 kind = "function"
 confidence = "medium"
-note = "Walks the target list (0x21E8E0, flag 0x1000) for hero_auto_aim."
+note = "Walks the target list (0x21E8E0, flag 0x1000) for hero_auto_aim and hero_lock_on: the best target_score within range, cone and rise, optionally only of one class category (5 for lock-on, with a nonzero first word in its target data) and only in sight (a ray from 0.7 u above the feet)."
 
 [[symbol]]
 name = "target_score"
@@ -962,3 +955,241 @@ address = 0x001A1EE0
 kind = "data"
 confidence = "medium"
 note = "GS addresses (× 256 bytes) of the textures loaded outside levels: palettes for the armor, the wrench, texture_slot_load and Clank, one more, then the pixels in the same order from 0x1A1EF4."
+
+# 2026-10-15, zip lines and the gameplay file (docs/research/hero-controller.md, "Zip
+# lines"; docs/research/gameplay-format.md). Addresses from Veldin's build.
+
+[[symbol]]
+name = "level_load_gameplay"
+address = 0x004252F0
+kind = "function"
+confidence = "medium"
+note = "Called from level_load_core: clears the hero struct, reads the level's gameplay file (level header +0x20/+0x24) and unpacks it to the address at 0x1EA9CC, then copies its blocks into lists. Header +0x7C is the rails (rail_list)."
+
+[[symbol]]
+name = "hero_find_zipline"
+address = 0x004E5300
+kind = "function"
+confidence = "high"
+note = "Every frame: while jumping, falling or in state type 15, with no_zip_timer at 0, looks for the rail nearest the hands (1.34 u above the feet) and sets zip_found if they are 0.7 u below to 0.4 u above it. Needs no item. At 0x4BA800 in Florana's build, which has no hero_find_rail."
+
+[[symbol]]
+name = "gameplay_file"
+address = 0x001EA9CC
+kind = "data"
+confidence = "medium"
+note = "Where level_load_gameplay unpacks the gameplay file (a pointer). Veldin's build; other levels' builds keep it elsewhere."
+
+[[symbol]]
+name = "no_zip_timer"
+address = 0x001A4DE4
+kind = "data"
+confidence = "high"
+note = "i16: frames before a zip line can be caught; set to 30 when the hero lets go."
+
+[[symbol]]
+name = "zip_found"
+address = 0x001A527C
+kind = "data"
+confidence = "high"
+note = "hero_find_zipline's found flag; hero_transitions then starts state 118 unless the grind search found a rail. The found point is at 0x1A5250, the spline, segment and position at 0x1A5270-0x1A5278."
+
+[[symbol]]
+name = "zip_end"
+address = 0x001A5280
+kind = "data"
+confidence = "high"
+note = "0 while riding a zip line; counts frames from the cable's end, and at 6 the hero falls."
+
+[[symbol]]
+name = "zip_speed"
+address = 0x001A5284
+kind = "data"
+confidence = "high"
+note = "Speed along the zip line, u per frame: half the velocity along the cable on catching, then +0.0025 per frame up to 0.23333."
+
+# Added 2026-10-15 while reading strafing and lock-on (PLAN.md P1.5, RE.3). Found from the
+# readers and writers of the hero's lock-on block at 0x1A6000 (libuya's HeroLockOn).
+# Not traced: no savestate holds a weapon that allows lock-on.
+
+[[symbol]]
+name = "strafing"
+address = 0x001A6014
+kind = "data"
+confidence = "high"
+note = "i16: set to 1 by hero_update while L2 or R2 is held (pad bits 1 and 2), 2 by the first-person and lock-strafe cameras; counts down to 0 when they are let go. Most hero code treats it, or camera mode 1 with fire held, as strafing."
+
+[[symbol]]
+name = "strafe_back"
+address = 0x001A6016
+kind = "data"
+confidence = "high"
+note = "Strafing backwards with the stick past 0.15; the walk then plays sequence 20 (walking backwards) at 25 × its speed in u per frame, 0.7 to 2.2."
+
+[[symbol]]
+name = "strafe_direction"
+address = 0x001A6017
+kind = "data"
+confidence = "high"
+note = "Where the stick points while strafing, relative to the camera: left 0, right 1, forward 2, back 3."
+
+[[symbol]]
+name = "strafe_heading"
+address = 0x001A6018
+kind = "data"
+confidence = "high"
+note = "The yaw the strafe moves along, the move angle (the stick's); the walk's velocity follows it, and so does a jump's push-off. strafe_heading_vec at 0x1A6000 is the same as a vector."
+
+[[symbol]]
+name = "strafe_turn_rate"
+address = 0x001A601C
+kind = "data"
+confidence = "high"
+note = "hero_strafe_turn's own yaw rate, kept between frames apart from the walk's (0x1A4D84)."
+
+[[symbol]]
+name = "strafe_reverse_timers"
+address = 0x001A602C
+kind = "data"
+confidence = "high"
+note = "Two i16 timers: +0 set to 3 by strafing right, +2 by strafing left. hero_strafe_walk counts both down first; strafing left with +0 running zeroes the speed, strafing right with +2 running scales it by (3 - timer) / 3."
+
+[[symbol]]
+name = "lock_target"
+address = 0x001A6010
+kind = "data"
+confidence = "high"
+note = "The moby the hero is locked on to, or 0 (libuya's HeroLockOn.pMoby). The camera turns to it, weapons and the reticle (0x3F4700) read it."
+
+[[symbol]]
+name = "hero_camera_mode"
+address = 0x001A6290
+kind = "data"
+confidence = "medium"
+note = "0 for the follow camera, 1 lock-strafe, 2 first person (libuya's PlayerCameraType). The L1 view takes aim_mode's value, or 2."
+
+[[symbol]]
+name = "aim_mode"
+address = 0x001439F4
+kind = "data"
+confidence = "low"
+note = "Byte: the option for what L1 does; 0 gives the first-person view (camera mode 2), a nonzero value that mode instead. Also picks the camera's invert entries (0x143A10, 0x143A70)."
+
+[[symbol]]
+name = "item_flags"
+address = 0x00142A60
+kind = "data"
+confidence = "low"
+note = "One byte per item, 0x9C of them, kept across a level reload with the save data. Bit 5 of the held item's byte allows lock-on. All zero in our savestates, none of which holds a weapon."
+
+[[symbol]]
+name = "held_item"
+address = 0x001A5E08
+kind = "data"
+confidence = "medium"
+note = "The item in the hero's hand; 9 in every savestate we have, where he only has the wrench."
+
+[[symbol]]
+name = "hero_strafe_walk"
+address = 0x004EA628
+kind = "function"
+confidence = "high"
+note = "The walk's strafing step, called instead of its turn: strafe_heading from the move angle, the side-change damping (strafe_reverse_timers), then hero_strafe_turn, then the walk's yaw rate and angle error zeroed. The walk then moves the speed towards walk_speed × stick at 37 u/s^2 (30 braking) and sets the velocity along strafe_heading."
+
+[[symbol]]
+name = "hero_strafe_turn"
+address = 0x004EA5B0
+kind = "function"
+confidence = "high"
+note = "Turns the hero to the camera's yaw (0x1E2AD8) with gain 0.042, damping 0.25 and cap 0.32 rad a frame, on strafe_turn_rate. The flip uses it too while strafing; other jumps and falls turn to the camera on their own air spring (0.04, 0.2, the jump's cap)."
+
+[[symbol]]
+name = "hero_strafe_side"
+address = 0x004FB758
+kind = "function"
+confidence = "high"
+note = "The flip's direction (left 0, right 1, forward 2, back 3): strafe_direction while strafing, otherwise the stick against the facing in 45-degree sectors."
+
+[[symbol]]
+name = "hero_walk_jump"
+address = 0x00502368
+kind = "function"
+confidence = "medium"
+note = "The walk's X press: a flip (11) while strafing with the stick past 0.9 and hero_strafe_side not forward; also a flip with R1 held, the stick not forward against the facing, and X within 12 frames of a press of pad bits 0x1F000 (not read further); otherwise a jump (7)."
+
+[[symbol]]
+name = "hero_walk_anim"
+address = 0x005024B8
+kind = "function"
+confidence = "medium"
+note = "Picks the walk's sequence and rate: strafing backwards sequence 20 at speed × 25 (0.7-2.2); otherwise set-off 3 (speed × 157, 0.6-4) or run 4 (speed × 13, 0.6-2.2), switching by the speed bands at 0x1DBE40."
+
+[[symbol]]
+name = "hero_body_twist"
+address = 0x004EF060
+kind = "function"
+confidence = "medium"
+note = "Procedural joint offsets on top of the animation. Strafing sideways (stick past 0.15, not back) sets the first slot's yaw to strafe_heading minus the hero's yaw and the second slot's to minus that, springs 0.037 and 0.025 with damping 0.27; which joints the slots are isn't read."
+
+[[symbol]]
+name = "hero_lock_on"
+address = 0x00503428
+kind = "function"
+confidence = "high"
+note = "Called by hero_transitions. Needs the held item's item_flags bit 5 and camera mode not 1. With no target: L2 and R2 both held and one pressed this frame searches (target_search) 25 u, 35 degrees round and 70 up or down from the camera's view, in sight, class 5; failing that, round the hero's facing. A target is dropped beyond 30 u, when L2 or R2 is let go, or when it dies."
+
+[[symbol]]
+name = "camera_lock_on_turn"
+address = 0x003E7430
+kind = "function"
+confidence = "medium"
+note = "From camera_follow_params while locked on: sets the follow block's turn speed (+0x1F4) to (t / 400) × pi/2 rad a frame, t counting the frames locked on up to 400, then camera_steer_to towards the target."
+
+[[symbol]]
+name = "camera_steer_to"
+address = 0x003E7168
+kind = "function"
+confidence = "medium"
+note = "Sets the camera's virtual right stick (+0x1FC) to 2x - x^2, signed, where x is the arm's angle off the line behind the follow point from a point, in right angles. camera_stick_input uses it when the right stick's x is 0; it is cleared each frame."
+
+[[symbol]]
+name = "camera_stick_input"
+address = 0x003E7478
+kind = "function"
+confidence = "medium"
+note = "Reads the right stick for camera_manual_input, with the invert options; with x at 0 it takes the virtual stick instead, and a real push resets the turn speed to the camera-speed option."
+
+[[symbol]]
+name = "lock_reticle"
+address = 0x003F4700
+kind = "function"
+confidence = "medium"
+note = "Draws the lock-on reticle on lock_target: three rings that fade in (0x1A6044) and turn (0x1A6048), and a bar from the target's data."
+
+[[symbol]]
+name = "cubic"
+address = 0x00442098
+kind = "function"
+confidence = "high"
+note = "A cubic through four control values at t; camera_steer_to's (-1, 0, 1, 0) gives 2t - t^2."
+
+[[symbol]]
+name = "asin"
+address = 0x0040C3F8
+kind = "function"
+confidence = "high"
+note = "Polynomial asin."
+
+[[symbol]]
+name = "angle_sub"
+address = 0x0040CF10
+kind = "function"
+confidence = "high"
+note = "a - b wrapped into -pi..pi."
+
+[[symbol]]
+name = "angle_add"
+address = 0x0040CEC8
+kind = "function"
+confidence = "high"
+note = "a + b wrapped into -pi..pi."

@@ -228,9 +228,20 @@ impl Pine {
     /// Writes a little-endian 32-bit word of EE memory, for the same research use as
     /// [`Pine::write_u8`].
     pub fn write_u32(&mut self, addr: u32, value: u32) -> Result<(), PineError> {
-        let mut request = vec![opcode::WRITE32];
-        request.extend_from_slice(&addr.to_le_bytes());
-        request.extend_from_slice(&value.to_le_bytes());
+        self.write_words(addr, &[value])
+    }
+
+    /// Writes consecutive little-endian words from `addr` in one request. PCSX2 applies a
+    /// request's commands back to back, so the words almost always land in the same frame;
+    /// one request per word can let the game run in between, for example snapping a hero
+    /// moved along one axis back before the next axis arrives.
+    pub fn write_words(&mut self, addr: u32, values: &[u32]) -> Result<(), PineError> {
+        let mut request = Vec::with_capacity(values.len() * 9);
+        for (word, value) in (addr..).step_by(4).zip(values) {
+            request.push(opcode::WRITE32);
+            request.extend_from_slice(&word.to_le_bytes());
+            request.extend_from_slice(&value.to_le_bytes());
+        }
         self.call(&request).map(drop)
     }
 
@@ -453,6 +464,18 @@ pub(crate) mod tests {
         pine.write_u32(0x40, 0x0123_4567).unwrap();
         assert_eq!(pine.read_u32(0x40).unwrap(), 0x0123_4567);
         assert!(pine.write_u32(0x10_0000, 1).is_err());
+    }
+
+    #[test]
+    fn writes_consecutive_words_in_one_request() {
+        let mut pine = Pine::from_stream(FakePcsx2::new(memory()));
+        pine.write_words(0x40, &[1, 2, 0x4410_0000]).unwrap();
+        let bytes = pine.read_bytes(0x40, 12).unwrap();
+        let words: Vec<u32> = bytes
+            .chunks(4)
+            .map(|w| u32::from_le_bytes(w.try_into().unwrap()))
+            .collect();
+        assert_eq!(words, [1, 2, 0x4410_0000]);
     }
 
     #[test]

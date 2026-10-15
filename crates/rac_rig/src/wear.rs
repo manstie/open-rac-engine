@@ -356,12 +356,22 @@ impl RigModels {
 
     /// Moves on to the next model, and returns it.
     pub fn choose_next(&mut self) -> Option<&RigModel> {
+        self.choose_by(1)
+    }
+
+    /// Moves back to the previous model, and returns it.
+    pub fn choose_previous(&mut self) -> Option<&RigModel> {
+        self.choose_by(self.models.len().saturating_sub(1))
+    }
+
+    /// Moves `step` models on, round to the first after the last.
+    fn choose_by(&mut self, step: usize) -> Option<&RigModel> {
         let current = self.chosen().map(|m| m.name.clone());
         let at = self
             .models
             .iter()
             .position(|m| Some(&m.name) == current.as_ref())?;
-        let next = self.models[(at + 1) % self.models.len()].name.clone();
+        let next = self.models[(at + step) % self.models.len()].name.clone();
         self.chosen = Some(next);
         self.chosen()
     }
@@ -453,6 +463,8 @@ mod tests {
         assert_eq!(models.chosen().unwrap().name, "other");
         assert_eq!(models.choose_next().unwrap().name, OPEN_MODEL);
         assert_eq!(models.choose_next().unwrap().name, "other");
+        assert_eq!(models.choose_previous().unwrap().name, OPEN_MODEL);
+        assert_eq!(models.choose_previous().unwrap().name, "other");
         // Adding a model of a name already there replaces it.
         models
             .add(open_model(), &mut meshes, &mut bindposes)

@@ -23,6 +23,8 @@ pub enum Surface {
     Moving,
     /// A rail to grind along.
     GrindRail,
+    /// A cable to hang from and slide down.
+    ZipLine,
     /// A point to swing from with the swingshot.
     SwingTarget,
     /// Hurts the hero who stands on it.
@@ -43,12 +45,16 @@ impl Surface {
         }
     }
 
-    /// Whether the hero collides with it. Rails and swing targets wait for their moves,
-    /// and checkpoints and water are only volumes.
+    /// Whether the hero collides with it. Rails, zip lines and swing targets wait for
+    /// their moves, and checkpoints and water are only volumes.
     pub fn is_solid(self) -> bool {
         !matches!(
             self,
-            Surface::GrindRail | Surface::SwingTarget | Surface::Checkpoint | Surface::Water
+            Surface::GrindRail
+                | Surface::ZipLine
+                | Surface::SwingTarget
+                | Surface::Checkpoint
+                | Surface::Water
         )
     }
 }
@@ -102,13 +108,17 @@ pub struct Piece {
 }
 
 impl Piece {
-    /// What the hero grinds along, for a grind rail: its top, from start to end.
-    pub fn grind_rail(&self) -> Option<GrindRail> {
+    /// What the hero rides along, for a grind rail (its top, from start to end) or a zip
+    /// line (its cable).
+    pub fn rail(&self) -> Option<GrindRail> {
         match (self.surface, self.shape) {
             (Surface::GrindRail, Shape::Rail { start, end, radius }) => Some(GrindRail::new(vec![
                 start + Vec3::Y * radius,
                 end + Vec3::Y * radius,
             ])),
+            (Surface::ZipLine, Shape::Rail { start, end, .. }) => {
+                Some(GrindRail::zip_line(vec![start, end]))
+            }
             _ => None,
         }
     }
@@ -275,6 +285,20 @@ pub fn greybox_level() -> Vec<Piece> {
             half_extents: Vec3::new(2.5, 2.0, 2.5),
         },
         Vec3::new(28.5, 12.0, -36.0),
+    ));
+    // A zip line from the high platform, falling 11.2 u over 50 u along −z: jump under its
+    // start to catch it (UYA's state 118, `hero-controller.md`, "Zip lines").
+    let zip_start = Vec3::new(28.25, 14.2, -34.0);
+    let zip_end = Vec3::new(28.25, 3.0, -84.0);
+    pieces.push(Piece::new(
+        "zip line",
+        Surface::ZipLine,
+        Shape::Rail {
+            start: zip_start,
+            end: zip_end,
+            radius: 0.05,
+        },
+        (zip_start + zip_end) / 2.0,
     ));
     // A lift to the high platform for the way back up.
     pieces.push(Piece {
@@ -539,6 +563,7 @@ mod tests {
             Surface::WallJump,
             Surface::Moving,
             Surface::GrindRail,
+            Surface::ZipLine,
             Surface::SwingTarget,
             Surface::Hazard,
             Surface::Checkpoint,

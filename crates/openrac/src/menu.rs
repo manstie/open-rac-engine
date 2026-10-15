@@ -2,7 +2,9 @@
 //!
 //! A menu is a column of buttons with one focused. The mouse focuses by hovering and
 //! clicks to choose; keys and the pad move the focus with the menu actions and choose with
-//! Accept. Settings screens and full UI navigation come with P1.12.
+//! Accept. On the Model and Moves buttons, left and right step back and forth through the
+//! hero's models and the games he can move like.
+//! Settings screens and full UI navigation come with P1.12.
 
 use bevy::{
     picking::hover::Hovered,
@@ -10,10 +12,12 @@ use bevy::{
     ui_widgets::{Activate, Button, observe},
 };
 use rac_demo::DemoSettings;
+use rac_hero::HeroTuning;
 use rac_input::{Action, ActionState};
 use rac_rig::RigModels;
 
 use crate::flow::{AppState, Pause};
+use crate::moves::{self, ChosenMoves};
 use crate::settings::{self, Paths};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +25,12 @@ enum MenuCommand {
     PlayDemo,
     /// Puts the hero in the next model, and remembers it.
     NextModel,
+    /// Puts the hero back in the previous model, and remembers it.
+    PreviousModel,
+    /// Makes the hero move like the next game, and remembers it.
+    NextMoves,
+    /// Makes the hero move like the previous game, and remembers it.
+    PreviousMoves,
     Resume,
     MainMenu,
     Quit,
@@ -29,6 +39,10 @@ enum MenuCommand {
 /// The text of the button that changes the hero's model.
 #[derive(Component, Debug)]
 struct ModelLabel;
+
+/// The text of the button that changes the game the hero moves like.
+#[derive(Component, Debug)]
+struct MovesLabel;
 
 #[derive(Component, Debug, Clone, Copy)]
 struct MenuItem {
@@ -54,6 +68,7 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Focus>()
             .init_resource::<Chosen>()
+            .init_resource::<ChosenMoves>()
             .add_systems(OnEnter(AppState::MainMenu), spawn_main_menu)
             .add_systems(OnEnter(Pause::Paused), spawn_pause_menu)
             .add_systems(OnEnter(AppState::InGame), spawn_controls_hint)
@@ -67,6 +82,8 @@ impl Plugin for MenuPlugin {
                     show_focus,
                     label_model.run_if(resource_changed::<RigModels>),
                     label_new_model_buttons,
+                    label_moves.run_if(resource_changed::<HeroTuning>),
+                    label_new_moves_buttons,
                 )
                     .chain(),
             );
@@ -93,7 +110,8 @@ fn spawn_main_menu(
             subtitle(found),
             button(0, "Play the demo", MenuCommand::PlayDemo),
             model_button(1),
-            button(2, "Quit", MenuCommand::Quit),
+            moves_button(2),
+            button(3, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -107,8 +125,9 @@ fn spawn_pause_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
             title("Paused"),
             button(0, "Resume", MenuCommand::Resume),
             model_button(1),
-            button(2, "Main menu", MenuCommand::MainMenu),
-            button(3, "Quit", MenuCommand::Quit),
+            moves_button(2),
+            button(3, "Main menu", MenuCommand::MainMenu),
+            button(4, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -116,7 +135,8 @@ fn spawn_pause_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
 const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick. Pause: Esc / Start.\n\
     Jump: Space / Cross. Again in the air: double jump; keep holding: glide.\n\
     Crouch: Ctrl / R1. Then jump: heli jump, or a long jump while running.\n\
-    Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.";
+    Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.\n\
+    Lock on (gamepad): L2 and R2 together.";
 
 const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
     Up: Space / Cross. Down: Ctrl / R1. Faster: right mouse / L2 or R2.\n\
@@ -197,6 +217,11 @@ fn model_button(index: usize) -> impl Bundle {
     button_with(index, "Model", MenuCommand::NextModel, ModelLabel)
 }
 
+/// Its label is filled in by [`label_moves`].
+fn moves_button(index: usize) -> impl Bundle {
+    button_with(index, "Moves", MenuCommand::NextMoves, MovesLabel)
+}
+
 fn button_with(
     index: usize,
     label: &str,
@@ -208,7 +233,7 @@ fn button_with(
         Hovered::default(),
         MenuItem { index, command },
         Node {
-            width: px(280),
+            width: px(420),
             height: px(56),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
@@ -249,6 +274,23 @@ fn label_new_model_buttons(
     }
 }
 
+fn label_moves(tuning: Res<HeroTuning>, mut labels: Query<&mut Text, With<MovesLabel>>) {
+    for mut text in &mut labels {
+        text.0 = format!("Moves: {}", tuning.0.name);
+    }
+}
+
+/// Labels a menu's moves button as soon as it appears.
+fn label_new_moves_buttons(
+    tuning: Res<HeroTuning>,
+    labels: Query<(), Added<MovesLabel>>,
+    texts: Query<&mut Text, With<MovesLabel>>,
+) {
+    if !labels.is_empty() {
+        label_moves(tuning, texts);
+    }
+}
+
 fn navigate(actions: Res<ActionState>, items: Query<&MenuItem>, mut focus: ResMut<Focus>) {
     let count = items.iter().count();
     if count == 0 {
@@ -276,10 +318,23 @@ fn accept(
     focus: Res<Focus>,
     mut chosen: ResMut<Chosen>,
 ) {
-    if actions.just_pressed(Action::UiAccept)
-        && let Some(item) = items.iter().find(|item| item.index == focus.0)
-    {
+    let Some(item) = items.iter().find(|item| item.index == focus.0) else {
+        return;
+    };
+    // The buttons that step through a list go back with left.
+    let previous = match item.command {
+        MenuCommand::NextModel => Some(MenuCommand::PreviousModel),
+        MenuCommand::NextMoves => Some(MenuCommand::PreviousMoves),
+        _ => None,
+    };
+    if actions.just_pressed(Action::UiAccept) {
         chosen.0 = Some(item.command);
+    } else if let Some(previous) = previous {
+        if actions.just_pressed(Action::UiRight) {
+            chosen.0 = Some(item.command);
+        } else if actions.just_pressed(Action::UiLeft) {
+            chosen.0 = Some(previous);
+        }
     }
 }
 
@@ -288,13 +343,20 @@ fn run_chosen(
     mut app_state: ResMut<NextState<AppState>>,
     mut pause: ResMut<NextState<Pause>>,
     mut models: ResMut<RigModels>,
+    mut tuning: ResMut<HeroTuning>,
+    mut chosen_moves: ResMut<ChosenMoves>,
     paths: Option<Res<Paths>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     match chosen.0.take() {
         Some(MenuCommand::PlayDemo) => app_state.set(AppState::InGame),
-        Some(MenuCommand::NextModel) => {
-            let Some(model) = models.choose_next() else {
+        Some(command @ (MenuCommand::NextModel | MenuCommand::PreviousModel)) => {
+            let model = if command == MenuCommand::NextModel {
+                models.choose_next()
+            } else {
+                models.choose_previous()
+            };
+            let Some(model) = model else {
                 return;
             };
             info!("the hero's model: {} ({})", model.title, model.name);
@@ -304,6 +366,26 @@ fn run_chosen(
                 saved.hero_model = Some(name);
                 if let Err(error) = settings::save(&paths.settings_file, &saved) {
                     warn!("could not save the hero's model: {error:#}");
+                }
+            }
+        }
+        Some(command @ (MenuCommand::NextMoves | MenuCommand::PreviousMoves)) => {
+            let name = moves::step(&chosen_moves.0, command == MenuCommand::NextMoves);
+            let profile = match moves::load(name) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    warn!("{error:#}");
+                    return;
+                }
+            };
+            info!("the hero moves like {} ({name})", profile.name);
+            tuning.0 = profile;
+            chosen_moves.0 = name.to_owned();
+            if let Some(paths) = paths {
+                let mut saved = settings::load_or_create(&paths.settings_file);
+                saved.hero_moves = Some(name.to_owned());
+                if let Err(error) = settings::save(&paths.settings_file, &saved) {
+                    warn!("could not save the game the hero moves like: {error:#}");
                 }
             }
         }

@@ -9,7 +9,7 @@
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
-use bevy::prelude::*;
+use bevy::{math::ops, prelude::*};
 use rac_hero::{HeroMotion, HeroState, JumpKind};
 
 use crate::model::{JointDef, joint, wrench_points};
@@ -337,6 +337,18 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
             arms_down(&mut b, 0.0, 0.9);
             tail(&mut b, 0.4, 0.8, time * 2.0);
         }
+        HeroState::ZipLine => {
+            // Hanging by both hands from the cable above, legs trailing.
+            arms_down(&mut b, 0.0, 3.0);
+            b.sides(joint::ELBOW_R, joint::ELBOW_L, ry(0.1));
+            b.sides(
+                joint::THIGH_R,
+                joint::THIGH_L,
+                rx(0.3 + 0.1 * (time * 2.0).sin()),
+            );
+            b.sides(joint::KNEE_R, joint::KNEE_L, rx(-0.4));
+            tail(&mut b, 0.4, -0.6, time * 2.0);
+        }
         HeroState::SurfaceSwim | HeroState::UnderwaterSwim | HeroState::UnderwaterFast => {
             let stroke = phase.sin();
             b.set(joint::HIPS, rx(-1.3));
@@ -393,6 +405,27 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
     b.finish()
 }
 
+/// Strafing sideways UYA runs with the hips turned to the way he moves and the body turned
+/// back to the camera (0x4EF060). Not backwards, which has its own walk.
+pub fn twist_for_strafe(pose: &mut Pose, hero: &HeroMotion) {
+    let moving = Vec2::new(hero.velocity.x, hero.velocity.z);
+    if !hero.strafing
+        || hero.strafing_back
+        || hero.state != HeroState::Walk
+        || moving.length() < 0.1
+    {
+        return;
+    }
+    // The movement's yaw against his, as the controller measures yaw.
+    let twist = wrap_angle(ops::atan2(-moving.x, -moving.y) - hero.yaw);
+    pose.rotations[joint::HIPS] = ry(twist) * pose.rotations[joint::HIPS];
+    pose.rotations[joint::CHEST] = ry(-twist) * pose.rotations[joint::CHEST];
+}
+
+fn wrap_angle(angle: f32) -> f32 {
+    (angle + PI).rem_euclid(TAU) - PI
+}
+
 /// Advances the stride's phase by the distance the hero ran this frame.
 pub fn advance_phase(phase: f32, hero: &HeroMotion, seconds: f32) -> f32 {
     let horizontal = Vec2::new(hero.velocity.x, hero.velocity.z).length();
@@ -403,10 +436,13 @@ pub fn advance_phase(phase: f32, hero: &HeroMotion, seconds: f32) -> f32 {
     let distance = if swimming {
         // Strokes keep going at a steady rate.
         seconds * 1.6
+    } else if hero.strafing_back {
+        // Walking backwards runs the stride the other way.
+        -horizontal * seconds
     } else {
         horizontal * seconds
     };
-    (phase + distance / STRIDE * TAU) % TAU
+    (phase + distance / STRIDE * TAU).rem_euclid(TAU)
 }
 
 #[cfg(test)]
@@ -473,5 +509,30 @@ mod tests {
         motion.velocity = Vec3::new(STRIDE, 0.0, 0.0);
         let phase = advance_phase(0.0, &motion, 0.25);
         assert!((phase - TAU / 4.0).abs() < 1e-4);
+        // Walking backwards runs it the other way.
+        motion.strafing_back = true;
+        let phase = advance_phase(0.0, &motion, 0.25);
+        assert!((phase - 3.0 * TAU / 4.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn strafing_sideways_turns_the_hips_to_the_movement_and_the_chest_back() {
+        let model = hero();
+        let mut motion = HeroMotion::new(Vec3::ZERO, 0.0);
+        motion.state = HeroState::Walk;
+        motion.strafing = true;
+        // Facing −z, moving +x: the legs turn a right angle to the right.
+        motion.velocity = Vec3::new(6.0, 0.0, 0.0);
+        let mut pose = target(&model.joints, &motion, 0.0, 0.0);
+        twist_for_strafe(&mut pose, &motion);
+        let hips = world_rotation(&model.joints, &pose, joint::HIPS);
+        assert!(
+            (hips * Vec3::NEG_Z - Vec3::X).length() < 1e-3,
+            "{}",
+            hips * Vec3::NEG_Z
+        );
+        // The chest still faces the camera's way, give or take the run's own lean.
+        let chest = world_rotation(&model.joints, &pose, joint::CHEST) * Vec3::NEG_Z;
+        assert!(chest.dot(Vec3::NEG_Z) > 0.95, "{chest}");
     }
 }

@@ -4427,6 +4427,7 @@ dependencies = [
  "directories",
  "rac_demo",
  "rac_formats",
+ "rac_hero",
  "rac_input",
  "rac_iso",
  "rac_rig",

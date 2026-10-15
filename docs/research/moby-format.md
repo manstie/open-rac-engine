@@ -172,8 +172,8 @@ GC, UYA and DL halve the vertex table header's fields to u16 but otherwise match
   (u16), the quadword offset of its texture data (u16), the vertex table's address, and
   four bytes: the vertex table's size in quadwords, two counts derived from the next, and
   the number of vertices sent to VU1. The table lists the high-detail packets, then the
-  low-detail ones, then the metal (environment-mapped) ones, which have their own vertex
-  format and aren't read yet.
+  low-detail ones, then the metal ones, which have their own vertex format (next
+  section).
 - **Vertex table header** (u16 each): matrix transfers, two-joint vertices, three-joint
   vertices, one-matrix vertices, duplicates, vertices sent (the four counts before it
   added), the byte offset of the vertex records, and one we don't use. Then the matrix
@@ -218,6 +218,35 @@ GC, UYA and DL halve the vertex table header's fields to u16 but otherwise match
   (3,358 of 6,740 agree with their normals), and the GS draws both sides. Turn each
   triangle to agree with its vertex normals.
 
+## Metal packets [verified 2026-10-15]
+
+Read with `rac_formats::moby` (`PacketKind::Metal`) on every UYA armor mesh, the wrench
+and Clank. The layout is the one ReRAC's notes give for R&C1 (ISC, read there in R&C1's
+code; `prior-art.md`), and UYA's data follows it.
+
+- **Where:** the class header's bytes 6 and 7 (an armor mesh file's bytes 2 and 3) are
+  the metal packet count and the first one's entry in the packet table, straight after
+  the high- and low-detail packets. Of UYA's armor WAD entries, 1, 2, 4, 14–28 and the
+  wrench-sized 29–34 have them (armor 0 has none, the wrench 3); so does Clank's class
+  (396 triangles).
+- **Vertex table:** four words (the vertex count, then where the game's EE code puts the
+  texture coordinates, positions and colours it computes, and their total size), then
+  16 bytes per vertex: x, y, z as s16, the normal's azimuth and elevation, up to three
+  joints, how many it uses, their weights out of 256 (none when it uses one), and a pad.
+  The packet table entry gives the table's size as the count plus one quadword, and the
+  count again in its last byte. Metal vertices use neither the VU0 slots nor the vertex
+  cache.
+- **VIF list:** strips and texture switches as in a regular packet, with no texture
+  coordinates. The switch's TEX0 low word is −2, which R&C1's code replaces with the
+  level's chrome map (and −3 with its glass map); it maps each vertex from its turned
+  normal, so the map works like a reflection.
+- **They redraw regular triangles:** every metal vertex sits on a vertex of the same
+  mesh's high-detail packets, and every metal triangle has exactly one high-detail
+  triangle with the same three corners (all 35 mesh entries, the wrench and Clank). In
+  R&C1 the game draws them as a second, blended pass, pulled towards the camera (ReRAC).
+  Our import paints those triangles as polished metal instead, which the scene's own
+  surroundings reflect.
+
 ## The armor WAD [verified 2026-10-13]
 
 The hero's class has no mesh on the disc; his armor brings it. Read in UYA's code
@@ -244,10 +273,14 @@ memory image's hero mesh (0x1F28000) except for the relocated pointers.
   16–23 of every 32; the pixels at +0x420; then the smaller mipmaps. The mesh's texture
   numbers index this list.
 - **Which entry is what:** 0 is the armor a new game starts in (Veldin). Entries 0–34
-  are meshes of this kind and all decode; 14–28 are the same size and look like copies.
-  Entry 31 is the wrench: `wrench_load` reads it whatever the armor, and gives its mesh
-  to the wrench's class (0x47), whose class in the core has no packets. Entries 35–55
-  start with a whole moby class (a skeleton of their own), probably the multiplayer
+  are meshes of this kind and all decode. Seen on the rig with UYA's skeleton
+  (2026-10-15, Xvfb): 0–4 and 14 are armors, 5 Ratchet in casual clothes, 6 a snowman,
+  7 a tuxedo, and 8–13 aliens and robots; all 15 are skinned to the hero's own joints.
+  15–28 are byte-for-byte copies of 14, and 32–34 of 29–31. Entry 31 is the wrench:
+  `wrench_load` reads it whatever the armor, and gives its mesh to the wrench's class
+  (0x47), whose class in the core has no packets; 29 and 30 are wrench-sized too. Which
+  of the game's armor names goes with which entry isn't read yet. Entries 35–55 start
+  with a whole moby class (a skeleton of their own), probably the multiplayer
   characters, and aren't read yet.
 - **Clank's texture:** Clank's class (0x259, in the core) has its own mesh, but the core's
   class table names no textures for it (all 0xFF). `clank_texture_load` reads Clank
@@ -272,6 +305,57 @@ memory image's hero mesh (0x1F28000) except for the relocated pointers.
   13–25 under 4, the feet 27 (right) and 28 (left) under 26, and a back plate 29–32. It
   has no arm joints.
 
+## DL's skins [verified 2026-10-15]
+
+Read with `rac_formats::armor::{SkinTable, Skin}` and `MobyClass::read_dl` on DL NTSC-U
+(SCUS-97465), and in Ghidra on our DreadZone Station memory image (`skin_load` 0x5756D0,
+`vendor_list` 0x631CE8 and the data they use, in `re/SCUS-97465/symbols.toml`).
+Gladiator PAL (SCES-53285) has the same table of contents sizes and the same skins: every
+skin's skeleton and textures come out identical.
+
+- **The table** is the fifth of DL's eight global headers, as UYA's armor table is
+  (size 0x228; first sector 0x9B465 on our NTSC disc). After the size and sector: 17
+  entries of `{class sector, count, textures sector, count}` from the WAD's first
+  sector, three empty ones, then texture files with no class, in three groups the game
+  loads separately (from pairs 40, 52 and 60; one by a number kept in the save, two by
+  level). Those aren't read yet. In memory the table of contents sits at 0x1C2040.
+- **Loading a skin** (`skin_load`): the game reads entry *n*'s textures and sends them to
+  the GS, then reads its class over them and relocates it, for player 1 or player 2.
+  The skin worn is a saved number (0x171B52 for player 1), and a bit per entry records
+  which have been bought. The player's moby draws with the skin's class (it reports
+  class 0x23F7, which libdl calls Ratchet's blue armor with no head).
+- **Which entry is what**, from the game's skin menu (`vendor_list`): entries 0–4 are
+  Ratchet's armors (Marauder, Avenger, Crusader, Vindicator, Liberator), and the
+  menu's skins are, in its order, Alpha Clank (5), "The Muscle" (8), Vernon (12), King
+  Claude (11), LandShark (7), Squidzor (6), Kid Nova (13), Jak (15), W3RM (9),
+  Starshield (10) and Venus (14), priced 0 to 75. Entry 16, Ratchet in DL's helmet and
+  suit, isn't in the menu. Each matched what we saw when we wore it (Xvfb). The
+  multiplayer skins are other classes (libdl: 0x251C–0x2531).
+- **The armors have no head:** their meshes stop at the neck (1.03 m) at both levels of
+  detail, and no moby near the player carries one in our image. Where the game draws
+  Ratchet's head from isn't found yet.
+- **Each skin is a whole class**, pointers counted from its start, with UYA's header
+  for the packet table, packet counts, joint count and scale (0.2083, as UYA's hero),
+  but:
+  - the skeleton (+0x14) is a 3×4 inverse bind matrix per joint (0x30 bytes: three
+    rows of rotation then translation), and some face joints are turned at rest, so a
+    joint's rest position is where its matrix takes to the origin;
+  - each joint offset record (+0x18) ends with a byte naming the parent in its low
+    seven bits (0x7F for the root); the skins set the high bit, another class (a
+    winged pack, 0x246B) doesn't;
+  - one sequence (+0x48), not read.
+- **Meshes and textures** decode with UYA's rules unchanged: 1,692 to 5,640 triangles,
+  no metal packets, a low level of detail on most skins; two PIF2 textures each
+  (256² and 128² for the armors, two 128² for the rest).
+- **DL's player skeleton** (107 joints, the same in every skin; the heads differ a
+  little): 0 the root, 1 and 2 at the root, 3–5 the hips (0.53 m), 6–11 the spine to the
+  neck, 12 the head, 13–50 the face (19 and 20 the jaw, 29–32 the ears), 51–72 the left
+  arm (52 shoulder, 54 elbow, 56 hand, 57 palm with four fingers, 70 thumb), 73–94 the
+  right, 95 and 96 on the chest, 97–101 the left leg (thigh, knee, ankle, foot, toe)
+  and 102–106 the right. It has no tail. The left side comes first, unlike UYA's.
+- **The wrench** is a class of its own in the level cores (libdl: 0x23FA), which aren't
+  read yet.
+
 ## Where this is used
 
 - `crates/rac_formats/src/moby/`: the reader (class, skeleton, keyframes, packets and the
@@ -287,6 +371,9 @@ memory image's hero mesh (0x1F28000) except for the relocated pointers.
   these animations can drive it. Its blocks were sized against the hero's mesh, measured
   per body part (head 0.40 × 0.39 m, ears to 1.42 m, feet 0.38 m long, tail 0.63 m). No
   geometry or animation from the disc is in the repository.
-- `crates/openrac/src/hero_model.rs`: at start-up, Ratchet in armor 0 with its textures,
-  the wrench and Clank, skinned to the rig's skeleton as the model "uya" (PLAN.md §5,
-  2026-10-13). Nothing read is stored.
+- `crates/openrac/src/hero_model.rs`: at start-up, Ratchet in each of the 15 distinct
+  suits with its textures, the wrench and Clank, skinned to the rig's skeleton as the
+  models "uya" (armor 0), "uya-blue", "uya-snowman" and so on (`SUITS`; PLAN.md §5,
+  2026-10-13). Triangles under metal packets are polished metal. From a DL or Gladiator
+  disc, the twelve complete skins as "dl-ratchet", "dl-jak" and so on (`DL_SUITS`),
+  each lent the open model's wrench. Nothing read is stored.

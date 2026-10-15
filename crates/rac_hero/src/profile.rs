@@ -4,12 +4,23 @@
 //! 60 Hz. Turning springs keep the games' per-frame gains, which are per tick here because
 //! the kit also ticks at 60 Hz. The bundled profiles say in comments where each value comes
 //! from (`docs/research/hero-controller.md` and its status labels).
+//!
+//! Each game has its own profile, so where the games differ (Deadlocked walks faster than
+//! UYA and its double jump is lower) only the numbers change, not the controller.
+//! [`BUNDLED`] lists the ones that ship with the kit; any other RON file of the same shape
+//! loads with [`HeroProfile::from_ron`].
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// UYA NTSC-U's tuning, the kit's default (PLAN.md section 5, 2026-10-12).
 pub const UYA_RON: &str = include_str!("../assets/uya.ron");
+
+/// Deadlocked NTSC-U's tuning (`hero-controller.md`, "Differences between the games").
+pub const DL_RON: &str = include_str!("../assets/dl.ron");
+
+/// The profiles that ship with the kit, by the short name settings and command lines use.
+pub const BUNDLED: &[(&str, &str)] = &[("uya", UYA_RON), ("dl", DL_RON)];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HeroProfile {
@@ -23,6 +34,8 @@ pub struct HeroProfile {
     pub run_jump: JumpParams,
     pub long_jump: LongJumpProfile,
     pub flip: FlipProfile,
+    pub strafe: StrafeProfile,
+    pub lock_on: LockOnProfile,
     pub heli_jump: HeliJumpProfile,
     pub double_jump: DoubleJumpProfile,
     pub glide: GlideProfile,
@@ -30,6 +43,7 @@ pub struct HeroProfile {
     pub ledge: LedgeProfile,
     pub charge: ChargeProfile,
     pub grind: GrindProfile,
+    pub zip_line: ZipLineProfile,
     pub swim: SwimProfile,
     pub melee: MeleeProfile,
     pub hit: HitProfile,
@@ -170,6 +184,8 @@ pub struct AirProfile {
     /// The steering step grows by `1.5 × (1 − cos θ)`, clamped to these bounds.
     pub control_factor_min: f32,
     pub control_factor_max: f32,
+    /// When the speed the stick asks for is under this share of the walk speed, the hero
+    /// brakes at `release_brake` instead of steering.
     pub release_below: f32,
     pub release_brake: f32,
     /// Vertical speed below which a jump is past its apex.
@@ -223,6 +239,44 @@ pub struct FlipProfile {
     pub min_speed: f32,
     pub start_speed: f32,
     pub accel: f32,
+}
+
+/// Strafing, UYA's walk with L2 or R2 held (`hero-controller.md`, "Strafing"): the walk's
+/// speeds along the stick, while he turns to face the camera.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StrafeProfile {
+    /// Turning to the camera, with a rate kept apart from the walk's.
+    pub turn: TurnSpring,
+    /// Changing sides: for `reverse_ticks - 1` ticks after strafing right, strafing left
+    /// stops him, and after strafing left, strafing right scales his speed by 1/3, then
+    /// 2/3 (with 3).
+    pub reverse_ticks: u32,
+    /// Whether a jump while strafing can flip. UYA's walk flips; DL's computes the flip and
+    /// then always jumps, so there a strafing jump is a standing jump.
+    pub flips: bool,
+    /// A jump is a flip only with the stick past this and not pushed forward.
+    pub flip_stick: f32,
+    /// Strafing backwards, which walks backwards, needs the stick past this.
+    pub back_stick: f32,
+    /// With the stick let go a strafe keeps walking, braking, until he faces within this
+    /// of the camera.
+    pub idle_within_degrees: f32,
+}
+
+/// Locking on to a target, UYA's L2 and R2 held together (`hero-controller.md`,
+/// "Lock-on").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LockOnProfile {
+    /// Which target: scored as the wrench's aim is, around the camera's direction, or
+    /// failing that around his facing.
+    pub aim: AimProfile,
+    /// The target must be in sight from this far above his feet...
+    pub sight_height: f32,
+    /// ...along a line that stops this short of the target's middle, so the target's own
+    /// collider doesn't hide it [simplified: the game's line ignores objects].
+    pub sight_short: f32,
+    /// A target further than this is let go.
+    pub keep_range: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -491,6 +545,39 @@ pub struct GrindProfile {
     pub switch_far: f32,
     pub switch_step: f32,
     pub switch_ticks: u32,
+}
+
+/// Zip lines, UYA's state 118 (`hero-controller.md`, "Zip lines"): rails of
+/// [`crate::RailKind::ZipLine`], caught with the hands. Speeds are u/s; the hang spring
+/// works per tick, as in the game.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ZipLineProfile {
+    /// The hands, `hands_up` above the feet, catch a cable whose nearest point is within
+    /// `reach` of them horizontally and `reach_vertical` vertically, with the hands at
+    /// most `below` under it and less than `above` over it.
+    pub hands_up: f32,
+    pub reach: f32,
+    pub reach_vertical: f32,
+    pub below: f32,
+    pub above: f32,
+    /// After letting go, cables are ignored this long.
+    pub no_catch_ticks: u32,
+    /// The speed along the cable starts at `catch_share` of the hero's velocity along it,
+    /// never below 0, and rises at `accel` to `speed`, whatever the cable's slope.
+    pub catch_share: f32,
+    pub speed: f32,
+    pub accel: f32,
+    /// Riding, the feet hang `hang_below` under the cable. From where he caught it they
+    /// get there on the `hang` spring, at most `hang_cap` u per tick.
+    pub hang_below: f32,
+    pub hang: Spring,
+    pub hang_cap: f32,
+    /// Turning to face along the cable.
+    pub turn: TurnSpring,
+    /// Past the cable's end he flies on with its last step, gaining `end_gravity`, for
+    /// `end_ticks`, then falls.
+    pub end_ticks: u32,
+    pub end_gravity: f32,
 }
 
 /// Swimming on and under the water (`hero-controller.md`, "Swimming"). Springs work per
@@ -901,6 +988,11 @@ pub struct CameraProfile {
     pub landing_catch_up: f32,
     /// The camera stays this far from geometry.
     pub collision_radius: f32,
+    /// Locked on, the camera turns to look past the hero at the target as the right stick
+    /// would, at up to `lock_turn` rad a tick, a share that grows from 0 to all of it
+    /// over `lock_ramp_ticks` (`camera.md`, "Lock-on").
+    pub lock_turn: f32,
+    pub lock_ramp_ticks: u32,
 }
 
 #[derive(Debug, Error)]
@@ -914,8 +1006,21 @@ impl HeroProfile {
 
     /// The bundled UYA NTSC-U profile.
     pub fn uya() -> Self {
-        // The bundled file is checked by a test, so this cannot fail at run time.
+        // The bundled files are checked by a test, so this cannot fail at run time.
         Self::from_ron(UYA_RON).expect("the bundled UYA profile parses")
+    }
+
+    /// The bundled Deadlocked NTSC-U profile.
+    pub fn dl() -> Self {
+        Self::from_ron(DL_RON).expect("the bundled DL profile parses")
+    }
+
+    /// A bundled profile by its short name in [`BUNDLED`].
+    pub fn bundled(name: &str) -> Option<Self> {
+        BUNDLED
+            .iter()
+            .find(|(bundled, _)| *bundled == name)
+            .map(|(_, text)| Self::from_ron(text).expect("the bundled profiles parse"))
     }
 }
 
@@ -924,10 +1029,75 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_bundled_profile_parses() {
+    fn the_bundled_profiles_parse() {
         let profile = HeroProfile::uya();
         assert_eq!(profile.walk.speed, 6.17);
         assert_eq!(profile.jump.hold_ticks, 17);
+        for (name, _) in BUNDLED {
+            assert!(HeroProfile::bundled(name).is_some(), "{name}");
+        }
+        assert_eq!(HeroProfile::bundled("dl"), Some(HeroProfile::dl()));
+        assert_eq!(HeroProfile::bundled("gc"), None);
+    }
+
+    /// The dotted paths of the fields whose values differ.
+    fn differences(a: &HeroProfile, b: &HeroProfile) -> Vec<String> {
+        fn value(profile: &HeroProfile) -> ron::Value {
+            ron::from_str(&ron::to_string(profile).unwrap()).unwrap()
+        }
+        fn compare(path: String, a: &ron::Value, b: &ron::Value, found: &mut Vec<String>) {
+            match (a, b) {
+                (ron::Value::Map(a), ron::Value::Map(b)) => {
+                    for (key, value) in a.iter() {
+                        let ron::Value::String(name) = key else {
+                            unreachable!("profile fields have names")
+                        };
+                        let path = if path.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{path}.{name}")
+                        };
+                        compare(path, value, &b[key], found);
+                    }
+                }
+                (ron::Value::Seq(a), ron::Value::Seq(b)) if a.len() == b.len() => {
+                    for (index, (a, b)) in a.iter().zip(b).enumerate() {
+                        compare(format!("{path}[{index}]"), a, b, found);
+                    }
+                }
+                _ if a != b => found.push(path),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        compare(String::new(), &value(a), &value(b), &mut found);
+        found
+    }
+
+    /// Everything else in DL's profile is UYA's, either read the same in DL's code or not
+    /// read there yet (the comments in `dl.ron` say which), so a change to one profile
+    /// that misses the other shows up here.
+    #[test]
+    fn deadlocked_differs_from_uya_only_where_the_games_do() {
+        assert_eq!(
+            differences(&HeroProfile::uya(), &HeroProfile::dl()),
+            // In the order of the field names, as RON's maps keep them.
+            [
+                "double_jump.after_tick",
+                "double_jump.cap",
+                "fall.air_speed",
+                "glide.sink",
+                "glide.speed",
+                "jump.air_speed",
+                "ledge.climb.air_speed",
+                "ledge.climb.pushoff_ticks",
+                "name",
+                "run_jump.air_speed",
+                "strafe.flips",
+                "swim.jump.air_speed",
+                "walk.speed",
+            ]
+        );
     }
 
     #[test]

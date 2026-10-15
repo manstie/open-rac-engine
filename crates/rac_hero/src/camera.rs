@@ -15,14 +15,18 @@
 //! 4. The camera's actual arm chases that arm on springs.
 //! 5. The camera sits at the look point, raised by the follow height, plus the actual arm,
 //!    and aims a little above the follow point.
+//!
+//! While the hero is locked on to a target ([`crate::LockOn`]) and the player doesn't turn
+//! the camera, the target turns it as the right stick would, to look past the hero at the
+//! target.
 
 use bevy::{math::ops, prelude::*};
 use rac_input::PlayerInputs;
 use rac_sim::SimTransform;
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::{
-    CollisionScene, Hero, HeroBody, HeroTuning,
+    CollisionScene, Hero, HeroBody, HeroTuning, LockOn,
     collision::CollisionWorld,
     controller::{HeroMotion, HeroState, JumpKind, TICK},
     profile::{CameraProfile, Spring},
@@ -75,6 +79,8 @@ struct Rig {
     actual_tilt_rate: f32,
     actual_length: f32,
     actual_length_rate: f32,
+    /// Ticks locked on to a target, up to the profile's ramp.
+    lock_ticks: u32,
 }
 
 impl FollowCamera {
@@ -119,6 +125,7 @@ impl Rig {
             actual_tilt_rate: 0.0,
             actual_length: profile.distance,
             actual_length_rate: 0.0,
+            lock_ticks: 0,
         }
     }
 }
@@ -188,6 +195,7 @@ fn step(
     rig: &mut Rig,
     hero: &HeroMotion,
     look_input: Vec2,
+    lock: Option<Vec3>,
     view_yaw: f32,
     profile: &CameraProfile,
     world: &dyn CollisionWorld,
@@ -248,6 +256,15 @@ fn step(
     let tilt = ops::atan2(dragged.y, horizontal);
     // Turning right lowers the yaw; looking up lowers the camera.
     rig.arm_yaw = wrap(rig.arm_yaw - look_input.x);
+    rig.lock_ticks = match lock {
+        Some(_) => (rig.lock_ticks + 1).min(profile.lock_ramp_ticks),
+        None => 0,
+    };
+    if let Some(target) = lock
+        && look_input.x == 0.0
+    {
+        rig.arm_yaw = wrap(rig.arm_yaw + lock_turn(rig, target, profile));
+    }
     let limit = profile.pitch_limit_degrees.to_radians();
     rig.tilt_target = (rig.tilt_target - look_input.y).clamp(-limit, limit);
     rig.arm_tilt = approach(tilt, rig.tilt_target, profile.pitch_step);
@@ -323,18 +340,38 @@ fn step(
     (position, aim)
 }
 
+/// How far a locked-on target turns the arm this tick (UYA 0x3E42C0, 0x3E7168): as a
+/// right stick pushed by `2x − x²` of the way, where x is the arm's angle off the line
+/// behind the hero from the target in right angles, at a speed that ramps up from nothing.
+fn lock_turn(rig: &Rig, target: Vec3, profile: &CameraProfile) -> f32 {
+    let to = target - rig.pivot;
+    if Vec2::new(to.x, to.z).length() < 1e-4 || profile.lock_ramp_ticks == 0 {
+        return 0.0;
+    }
+    // The camera looks along −arm, so behind the hero means the arm points away from it.
+    let off = wrap(ops::atan2(-to.x, -to.z) - rig.arm_yaw);
+    let x = off.abs() / FRAC_PI_2;
+    let push = (2.0 * x - x * x).min(1.0);
+    let speed = profile.lock_turn * rig.lock_ticks as f32 / profile.lock_ramp_ticks as f32;
+    off.signum() * push * speed
+}
+
 pub(crate) fn follow(
     inputs: Res<PlayerInputs>,
     tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
-    heroes: Query<(&Hero, &HeroBody)>,
+    heroes: Query<(&Hero, &HeroBody, Option<&LockOn>)>,
     mut cameras: Query<(&mut FollowCamera, &mut SimTransform)>,
 ) {
     let profile = &tuning.0.camera;
     for (mut camera, mut transform) in &mut cameras {
-        let Some((_, body)) = heroes.iter().find(|(hero, _)| hero.player == camera.player) else {
+        let Some((_, body, lock)) = heroes
+            .iter()
+            .find(|(hero, ..)| hero.player == camera.player)
+        else {
             continue;
         };
+        let lock = lock.and_then(LockOn::target_point);
         let hero = &body.0;
         let view_yaw = camera.yaw;
         let lost = camera.rig.as_ref().is_none_or(|rig| {
@@ -348,7 +385,7 @@ pub(crate) fn follow(
         let Some(rig) = camera.rig.as_mut() else {
             continue;
         };
-        let (position, aim) = step(rig, hero, look, view_yaw, profile, &scene.0);
+        let (position, aim) = step(rig, hero, look, lock, view_yaw, profile, &scene.0);
         let (yaw, pitch) = view_angles(aim - position);
         camera.yaw = yaw;
         camera.pitch = pitch;
@@ -397,7 +434,8 @@ mod tests {
     fn a_still_hero_keeps_the_camera_at_rest() {
         let (mut rig, hero) = rest();
         for _ in 0..60 {
-            let (position, aim) = step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &empty());
+            let (position, aim) =
+                step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
             assert!(
                 (position - Vec3::new(0.0, 2.0, 4.64)).length() < 1e-4,
                 "{position}"
@@ -418,7 +456,7 @@ mod tests {
         let mut yaw = rig.arm_yaw;
         for tick in 0..20 {
             hero.position += hero.velocity * TICK;
-            step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &empty());
+            step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
             let turned = wrap(rig.arm_yaw - yaw);
             yaw = rig.arm_yaw;
             if tick < 5 {
@@ -440,7 +478,7 @@ mod tests {
         hero.state = HeroState::Walk;
         for _ in 0..300 {
             hero.position += hero.velocity * TICK;
-            step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &empty());
+            step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
         }
         let lag = rig.pivot.z - rig.look.z;
         assert!(
@@ -458,7 +496,7 @@ mod tests {
         rig.distance_rate = 5.087_694 - 5.094_995_5;
         rig.actual_length = rig.distance;
         for _ in 0..300 {
-            step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &empty());
+            step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
         }
         assert!(
             (rig.distance - 4.643_494_6).abs() < 1e-4,
@@ -474,7 +512,7 @@ mod tests {
         hero.state = HeroState::Walk;
         for _ in 0..60 {
             hero.position += hero.velocity * TICK;
-            step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &empty());
+            step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
         }
         assert_eq!(rig.distance_target, 6.0);
         assert!(rig.distance > 5.0, "{}", rig.distance);
@@ -486,7 +524,7 @@ mod tests {
         hero.state = HeroState::Jump(JumpKind::Standing);
         for tick in 0..30 {
             hero.position.y = 1.5 * ops::sin(tick as f32 / 30.0 * PI);
-            let (position, _) = step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &empty());
+            let (position, _) = step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
             assert!((position.y - 2.0).abs() < 1e-4, "{position}");
         }
     }
@@ -498,6 +536,7 @@ mod tests {
             &mut rig,
             &hero,
             Vec2::new(0.1, 0.0),
+            None,
             0.0,
             &profile(),
             &empty(),
@@ -509,6 +548,7 @@ mod tests {
                 &mut rig,
                 &hero,
                 Vec2::new(0.0, -0.1),
+                None,
                 0.0,
                 &profile(),
                 &empty(),
@@ -522,6 +562,48 @@ mod tests {
     }
 
     #[test]
+    fn a_locked_target_turns_the_camera_to_look_past_the_hero_at_it() {
+        let (mut rig, hero) = rest();
+        // A target off to the right: the arm has a right angle to turn, so the push is
+        // full, at 1/400 of π/2 on the first tick.
+        let target = Some(Vec3::new(10.0, 1.0, 0.0));
+        let profile = profile();
+        step(&mut rig, &hero, Vec2::ZERO, target, 0.0, &profile, &empty());
+        assert!(
+            (rig.arm_yaw + FRAC_PI_2 / 400.0).abs() < 1e-6,
+            "{}",
+            rig.arm_yaw
+        );
+        // It ramps up and settles with the camera looking at the target.
+        let mut camera = (Vec3::ZERO, Vec3::ZERO);
+        for _ in 0..600 {
+            camera = step(&mut rig, &hero, Vec2::ZERO, target, 0.0, &profile, &empty());
+        }
+        let (position, _) = camera;
+        let view = Vec3::new(-position.x, 0.0, -position.z).normalize();
+        assert!(view.dot(Vec3::X) > 0.99, "{view}");
+    }
+
+    #[test]
+    fn turning_the_camera_overrides_the_lock() {
+        let (mut rig, hero) = rest();
+        let target = Some(Vec3::new(10.0, 1.0, 0.0));
+        step(
+            &mut rig,
+            &hero,
+            Vec2::new(0.05, 0.0),
+            target,
+            0.0,
+            &profile(),
+            &empty(),
+        );
+        assert!((rig.arm_yaw + 0.05).abs() < 1e-6, "{}", rig.arm_yaw);
+        // Losing the target starts the ramp again.
+        step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &empty());
+        assert_eq!(rig.lock_ticks, 0);
+    }
+
+    #[test]
     fn walls_keep_the_camera_in_front_of_them() {
         // A wall 2 u behind the hero.
         let world = ParryWorld::new(&[BodyPlacement::fixed(
@@ -532,7 +614,7 @@ mod tests {
             Quat::IDENTITY,
         )]);
         let (mut rig, hero) = rest();
-        let (position, _) = step(&mut rig, &hero, Vec2::ZERO, 0.0, &profile(), &world);
+        let (position, _) = step(&mut rig, &hero, Vec2::ZERO, None, 0.0, &profile(), &world);
         assert!(position.z < 2.0 - 0.24, "{position}");
     }
 }

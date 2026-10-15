@@ -16,13 +16,13 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 mod melee;
 
-pub use melee::{Strike, StrikeShape, ThrownWrench, best_target};
+pub use melee::{Strike, StrikeShape, ThrownWrench, best_target, target_score};
 
 use crate::{
     collision::{BodyId, CollisionWorld, Material},
     motor::{self, Ground},
     profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
-    rail::{GrindRail, RailPoint},
+    rail::{GrindRail, RailKind, RailPoint},
     stick::{Stick, read_stick},
     water,
 };
@@ -85,6 +85,8 @@ pub enum HeroState {
     LedgeShimmy(Side),
     /// Riding a rail.
     Grind,
+    /// Hanging from a zip line and sliding along it.
+    ZipLine,
     /// The charge boots' dash.
     Charge,
     /// Bounced back off a wall by a charge.
@@ -144,6 +146,7 @@ impl HeroState {
             HeroState::SurfaceSwim => 53,
             HeroState::SurfaceIdle => 54,
             HeroState::Dead => 57,
+            HeroState::ZipLine => 118,
             HeroState::Bounce => 121,
             HeroState::Charge => 125,
         }
@@ -183,6 +186,32 @@ impl HeroState {
             self,
             HeroState::Combo(_) | HeroState::JumpAttack | HeroState::Throw
         )
+    }
+}
+
+/// Which way the stick points while strafing, relative to the camera: UYA's four 90°
+/// sectors (0x4EAA78), where an exact diagonal counts as forward.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StrafeSide {
+    Left,
+    Right,
+    #[default]
+    Forward,
+    Back,
+}
+
+impl StrafeSide {
+    /// The sector of a stick vector, x to the right and y forward.
+    pub fn of(stick: Vec2) -> Self {
+        if stick.x > stick.y.abs() {
+            StrafeSide::Right
+        } else if -stick.x > stick.y.abs() {
+            StrafeSide::Left
+        } else if -stick.y > stick.x.abs() {
+            StrafeSide::Back
+        } else {
+            StrafeSide::Forward
+        }
     }
 }
 
@@ -326,7 +355,7 @@ pub struct HeroMotion {
     pub abilities: Abilities,
     /// Ticks left of ignoring the stick and buttons, as after a charge.
     pub input_lock: u32,
-    /// The rail ridden, or followed by a jump off it.
+    /// The rail ridden, or followed by a jump off it, or the zip line hung from.
     pub rail: Option<RailPoint>,
     /// How far his nose points down from level, in radians: swimming under water.
     pub pitch: f32,
@@ -334,6 +363,22 @@ pub struct HeroMotion {
     pub thrown: Option<ThrownWrench>,
     /// What the wrench can hit this tick.
     pub strikes: Vec<Strike>,
+    /// Strafe or lock-on is held: on the ground he faces the camera and moves with the
+    /// stick (`hero-controller.md`, "Strafing").
+    pub strafing: bool,
+    /// Where the stick last pointed while strafing.
+    pub strafe_side: StrafeSide,
+    /// Strafing backwards with the stick past `strafe.back_stick`, which walks backwards.
+    pub strafing_back: bool,
+    /// The camera's yaw this tick, which strafing turns him to.
+    camera_yaw: f32,
+    /// The strafe's own turning rate, kept apart from the walk's, radians per tick.
+    strafe_yaw_rate: f32,
+    /// The way he strafes: the stick's direction on the ground, kept when it is let go.
+    strafe_heading: Vec3,
+    /// Ticks left of the damping that follows strafing right, and left.
+    after_right: u32,
+    after_left: u32,
     /// The state before this one.
     previous_state: HeroState,
     /// Walking, but not yet past the setting-off speed.
@@ -395,6 +440,12 @@ pub struct HeroMotion {
     switch_ticks: u32,
     /// Ticks left before a rail can be got on again.
     no_rail_ticks: u32,
+    /// The speed along a zip line, u/s.
+    zip_speed: f32,
+    /// Ticks since a zip line ran out under him; 0 while on it.
+    zip_end: u32,
+    /// Ticks left before a zip line can be caught again.
+    no_zip_ticks: u32,
     /// The water he is in or over, found each tick.
     water: Option<WaterLevel>,
     /// The pitch's spring rate, radians per tick.
@@ -443,6 +494,14 @@ impl HeroMotion {
             pitch: 0.0,
             thrown: None,
             strikes: Vec::new(),
+            strafing: false,
+            strafe_side: StrafeSide::Forward,
+            strafing_back: false,
+            camera_yaw: yaw,
+            strafe_yaw_rate: 0.0,
+            strafe_heading: facing(yaw),
+            after_right: 0,
+            after_left: 0,
             previous_state: HeroState::Idle,
             setting_off: true,
             skidding: false,
@@ -480,6 +539,9 @@ impl HeroMotion {
             switch_from: None,
             switch_ticks: 0,
             no_rail_ticks: 0,
+            zip_speed: 0.0,
+            zip_end: 0,
+            no_zip_ticks: 0,
             water: None,
             pitch_rate: 0.0,
             float_height: 0.0,
@@ -790,6 +852,17 @@ pub fn step(
     let stick = read_stick(input.move_stick, &profile.stick);
     let wish = stick_on_ground(stick.vector, camera_yaw);
     hero.record_stick(&stick);
+    hero.camera_yaw = camera_yaw;
+    // Locking on holds both strafe buttons in UYA, so it strafes too.
+    hero.strafing = input.held(Action::Strafe) || input.held(Action::LockOn);
+    if !hero.strafing {
+        hero.strafing_back = false;
+    } else if stick.is_active() {
+        hero.strafe_side = StrafeSide::of(stick.vector);
+        hero.strafing_back =
+            hero.strafe_side == StrafeSide::Back && stick.magnitude > profile.strafe.back_stick;
+        hero.strafe_heading = wish.normalize_or_zero();
+    }
 
     hero.jump_press.update(input.pressed(Action::Jump));
     hero.crouch_press.update(input.pressed(Action::Crouch));
@@ -804,6 +877,7 @@ pub fn step(
     hero.input_lock = hero.input_lock.saturating_sub(1);
     hero.charge_cooldown = hero.charge_cooldown.saturating_sub(1);
     hero.no_rail_ticks = hero.no_rail_ticks.saturating_sub(1);
+    hero.no_zip_ticks = hero.no_zip_ticks.saturating_sub(1);
 
     // Ride whatever he stands on or hangs from.
     if let Some(ground) = hero.ground {
@@ -831,6 +905,7 @@ pub fn step(
     }
 
     try_get_on_rail(hero, profile, world);
+    try_catch_zip_line(hero, profile, world);
     hero.water = find_water(world, hero.position);
     enter_water(hero, profile);
     if hero.state.is_attacking() {
@@ -844,14 +919,15 @@ pub fn step(
         HeroState::Charge => charge_tick(hero, &stick, profile),
         HeroState::Bounce => bounce_tick(hero, profile),
         HeroState::Grind => grind_tick(hero, input, &stick, wish, profile, world),
+        HeroState::ZipLine => zip_line_tick(hero, profile, world),
         state if state.is_on_surface() => surface_tick(hero, input, &stick, wish, profile),
         state if state.is_underwater() => underwater_tick(hero, input, &stick, wish, profile),
         state if state.is_on_ledge() => ledge_tick(hero, input, &stick, wish, profile, world),
         state if state.is_airborne() => air_tick(hero, input, &stick, wish, profile),
         state if state.is_attacking() => {
-            melee::attack_tick(hero, input, &stick, wish, camera_yaw, profile, world);
+            melee::attack_tick(hero, input, &stick, wish, profile, world);
         }
-        _ => ground_tick(hero, input, &stick, wish, camera_yaw, profile),
+        _ => ground_tick(hero, input, &stick, wish, profile),
     }
 
     follow_rail_in_air(hero, &stick, wish, profile, world);
@@ -879,7 +955,7 @@ fn move_hero(
     world: &dyn CollisionWorld,
 ) {
     let state = hero.state;
-    if state == HeroState::Grind {
+    if matches!(state, HeroState::Grind | HeroState::ZipLine) {
         // The rail carries him; nothing else stops him.
         hero.position += hero.velocity * TICK;
         hero.ground = None;
@@ -1012,7 +1088,6 @@ fn ground_tick(
     input: &PlayerInput,
     stick: &Stick,
     wish: Vec3,
-    camera_yaw: f32,
     profile: &HeroProfile,
 ) {
     let walk = &profile.walk;
@@ -1047,14 +1122,17 @@ fn ground_tick(
     };
     if hero.state != HeroState::Crouch && hero.jump_press.within(jump_buffer) {
         hero.jump_press.used = true;
-        // While strafing, a jump to the side or back is a flip; forwards it is a jump.
-        if input.held(Action::Strafe)
-            && stick.is_active()
-            && stick.vector.y < 0.7 * stick.vector.length()
+        // While strafing, a jump with the stick well over to a side or back is a flip;
+        // otherwise it is a jump (UYA 0x502368). DL's walk doesn't flip.
+        if hero.strafing
+            && profile.strafe.flips
+            && stick.magnitude > profile.strafe.flip_stick
+            && hero.strafe_side != StrafeSide::Forward
         {
             start_flip(hero, wish_direction, stick, profile);
         } else {
-            let kind = if stick.magnitude > walk.run_jump_stick {
+            // Strafing never run-jumps.
+            let kind = if stick.magnitude > walk.run_jump_stick && !hero.strafing {
                 JumpKind::Run
             } else {
                 JumpKind::Standing
@@ -1100,23 +1178,22 @@ fn ground_tick(
         }
     }
 
-    if input.held(Action::Strafe) && stick.is_active() {
-        // Strafing faces the camera and moves with the stick. The games' strafe speeds
-        // aren't read yet, so this reuses the walk's [placeholder].
+    if hero.strafing && stick.is_active() {
         hero.set_state(HeroState::Walk);
         hero.stop_ticks = 0;
         hero.skidding = false;
-        turn(hero, camera_yaw, walk.turn_moving);
-        let target = wish_direction * walk.speed * stick.magnitude;
-        let current = hero.horizontal_velocity();
-        let rate = if target.length() >= current.length() {
+        hero.sliding = false;
+        strafe_walk(hero, profile);
+        // The walk's speeds, but along the stick (`hero-controller.md`, "Strafing").
+        let target = walk.speed * stick.magnitude;
+        let rate = if hero.speed < target {
             walk.accel
         } else {
             walk.brake
         };
-        let next = current + (target - current).clamp_length_max(rate * TICK);
-        hero.set_horizontal_velocity(next);
-        hero.speed = next.length();
+        hero.speed = approach(hero.speed, target, rate * TICK);
+        hero.set_horizontal_velocity(wish_direction * hero.speed);
+        hero.velocity.y = 0.0;
         return;
     }
 
@@ -1200,6 +1277,17 @@ fn ground_tick(
         hero.skidding = false;
         hero.sliding = false;
         match hero.state {
+            HeroState::Walk if hero.strafing => {
+                // A strafe brakes at the skid rate, turning to the camera, and only idles
+                // once he faces within a couple of degrees of it.
+                strafe_walk(hero, profile);
+                hero.speed = approach(hero.speed, 0.0, walk.skid_brake * TICK);
+                let off = wrap(hero.camera_yaw - hero.yaw).abs();
+                if off < profile.strafe.idle_within_degrees.to_radians() {
+                    hero.speed = hero.speed.min(walk.stop_residual);
+                    hero.set_state(HeroState::Idle);
+                }
+            }
             HeroState::Walk if hero.stop_ticks < walk.stop_skid_ticks => {
                 // Letting go: a couple of ticks of skid braking...
                 hero.speed = approach(hero.speed, 0.0, walk.skid_brake * TICK);
@@ -1216,9 +1304,50 @@ fn ground_tick(
             }
         }
     }
-    let facing = hero.facing();
-    hero.set_horizontal_velocity(facing * hero.speed);
+    // A strafe slides to a stop the way it went.
+    let direction = if hero.strafing {
+        hero.strafe_heading
+    } else {
+        hero.facing()
+    };
+    hero.set_horizontal_velocity(direction * hero.speed);
     hero.velocity.y = 0.0;
+}
+
+/// What the walk does each tick while strafing, before the speed (UYA 0x4EA628): changing
+/// sides damps the speed, and he turns to the camera.
+fn strafe_walk(hero: &mut HeroMotion, profile: &HeroProfile) {
+    let strafe = &profile.strafe;
+    hero.after_right = hero.after_right.saturating_sub(1);
+    hero.after_left = hero.after_left.saturating_sub(1);
+    // The game's two timers aren't symmetric: right to left stops him for a couple of
+    // ticks, left to right eases him in.
+    match hero.strafe_side {
+        StrafeSide::Left => {
+            hero.after_left = strafe.reverse_ticks;
+            if hero.after_right > 0 {
+                hero.speed = 0.0;
+            }
+        }
+        StrafeSide::Right => {
+            hero.after_right = strafe.reverse_ticks;
+            if hero.after_left > 0 {
+                let ticks = strafe.reverse_ticks as f32;
+                hero.speed *= (ticks - hero.after_left as f32) / ticks;
+            }
+        }
+        StrafeSide::Forward | StrafeSide::Back => {}
+    }
+    turn_to_camera(hero, profile);
+    // The walk's own turning starts afresh when the strafe ends.
+    hero.yaw_rate = 0.0;
+}
+
+/// Turns him to the camera on the strafe's spring and its own rate (UYA 0x4EA5B0).
+fn turn_to_camera(hero: &mut HeroMotion, profile: &HeroProfile) {
+    hero.yaw_rate = hero.strafe_yaw_rate;
+    turn(hero, hero.camera_yaw, profile.strafe.turn);
+    hero.strafe_yaw_rate = hero.yaw_rate;
 }
 
 fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
@@ -1247,8 +1376,12 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
             | JumpKind::GrindSwitch
             | JumpKind::Water
     ) {
-        let facing = hero.facing();
-        hero.set_horizontal_velocity(facing * hero.speed);
+        let direction = if hero.strafing {
+            hero.strafe_heading
+        } else {
+            hero.facing()
+        };
+        hero.set_horizontal_velocity(direction * hero.speed);
     }
     hero.velocity.y = 0.0;
     hero.long_jump_base = hero.speed;
@@ -1737,6 +1870,9 @@ fn try_get_on_rail(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn Col
     };
     let feet = hero.position;
     for (index, rail) in world.rails().iter().enumerate() {
+        if rail.kind != RailKind::Grind {
+            continue;
+        }
         let at = rail.nearest(index, feet);
         let point = rail.position(at);
         let across = Vec2::new(point.x - feet.x, point.z - feet.z).length();
@@ -1931,7 +2067,7 @@ fn find_switch_rail(
     while distance <= grind.switch_far + 1e-4 {
         let probe = ahead + side * distance;
         for (index, rail) in rails.iter().enumerate() {
-            if index == current {
+            if index == current || rail.kind != RailKind::Grind {
                 continue;
             }
             let point = rail.position(rail.nearest(index, probe));
@@ -1943,6 +2079,95 @@ fn find_switch_rail(
         distance += grind.switch_step;
     }
     None
+}
+
+/// Catches a zip line's cable with the hands (`hero-controller.md`, "Zip lines"): jumping,
+/// falling or grinding, as the games' state types 4, 2 and 15. A rail found by the grind
+/// search came first.
+fn try_catch_zip_line(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
+    let may = matches!(
+        hero.state,
+        HeroState::Fall | HeroState::Jump(_) | HeroState::DoubleJump | HeroState::Grind
+    );
+    if !may || hero.no_zip_ticks > 0 {
+        return;
+    }
+    let zip = &profile.zip_line;
+    let hands = hero.position + Vec3::Y * zip.hands_up;
+    for (index, rail) in world.rails().iter().enumerate() {
+        if rail.kind != RailKind::ZipLine {
+            continue;
+        }
+        let at = rail.nearest(index, hands);
+        let point = rail.position(at);
+        let across = Vec2::new(point.x - hands.x, point.z - hands.z).length();
+        let rise = hands.y - point.y;
+        if across < zip.reach
+            && rise.abs() < zip.reach_vertical
+            && rise > -zip.below
+            && rise < zip.above
+        {
+            start_zip_line(hero, rail, at, profile);
+            return;
+        }
+    }
+}
+
+fn start_zip_line(hero: &mut HeroMotion, rail: &GrindRail, at: RailPoint, profile: &HeroProfile) {
+    let zip = &profile.zip_line;
+    hero.zip_speed = (hero.velocity.dot(rail.direction(at)) * zip.catch_share).max(0.0);
+    hero.zip_end = 0;
+    hero.rail_offset = hero.position - (rail.position(at) - Vec3::Y * zip.hang_below);
+    hero.rail_pull = 0.0;
+    hero.rail = Some(at);
+    hero.switch_from = None;
+    hero.ledge = None;
+    hero.wall = None;
+    hero.ground = None;
+    hero.velocity = Vec3::ZERO;
+    hero.set_state(HeroState::ZipLine);
+}
+
+/// One tick on a zip line (state 118). The cable carries him at a speed that only builds,
+/// and nothing the player does changes it; at its end he drops off.
+fn zip_line_tick(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
+    let zip = &profile.zip_line;
+    if hero.zip_end > 0 {
+        // Past the end, flying on the way the cable went.
+        hero.zip_end += 1;
+        hero.velocity.y -= zip.end_gravity * TICK;
+        if hero.zip_end >= zip.end_ticks {
+            hero.no_zip_ticks = zip.no_catch_ticks;
+            let velocity = hero.velocity;
+            leave_rail(hero, velocity);
+        }
+        return;
+    }
+    let Some((rail, mut at)) = hero
+        .rail
+        .and_then(|at| world.rails().get(at.rail).map(|rail| (rail, at)))
+    else {
+        hero.no_zip_ticks = zip.no_catch_ticks;
+        leave_rail(hero, Vec3::ZERO);
+        return;
+    };
+    let along = rail.direction(at);
+    hero.zip_speed = approach(hero.zip_speed, zip.speed, zip.accel * TICK);
+    hero.speed = hero.zip_speed;
+    turn(hero, yaw_of(flat(along)), zip.turn);
+    let on = rail.advance(&mut at, hero.zip_speed * TICK);
+    hero.rail = Some(at);
+    if !on {
+        hero.zip_end = 1;
+        hero.velocity = along * hero.zip_speed;
+        return;
+    }
+    // The hang: from where he caught the cable to under it, on the game's spring.
+    let gap = hero.rail_offset.length();
+    let closing = -game_spring(-gap, 0.0, zip.hang, zip.hang_cap, &mut hero.rail_pull);
+    hero.rail_offset = hero.rail_offset.normalize_or_zero() * closing;
+    let target = rail.position(at) - Vec3::Y * zip.hang_below + hero.rail_offset;
+    hero.velocity = (target - hero.position) / TICK;
 }
 
 /// The water at `feet`, as the games' ground probe finds it (`hero-controller.md`,
@@ -2457,6 +2682,9 @@ fn air_tick(
                 // Following a rail, or flying on from its end (`follow_rail_in_air`).
                 JumpKind::Grind | JumpKind::GrindSwitch => {}
                 JumpKind::Flip => {
+                    if hero.strafing {
+                        turn_to_camera(hero, profile);
+                    }
                     hero.flip_speed =
                         approach(hero.flip_speed, hero.flip_target, profile.flip.accel * TICK);
                     hero.set_horizontal_velocity(hero.flip_direction * hero.flip_speed);
@@ -2502,8 +2730,12 @@ fn air_tick(
                         air.pushoff_brake
                     };
                     let next = approach(speed, target, rate * TICK);
-                    let facing = hero.facing();
-                    hero.set_horizontal_velocity(facing * next);
+                    let direction = if hero.strafing {
+                        hero.strafe_heading
+                    } else {
+                        hero.facing()
+                    };
+                    hero.set_horizontal_velocity(direction * next);
                 }
                 _ => {
                     air_control(
@@ -2725,9 +2957,12 @@ fn air_control(
     profile: &HeroProfile,
 ) {
     let air = &profile.air;
+    face_in_air(hero, wish, stick, profile);
     let current = hero.horizontal_velocity();
     let stick_length = stick.vector.length().min(1.0);
-    if stick_length < air.release_below {
+    // The game compares the speed asked for with a share of the walk speed, so a slow move
+    // such as the double jump lets go at a firmer stick (UYA 0x4EDE80, DL 0x680A88).
+    if air_speed * stick_length < air.release_below * profile.walk.speed {
         let speed = approach(current.length(), 0.0, release_brake * TICK);
         hero.set_horizontal_velocity(current.normalize_or_zero() * speed);
         return;
@@ -2742,7 +2977,15 @@ fn air_control(
     let factor = (1.5 * (1.0 - cos)).clamp(air.control_factor_min, air.control_factor_max);
     let next = current + (target - current).clamp_length_max(air.control_accel * factor * TICK);
     hero.set_horizontal_velocity(next);
-    face_movement(hero, wish, stick, profile);
+}
+
+/// Jumping and falling he turns to the way he steers, or to the camera while strafing.
+fn face_in_air(hero: &mut HeroMotion, wish: Vec3, stick: &Stick, profile: &HeroProfile) {
+    if hero.strafing {
+        turn(hero, hero.camera_yaw, profile.air.turn);
+    } else {
+        face_movement(hero, wish, stick, profile);
+    }
 }
 
 fn face_movement(hero: &mut HeroMotion, wish: Vec3, stick: &Stick, profile: &HeroProfile) {

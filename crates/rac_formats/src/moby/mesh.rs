@@ -6,18 +6,30 @@
 //! earlier one blended, and its duplicate vertices copy cached ones. So a packet only
 //! makes sense in its list, which [`Mesh::assemble`] replays in order.
 //!
+//! Metal packets are a second pass over some of those triangles, which the game draws with
+//! a chrome or glass map instead of the class's textures. Their vertices carry their own
+//! joints and weights, and use neither the slots nor the cache.
+//!
 //! The rules follow ReRAC's moby notes (ISC, `docs/research/prior-art.md`), written from
-//! Wrench's behaviour on R&C1; this code is our own, and each rule was checked on UYA's
-//! data.
+//! Wrench's behaviour and the game's code on R&C1; this code is our own, and each rule was
+//! checked on UYA's data.
 
 use crate::{FormatError, Image};
 
-/// Which level of detail a packet draws.
+/// Which level of detail a packet draws, or that it's a metal packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketKind {
     High,
     Low,
+    /// Drawn after the high-detail packets, over some of their triangles, with the
+    /// level's chrome map ([`CHROME`]) or glass map ([`GLASS`]).
+    Metal,
 }
+
+/// The texture number a metal packet's switch selects for the level's chrome map.
+pub const CHROME: i32 = -2;
+/// The texture number a metal packet's switch selects for the level's glass map.
+pub const GLASS: i32 = -3;
 
 /// A VU0 address that means "don't store".
 const NO_STORE: u8 = 0xF4;
@@ -33,7 +45,8 @@ const IN_FLIGHT: usize = 7;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Vertex {
     /// As stored: the ID of the vertex [`IN_FLIGHT`] before (low 9 bits), then which VU0
-    /// matrix slots and weights it uses, and which joint it moves into a slot.
+    /// matrix slots and weights it uses, and which joint it moves into a slot. A metal
+    /// vertex's are its up to three joints, how many it uses, their weights and a pad.
     pub blend: [u8; 8],
     /// Azimuth and elevation, 256 steps a turn ([`normal`]).
     pub normal: [u8; 2],
@@ -48,17 +61,18 @@ pub struct Packet {
     /// Where its packet table entry is, for errors.
     pub entry: u32,
     /// The packet's own vertices: two-joint blends, then three-joint blends, then
-    /// vertices that use one matrix.
+    /// vertices that use one matrix. A metal packet's are all of one kind.
     pub vertices: Vec<Vertex>,
     pub two_way: usize,
     pub three_way: usize,
-    /// Each own vertex's ID: the vertex-cache entry it fills.
+    /// Each own vertex's ID: the vertex-cache entry it fills. None for metal packets.
     pub ids: Vec<u16>,
     /// Joints moved into VU0 matrix slots before the vertices: (joint, VU0 address).
     pub matrix_transfers: Vec<[u8; 2]>,
     /// The vertex-cache entries the packet sends again after its own vertices.
     pub duplicates: Vec<u16>,
     /// The texture coordinates of every vertex sent, own and duplicate (1.0 = 4096).
+    /// Metal packets have none: the game maps them from the vertices' normals.
     pub sts: Vec<[i16; 2]>,
     /// The strip indices after their 4-byte header (see [`Mesh::assemble`]).
     pub strip: Vec<u8>,
@@ -88,6 +102,9 @@ impl Packet {
         let vif_quadwords = image.u16(entry + 4)? as u32;
         let table = from + image.u32(entry + 8)?;
         let table_quadwords = image.u8(entry + 0xC)? as usize;
+        if kind == PacketKind::Metal {
+            return Self::read_metal(image, entry, vif, vif_quadwords, table, table_quadwords);
+        }
 
         let field = |index: u32| -> Result<usize, FormatError> {
             Ok(image.u16(table + index * 2)? as usize)
@@ -162,44 +179,12 @@ impl Packet {
             ids.push(id & 0x1FF);
         }
 
-        // Texture coordinates (V2-16, regular packets only), the strips (V4-8), and the
-        // texture switches' GS registers (V4-32), if the packet changes texture.
-        let unpacks = vif_unpacks(image, vif, vif_quadwords)?;
-        let mut unpacks = unpacks.iter().peekable();
-        let mut sts = Vec::new();
-        if let Some(&&(at, len, format)) = unpacks.peek()
-            && format == 0x05
-        {
-            unpacks.next();
-            for index in 0..(len / 4).min(sent) as u32 {
-                sts.push([image.i16(at + index * 4)?, image.i16(at + index * 4 + 2)?]);
-            }
-        }
-        if sts.len() < sent {
-            return Err(invalid(
-                "VIF list",
-                format!("{} texture coordinates for {sent} vertices", sts.len()),
-            ));
-        }
-        let Some(&(at, len, _)) = unpacks.next() else {
-            return Err(invalid("VIF list", "no strip unpack".into()));
-        };
-        let indices = image.bytes(at, len)?;
-        if indices.len() < 4 {
-            return Err(invalid("strip", "shorter than its header".into()));
-        }
-        let mut textures = Vec::new();
-        let mut switch_indices = vec![indices[2]];
-        if let Some(&(at, len, _)) = unpacks.next() {
-            let blocks = len / 0x40;
-            for block in 0..blocks as u32 {
-                textures.push(image.u32(at + block * 0x40 + 0x20)? as i32);
-            }
-            for quadword in 0..blocks as u32 {
-                switch_indices.push(image.u8(at + quadword * 0x10 + 0xC)?);
-            }
-        }
-
+        let Vif {
+            sts,
+            strip,
+            textures,
+            switch_indices,
+        } = read_vif(image, entry, vif, vif_quadwords, sent)?;
         Ok(Self {
             kind,
             entry,
@@ -210,7 +195,58 @@ impl Packet {
             matrix_transfers,
             duplicates: duplicate_slots,
             sts,
-            strip: indices[4..].to_vec(),
+            strip,
+            textures,
+            switch_indices,
+        })
+    }
+
+    /// A metal packet: a vertex table of a count, three words the game's EE code uses for
+    /// its output, and the vertices; and a VIF list of strips and texture switches only.
+    fn read_metal(
+        image: &Image,
+        entry: u32,
+        vif: u32,
+        vif_quadwords: u32,
+        table: u32,
+        table_quadwords: usize,
+    ) -> Result<Self, FormatError> {
+        let count = image.u32(table)? as usize;
+        if count + 1 > table_quadwords {
+            return Err(FormatError::Invalid {
+                what: "metal vertex table",
+                address: entry,
+                detail: format!("{count} vertices in {table_quadwords} quadwords"),
+            });
+        }
+        let mut vertices = Vec::with_capacity(count);
+        for index in 0..count as u32 {
+            let at = table + 0x10 + index * 0x10;
+            let mut blend = [0; 8];
+            blend.copy_from_slice(image.bytes(at + 8, 8)?);
+            vertices.push(Vertex {
+                blend,
+                normal: [image.u8(at + 6)?, image.u8(at + 7)?],
+                position: [image.i16(at)?, image.i16(at + 2)?, image.i16(at + 4)?],
+            });
+        }
+        let Vif {
+            sts,
+            strip,
+            textures,
+            switch_indices,
+        } = read_vif(image, entry, vif, vif_quadwords, 0)?;
+        Ok(Self {
+            kind: PacketKind::Metal,
+            entry,
+            vertices,
+            two_way: 0,
+            three_way: 0,
+            ids: Vec::new(),
+            matrix_transfers: Vec::new(),
+            duplicates: Vec::new(),
+            sts,
+            strip,
             textures,
             switch_indices,
         })
@@ -271,10 +307,11 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    /// Assembles one list of packets (a level of detail), replaying how VU0 skins the
-    /// vertices and VU1 caches them:
+    /// Assembles one list of packets (a level of detail, or the metal packets), replaying
+    /// how VU0 skins the vertices and VU1 caches them:
     /// - Matrix transfers move joints into VU0 slots; a vertex may move one more in before
     ///   it loads. Blended vertices mix two or three slots and may store the result.
+    ///   Metal vertices name their joints and weights themselves.
     /// - Each own vertex fills the vertex cache at its ID; each duplicate copies a cached
     ///   vertex and takes the next texture coordinate.
     /// - Strip indices count from 1. A set high bit means the vertex doesn't complete a
@@ -320,7 +357,23 @@ impl Mesh {
             let base = mesh.vertices.len() as u32;
             for (index, vertex) in packet.vertices.iter().enumerate() {
                 let b = vertex.blend;
-                let skin = if index < packet.two_way {
+                let skin = if packet.kind == PacketKind::Metal {
+                    // Joints, how many are used, then weights; one joint needs no weight.
+                    match b[3] {
+                        0 | 1 => Skin::one(b[0]),
+                        2 | 3 => Skin {
+                            joints: [b[0], b[1], if b[3] == 3 { b[2] } else { 0 }],
+                            weights: [
+                                b[4] as u16,
+                                b[5] as u16,
+                                if b[3] == 3 { b[6] as u16 } else { 0 },
+                            ],
+                        },
+                        count => {
+                            return Err(invalid(format!("a metal vertex with {count} joints")));
+                        }
+                    }
+                } else if index < packet.two_way {
                     store(&mut slots, b[6], Skin::one(b[1] >> 1))?;
                     let skin = Skin {
                         joints: [joint(&slots, b[2])?, joint(&slots, b[3])?, 0],
@@ -349,10 +402,12 @@ impl Mesh {
                 let made = MeshVertex {
                     position: vertex.position,
                     normal: vertex.normal,
-                    st: packet.sts[index],
+                    st: packet.sts.get(index).copied().unwrap_or_default(),
                     skin,
                 };
-                cache[packet.ids[index] as usize] = Some(made);
+                if let Some(&id) = packet.ids.get(index) {
+                    cache[id as usize] = Some(made);
+                }
                 mesh.vertices.push(made);
             }
             for (index, &entry) in packet.duplicates.iter().enumerate() {
@@ -422,6 +477,72 @@ pub fn normal(packed: [u8; 2]) -> [f32; 3] {
         azimuth.sin() * elevation.cos(),
         elevation.sin(),
     ]
+}
+
+/// What a packet's VIF list carries, as [`Packet`] keeps it.
+struct Vif {
+    sts: Vec<[i16; 2]>,
+    strip: Vec<u8>,
+    textures: Vec<i32>,
+    switch_indices: Vec<u8>,
+}
+
+/// A packet's VIF list: the texture coordinates of `sent` vertices (V2-16, regular packets
+/// only), the strip indices after their header (V4-8), and each texture switch's texture
+/// and strip index (V4-32 GS registers, if the packet changes texture).
+fn read_vif(
+    image: &Image,
+    entry: u32,
+    vif: u32,
+    vif_quadwords: u32,
+    sent: usize,
+) -> Result<Vif, FormatError> {
+    let invalid = |detail: String| FormatError::Invalid {
+        what: "VIF list",
+        address: entry,
+        detail,
+    };
+    let unpacks = vif_unpacks(image, vif, vif_quadwords)?;
+    let mut unpacks = unpacks.iter().peekable();
+    let mut sts = Vec::new();
+    if let Some(&&(at, len, format)) = unpacks.peek()
+        && format == 0x05
+    {
+        unpacks.next();
+        for index in 0..(len / 4).min(sent) as u32 {
+            sts.push([image.i16(at + index * 4)?, image.i16(at + index * 4 + 2)?]);
+        }
+    }
+    if sts.len() < sent {
+        return Err(invalid(format!(
+            "{} texture coordinates for {sent} vertices",
+            sts.len()
+        )));
+    }
+    let Some(&(at, len, _)) = unpacks.next() else {
+        return Err(invalid("no strip unpack".into()));
+    };
+    let indices = image.bytes(at, len)?;
+    if indices.len() < 4 {
+        return Err(invalid("the strip is shorter than its header".into()));
+    }
+    let mut textures = Vec::new();
+    let mut switch_indices = vec![indices[2]];
+    if let Some(&(at, len, _)) = unpacks.next() {
+        let blocks = len / 0x40;
+        for block in 0..blocks as u32 {
+            textures.push(image.u32(at + block * 0x40 + 0x20)? as i32);
+        }
+        for quadword in 0..blocks as u32 {
+            switch_indices.push(image.u8(at + quadword * 0x10 + 0xC)?);
+        }
+    }
+    Ok(Vif {
+        sts,
+        strip: indices[4..].to_vec(),
+        textures,
+        switch_indices,
+    })
 }
 
 /// Each UNPACK in a VIF list: (address of its data, length in bytes, format), where the
@@ -658,6 +779,81 @@ mod tests {
         assert_eq!(mesh.vertices.len(), 3);
         assert_eq!(mesh.vertices[2].position, [10, -20, 30], "the duplicate");
         assert_eq!(mesh.vertices[2].st, [5, 6]);
+    }
+
+    /// A metal packet table entry: three vertices on one, two and three joints, and a VIF
+    /// list of one triangle that switches to the chrome map.
+    fn metal_packet() -> (Vec<u8>, u32) {
+        let mut w = Writer::default();
+        let entry = 0x100;
+        w.at(entry)
+            .u32(0x200)
+            .u16(6)
+            .u16(0)
+            .u32(0x300)
+            .u8(4)
+            .u8(0)
+            .u8(0)
+            .u8(3);
+        // The strips (V4-8, three words), then one block of GS registers (V4-32).
+        w.at(0x200).u32(0x6E03_0000);
+        w.put(&[0, 0, 0x81, 0, 0, 2, 3, 1, 1, 1, 0, 0]);
+        w.u32(0x6C04_0000);
+        w.put(&[0; 0x20]).u32(CHROME as u32).put(&[0; 0x1C]);
+        // The count and the EE's output offsets, then the vertices.
+        w.at(0x300).u32(3).u32(0x10).u32(0x30).u32(0x40);
+        w.u16(1).u16(2).u16(3).put(&[4, 5, 7, 0, 0, 1, 0, 0, 0, 0]);
+        w.u16(10)
+            .u16(0)
+            .u16(0)
+            .put(&[0, 0, 7, 8, 0, 2, 200, 56, 0, 0]);
+        w.u16(20)
+            .u16(0)
+            .u16(0)
+            .put(&[0, 0, 7, 8, 9, 3, 100, 100, 56, 0]);
+        (w.bytes, entry)
+    }
+
+    #[test]
+    fn metal_vertices_name_their_own_joints() {
+        let (bytes, entry) = metal_packet();
+        let packet = Packet::read(&Image::new(&bytes, 0), entry, PacketKind::Metal, 0).unwrap();
+        assert_eq!(packet.vertices[0].position, [1, 2, 3]);
+        assert_eq!(packet.vertices[0].normal, [4, 5]);
+        assert!(packet.sts.is_empty() && packet.ids.is_empty());
+        assert_eq!(packet.textures, [CHROME]);
+
+        let mesh = Mesh::assemble(&[packet]).unwrap();
+        let skins: Vec<Skin> = mesh.vertices.iter().map(|v| v.skin).collect();
+        assert_eq!(
+            skins,
+            [
+                Skin::one(7),
+                Skin {
+                    joints: [7, 8, 0],
+                    weights: [200, 56, 0]
+                },
+                Skin {
+                    joints: [7, 8, 9],
+                    weights: [100, 100, 56]
+                },
+            ]
+        );
+        assert_eq!(
+            mesh.triangles,
+            [MeshTriangle {
+                corners: [0, 1, 2],
+                texture: CHROME
+            }]
+        );
+    }
+
+    #[test]
+    fn a_metal_vertex_on_four_joints_is_an_error() {
+        let (mut bytes, entry) = metal_packet();
+        bytes[0x310 + 0xB] = 4;
+        let packet = Packet::read(&Image::new(&bytes, 0), entry, PacketKind::Metal, 0).unwrap();
+        assert!(Mesh::assemble(&[packet]).is_err());
     }
 
     #[test]

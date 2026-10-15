@@ -7,16 +7,20 @@
 //! - Solid geometry comes from [`Collider`] components, with an optional [`Material`],
 //!   gathered into a [`CollisionScene`] each tick, together with [`GrindRail`]s and
 //!   [`Water`]. The controller itself only sees the narrow [`CollisionWorld`] interface.
-//! - [`HeroTuning`] holds the movement profile, UYA NTSC-U's unless the app sets another.
+//! - [`HeroTuning`] holds the movement profile, UYA NTSC-U's unless the app sets another,
+//!   such as Deadlocked's ([`HeroProfile::dl`]); the games differ only in its numbers.
 //! - Health, hits ([`HurtHero`]), death and [`Checkpoint`]s are handled here, around the
 //!   controller.
 //! - The wrench's attacks turn to [`AimTarget`]s, and what they can hit each tick is in
 //!   [`HeroMotion::strikes`] for the game's combat code (`rac_combat`) to test.
 //! - [`FollowCamera`] is a basic third-person camera (P1.7).
+//! - Strafing faces the camera; with a gamepad, [`LockOn`] holds a target that the camera
+//!   turns to.
 
 pub mod camera;
 pub mod collision;
 pub mod controller;
+pub mod lock_on;
 pub mod motor;
 pub mod profile;
 pub mod rail;
@@ -30,15 +34,17 @@ use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
 pub use camera::FollowCamera;
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
 pub use controller::{
-    Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side, Strike, StrikeShape, ThrownWrench,
+    Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike, StrikeShape,
+    ThrownWrench,
 };
+pub use lock_on::LockOn;
 pub use profile::HeroProfile;
-pub use rail::GrindRail;
+pub use rail::{GrindRail, RailKind};
 pub use water::Water;
 
 /// A player-controlled hero.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-#[require(SimTransform)]
+#[require(SimTransform, LockOn)]
 pub struct Hero {
     /// The `PlayerInputs` slot that steers him.
     pub player: usize,
@@ -91,7 +97,8 @@ pub struct HurtHero {
     pub knockback: Vec3,
 }
 
-/// The movement profile every hero uses.
+/// The movement profile every hero uses. Replacing it changes how the heroes move from
+/// the next tick.
 #[derive(Resource, Debug, Clone)]
 pub struct HeroTuning(pub HeroProfile);
 
@@ -135,7 +142,12 @@ impl Plugin for HeroPlugin {
             .add_message::<HurtHero>()
             .add_systems(
                 FixedUpdate,
-                (gather_colliders, move_heroes, reach_checkpoints)
+                (
+                    gather_colliders,
+                    move_heroes,
+                    lock_on_targets,
+                    reach_checkpoints,
+                )
                     .chain()
                     .in_set(SimSet::Hero),
             )
@@ -289,6 +301,48 @@ fn move_heroes(
         if teleport {
             previous.0 = *transform;
         }
+    }
+}
+
+/// Picks, keeps and drops each hero's [`LockOn`] target among the [`AimTarget`]s.
+fn lock_on_targets(
+    inputs: Res<PlayerInputs>,
+    tuning: Res<HeroTuning>,
+    scene: Res<CollisionScene>,
+    cameras: Query<&FollowCamera>,
+    targets: Query<(
+        Entity,
+        &AimTarget,
+        Option<&Transform>,
+        Option<&SimTransform>,
+    )>,
+    mut heroes: Query<(&Hero, &HeroBody, &mut LockOn)>,
+) {
+    let mut target_list: Vec<(Entity, Vec3)> = targets
+        .iter()
+        .filter_map(|(entity, target, transform, simulated)| {
+            let at = match simulated {
+                Some(simulated) => simulated.translation,
+                None => transform?.translation,
+            };
+            Some((entity, at + Vec3::Y * target.height))
+        })
+        .collect();
+    target_list.sort_by_key(|(entity, _)| *entity);
+    for (hero, body, mut lock) in &mut heroes {
+        let camera_yaw = cameras
+            .iter()
+            .find(|camera| camera.player == hero.player)
+            .map_or(body.0.yaw, |camera| camera.yaw);
+        lock_on::update(
+            &mut lock,
+            &body.0,
+            &inputs.get(hero.player),
+            camera_yaw,
+            &target_list,
+            &tuning.0.lock_on,
+            &scene.0,
+        );
     }
 }
 

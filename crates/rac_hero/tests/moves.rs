@@ -838,6 +838,166 @@ fn a_sideways_stick_switches_to_the_next_rail() {
     );
 }
 
+// --- Zip lines -------------------------------------------------------------------------
+// Read in UYA's code and traced on Florana (`hero-controller.md`, "Zip lines").
+
+/// The hero standing on the floor facing −z, under zip lines whose first starts 2.2 u up
+/// just ahead of him.
+fn zip_lines(cables: Vec<GrindRail>) -> Rig {
+    let mut rig = Rig {
+        hero: HeroMotion::new(Vec3::new(0.0, 0.0, -0.5), 0.0),
+        profile: HeroProfile::uya(),
+        world: ParryWorld::new(&[floor()]).with_rails(cables),
+    };
+    rig.tick(&idle());
+    rig
+}
+
+fn cable(from: Vec3, to: Vec3) -> GrindRail {
+    GrindRail::zip_line(vec![from, to])
+}
+
+/// Jumps and holds the jump until the hands catch the first cable.
+fn catch(rig: &mut Rig) {
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    rig.until(30, &input(None, &[Action::Jump], &[]), |hero| {
+        hero.state == HeroState::ZipLine
+    });
+}
+
+#[test]
+fn a_jump_under_a_zip_line_catches_it_and_hangs_the_feet_below() {
+    let mut rig = zip_lines(vec![cable(
+        Vec3::new(0.0, 2.2, 0.0),
+        Vec3::new(0.0, 2.2, -90.0),
+    )]);
+    catch(&mut rig);
+    assert_eq!(rig.hero.state.game_number(), 118);
+    // The hands, 1.34 u up, reach the cable's window (0.7 under to 0.4 over) early in
+    // the jump.
+    assert!(
+        rig.hero.position.y < 2.2 - 1.34 + 0.4,
+        "{}",
+        rig.hero.position
+    );
+    rig.ticks(60, &idle());
+    assert_eq!(rig.hero.state, HeroState::ZipLine);
+    // Settled 1.63 u under the cable, as on Florana's, and right under it.
+    assert!(
+        (rig.hero.position.y - (2.2 - 1.63)).abs() < 0.01,
+        "{}",
+        rig.hero.position
+    );
+    assert!(rig.hero.position.x.abs() < 0.01, "{}", rig.hero.position);
+    assert!(rig.hero.velocity.z < 0.0);
+}
+
+#[test]
+fn a_zip_lines_speed_builds_to_14_u_s_whatever_its_slope() {
+    // Florana's trace: from 0, +0.0025 u per frame each frame to 0.23333 (94 frames).
+    for drop in [0.0, 30.0, -10.0] {
+        let mut rig = zip_lines(vec![cable(
+            Vec3::new(0.0, 2.2, 0.0),
+            Vec3::new(0.0, 2.2 - drop, -95.0),
+        )]);
+        // It starts at half the jump's velocity along the cable, 0 unless it climbs.
+        catch(&mut rig);
+        let start = rig.hero.speed;
+        rig.ticks(30, &idle());
+        assert!(
+            (rig.hero.speed - start - 30.0 * 0.15).abs() < 1e-3,
+            "{drop}: {}",
+            rig.hero.speed
+        );
+        rig.ticks(70, &idle());
+        assert_eq!(rig.hero.state, HeroState::ZipLine);
+        assert!((rig.hero.speed - 14.0).abs() < 1e-4, "{}", rig.hero.speed);
+    }
+}
+
+#[test]
+fn nothing_the_player_does_changes_the_ride() {
+    let line = || {
+        zip_lines(vec![cable(
+            Vec3::new(0.0, 2.2, 0.0),
+            Vec3::new(0.0, 2.2, -90.0),
+        )])
+    };
+    let (mut still, mut busy) = (line(), line());
+    catch(&mut still);
+    catch(&mut busy);
+    let presses = [
+        input(None, &[], &[Action::Jump]),
+        input(None, &[], &[Action::Melee]),
+        input(Some([127, 0]), &[], &[]),
+        input(Some([-127, 0]), &[Action::Crouch], &[Action::Crouch]),
+    ];
+    for tick in 0..120 {
+        still.tick(&idle());
+        busy.tick(&presses[tick % presses.len()]);
+    }
+    assert_eq!(busy.hero.state, HeroState::ZipLine);
+    assert_eq!(busy.hero.position, still.hero.position);
+    assert_eq!(busy.hero.speed, still.hero.speed);
+}
+
+#[test]
+fn the_cables_end_lets_go_after_6_ticks_and_no_cable_catches_for_30() {
+    // A short cable, then another right after it at the same height: flying on past the
+    // first's end, the hands pass the second, but it can't be caught yet.
+    let mut rig = zip_lines(vec![
+        cable(Vec3::new(0.0, 2.2, 0.0), Vec3::new(0.0, 2.2, -6.0)),
+        cable(Vec3::new(0.0, 2.2, -6.3), Vec3::new(0.0, 2.2, -60.0)),
+    ]);
+    catch(&mut rig);
+    let mut riding = 0;
+    while rig
+        .hero
+        .rail
+        .is_some_and(|at| at.segment == 0 && at.t < 1.0)
+    {
+        rig.tick(&idle());
+        riding += 1;
+        assert!(riding < 300, "never reached the end");
+    }
+    // At the end: 5 more ticks hanging on, gaining 22 u/s² of fall from the second.
+    let speed = rig.hero.speed;
+    rig.ticks(4, &idle());
+    assert_eq!(rig.hero.state, HeroState::ZipLine);
+    rig.tick(&idle());
+    assert_eq!(rig.hero.state, HeroState::Fall);
+    assert!(
+        (rig.hero.velocity.y + 5.0 * 22.0 * TICK).abs() < 1e-3,
+        "{}",
+        rig.hero.velocity
+    );
+    assert!((-rig.hero.velocity.z - speed).abs() < 1e-3);
+    for _ in 0..40 {
+        rig.tick(&idle());
+        assert_ne!(rig.hero.state, HeroState::ZipLine);
+    }
+}
+
+#[test]
+fn zip_lines_and_grind_rails_each_keep_to_their_own_move() {
+    // Jumping under a grind rail doesn't hang from it.
+    let mut rig = zip_lines(vec![straight(
+        Vec3::new(0.0, 2.2, 0.0),
+        Vec3::new(0.0, 2.2, -90.0),
+    )]);
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    rig.until(120, &idle(), |hero| hero.ground.is_some());
+    assert_ne!(rig.hero.state, HeroState::ZipLine);
+    // Falling onto a zip line, with the grind boots, doesn't grind it: the cable is
+    // passed, then caught by the hands from above.
+    let mut rig = rails(vec![cable(
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 2.0, -100.0),
+    )]);
+    rig.until(60, &idle(), |hero| hero.state != HeroState::Fall);
+    assert_eq!(rig.hero.state, HeroState::ZipLine);
+}
+
 // --- Swimming --------------------------------------------------------------------------
 
 /// The water's surface in [`pool`].

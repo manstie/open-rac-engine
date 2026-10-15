@@ -180,7 +180,7 @@ name = "pad_action_mask"
 address = 0x005BE808
 kind = "function"
 confidence = "medium"
-note = "Pad bits for an action under the control scheme: 8 (R1) stays 8 in the default scheme, 1 (L2) in the other."
+note = "Pad bits for an action under the camera option (control_scheme): in lock-strafe (1, the default) R1 (8) and L1 (4) become L2 (1), Triangle (0x10) becomes 0x12 and X (0x40) X or L1 (0x44); in third person (0) each stays. Checked 2026-10-15: in lock-strafe L1 jumps."
 
 [[symbol]]
 name = "gadget_owned"
@@ -243,7 +243,7 @@ name = "control_scheme"
 address = 0x00171DE0
 kind = "data"
 confidence = "medium"
-note = "One byte per local player (indexed by hero+0x2F10): 1, the default, maps the crouch and charge action to L2; 0 to R1."
+note = "One byte per local player (indexed by hero+0x2F10): the camera option, which hero+0x1AE0 (libdl's CameraType) follows: 1, the default, lock-strafe; 0 third person; 2 first person. Lock-strafe maps the crouch and charge action to L2 (pad_action_mask). It follows camera_option each frame."
 
 # 2026-10-13, changing level (docs/re-setup.md, "Going straight to a level"), the same
 # mechanism as UYA's (re/SCUS-97353/symbols.toml).
@@ -296,3 +296,242 @@ address = 0x00627D18
 kind = "function"
 confidence = "medium"
 note = "Sets level_current from level_next, tears the level down and loads the new one."
+
+# The skins (2026-10-15): found from the table of contents' copy in memory and libdl's
+# player layout, read in Ghidra on the DreadZone Station image (docs/research/moby-format.md,
+# "DL's skins").
+
+[[symbol]]
+name = "toc"
+address = 0x001C2040
+kind = "data"
+confidence = "medium"
+note = "The table of contents as loaded: eight global WAD headers back to back, the fifth (skin_wad_header) the skins'."
+
+[[symbol]]
+name = "skin_wad_header"
+address = 0x001C29E8
+kind = "data"
+confidence = "medium"
+note = "The skin WAD's header: size 0x228, first sector, then {class sector, count, textures sector, count} per skin from 0x1C29F0, and texture-only files from 0x1C2B30, 0x1C2B90 and 0x1C2BD0."
+
+[[symbol]]
+name = "skin_load"
+address = 0x005756D0
+kind = "function"
+confidence = "medium"
+note = "Loads skin-table entry a0 into player slot a1 (0 or 1): sends its textures to the GS, reads its class over them and relocates it."
+
+[[symbol]]
+name = "skin_load_p1"
+address = 0x00575B48
+kind = "function"
+confidence = "medium"
+note = "skin_load into slot 0 unless that entry is already there."
+
+[[symbol]]
+name = "skin_load_p2"
+address = 0x00575B88
+kind = "function"
+confidence = "medium"
+note = "skin_load into slot 1 unless that entry is already there."
+
+[[symbol]]
+name = "skin_textures_a_load"
+address = 0x00575DC0
+kind = "function"
+confidence = "medium"
+note = "Loads texture-only file a0 of the group from 0x1C2B30 to the GS; the level load passes a number from the save (0x171BA4)."
+
+[[symbol]]
+name = "skin_textures_b_load"
+address = 0x00575EA0
+kind = "function"
+confidence = "medium"
+note = "As skin_textures_a_load for the group from 0x1C2B90; the level load picks the file by level."
+
+[[symbol]]
+name = "skin_textures_c_load"
+address = 0x00575F80
+kind = "function"
+confidence = "medium"
+note = "As skin_textures_a_load for the group from 0x1C2BD0 (three textures each); the level load picks the file by level."
+
+[[symbol]]
+name = "vendor_list"
+address = 0x00631CE8
+kind = "function"
+confidence = "medium"
+note = "Builds a vendor's list of items. With a3 set it lists skins (type 0xC): the armors by armor_skins, then the skins by skin_entries, with names from skin_names and descriptions from skin_descriptions."
+
+[[symbol]]
+name = "vendor_buy"
+address = 0x00632CA0
+kind = "function"
+confidence = "medium"
+note = "Carries out a purchase {type, value, cost}. Type 0xC is a skin: sets its bit in skins_owned, stores it as player 1's (or 2's) skin and loads it."
+
+[[symbol]]
+name = "skin_menu_choose"
+address = 0x0061C238
+kind = "function"
+confidence = "medium"
+note = "The skin menu's choice: shows the item's name and description and wears its skin-table entry in the player's slot."
+
+[[symbol]]
+name = "text_by_number"
+address = 0x00570620
+kind = "function"
+confidence = "medium"
+note = "The string for a text number: the record of text_table whose number matches, or \"Paradox ERR\"."
+
+[[symbol]]
+name = "text_table"
+address = 0x00222C24
+kind = "data"
+confidence = "medium"
+note = "Points at the loaded text records, 16 bytes each: the string's address, then its number in the low half of the next word (6,349 records on DreadZone Station)."
+
+[[symbol]]
+name = "skin_p1"
+address = 0x00171B52
+kind = "data"
+confidence = "medium"
+note = "u16: player 1's skin-table entry, kept in the save; the level load wears it."
+
+[[symbol]]
+name = "skin_p2"
+address = 0x00171B74
+kind = "data"
+confidence = "medium"
+note = "u16: player 2's skin-table entry in co-op."
+
+[[symbol]]
+name = "skins_owned"
+address = 0x00171B58
+kind = "data"
+confidence = "medium"
+note = "Bit per skin-table entry the player has bought."
+
+[[symbol]]
+name = "skin_prices"
+address = 0x003AF5D4
+kind = "data"
+confidence = "medium"
+note = "u32 per skin in the menu's order: 0, 25, 30, 30, 35, 40, 45, 50, 55, 60, 75."
+
+[[symbol]]
+name = "skin_names"
+address = 0x003AF600
+kind = "data"
+confidence = "medium"
+note = "16 text numbers: the five armors' names, then the eleven skins' in the menu's order."
+
+[[symbol]]
+name = "skin_descriptions"
+address = 0x003AF640
+kind = "data"
+confidence = "medium"
+note = "16 text numbers in the order of skin_names."
+
+[[symbol]]
+name = "armor_skins"
+address = 0x003AF680
+kind = "data"
+confidence = "medium"
+note = "5 u32: the armors' skin-table entries, 0 to 4."
+
+[[symbol]]
+name = "skin_entries"
+address = 0x003AF694
+kind = "data"
+confidence = "medium"
+note = "11 u32: each menu skin's skin-table entry: 5, 8, 12, 11, 7, 6, 13, 15, 9, 10, 14."
+
+# 2026-10-15, Deadlocked's movement against UYA's for the hero kit's per-game profiles
+# (PLAN.md RE.3, P1.5; docs/research/hero-controller.md, "Differences between the games").
+# Checked against the traces dlntsc-dreadzone-moves-{1..7}.
+
+[[symbol]]
+name = "hero_update_walk"
+address = 0x00695CB8
+kind = "function"
+confidence = "medium"
+note = "State 2's motion, UYA's walk with its literals × frame_dt: 37 u/s² up, 30 down, 17 skidding, the skid limits (1.7 u/s, 120°, 110° in 6 frames, 70°, 4°), the part-pushed stick (0.75, 35°, 0.4; 0.9, 45°) and the 54 u/s² ground push. The release skid depends on the hand slot."
+
+[[symbol]]
+name = "hero_update_jump"
+address = 0x00696620
+kind = "function"
+confidence = "medium"
+note = "The motion of every jump-type state: push-off towards the air speed (20 and 11 u/s²) with the 0.015/0.2/15.0098 rad/s turn, the run jump's and long jump's forward pushes, then hero_air_horizontal; the apex gravity switch after frame 17."
+
+[[symbol]]
+name = "hero_air_horizontal"
+address = 0x00680A88
+kind = "function"
+confidence = "medium"
+note = "Air control (UYA 0x4EDE80): 20 u/s² towards air speed × stick, braking at 8 (2 when blocked, 11 on a flag) when that is under 0.2 × walk_speed; the wall jump's turn and 4.9 u/s, the ledge jump's forward speed, the flip's 0.04/0.2/6.98 rad/s turn."
+
+[[symbol]]
+name = "hero_walk_turn"
+address = 0x0067D100
+kind = "function"
+confidence = "medium"
+note = "The walk's facing spring: setting off clamp(0.02 m, 0.01, 0.022), damping 0.27, cap clamp(3.84 m, 1.92, 5.585) rad/s; skidding 0.035 and 11.69 rad/s. Another set for a gun mode (0.017/0.18/8.73 rad/s at full stick)."
+
+[[symbol]]
+name = "hero_turn_spring"
+address = 0x0067CFD0
+kind = "function"
+confidence = "medium"
+note = "Turns the facing on a spring (game_spring_rate), storing the rate at hero+0x17A4 and the error at +0x17A8. With a camera other than third person and a gun out, the gain is at least 0.2 and the cap at least 52.36 rad/s."
+
+[[symbol]]
+name = "hero_walk_stick_target"
+address = 0x0067CAF8
+kind = "function"
+confidence = "medium"
+note = "The walk's and fall's speed target: walk_speed × frame_dt × stick magnitude × hero+0x2FC0 (libdl's Speed, 1.0 here)."
+
+[[symbol]]
+name = "walk_speed"
+address = 0x003B01A0
+kind = "data"
+confidence = "high"
+note = "7.25 (u/s), UYA's walk_speed counterpart. Verified: the walk reaches 0.120833 u a frame in the moves traces."
+
+[[symbol]]
+name = "heli_thrust_table"
+address = 0x002207D0
+kind = "data"
+confidence = "medium"
+note = "The heli jump's thrust segments, 16 bytes each {u/s², slope, frames, -}: 49 u/s² for 1000 frames, applied from frame 35 (34 under a flag) to 70, as UYA's."
+
+[[symbol]]
+name = "hero_walk_jump"
+address = 0x00687430
+kind = "function"
+confidence = "medium"
+note = "The walk's jump press (UYA hero_walk_jump 0x502368): it reads the strafe flag, the camera and the gun as UYA's flip check does, then ignores them and starts a standing jump (state 7). Verified: strafing sideways or back with X jumps (moves-2)."
+
+[[symbol]]
+name = "pad_pressed_within"
+address = 0x005BD868
+kind = "function"
+confidence = "medium"
+note = "(bits, frames, out, pad): true when one of the pad bits was pressed within the last `frames` frames; the jump buffers and the double jump's window use it."
+
+[[symbol]]
+name = "camera_option"
+address = 0x001711D0
+kind = "data"
+confidence = "high"
+note = "A word per local player: the camera option that control_scheme and the hero's CameraType follow. Writing 0 switched the running game to third person (dlntsc-dreadzone-third.p2s)."
+
+[[symbol]]
+name = "hero_camera_type_update"
+address = 0x0068BBA0
+kind = "function"
+confidence = "medium"
+note = "Copies camera_option into control_scheme and sets hero+0x1AE0, the camera type, from it; L2 in lock-strafe switches to first person (state 29)."

@@ -202,6 +202,10 @@ as the Veldin memory image has them.
     first block (3.4 MB at +0x80), which the loader sends to the GS.
   - At load the game also fills a memory map of the level's regions (0x1EA9C0): the core,
     the moby classes, the hero's sequences, the mobys and the armor mesh.
+- **DL's and Gladiator's table of contents** [verified 2026-10-15] starts the same way:
+  eight global WAD headers back to back (sizes 0x648, 0x50, 0x2A8, 0x68, 0x228, 0xA870,
+  0xF88, 0x68; 0xC430 bytes in all), the fifth the skins' (`moby-format.md`, "DL's
+  skins"). What follows isn't UYA's 24-byte level table and isn't read yet.
 - **The hero on other levels:** every level with a hero carries the same 111-joint
   skeleton and only the sequences it uses. Veldin and level 2 have all 127, level 6 has
   88, level 30 six, and the multiplayer maps have no class 0. His mesh isn't in the core

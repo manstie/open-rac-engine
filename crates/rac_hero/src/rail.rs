@@ -1,13 +1,26 @@
-//! Grind rails (`docs/research/hero-controller.md`, "Grinding"): polylines the hero rides
-//! along, one way only, from the first point to the last, as the games' rails run along
-//! their splines.
+//! Rails (`docs/research/hero-controller.md`, "Grinding" and "Zip lines"): polylines the
+//! hero rides along, one way only, from the first point to the last, as the games' rails
+//! run along their splines. The games keep grind rails and zip lines in one list; which a
+//! rail is depends on the level (UYA's are all zip lines), so here each rail says.
 
 use bevy::{math::ops, prelude::*};
 
-/// A rail to grind along. The points run along its top, in the direction of travel.
+/// A rail to grind along, or a zip line's cable. The points run along its top, or along
+/// the cable, in the direction of travel.
 #[derive(Component, Debug, Clone, PartialEq)]
 pub struct GrindRail {
     pub points: Vec<Vec3>,
+    pub kind: RailKind,
+}
+
+/// What the hero does on a rail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum RailKind {
+    /// He lands on it and grinds along it, with the grind boots.
+    #[default]
+    Grind,
+    /// He catches it with his hands and slides along under it (UYA's state 118).
+    ZipLine,
 }
 
 /// A place on one of a world's rails.
@@ -22,7 +35,18 @@ pub struct RailPoint {
 
 impl GrindRail {
     pub fn new(points: Vec<Vec3>) -> Self {
-        Self { points }
+        Self {
+            points,
+            kind: RailKind::Grind,
+        }
+    }
+
+    /// A zip line's cable through `points`.
+    pub fn zip_line(points: Vec<Vec3>) -> Self {
+        Self {
+            points,
+            kind: RailKind::ZipLine,
+        }
     }
 
     fn segments(&self) -> usize {

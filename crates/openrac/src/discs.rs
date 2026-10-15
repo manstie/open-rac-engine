@@ -13,6 +13,10 @@ use rac_iso::Disc;
 pub enum Release {
     /// Ratchet & Clank: Up Your Arsenal, NTSC-U.
     UyaNtsc,
+    /// Ratchet: Deadlocked, NTSC-U.
+    DlNtsc,
+    /// Ratchet: Gladiator, PAL (Deadlocked's European release).
+    GladiatorPal,
 }
 
 impl Release {
@@ -20,6 +24,8 @@ impl Release {
     fn boot(self) -> &'static str {
         match self {
             Release::UyaNtsc => "SCUS_973.53",
+            Release::DlNtsc => "SCUS_974.65",
+            Release::GladiatorPal => "SCES_532.85",
         }
     }
 }
@@ -42,7 +48,7 @@ fn identify(path: &Path) -> Option<(Release, DiscImage)> {
     let cnf = disc.find("SYSTEM.CNF").ok()??;
     let text = disc.read_file(&cnf).ok()?;
     let text = String::from_utf8_lossy(&text);
-    [Release::UyaNtsc]
+    [Release::UyaNtsc, Release::DlNtsc, Release::GladiatorPal]
         .into_iter()
         .find(|release| text.contains(release.boot()))
         .map(|release| (release, DiscImage(disc)))
@@ -73,5 +79,62 @@ fn collect_images(folder: &Path, depth: u32, out: &mut Vec<PathBuf>) {
         {
             out.push(path);
         }
+    }
+}
+
+/// Reads the real disc: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.
+#[cfg(test)]
+mod disc_tests {
+    use super::*;
+    use rac_formats::gameplay::Gameplay;
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn every_uya_levels_rails_decode() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) = find(Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
+        let levels = rac_formats::level::Toc::read_uya_disc(&mut disc)
+            .unwrap()
+            .levels;
+        let mut counts = Vec::new();
+        for (level, files) in levels.iter().enumerate() {
+            if files.level.is_empty() {
+                continue;
+            }
+            let rails = Gameplay::read_uya(&mut disc, level)
+                .unwrap()
+                .grind_paths()
+                .unwrap();
+            for rail in &rails {
+                assert!(rail.points.len() >= 2, "level {level}");
+                assert!(rail.points.iter().flatten().all(|v| v.is_finite()));
+            }
+            if !rails.is_empty() {
+                counts.push((level, rails.len()));
+            }
+        }
+        // `docs/research/gameplay-format.md`, "UYA's rails". Florana's (2) and Crash Site's
+        // (17) are zip lines.
+        assert_eq!(
+            counts,
+            [
+                (2, 3),
+                (11, 1),
+                (17, 1),
+                (19, 1),
+                (30, 1),
+                (32, 8),
+                (33, 1),
+                (34, 3),
+                (35, 3)
+            ]
+        );
+        let florana = Gameplay::read_uya(&mut disc, 2)
+            .unwrap()
+            .grind_paths()
+            .unwrap();
+        assert_eq!(florana[0].points.len(), 15);
+        let first = florana[0].points[0];
+        assert!((first[0] - 464.756).abs() < 1e-3 && (first[2] - 339.988).abs() < 1e-3);
     }
 }

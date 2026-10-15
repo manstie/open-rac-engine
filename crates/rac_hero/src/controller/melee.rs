@@ -388,29 +388,35 @@ fn aim(
 /// The target with the least distance × (1 + angle off `yaw`) within the aim's range and
 /// cone, as UYA scores them (0x4E56A8). Ties go to the first.
 pub fn best_target(targets: &[Vec3], from: Vec3, yaw: f32, aim: &AimProfile) -> Option<Vec3> {
-    let cone = aim.cone_degrees.to_radians();
-    let rise = aim.rise_degrees.to_radians();
     let mut best: Option<(f32, Vec3)> = None;
     for &target in targets {
-        let to = target - from;
-        let distance = to.length();
-        if distance > aim.range {
-            continue;
-        }
-        let off = wrap(yaw_of(to) - yaw).abs();
-        if cone > 0.0 && off > cone {
-            continue;
-        }
-        let up = ops::atan2(to.y, flat_length(to)).abs();
-        if rise > 0.0 && up > rise {
-            continue;
-        }
-        let score = distance + off * distance;
-        if best.is_none_or(|(least, _)| score < least) {
+        if let Some(score) = target_score(target - from, yaw, aim)
+            && best.is_none_or(|(least, _)| score < least)
+        {
             best = Some((score, target));
         }
     }
     best.map(|(_, target)| target)
+}
+
+/// UYA's score for a target `to` away, lower being better, or `None` outside the aim's
+/// range, cone and rise.
+pub fn target_score(to: Vec3, yaw: f32, aim: &AimProfile) -> Option<f32> {
+    let cone = aim.cone_degrees.to_radians();
+    let rise = aim.rise_degrees.to_radians();
+    let distance = to.length();
+    if distance > aim.range {
+        return None;
+    }
+    let off = wrap(yaw_of(to) - yaw).abs();
+    if cone > 0.0 && off > cone {
+        return None;
+    }
+    let up = ops::atan2(to.y, flat_length(to)).abs();
+    if rise > 0.0 && up > rise {
+        return None;
+    }
+    Some(distance + off * distance)
 }
 
 /// One tick of an attack: its animation, how it ends, and how it moves.
@@ -419,7 +425,6 @@ pub(super) fn attack_tick(
     input: &PlayerInput,
     stick: &Stick,
     wish: Vec3,
-    camera_yaw: f32,
     profile: &HeroProfile,
     world: &dyn CollisionWorld,
 ) {
@@ -428,7 +433,7 @@ pub(super) fn attack_tick(
         // him, so the attack's own motion starts on its next tick.
         return;
     }
-    if leave_attack(hero, input, stick, wish, camera_yaw, profile) {
+    if leave_attack(hero, input, stick, wish, profile) {
         return;
     }
     match hero.state {
@@ -479,7 +484,6 @@ fn leave_attack(
     input: &PlayerInput,
     stick: &Stick,
     wish: Vec3,
-    camera_yaw: f32,
     profile: &HeroProfile,
 ) -> bool {
     let melee = &profile.melee;
@@ -538,7 +542,7 @@ fn leave_attack(
     }
     hero.setting_off = hero.speed < profile.walk.setting_off_below;
     hero.set_state(next);
-    ground_tick(hero, input, stick, wish, camera_yaw, profile);
+    ground_tick(hero, input, stick, wish, profile);
     true
 }
 

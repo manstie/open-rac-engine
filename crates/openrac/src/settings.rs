@@ -16,6 +16,8 @@ pub struct Settings {
     pub input: InputSettings,
     /// The hero's model, by name (`rac_rig::RigModels`); the open model if unset.
     pub hero_model: Option<String>,
+    /// Which game the hero moves like (`crate::moves`); UYA if unset.
+    pub hero_moves: Option<String>,
 }
 
 /// Where the app keeps its files.
@@ -128,6 +130,7 @@ mod tests {
         let mut settings = Settings::default();
         settings.input.invert_look_y = true;
         settings.hero_model = Some("uya".into());
+        settings.hero_moves = Some("dl".into());
         save(&path, &settings).unwrap();
         assert_eq!(load_or_create(&path), settings);
     }

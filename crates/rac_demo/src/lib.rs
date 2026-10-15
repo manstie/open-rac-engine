@@ -1,6 +1,6 @@
 //! The hero kit's standalone demo (PLAN.md Phase 1): the greybox test level (P1.4) with
 //! the hero (P1.5) and his camera, or a spectator camera to look round it with, and a
-//! melee yard of crates and dummies to hit with the wrench (P1.8).
+//! melee yard of crates and dummies to hit with the wrench (P1.8) and to lock on to.
 //!
 //! The app decides when the demo exists: it runs [`spawn_demo`] when gameplay starts and
 //! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems, and
@@ -11,7 +11,7 @@ mod spectator;
 
 use bevy::prelude::*;
 use rac_combat::{CombatPlugin, Destroyed, HitReaction, Hitpoints, Pushable, target_bundle};
-use rac_hero::{Checkpoint, Collider, FollowCamera, HeroPlugin, HeroTuning, hero_bundle};
+use rac_hero::{Checkpoint, Collider, FollowCamera, HeroPlugin, HeroTuning, LockOn, hero_bundle};
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
@@ -31,6 +31,10 @@ struct Flash {
     normal: Handle<StandardMaterial>,
     lit: Handle<StandardMaterial>,
 }
+
+/// The ring shown round the target the hero is locked on to.
+#[derive(Component, Debug, Default, Clone, Copy)]
+struct LockMarker;
 
 /// Moves the level's platforms and flies the spectator camera, both in the simulation.
 pub struct DemoPlugin;
@@ -62,7 +66,7 @@ impl Plugin for DemoPlugin {
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
             .add_systems(FixedUpdate, break_targets.in_set(SimSet::Particles))
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera))
-            .add_systems(Update, flash_targets);
+            .add_systems(Update, (flash_targets, show_lock_on));
     }
 }
 
@@ -92,6 +96,7 @@ pub fn spawn_demo(
             Surface::WallJump => (0.3, 0.45, 0.8),
             Surface::Moving => (0.9, 0.8, 0.2),
             Surface::GrindRail => (0.75, 0.75, 0.8),
+            Surface::ZipLine => (0.95, 0.55, 0.15),
             Surface::SwingTarget => (0.2, 0.85, 0.35),
             Surface::Hazard => (0.85, 0.15, 0.1),
             Surface::Checkpoint => (0.3, 0.9, 0.9),
@@ -112,7 +117,7 @@ pub fn spawn_demo(
 
     for (index, piece) in greybox_level().into_iter().enumerate() {
         let material = material_for(piece.surface, index);
-        let rail = piece.grind_rail();
+        let rail = piece.rail();
         let water = piece.water();
         let (mesh, rotation) = match piece.shape {
             // A checkpoint shows as a pad on the ground at its spawn point.
@@ -261,6 +266,20 @@ pub fn spawn_demo(
         RigLook::for_player(0),
         Visibility::default(),
     ));
+    commands.spawn((
+        Name::new("lock-on marker"),
+        DemoEntity,
+        LockMarker,
+        // Wide enough to clear a crate's corners and a dummy's height.
+        Mesh3d(meshes.add(Torus::new(0.78, 0.92))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 0.35, 0.2),
+            unlit: true,
+            ..default()
+        })),
+        Transform::default(),
+        Visibility::Hidden,
+    ));
     let camera = FollowCamera::for_player(0, 0.0);
     let (translation, rotation) = camera.placement(HERO_SPAWN, &tuning.0.camera);
     commands.spawn((
@@ -315,6 +334,28 @@ fn flash_targets(
                 look.0 = wanted.clone();
             }
         }
+    }
+}
+
+/// Rings the locked-on target, turned to the camera and spinning.
+fn show_lock_on(
+    time: Res<Time>,
+    locks: Query<&LockOn>,
+    cameras: Query<&GlobalTransform, With<FollowCamera>>,
+    mut markers: Query<(&mut Transform, &mut Visibility), With<LockMarker>>,
+) {
+    let target = locks.iter().find_map(LockOn::target_point);
+    for (mut transform, mut visibility) in &mut markers {
+        let (Some(at), Ok(camera)) = (target, cameras.single()) else {
+            visibility.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        visibility.set_if_neq(Visibility::Visible);
+        let towards = (camera.translation() - at).normalize_or(Vec3::Z);
+        // A torus lies flat about +y; stand it up facing the camera.
+        let facing = Quat::from_rotation_arc(Vec3::Y, towards);
+        *transform = Transform::from_translation(at)
+            .with_rotation(facing * Quat::from_rotation_y(time.elapsed_secs() * 3.0));
     }
 }
 

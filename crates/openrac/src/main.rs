@@ -2,13 +2,15 @@
 //!
 //! It runs the hero kit's demo. If the user's own UYA disc is in the discs folder, the
 //! hero plays Ratchet's animations read from it, and Ratchet's own model can be chosen in
-//! the menus. The roadmap lives in `PLAN.md` at the repository root.
+//! the menus, as can the game he moves like. The roadmap lives in `PLAN.md` at the
+//! repository root.
 
 mod discs;
 mod flow;
 mod hero_anims;
 mod hero_model;
 mod menu;
+mod moves;
 mod settings;
 
 use anyhow::{Context, Result};
@@ -56,10 +58,15 @@ struct Args {
     /// Where the user's disc images are.
     #[arg(long, value_name = "DIR", default_value = "source")]
     discs: PathBuf,
-    /// The hero's model: `open`, or a model imported from a disc (`uya`). Overrides the
-    /// one saved in the settings, which the menus change.
+    /// The hero's model: `open`, or one imported from a disc (`uya` for UYA's first armor,
+    /// `uya-snowman` and others for its other suits, `dl-ratchet`, `dl-jak` and others for
+    /// DL's skins). Overrides the one saved in the settings, which the menus change.
     #[arg(long, value_name = "NAME")]
     model: Option<String>,
+    /// Which game the hero moves like: `uya` (the default) or `dl`, or a movement profile's
+    /// RON file. Overrides the one saved in the settings, which the menus change.
+    #[arg(long, value_name = "GAME|FILE")]
+    moves: Option<String>,
 }
 
 // Bevy's GPU buffers lay out mesh data with `size_of`, which matches the shaders only while
@@ -85,6 +92,20 @@ fn main() -> Result<AppExit> {
                 .with_context(|| format!("loading the input recording {}", path.display()))
         })
         .transpose()?;
+
+    let moves = match &args.moves {
+        Some(choice) => (choice.clone(), moves::load(choice)?),
+        None => {
+            let choice = settings.hero_moves.as_deref().unwrap_or(moves::DEFAULT);
+            match moves::load(choice) {
+                Ok(profile) => (choice.to_owned(), profile),
+                Err(error) => {
+                    warn!("the saved movement profile can't be used, so UYA's applies: {error:#}");
+                    (moves::DEFAULT.to_owned(), moves::load(moves::DEFAULT)?)
+                }
+            }
+        }
+    };
 
     let mut app = App::new();
     app.add_plugins(
@@ -117,6 +138,8 @@ fn main() -> Result<AppExit> {
     .insert_resource(rac_demo::DemoSettings {
         spectator: args.spectator,
     })
+    .insert_resource(rac_hero::HeroTuning(moves.1))
+    .insert_resource(moves::ChosenMoves(moves.0))
     .insert_resource(FlowOptions {
         skip_menu: args.demo || replay.is_some(),
         record_to: args.record_input,
@@ -124,11 +147,11 @@ fn main() -> Result<AppExit> {
     if let Some(recording) = replay {
         app.insert_resource(InputSource::replay(recording));
     }
-    let (animations, model) = from_disc(&args.discs);
+    let (animations, models) = from_disc(&args.discs);
     if let Some(animations) = animations {
         app.insert_resource(animations);
     }
-    app.insert_resource(hero_model::DiscModels(model.into_iter().collect()))
+    app.insert_resource(hero_model::DiscModels(models))
         .add_systems(bevy::prelude::Startup, hero_model::register_disc_models);
     if let Some(model) = args.model.as_ref().or(settings.hero_model.as_ref()) {
         app.world_mut()
@@ -150,16 +173,26 @@ fn main() -> Result<AppExit> {
     Ok(app.run())
 }
 
-/// The hero's animations and model from the user's UYA disc, if one is in `folder`.
+/// The hero's animations and models from the user's discs in `folder`: from UYA his
+/// animations and suits, from DL its skins.
 fn from_disc(
     folder: &std::path::Path,
-) -> (Option<rac_rig::RigAnimations>, Option<hero_model::Imported>) {
+) -> (Option<rac_rig::RigAnimations>, Vec<hero_model::Imported>) {
+    let (animations, mut models) = from_uya(folder);
+    models.extend(from_dl(folder));
+    (animations, models)
+}
+
+/// The hero's animations and suits from a UYA NTSC-U disc, if one is in `folder`.
+fn from_uya(
+    folder: &std::path::Path,
+) -> (Option<rac_rig::RigAnimations>, Vec<hero_model::Imported>) {
     let Some((path, mut disc)) = discs::find(folder, discs::Release::UyaNtsc) else {
         info!(
             "no UYA NTSC-U disc in {}: the hero's animation is procedural",
             folder.display()
         );
-        return (None, None);
+        return (None, Vec::new());
     };
     let read = rac_formats::level::Core::read_uya(&mut disc, hero_anims::LEVEL)
         .and_then(|core| core.hero().map(|hero| (core, hero)));
@@ -167,7 +200,7 @@ fn from_disc(
         Ok(read) => read,
         Err(error) => {
             warn!("couldn't read the hero from {}: {error}", path.display());
-            return (None, None);
+            return (None, Vec::new());
         }
     };
     let animations = match hero_anims::rig_animations(&hero) {
@@ -184,17 +217,53 @@ fn from_disc(
             None
         }
     };
-    let model = match hero_model::import(&mut disc, &core, &hero, hero_model::ARMOR) {
-        Ok(model) => Some(model),
+    let suits = hero_model::import(&mut disc, &core, &hero, hero_model::SUITS);
+    (animations, imported(hero_model::SUITS, suits, &path))
+}
+
+/// The skins from a DL NTSC-U or Gladiator PAL disc, if one is in `folder`. Both hold the
+/// same skins, so one is enough.
+fn from_dl(folder: &std::path::Path) -> Vec<hero_model::Imported> {
+    let found = discs::find(folder, discs::Release::DlNtsc)
+        .or_else(|| discs::find(folder, discs::Release::GladiatorPal));
+    let Some((path, mut disc)) = found else {
+        return Vec::new();
+    };
+    let skins = hero_model::import_dl(&mut disc, hero_model::DL_SUITS);
+    imported(hero_model::DL_SUITS, skins, &path)
+}
+
+/// The models of `suits` that were read, with a warning for each that wasn't.
+fn imported(
+    suits: &[hero_model::Suit],
+    read: Result<
+        Vec<Result<hero_model::Imported, hero_model::ImportError>>,
+        hero_model::ImportError,
+    >,
+    path: &std::path::Path,
+) -> Vec<hero_model::Imported> {
+    let read = match read {
+        Ok(read) => read,
         Err(error) => {
             warn!(
-                "couldn't read Ratchet's model from {}: {error}",
+                "couldn't read the hero's models from {}: {error}",
                 path.display()
             );
-            None
+            return Vec::new();
         }
     };
-    (animations, model)
+    let mut models = Vec::new();
+    for (suit, model) in suits.iter().zip(read) {
+        match model {
+            Ok(model) => models.push(model),
+            Err(error) => warn!(
+                "couldn't read the model \"{}\" from {}: {error}",
+                suit.name,
+                path.display()
+            ),
+        }
+    }
+    models
 }
 
 #[derive(Resource)]

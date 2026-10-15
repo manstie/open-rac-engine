@@ -14,13 +14,15 @@ use crate::{DiscReader, FormatError, Image, wad};
 pub(crate) const SECTOR: u64 = 2048;
 /// Sectors of the table of contents to read: the globals and every level entry.
 const TOC_SECTORS: u64 = 16;
+/// Sectors of DL's table of contents to read for its globals, 0xC430 bytes on our discs.
+const DL_TOC_SECTORS: u64 = 32;
 /// The hero's moby class number.
 pub const HERO_CLASS: u32 = 0;
 
 /// The table of contents' first sector on GC, UYA and DL.
 pub const TOC_SECTOR: u64 = 1001;
 /// UYA's global WAD headers before the level table: armor, audio, bonus, gadget, hud,
-/// misc, mpeg, scene and space, 0x7400 bytes in all on our disc.
+/// misc, mpeg, scene and space, 0x7400 bytes in all on our disc. DL has eight too.
 const UYA_GLOBALS: usize = 8;
 /// Bytes per level table entry: three sector ranges.
 const LEVEL_ENTRY: usize = 24;
@@ -74,23 +76,7 @@ impl Toc {
     /// Reads UYA's table of contents from `bytes`, the sectors from [`TOC_SECTOR`] on.
     pub fn read_uya(bytes: &[u8]) -> Result<Self, FormatError> {
         let image = Image::new(bytes, 0);
-        let mut globals = Vec::with_capacity(UYA_GLOBALS);
-        let mut at = 0u32;
-        for _ in 0..UYA_GLOBALS {
-            let size = image.u32(at)?;
-            if size < 8 || size % 4 != 0 {
-                return Err(FormatError::Invalid {
-                    what: "global WAD header",
-                    address: at,
-                    detail: format!("size {size:#x}"),
-                });
-            }
-            globals.push(GlobalHeader {
-                sector: image.u32(at + 4)?,
-                bytes: image.bytes(at, size as usize)?.to_vec(),
-            });
-            at += size;
-        }
+        let (globals, mut at) = read_globals(&image)?;
         let mut levels = Vec::new();
         while (at as usize) + LEVEL_ENTRY <= bytes.len() {
             levels.push(LevelFiles {
@@ -110,6 +96,41 @@ impl Toc {
     pub fn read_uya_disc(disc: &mut impl DiscReader) -> Result<Self, FormatError> {
         Self::read_uya(&disc.read(TOC_SECTOR * SECTOR, (TOC_SECTORS * SECTOR) as usize)?)
     }
+
+    /// Reads DL's (and Gladiator's) table of contents from the disc: eight global WAD
+    /// headers as on UYA, the fifth of them the skins'. What follows them isn't UYA's level
+    /// table and isn't read yet, so `levels` is empty.
+    pub fn read_dl_disc(disc: &mut impl DiscReader) -> Result<Self, FormatError> {
+        let bytes = disc.read(TOC_SECTOR * SECTOR, (DL_TOC_SECTORS * SECTOR) as usize)?;
+        let (globals, _) = read_globals(&Image::new(&bytes, 0))?;
+        Ok(Self {
+            globals,
+            levels: Vec::new(),
+        })
+    }
+}
+
+/// The global WAD headers at the start of a table of contents, each starting with its
+/// size and first sector, and where the next thing starts.
+fn read_globals(image: &Image) -> Result<(Vec<GlobalHeader>, u32), FormatError> {
+    let mut globals = Vec::with_capacity(UYA_GLOBALS);
+    let mut at = 0u32;
+    for _ in 0..UYA_GLOBALS {
+        let size = image.u32(at)?;
+        if size < 8 || size % 4 != 0 {
+            return Err(FormatError::Invalid {
+                what: "global WAD header",
+                address: at,
+                detail: format!("size {size:#x}"),
+            });
+        }
+        globals.push(GlobalHeader {
+            sector: image.u32(at + 4)?,
+            bytes: image.bytes(at, size as usize)?.to_vec(),
+        });
+        at += size;
+    }
+    Ok((globals, at))
 }
 
 /// A level WAD's header (0x60 bytes, its first sector). Ranges are in sectors from the
@@ -146,6 +167,35 @@ impl LevelHeader {
             occlusion: SectorRange::read(&image, 0x28)?,
         })
     }
+
+    /// Reads UYA level `level`'s header from the disc.
+    pub fn read_uya_disc(disc: &mut impl DiscReader, level: usize) -> Result<Self, FormatError> {
+        let toc = Toc::read_uya_disc(disc)?;
+        let files = toc
+            .levels
+            .get(level)
+            .filter(|files| !files.level.is_empty())
+            .ok_or_else(|| FormatError::Invalid {
+                what: "level",
+                address: level as u32,
+                detail: "not on this disc".into(),
+            })?;
+        Self::read(&disc.read(files.level.sector as u64 * SECTOR, 0x60)?)
+    }
+}
+
+/// Reads and unpacks the WAD-compressed file at byte `at` of the disc.
+pub(crate) fn read_wad(
+    disc: &mut impl DiscReader,
+    at: u64,
+    what: &'static str,
+) -> Result<Vec<u8>, FormatError> {
+    let packed_size = wad::wad_size(&disc.read(at, 16)?).ok_or(FormatError::Invalid {
+        what,
+        address: (at / SECTOR) as u32,
+        detail: "not a WAD".into(),
+    })?;
+    wad::decompress(&disc.read(at, packed_size)?)
 }
 
 /// The start of a level's data: where its parts are, in bytes from the data's start.
@@ -233,28 +283,12 @@ pub struct Core {
 impl Core {
     /// Reads and unpacks the core of UYA level `level` from the disc.
     pub fn read_uya(disc: &mut impl DiscReader, level: usize) -> Result<Self, FormatError> {
-        let toc = Toc::read_uya_disc(disc)?;
-        let files = toc
-            .levels
-            .get(level)
-            .filter(|files| !files.level.is_empty())
-            .ok_or_else(|| FormatError::Invalid {
-                what: "level",
-                address: level as u32,
-                detail: "not on this disc".into(),
-            })?;
-        let header = LevelHeader::read(&disc.read(files.level.sector as u64 * SECTOR, 0x60)?)?;
+        let header = LevelHeader::read_uya_disc(disc, level)?;
         let data = (header.sector as u64 + header.data.sector as u64) * SECTOR;
         let parts = DataHeader::read(&disc.read(data, DataHeader::SIZE)?)?;
         let (offset, size) = parts.core_header;
         let core_header = CoreHeader::read(&disc.read(data + offset as u64, size as usize)?)?;
-        let core_at = data + parts.core as u64;
-        let packed_size = wad::wad_size(&disc.read(core_at, 16)?).ok_or(FormatError::Invalid {
-            what: "level core",
-            address: parts.core,
-            detail: "not a WAD".into(),
-        })?;
-        let bytes = wad::decompress(&disc.read(core_at, packed_size)?)?;
+        let bytes = read_wad(disc, data + parts.core as u64, "level core")?;
         Ok(Self {
             header: core_header,
             bytes,

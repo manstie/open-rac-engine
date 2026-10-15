@@ -2,7 +2,8 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-13 (melee: the wrench combo, the jump attack and the throw).
+(RE.6). Last updated 2026-10-15 (Deadlocked's movement against UYA's, with DL NTSC
+traces, for the kit's per-game profiles; strafing and lock-on; zip lines).
 
 ## Status and method
 
@@ -95,7 +96,7 @@ to the d-pad when the stick is near the centre.
    - R1 crouches.
    - Square swings the wrench.
    - L1 enters first-person look (state 1).
-   - L2 or R2 strafes.
+   - L2 or R2 strafes, and both together lock on (section "Strafing and lock-on").
 
 ## Ground movement
 
@@ -185,8 +186,109 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
   assumed to follow its own setting-off value.
 
   This reproduces all 724 non-strafe walking frames of the R&C3 traces exactly
-  **[verified on R&C3 PAL]**. While strafing the hero faces the camera direction instead
-  **[code]**.
+  **[verified on R&C3 PAL]**. While strafing the hero turns to the camera instead, on a
+  spring of his own (section "Strafing and lock-on") **[code]**.
+
+## Strafing and lock-on [code, strafing verified on UYA NTSC, 2026-10-15]
+
+Read in Veldin's build (addresses in `re/SCUS-97353/symbols.toml`), from the readers and
+writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
+- **Strafing was checked** against our trace `uyantsc-veldin-moves-3` (strafing left, back
+  and forward, with flips), which holds the lock-on block each frame. It reproduces the
+  turn spring on all 224 strafe-walking frames and 106 flip frames (to 6×10⁻⁷ rad), and
+  the speeds on all 224 walking frames.
+- **Not traced:** changing sides (the trace never goes from left to right), and lock-on,
+  which needs a weapon that no savestate of ours holds.
+
+### Strafing
+
+- **The flag:** `hero_update` sets `strafing` (0x1A6014) to 1 while L2 or R2 is held (pad
+  bits 1 and 2), and counts it down to 0 when they are let go. The first-person and
+  lock-strafe cameras (L1's views) set it to 2, so they strafe too.
+- **Where the stick points** (`hero_stick_move_angle`): while strafing, the stick, relative
+  to the camera, falls in one of four sectors: left, right, forward or back, each 45° either
+  side. An exact diagonal counts as forward. Back with the stick past 0.15 sets
+  `strafe_back`.
+- **The walk** (state 2) calls `hero_strafe_walk` instead of its turn:
+  - **The speed is the walk's [verified]:** towards `6.17 × m` u/s at 37 u/s², braking
+    at 30. Strafing has no speeds of its own. The walk's other rules, the skid and the
+    part-pushed stick, see an angle error of 0, so they never apply.
+  - **The velocity runs along the stick's direction** (`strafe_heading`) **[verified]**,
+    kept when the stick is let go, so a strafe slides to a stop the way it went.
+  - **He turns to the camera's yaw [verified]** with gain 0.042, damping 0.25 and cap
+    0.32 rad a frame, on a rate kept apart from the walk's (`hero_strafe_turn`). The
+    walk's own rate is zeroed every strafing frame.
+  - **Letting go of the stick [verified]:** he keeps walking, braking at the skid's
+    17 u/s² and turning to the camera, until he faces within 2° of the camera's yaw
+    (`hero_transitions`, through 0x4EA1F8 while L2 or R2 is held); then he idles with at
+    most 1.5 u/s, as from a walk. In the trace that took 33 frames, because the camera
+    was still swinging round. The walk without strafing idles after 2 frames.
+  - **Changing sides is damped**, by two 3-frame timers that aren't symmetric. Strafing
+    right sets one; strafing left while it runs zeroes the speed, so right to left stops
+    him for 2 frames. Strafing left sets the other; strafing right while it runs scales
+    the speed by (3 − timer) / 3, so left to right takes it to 1/3, then 2/3 of itself.
+    The velocity changes direction at once.
+- **Jumping:** a jump's push-off moves along `strafe_heading` rather than the facing. In
+  the air, jumps and falls turn him to the camera on their usual air spring (gain 0.04,
+  damping 0.2, the jump's cap), even with the stick let go; air control still steers by
+  the stick. The flip turns with `hero_strafe_turn`.
+- **The flip:** the walk's X press (`hero_walk_jump`) flips while strafing when the stick
+  is past 0.9 and its sector isn't forward. A diagonal is a jump.
+  - **Otherwise a standing jump (7), never a run jump [verified]:** the run jump needs
+    the stick past 0.85 and no strafing. The trace's forward strafe jump was a 7.
+  - **A second way to flip [code, partly read]:** with R1 held, the stick not forward
+    against the facing, and X pressed within 12 frames of a press of the pad bits
+    0x1F000 (perhaps the directions). That is the flip without strafing in "Flips"; the
+    kit leaves it out until the bits are read.
+- **Animation:** strafing backwards plays sequence 20 (walking backwards) at 25 × the
+  speed in u per frame, 0.7 to 2.2 (`hero_walk_anim`). Sideways, the run plays with a
+  procedural twist (`hero_body_twist`): one joint slot turns by the angle from the facing
+  to the movement, a second by minus that, on springs of 0.037 and 0.025 with damping
+  0.27. Which joints the slots drive isn't read.
+
+### Lock-on
+
+- **Picking a target** (`hero_lock_on`, from `hero_transitions`):
+  - It needs L2 and R2 both held, one of them pressed this frame. A failed search waits
+    for the next press.
+  - The held item must allow it: bit 5 of its byte in `item_flags` (0x142A60). The bytes
+    are all zero in our savestates, so which weapons allow it is unknown. The wrench, the
+    only item we have, doesn't.
+  - Not with the lock-strafe camera (camera mode 1).
+  - The search (`target_search`, scored by `target_score` as the wrench's aim is: the
+    least distance × (1 + angle off)) takes targets of class category 5 that are alive,
+    within 25 u, 35° round and 70° up or down from the camera's view, and in sight along
+    a ray from 0.7 u above the feet. Failing that, it searches round the hero's facing.
+- **Keeping it:** the target is let go when it is more than 30 u from the hero, when L2 or
+  R2 is let go, or when it dies.
+- **What it does:**
+  - Both strafe buttons are held, so he strafes and faces the camera.
+  - **The camera turns to look past him at the target** (`camera.md`, "Lock-on"), so he
+    ends up facing it.
+  - Weapons read the target, and `lock_reticle` draws rings on it.
+
+### In the kit [code numbers; simplified where marked]
+
+- `HeroState::Walk` with `HeroMotion::strafing`: everything above, in `rac_hero`'s
+  `controller.rs` (`strafe_walk`, `turn_to_camera`) and the profile's `strafe` section.
+  The trace's corrections went in the same day: the stop that waits for him to face the
+  camera, and the standing jump.
+- `rac_hero::lock_on`: a `LockOn` component on each hero, `lock_on::update` each tick, and
+  the camera turn in `FollowCamera`. The profile's `lock_on` section holds the search.
+  - **[simplified]** The kit's sight line stops 0.75 u short of the target's middle,
+    because the kit's targets can be solid, and a line into one would always be blocked.
+    The game's ray probably ignores objects.
+  - There is no weapon yet (P1.9), so lock-on works with anything.
+  - **Gamepad only, by the owner's decision (PLAN §5, 2026-10-15):** `Action::LockOn` is
+    bound to both triggers, and `rac_input` ignores keyboard and mouse bindings for it,
+    because with a mouse the player aims themselves.
+- `rac_rig`: `RigMove::StrafeBack` plays sequence 20. Sideways, the rig turns the hips by
+  the angle to the movement and the chest back by the same **[assumed: the slots' joints
+  aren't read]**.
+- Tests: `rac_hero/tests/strafe.rs` (14), the camera's lock tests, `rac_input`'s pad-only
+  tests, and the greybox's `the_melee_yard_has_a_dummy_to_lock_on_to`.
+- Seen in the running demo (Xvfb, a replayed recording with lock-on held): the lock picks
+  a crate, the demo's ring marks it, and the camera comes round behind the hero to it.
 
 ## Jumping
 
@@ -292,8 +394,10 @@ Most jump-type states steer the same way after push-off:
   - That step is multiplied by `1.5 × (1 − cos θ)`, clamped to 1–3, where θ is the angle
     between the current and wanted velocity. So steering backwards brakes up to three
     times as hard.
-- **Stick released:** with the stick under 20% of full tilt, the velocity bleeds off at
-  8 u/s² instead, 0.0032 per frame on PAL.
+- **Stick released:** when the speed the stick asks for is under 20% of the walk speed
+  (for a jump at the walk's air speed, a stick under 20% of full tilt), the velocity
+  bleeds off at 8 u/s² instead, 0.0032 per frame on PAL. Read in UYA's code (0x4EDE80)
+  and DL's ("Differences between the games").
 - **Blocked jumps:** if a probe during push-off found something in the way, the target
   is a fixed 5 u/s (0.1 u/frame on PAL) instead.
 - **Facing:** the hero turns towards the move direction with a spring of gain 0.0576,
@@ -330,8 +434,9 @@ Most jump-type states steer the same way after push-off:
 
 ### Flips (state 11) [verified on UYA NTSC and Gladiator PAL]
 
-- **Input:** while strafing (L2 or R2), push left, right or back and press X, for a side
-  or back flip. Strafing forwards with X is an ordinary jump.
+- **Input:** while strafing (L2 or R2), push left, right or back past 0.9 and press X, for
+  a side or back flip. Strafing forwards, or exactly diagonally, X is an ordinary jump
+  (section "Strafing and lock-on").
 - **Horizontal:**
   - The flip moves in the stick direction at `max(2, 5.5 × stick)` u/s: 0.091667 u/frame
     at full tilt, 0.11 on PAL.
@@ -339,7 +444,8 @@ Most jump-type states steer the same way after push-off:
     the first frame.
 - **Vertical:** the standard model with 3.2–3.25 u.
 - **Without strafing [code]:** a flip eases from its take-off speed towards 4.2 u/s at
-  8 u/s². When it is entered this way is not yet clear.
+  8 u/s². It seems to be entered with R1 held, the stick away from forward, and X soon
+  after a direction press ("Strafing and lock-on").
 - Gladiator's traced flip was a strafe side flip at the same 5.5 u/s, so Gladiator's
   default controls strafe there.
 
@@ -359,7 +465,8 @@ Most jump-type states steer the same way after push-off:
     by 0.00825 per frame: 0.10458 on frame 13. That is the "two or three frames" seen
     earlier.
 - **When it can start [code, UYA NTSC `hero_transitions`; consistent with the traces]:**
-  - From a standing or run jump (7, 9), not before the jump's 15th frame (t > 14).
+  - From a standing or run jump (7, 9), not before the jump's 15th frame (t > 14). DL
+    allows it from the 11th (t > 10) **[verified on DL NTSC]**.
   - X counts if it was pressed within the last `t − 4` frames (at least 2, at most 30).
     So the take-off press doesn't count, and an early second press is buffered until
     frame 15.
@@ -951,8 +1058,9 @@ so gadget 0x11 was granted by writing its gadget-box entry. These match the code
     creeps to a stop;
   - the state lasts 61 frames, its animation, while the speed variable keeps braking
     unseen.
-- **Controls:** DL's default control scheme (the scheme byte at 0x171DE0 is 1) maps the
-  charge's action to **L2**, and R1 fires. The other scheme uses R1.
+- **Controls:** DL's default control scheme, its lock-strafe camera (the byte at 0x171DE0
+  is 1; "Deadlocked's moves"), maps the charge's action to **L2**, and R1 fires. The
+  third-person camera uses R1.
   - DL's default controls keep the hero facing the camera, so the left stick strafes.
   - The opening tutorial ignores the movement buttons until each step is done: look left
     and right with the right stick, fire, then jump.
@@ -1021,11 +1129,27 @@ so gadget 0x11 was granted by writing its gadget-box entry. These match the code
 ## Grinding (states 39–42, 62) [code, UYA NTSC, 2026-10-12]
 
 Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rail search
-(`hero_find_rail`, 0x4E5118, and `rail_nearest`, 0x4E4E00). Veldin's start has no rail, so
-it is untraced.
+(`hero_find_rail`, 0x4E5118, and `rail_nearest`, 0x4E4E00).
 
-- **Rails** are splines in a level list (0x1DFD10, count at 0x1DFD14). Each entry is
-  0x20 bytes: a bounding sphere, the spline, and a flag word.
+- **UYA has nowhere to grind, so this stays code only [checked 2026-10-15].**
+  - Every level's rails are in its gameplay file (`gameplay-format.md`, "Grind paths";
+    `openrac-tool rails` lists them). Levels 2, 11, 17, 19 and the vid-comics 30 and
+    32–35 have some; the multiplayer maps have none.
+  - **The ones on Florana (2) and Crash Site (17) are zip lines** (next section), seen on
+    screen. Florana's build of the hero code has no `hero_find_rail` at all.
+  - **Levels 11, 17 and 19 have the grind code, but their hero class lacks the grind
+    animations** (sequences 44, 45 and 72). With the grind boots set, a fall onto Crash
+    Site's cable starts state 39. Then the game writes through a bad pointer, and PCSX2
+    aborts on the next frame (twice with OpenGL, once with the software renderer).
+  - Veldin's hero class has all 127 sequences, but Veldin has no rails.
+  - So a grind trace needs GC or DL. GC's rails are many but its disc is PAL and later
+    (PLAN D3); DL's arenas can't be played from a new game yet (`docs/re-setup.md`).
+- **Rails** are splines in a level list (0x1DFD10 in Veldin's build, count at 0x1DFD14),
+  filled from the gameplay file when the level loads. Each entry is 0x20 bytes: a
+  bounding sphere, the spline, and a flag word.
+  - **The list's address changes with the level's build:** on Florana it is 0x1DE690
+    (found 2026-10-15 by searching memory for the rail's points). The hero struct stays at
+    0x1A4BC0 in every build seen so far, but other globals move.
   - **A rail runs one way, along its spline.** The grind always moves in the spline's
     direction.
 - **Getting on [code, `hero_find_rail`, every frame]:** needs the grind boots (a global
@@ -1080,6 +1204,68 @@ it is untraced.
   - the hero falls as soon as the rail ends, not 6 frames later;
   - no solid ground is needed under a rail;
   - the fall from a rail with nothing under it isn't there.
+
+## Zip lines (state 118) [code, then verified on UYA NTSC, 2026-10-15]
+
+Read in `hero_find_zipline` (0x4E5300 in Veldin's build, 0x4BA800 in Florana's),
+`hero_update_state`, `hero_change_state` and `hero_transitions`. Verified on Florana's
+first cable with two traces (`uyantsc-florana-zip-1`, `-2`; 376 and 374 frames of the ride)
+and one at Crash Site (`uyantsc-crash-zip-1`; `docs/re-setup.md`).
+
+- **The cables are the level's rails.** The zip line searches the same list as the grind
+  (`rail_nearest`), so a cable is a rail the hero hangs from rather than stands on.
+  libuya calls state 118 `DEATH_FALL`; in UYA's single player it is the zip line.
+- **Catching a cable [verified, Florana]:** every frame, with the 30-frame no-catch timer
+  (0x1A4DE4) run out, while jumping (state type 4, unless a flag at 0x1A504E is set),
+  falling (type 2) or in type 15:
+  - **the hands** are a point 1.34 u above the feet (and 0.3 u forward, from the
+    arguments; not checked);
+  - the nearest rail point to the hands must pass `rail_nearest`'s test (0.9 u
+    horizontally, 1.5 u vertically, solid ground under it);
+  - and **the hands must be from 0.7 u below to 0.4 u above it**, or 1.2 u below with a
+    flag whose meaning isn't known (bit 7 of the word at +0x1A4 of what 0x1D52FC points
+    to).
+  - **In a build with both searches, the grind wins:** `hero_transitions` takes the grind
+    (39) when `hero_find_rail` found a rail, and only otherwise the zip line.
+  - Florana trace: falling at 0.27 u per frame, he caught the cable with his hands 0.31 u
+    above it.
+  - **From above it doesn't work [verified, Crash Site]:** the cable has collision on
+    top. Dropped 1 u above it, he landed on it with his feet 0.14 u over the spline
+    (state 123), slid off sideways and fell.
+- **Speed [verified]:**
+  - **On catching:** half his velocity along the cable (measured 1 u ahead), never below
+    0. Falling straight down onto it gave 0.
+  - **Then it rises by 0.0025 u per frame each frame (9 u/s²) to 0.23333 u per frame
+    (14 u/s).** The trace reached the cap 94 frames after the catch and held it to the
+    end.
+  - Slope doesn't change it: Florana's cable falls 15 u over its 83 u.
+- **Hanging [verified]:** the hands follow the cable's spline at that speed. A spring
+  pulls them onto it (their distance, 0x1A5298, settled at about 0.04 u). The hero faces
+  the cable's direction.
+- **Input does nothing [verified, trace 2]:** X, Square and the stick left and right
+  changed neither the speed nor the path. The stick turned him by 0.004 rad at most.
+- **The cable's end [verified]:** at its last point he keeps his last step along it, and
+  gravity of 0.0061 u per frame² (22 u/s²) starts to act. A counter (0x1A5280) runs from
+  1, and at 6 he falls (state 6). Then the no-catch timer starts at 30 frames.
+- **Fields:** the found point at 0x1A5250, the last step at 0x1A5260, the spline, segment
+  and position along it at 0x1A5270–0x1A5278, the found flag at 0x1A527C, the end counter
+  at 0x1A5280, the speed at 0x1A5284, the rail's flag word at 0x1A528C, heading and slope
+  at 0x1A5290 and 0x1A5294 (layout `uyantsc-florana-zip.toml`).
+- **Animation [code]:** `hero_change_state` starts sequence 90 for state 118, blending
+  over 8 frames. Levels with zip lines keep it (11, 17 and 19 among them).
+- **In the hero kit (P1.5, 2026-10-15):** a rail of kind `RailKind::ZipLine`
+  (`GrindRail::zip_line`). The catch, the speed, the turn, the end and the no-catch timer
+  are as above, and the catch works from any jump, a fall or a grind. **[simplified]:**
+  - the hands are 1.34 u straight above the feet, and their 0.3 u forward offset is left
+    out (it didn't fit the trace; the hero's rotation may tilt it);
+  - riding, the feet hang 1.63 u under the cable, as measured, and get there from the
+    catch on the game's hang spring. In the game the spring pulls the hands towards the
+    cable and they settle about 0.25 u under it; the kit's settles a little faster than
+    the trace (1.45 u under after 8 ticks against 1.35);
+  - the kit's cables have no collision, so falling onto one from above, the hands catch
+    it on the way past. In the game the cable's own collision stopped him on top;
+  - no ground is needed under the cable, and nothing collides during the ride or the six
+    ticks past its end.
 
 ## Swimming (states 50–54, 18) [code, then verified on UYA NTSC, 2026-10-13]
 
@@ -1312,7 +1498,7 @@ moby's sequence every frame). **[verified]** marks sequences the trace showed.
 | State | Sequence | Notes |
 |---|---|---|
 | Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**. At 20% health or less, 74; holding a weapon, that weapon's idle from `weapon_table` (row + 0x24). |
-| Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | |
+| Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | Strafing backwards, 20 [code]. |
 | Skid (3) | 6, or 5 straight out of a run between frames 3 and 16 | |
 | Crouch (4) | 13 **[verified]**; 14 moving **[verified]** | Starts at keyframe 2. |
 | Fall (6) | 11 **[verified]**, then 12 on landing **[verified]** | The game also plays 11 in state 121, falling out of the level **[verified]**. |
@@ -1336,6 +1522,7 @@ moby's sequence every frame). **[verified]** marks sequences the trace showed.
 | Grind (39) | 44 + a stance value | |
 | Grind jump (40) | 72 | |
 | Grind switch (41) | 30 or 31 by side | |
+| Zip line (118) | 90 | From `hero_change_state` [code], 2026-10-15. |
 | Underwater swim, idle, fast (50–52) | 54, 55, 56 | |
 | Surface swim (53), idle (54) | 82, 53 | |
 | Dead (57) | 64 | |
@@ -1356,22 +1543,102 @@ The kit gates these with per-hero ability flags (PLAN.md section 5, 2026-10-12).
     same items.
 - **The glide** needs the same global flag, and no item 4 in the back slot.
 - **Grinding** needs the grind boots: `hero_find_rail` checks a global flag
-  (0x142CAE) before looking for a rail.
+  (0x142CAE) before looking for a rail. **Zip lines need no item.**
 - **The charge boots** are DL's gadget 0x11, above. The jumps, double jump, wall jump,
   ledges and flips need no item.
 
 ## Differences between the games
 
+Read side by side in UYA's code and DL's (DreadZone Station) on 2026-10-15, and checked
+against our own DL NTSC traces (below). DL's hero code is UYA's engine: the same
+functions in the same order, with the literals scaled by `frame_dt` at run time.
+
 | | R&C3 / UYA | Gladiator / Deadlocked |
 |---|---|---|
 | How per-second values become per-frame | Folded into literals when compiled | Multiplied by `frame_dt` globals at run time |
 | Hero in code | Static global, addressed directly (code base 0x1A4BE0) | Pointer argument (libdl's `Player`) |
-| Walk speed and run-jump air cap | 6.17 u/s | 7.25 u/s |
-| Double-jump cap | 8.75 u/s | 7 u/s |
-| Ledge jump push-off on PAL | 3 frames | 2 frames |
+| Walk speed (a global: UYA 0x1DBE58, DL 0x3B01A0) | 6.17 u/s | 7.25 u/s **[verified on DL NTSC]** |
+| The jump block's default air speed: standing, run, ledge and water jumps | 6.17 u/s | 7.25 u/s **[verified on DL NTSC for the run jump]** |
+| The fall's air speed: the walk's speed target | 6.17 u/s | 7.25 u/s [code] |
+| Double-jump cap | 8.75 u/s | 7 u/s **[verified on DL NTSC]** |
+| Double jump from a standing or run jump | from t > 14 | from t > 10 **[verified on DL NTSC]** |
+| Glide (state 8): forward speed, sink | 3 u/s (5 in one gadget mode), 2.16 u/s | 5 u/s, 3.6 u/s (5 × 0.72) [code] |
+| Ledge jump push-off | 4 frames NTSC, 3 on R&C3 PAL | 2 frames on DL NTSC [code] and on Gladiator PAL |
+| A jump from a strafing walk | flips to the side or back | always a standing jump **[verified on DL NTSC]** |
+| Default camera | follow (third person) | lock-strafe |
 | Standing jump animation frames (peak, land, game land) | 18, 30, 12 | 18, 27, 19 |
 | Charge boots | no charge state in Veldin's code | state 125, read in DL's code |
 | Everything else read so far | identical | identical |
+
+- **Read the same in DL's code** (2026-10-15; addresses in `re/SCUS-97465/symbols.toml`):
+  - the walk (`hero_update_walk`): 37 u/s² up and 30 down, the skid's limits and its
+    17 u/s² braking, the part-pushed stick's rules, the ground push of 54 u/s²;
+  - the walk's turning springs (`hero_walk_turn`), setting off, moving and skidding;
+  - every jump-type state's heights, hold and push-off frames and gravity
+    (`hero_change_state`), apart from the ledge jump's push-off;
+  - the vertical model and the double jump's boost, its height factors and its press
+    window (`hero_jump_vertical`, `hero_transitions`);
+  - the heli jump's thrust: 49 u/s² from frame 35 to 70 (the table at 0x2207D0);
+  - air control (`hero_air_horizontal`): 20 u/s², the release braking at 8, the push-off
+    rates, the wall jump's turn and its 4.9 u/s, the ledge jump's forward speed;
+  - the fall: 22 u/s², braking at 7 with the stick released, capped at 50 u/s;
+  - the glide's springs, and the heights and frames past which a double jump (1.5 u,
+    t > 30) or a heli jump (0.6 u) turns into it. DL's check also has 1.0 u for standing
+    and run jumps, which UYA's can't glide from; whether DL's can isn't traced.
+- **Not read in DL yet:** the stick's dead zone, the strafe turn, lock-on, the wall jump's
+  probes, ledges, grinding, zip lines, swimming, melee, getting hit and the camera. The
+  kit's DL profile keeps UYA's numbers for them, marked as such.
+- **Releasing the stick in the air, both games:** the game brakes instead of steering
+  when the speed the stick asks for (the move's air speed × the stick) is under 20% of
+  the walk speed, not when the stick is under 20% (UYA 0x4EDE80, DL 0x680A88) [code].
+  For the double jump's 4.75 u/s that means a stick under 0.26 in UYA and 0.31 in DL.
+
+### Deadlocked's moves [verified on DL NTSC, 2026-10-15]
+
+Seven traces of scripted keyboard play on DreadZone Station, `dlntsc-dreadzone-moves-{1..7}`
+(`docs/re-setup.md`), 7,100 frames. Takes 1, 2, 4, 5 and 7 play with DL's camera option
+set to third person (the word at 0x1711D0 written to 0), where the stick turns the hero as
+in UYA; takes 3 and 6 with DL's default lock-strafe camera.
+- **The walk:** up at 0.6167 u/s a frame (37 u/s²) to 7.25 u/s.
+- **Jumps:** standing and run jumps have UYA's heights, hold and push-off. Held fully, a
+  jump peaks 1.8865 u above the take-off (UYA's trace: 1.8867). A run jump flies at
+  7.25 u/s.
+- **The double jump:** its vertical speed tops out at 0.116667 u a frame (7 u/s). A
+  second press on the jump's 9th frame was kept and double jumped on the 11th; a press on
+  the 13th double jumped at once. Past the apex, a press while falling at 4.8 u/s double
+  jumped, and at 5.2 u/s didn't: the game compares the 5.8 u/s limit with the speed after
+  that frame's gravity, which had reached 5.8 u/s.
+- **No glide:** X held through a double jump that rose 3 u gave no glide. DL's glide code
+  is there; it needs an item or a mode not found yet.
+- **Strafing:** in third person L2 strafes (the strafe flag at hero+0x5F4 is 1), at the
+  walk's speeds. Sideways or back with X it jumps (state 7) and keeps moving the stick's
+  way at 7.25 u/s: DL's walk-jump function (0x687430) works out a flip and then always
+  starts a standing jump.
+- **Flips:** none came from L2 or R1 held with a direction and X, in either camera. The
+  Gladiator PAL recording has one (state 11), so DL flips some other way, not found yet.
+- **No crouch here:** R1 (third person) and L2 (lock-strafe) don't crouch on DreadZone
+  Station after the tutorial's jump step, so the long jump and the jump from a crouch
+  couldn't be traced. In lock-strafe, L2 is first-person aiming (state 29, camera type 2),
+  and L1 jumps as X does.
+- **Letting go of the walk with a gun in hand:** one frame braking at 30 u/s², then idle
+  at 1.5 u/s less one frame of 17.7 u/s². UYA's trace (the wrench in hand) skids two frames
+  at 17 first. The release skid depends on the held item (`hero_update_walk` reads the
+  hand slot), not on the game.
+- **The lock-strafe camera:** the strafe flag is 2 while idle and 1 while walking, so the
+  hero always faces the camera. The kit doesn't have this camera yet.
+- **DL's camera option:** libdl's `CameraType` (hero+0x1AE0: 0 third person,
+  1 lock-strafe, 2 first person) follows a byte per player at 0x171DE0, which follows the
+  option word per player at 0x1711D0 (`hero_camera_type_update`, 0x68BBA0).
+
+### In the kit: a profile per game
+
+The controller is shared; each game is a RON profile of numbers
+(`crates/rac_hero/assets/uya.ron` and `dl.ron`, `HeroProfile::dl()`), plus switches where
+the games' rules differ (`strafe.flips`). `dl.ron` holds DL's values from the table
+above, and UYA's where DL's code isn't read yet, marked in its comments. A test
+(`deadlocked_differs_from_uya_only_where_the_games_do`) lists the fields that differ, and
+`crates/rac_hero/tests/deadlocked.rs` checks the DL traces' walk, jumps, double jump and
+strafe jump. The app chooses with `--moves uya|dl|FILE` or the menus' Moves button.
 
 - **`HeroPlayerConstants`** is a block of per-second constants, pointed to by
   hero+0x2EEC, that Gladiator and DL carry. Its values are identical in both:
@@ -1433,12 +1700,15 @@ Also read in code but not seen in a trace:
 
 ## Next steps
 
-1. **More traces on Deadlocked NTSC.** They work since 2026-10-12
-   (`re/SCUS-97465/hero.toml`, `docs/re-setup.md`), and the charge is verified. Next: DL's
-   jumps, to compare with Gladiator PAL and UYA, and the code behind the 0.43 u step limit
-   and the skid's stop when the input lock ends.
+1. **More on Deadlocked NTSC.** The charge (2026-10-12) and the walk, jumps and double
+   jump (2026-10-15, "Deadlocked's moves") are verified. Next: where DL's flips come
+   from, DL's crouch (a savestate past the tutorial), the lock-strafe camera, the parts of
+   the kit's DL profile still marked "not read in DL", and the code behind the 0.43 u step
+   limit.
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
-   swimming.
+   swimming. Swimming, ledges and the wall jump were traced on 2026-10-13, and zip lines
+   on 2026-10-15. UYA has no rail to grind on (section "Grinding"), so grinding waits for
+   GC or DL.
    - The wall jump, ledges, slope limit and getting hit are read in UYA's code, and the
      charge boots in DL's (sections above, 2026-10-12). Grinding and swimming followed on
      2026-10-13.

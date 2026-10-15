@@ -1,7 +1,7 @@
 //! `openrac-tool`: extracts and inspects the games' data (PLAN.md P2.7).
 //!
 //! Everything it writes is derived from the user's own disc, so it goes in `cache/`, never
-//! the repository. `hero` reads the disc itself; `moby` reads EE memory images made from
+//! the repository. `hero` and `rails` read the disc itself; `moby` reads EE memory images made from
 //! savestates (`tools/ghidra/import-savestate.sh` writes them), for reverse engineering.
 
 mod glb;
@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use rac_formats::level::Core;
+use rac_formats::gameplay::{Gameplay, GrindPath};
+use rac_formats::level::{Core, Toc};
 use rac_formats::moby::{MobyClass, PacketKind};
 use rac_formats::{DiscReader, FormatError, Image};
 use rac_iso::Disc;
@@ -65,6 +66,16 @@ enum Command {
         /// level.
         #[arg(long)]
         check_ee: Option<PathBuf>,
+    },
+    /// List the rails the hero can grind in each level of a UYA disc image, from the
+    /// levels' gameplay files.
+    Rails {
+        /// The disc image (.iso).
+        #[arg(long)]
+        iso: PathBuf,
+        /// Only this level, with every point of its rails.
+        #[arg(long)]
+        level: Option<usize>,
     },
 }
 
@@ -179,8 +190,57 @@ fn main() -> Result<()> {
                 write_glb(&hero, "hero", &path)?;
             }
         }
+        Command::Rails { iso, level } => {
+            let mut disc = open_disc(&iso)?;
+            let levels = match level {
+                Some(level) => vec![level],
+                None => (0..Toc::read_uya_disc(&mut disc)?.levels.len()).collect(),
+            };
+            for number in levels {
+                let gameplay = match Gameplay::read_uya(&mut disc, number) {
+                    Ok(gameplay) => gameplay,
+                    // Gaps in the level table.
+                    Err(_) if level.is_none() => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                let paths = gameplay
+                    .grind_paths()
+                    .with_context(|| format!("reading level {number}'s grind paths"))?;
+                describe_rails(number, &paths, level.is_some());
+            }
+        }
     }
     Ok(())
+}
+
+fn describe_rails(level: usize, paths: &[GrindPath], every_point: bool) {
+    println!("level {level}: {} rails", paths.len());
+    for (number, path) in paths.iter().enumerate() {
+        let length: f32 = path
+            .points
+            .windows(2)
+            .map(|pair| {
+                let [a, b] = [pair[0], pair[1]];
+                ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt()
+            })
+            .sum();
+        let ends = path
+            .points
+            .first()
+            .zip(path.points.last())
+            .map(|(a, b)| format!("from {a:.2?} to {b:.2?}"))
+            .unwrap_or_default();
+        println!(
+            "  rail {number}: {} points, {length:.2} u {ends}, flags {:#x}",
+            path.points.len(),
+            path.flags
+        );
+        if every_point {
+            for point in &path.points {
+                println!("    {point:.3?}");
+            }
+        }
+    }
 }
 
 fn describe(address: u32, class: &MobyClass, list_sequences: bool) {

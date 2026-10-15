@@ -178,6 +178,30 @@ Each frame, in this order:
       steer the arm towards a set direction within an angle, and switch on the look-point
       blend.
 
+## Lock-on [code, UYA NTSC, 2026-10-15]
+
+While the hero is locked on to a target (`hero-controller.md`, "Strafing and lock-on"),
+the follow camera turns to look past him at it. Not traced: no savestate of ours holds a
+weapon that allows lock-on.
+- **A virtual right stick** (`camera_steer_to`, 0x3E7168): each frame
+  `camera_follow_params` (0x3E42C0) sets the camera's virtual stick (+0x1FC) from the
+  target. With x the arm's angle off the line from the target through the follow point,
+  in right angles (0 to 2), it is `2x − x²`, signed to turn towards that line. It is
+  fullest at a right angle and fades to nothing both at the line and straight across
+  from it.
+- **Its speed ramps up** (`camera_lock_on_turn`, 0x3E7430): the turn speed (+0x1F4) is
+  `(t / 400) × π/2` rad a frame, where t counts the frames locked on, up to 400, and
+  drops to 0 without a target. So the camera barely moves at first. From about 200
+  frames on, a small error is overcorrected each frame, which the actual arm's spring
+  (step 7) smooths out.
+- **The player wins:** `camera_stick_input` (0x3E7478) uses the virtual stick only when
+  the right stick's x is 0, and a real push resets the turn speed to the camera-speed
+  option. The stick spring between them (+0x1E0: gain 2, damping 4, never past its
+  target) settles in one frame, so the kit leaves it out.
+- The camera ends the frame by clearing the virtual stick (`camera_end_of_frame`).
+- **In the kit:** `rac_hero::camera`, `lock_turn`; its profile's `lock_turn` and
+  `lock_ramp_ticks`.
+
 ## Partly seen
 
 - **Field of view [measured, meaning unclear]:** on R&C3 PAL the FOV block holds 1.11
@@ -210,4 +234,5 @@ Each frame, in this order:
 2. Read the vertical state machine (0x3E2AE8, 0x3E3130) for landings at a new height and
    ledge grabs, and check them with a trace that jumps onto something.
 3. Read the obstacle helpers (0x3E5930, 0x3E5C20, 0x3E6128), with a trace along walls.
-4. Strafe and first-person modes, and the camera volumes in level data (Phase 3).
+4. The lock-strafe and first-person modes (camera modes 1 and 2), and the camera volumes
+   in level data (Phase 3). Lock-on in the follow camera is read (section "Lock-on").
