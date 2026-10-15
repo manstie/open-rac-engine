@@ -29,7 +29,7 @@ session is working on the task now; notes on problems met stay with their task (
 - **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus). He has the follow camera with
-  lock-on (P1.7) and melee (P1.8). He wears the open blocky model or, from the user's
+  lock-on (P1.7) and melee for both games (P1.8). He wears the open blocky model or, from the user's
   discs, any of 15 UYA suits or 12 DL skins, and plays Ratchet's real animations with a
   UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed.
@@ -349,11 +349,12 @@ committed (names, addresses, layouts, derived constants).
   - Read in code and checked against traces: the stick pipeline, walking and the
     sharp-turn skid, every jump type with its entry rules and parameters, air control, the
     double jump, glide, heli jump, long jump, flips (strafe and crouch), the crouch turn,
-    falling, the wall jump, ledges, the slope limit, getting hit and dying, melee,
-    swimming, zip lines, strafing, DL's charge boots, the animation each state plays, the
-    moves that need items, and DL's differences from UYA.
-  - Read in code only: grinding (no UYA level can be grinded, so a trace waits for GC or
-    DL), lock-on (needs a weapon none of our savestates holds), changing strafe sides.
+    falling, the wall jump, ledges, the slope limit, getting hit and dying, melee (UYA's
+    and DL's), swimming, zip lines, strafing, DL's charge boots, the animation each state
+    plays, the moves that need items, and DL's differences from UYA.
+  - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
+    rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
+    clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides.
   - To do (`hero-controller.md`, "Next steps"): DL's lock-strafe camera, the source of
     DL's flips, DL's crouch moves, which item gives DL's glide, the `dl.ron` sections
     marked "not read in DL" (the crouch flip among them: DL's R1 didn't crouch where it was
@@ -447,10 +448,12 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     turn; standing, run, long and heli jumps, flips (strafe and crouch), the double jump,
     glide, fall and air control; moving platforms; the wall jump; ledges (grab, hang,
     shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge boots; the
-    ability flags; grinding; swimming; zip lines; strafing and lock-on (`lock_on.rs`);
-    melee (P1.8). Tests: `rac_hero/tests/` and `rac_demo/tests/greybox_moves.rs`.
-  - **To do:** the grind attack, auto-jumping rails, wading, and DL's open items under
-    RE.3.
+    ability flags; grinding, side on; swimming; zip lines; strafing and lock-on
+    (`lock_on.rs`); melee (P1.8). Tests: `rac_hero/tests/` and
+    `rac_demo/tests/greybox_moves.rs`.
+  - **To do:** auto-jumping rails, wading, and DL's open items under RE.3.
+  - The grind faced along the rail; UYA's code turns him 90° to its right (a stance
+    offset missed in the first reading). It is now `grind.stance_degrees`.
   - The crouch turned on the walk's setting-off spring, about four times faster than UYA's
     own, which closed the crouch flip's window; it now has the game's (`walk.crouch_turn`),
     verified on UYA NTSC.
@@ -474,12 +477,22 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - To do: the vertical state machine's details, the obstacle pull-in helpers, the
     lock-strafe mode (DL's default), first person, and camera volumes and splines from
     level data (Phase 3).
-- [~] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
-  and the crate `rac_combat`): UYA's wrench combo, jump attack and throw, with hurtboxes,
-  hit points, one hit per attack, knockback and flash. The demo has a melee yard.
-  - To do: the grind attack (state 42), the wall clank, and DL's melee.
-  - In progress (2026-10-15): finishing the to-do list: the grind attack, the wall clank
-    and DL's melee, read in code and traced.
+- [x] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
+  and the crate `rac_combat`): the wrench combo, jump attack, throw, grind attack and the
+  clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with
+  hurtboxes, hit points, one hit per attack, knockback and flash. The demo has a melee
+  yard and shows clanks as sparks.
+  - Not modelled: DL's flail, shuriken, glove and magnetic attacks (with P1.9), UYA's
+    states 77 and 114, and the giant-Clank mode (`hero-controller.md`, "Not read yet").
+  - UYA's grind can't be traced: a rail written into Veldin's empty rail list crashes
+    PCSX2 two frames into the grind. The grind attack's wrench line is computed from the
+    disc's animations instead. The method reproduces the traced combo
+    (`hero-controller.md`, "The grind attack").
+  - DL's attack frames don't creep through a blend, and its lunges test the frame before
+    its advance. Both were found in the traces (`melee.blend_creeps`, and DL's lunge
+    frames half a frame on).
+  - One trace of DL's double-jump attack started later than the code's frame-16 rule
+    gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [ ] **P1.9** Weapons framework (`rac_combat`), following RE.7:
   - Data-driven definitions (RON):
     - fire mode: hitscan, projectile, lobbed, stream/beam or homing;

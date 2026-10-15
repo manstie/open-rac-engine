@@ -1,13 +1,14 @@
 //! The controller with Deadlocked's profile against our own DL NTSC-U traces
-//! `dlntsc-dreadzone-moves-{1..5}` (PLAN.md RE.6; `docs/research/hero-controller.md`,
-//! "Differences between the games"), and beside UYA's where the games differ.
+//! `dlntsc-dreadzone-moves-{1..5}` and `dlntsc-dreadzone-melee-{1..5}` (PLAN.md RE.6;
+//! `docs/research/hero-controller.md`, "Differences between the games" and "Deadlocked's
+//! melee"), and beside UYA's where the games differ.
 //!
 //! The traces show the pad one frame before the hero acts on it, so a press on trace row
 //! n is a press on the tick of row n + 1 here.
 
 use bevy::prelude::*;
 use rac_hero::{
-    BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
+    BodyPlacement, Collider, GrindRail, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
     controller::step,
 };
 use rac_input::{Action, Buttons, PlayerInput};
@@ -197,4 +198,101 @@ fn strafing_sideways_jumps_instead_of_flipping_in_deadlocked() {
     let mut rig = Rig::new(HeroProfile::uya());
     rig.tick(&input(Some([-127, 0]), &[Action::Strafe], &[Action::Jump]));
     assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Flip));
+}
+
+// --- Melee ------------------------------------------------------------------------------
+
+fn melee() -> PlayerInput {
+    input(None, &[], &[Action::Melee])
+}
+
+#[test]
+fn deadlocked_swings_play_from_their_start_and_lunge_at_4_75() {
+    // melee-1, the first standing swing, rows t = 0..=19: the frame runs from 15.5 with no
+    // blend, and the lunge rises at 37 u/s² to 4.75, holding while the frame was under 20.
+    let trace = [
+        0.0, 0.62, 1.23, 1.85, 2.47, 3.08, 3.70, 4.31, 4.75, 4.75, 4.28, 3.81, 3.35, 2.88, 2.41,
+        1.95, 1.48, 1.01, 0.55, 0.08,
+    ];
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.tick(&melee());
+    for (t, &speed) in trace.iter().enumerate() {
+        if t > 0 {
+            rig.tick(&input(None, &[], &[]));
+        }
+        assert_eq!(rig.hero.state, HeroState::Combo(0));
+        assert_eq!(rig.hero.attack_frame(), 15.5 + 0.5 * t as f32, "t = {t}");
+        assert!(
+            (rig.horizontal_speed() - speed).abs() < 0.01,
+            "t = {t}: {} against {speed}",
+            rig.horizontal_speed()
+        );
+    }
+}
+
+/// A swing, then `then` once its frame reaches 25.
+fn into_a_swing(profile: HeroProfile, then: &PlayerInput) -> HeroState {
+    let mut rig = Rig::new(profile);
+    rig.tick(&melee());
+    while rig.hero.attack_frame() < 25.0 {
+        rig.tick(&input(None, &[], &[]));
+    }
+    rig.tick(then);
+    rig.hero.state
+}
+
+#[test]
+fn deadlocked_swings_on_with_crouch_held_and_jumps_out_standing() {
+    // melee-5: R1 and Square at frame 28 chained swing 2, and R1 and X jumped as from
+    // standing; UYA throws, and jumps from a crouch.
+    let crouch_melee = input(None, &[Action::Crouch], &[Action::Melee]);
+    let crouch_jump = input(None, &[Action::Crouch], &[Action::Jump]);
+    assert_eq!(
+        into_a_swing(HeroProfile::dl(), &crouch_melee),
+        HeroState::Combo(1)
+    );
+    assert_eq!(
+        into_a_swing(HeroProfile::uya(), &crouch_melee),
+        HeroState::Throw
+    );
+    assert_eq!(
+        into_a_swing(HeroProfile::dl(), &crouch_jump),
+        HeroState::Jump(JumpKind::Standing)
+    );
+    assert_ne!(
+        into_a_swing(HeroProfile::uya(), &crouch_jump),
+        HeroState::Jump(JumpKind::Standing)
+    );
+}
+
+#[test]
+fn deadlocked_attacks_from_a_double_jump_far_sooner() {
+    // Past its animation's frame 16, on its 12th tick (melee-3); UYA waits for frame 32.
+    let first_tick = |profile: HeroProfile| {
+        (1..40).find(|&delay| {
+            let mut rig = Rig::new(profile.clone());
+            rig.double_jump_tick(8).expect("a double jump");
+            rig.ticks(delay - 1, &input(None, &[], &[]));
+            rig.tick(&melee());
+            rig.hero.state == HeroState::JumpAttack
+        })
+    };
+    assert_eq!(first_tick(HeroProfile::dl()), Some(12));
+    assert_eq!(first_tick(HeroProfile::uya()), Some(20));
+}
+
+#[test]
+fn deadlocked_has_no_grind_attack() {
+    // Its code is there, but the grind never starts it.
+    let rail = GrindRail::new(vec![Vec3::new(0.0, 2.0, 0.0), Vec3::new(0.0, 2.0, -500.0)]);
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.world = ParryWorld::new(&[]).with_rails(vec![rail]);
+    rig.hero = HeroMotion::new(Vec3::new(0.0, 3.0, -1.0), 0.0);
+    for _ in 0..60 {
+        rig.tick(&input(None, &[], &[]));
+    }
+    assert_eq!(rig.hero.state, HeroState::Grind);
+    rig.tick(&melee());
+    rig.ticks(5, &input(None, &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Grind);
 }

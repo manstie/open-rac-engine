@@ -103,7 +103,7 @@ name = "hero_common_transitions"
 address = 0x006A5248
 kind = "function"
 confidence = "medium"
-note = "Transitions shared by the ground states, including the charge's start: a second R1 press in the 15-frame window, with gadget 0x11 owned."
+note = "Transitions shared by the ground states, including the charge's start: a second R1 press in the 15-frame window, with gadget 0x11 owned. It is also DL's attack start, where UYA's hero_attack_start is (hero-controller.md, \"Deadlocked's melee\")."
 
 [[symbol]]
 name = "hero_update_idle"
@@ -535,6 +535,299 @@ address = 0x0068BBA0
 kind = "function"
 confidence = "medium"
 note = "Copies camera_option into control_scheme and sets hero+0x1AE0, the camera type, from it; L2 in lock-strafe switches to first person (state 29)."
+
+# 2026-10-15, Deadlocked's melee (PLAN.md P1.8; docs/research/hero-controller.md,
+# "Deadlocked's melee"). Read in code on DreadZone Station, checked against the traces
+# dlntsc-dreadzone-melee-{1..5}. Hero fields used: the animation frame at hero + 0x658, its
+# rate at + 0x640, the attack row at + 0x184C, the clank latch at + 0x184E, the wrench line
+# at + 0x17B0 and + 0x17C0, the hand item at + 0x2318.
+
+[[symbol]]
+name = "hero_update_combo"
+address = 0x00698280
+kind = "function"
+confidence = "medium"
+note = "State 19's update: the lunge (4.75, 5.95/4.75/3.25 and 3.95 u/s by swing and frame), the turn to the aim and gravity. Lunge speeds checked in dlntsc-dreadzone-melee-1."
+
+[[symbol]]
+name = "hero_update_jump_attack"
+address = 0x00697C00
+kind = "function"
+confidence = "medium"
+note = "State 20's update: rise, hold and fall as UYA's, braking or holding 4.5 u/s."
+
+[[symbol]]
+name = "hero_update_flail"
+address = 0x00698860
+kind = "function"
+confidence = "low"
+note = "State 145's update, DL's flail combo, with UYA's lunge numbers."
+
+[[symbol]]
+name = "flail_attack_start"
+address = 0x006A5190
+kind = "function"
+confidence = "low"
+note = "Starts the flail combo (state 145)."
+
+[[symbol]]
+name = "hero_auto_aim"
+address = 0x00681708
+kind = "function"
+confidence = "medium"
+note = "The attacks' aim, as UYA's 0x4EEA78."
+
+[[symbol]]
+name = "target_search"
+address = 0x006741C0
+kind = "function"
+confidence = "medium"
+note = "Finds the best target within a range, cone and rise, as UYA's."
+
+[[symbol]]
+name = "target_score"
+address = 0x00673B78
+kind = "function"
+confidence = "medium"
+note = "Scores one target: distance x (1 + angle off)."
+
+[[symbol]]
+name = "hero_ticks_to_land"
+address = 0x00689190
+kind = "function"
+confidence = "medium"
+note = "Whole frames until the hero lands, at most 60; the jump attack times its animation with it, and freezes it at 16 or more."
+
+[[symbol]]
+name = "hero_edge_stop"
+address = 0x006840B8
+kind = "function"
+confidence = "medium"
+note = "Stops a lunge at a drop, as UYA's 0x4F14D8."
+
+[[symbol]]
+name = "wrench_throw"
+address = 0x00684510
+kind = "function"
+confidence = "medium"
+note = "Releases the thrown wrench, at frame 33 (32 from the look state)."
+
+[[symbol]]
+name = "wrench_update"
+address = 0x00460530
+kind = "function"
+confidence = "medium"
+note = "The wrench object's update: the hit line (hand at hero + 0x17B0, tip at + 0x17C0), the head ball (0.75, 1.75 in the jump attack), the clank and the thrown wrench."
+
+[[symbol]]
+name = "wrench_line_shorten"
+address = 0x00460408
+kind = "function"
+confidence = "medium"
+note = "Shortens the wrench's line by its angle off the facing, as UYA's 0x337FD0."
+
+[[symbol]]
+name = "wrench_sparks"
+address = 0x00460138
+kind = "function"
+confidence = "medium"
+note = "Sparks at the clank or hit point, as UYA's 0x337BD8."
+
+[[symbol]]
+name = "wrench_spark_burst"
+address = 0x0045FF78
+kind = "function"
+confidence = "low"
+note = "A burst of flashes, as UYA's 0x3378E0."
+
+[[symbol]]
+name = "wrench_hit_sound"
+address = 0x0045FEE8
+kind = "function"
+confidence = "low"
+note = "Picks the wrench's hit sound."
+
+[[symbol]]
+name = "wrench_sweep_test"
+address = 0x00593360
+kind = "function"
+confidence = "medium"
+note = "Tests the swept hit line against targets, as UYA's 0x443AB8."
+
+[[symbol]]
+name = "damage_info_fill"
+address = 0x00592CF0
+kind = "function"
+confidence = "medium"
+note = "Fills a damage record: damage, push, attacker and flags (0x801, or 0x8801 at wrench level 3 and up)."
+
+[[symbol]]
+name = "damage_queue_add"
+address = 0x005931F8
+kind = "function"
+confidence = "medium"
+note = "Queues damage to a moby; the clank sends a touch of 0."
+
+[[symbol]]
+name = "ball_damage"
+address = 0x005415A8
+kind = "function"
+confidence = "medium"
+note = "Damages what a ball touches, as UYA's 0x3FB1D0."
+
+[[symbol]]
+name = "collision_ray"
+address = 0x0053DC70
+kind = "function"
+confidence = "medium"
+note = "A collision ray between two points; the result is at collision_result."
+
+[[symbol]]
+name = "collision_hit_material"
+address = 0x00542FF8
+kind = "function"
+confidence = "medium"
+note = "The last ray's surface type, the low bits of the word at 0x24235C."
+
+[[symbol]]
+name = "moby_play_sound"
+address = 0x00626D50
+kind = "function"
+confidence = "medium"
+note = "Plays a moby class's sound by number, as UYA's 0x4A7200."
+
+[[symbol]]
+name = "moby_anim_set"
+address = 0x005919B8
+kind = "function"
+confidence = "low"
+note = "Starts a moby's animation; the wrench's own follows the hero's."
+
+[[symbol]]
+name = "moby_point_position"
+address = 0x00587A98
+kind = "function"
+confidence = "medium"
+note = "A class point's world position, as UYA's 0x437698."
+
+[[symbol]]
+name = "is_wrench_moby"
+address = 0x0067B990
+kind = "function"
+confidence = "medium"
+note = "Whether a moby is the wrench (class 0x23FA)."
+
+[[symbol]]
+name = "hero_drop_held_moby"
+address = 0x00688958
+kind = "function"
+confidence = "low"
+note = "Drops the moby the hero holds; the ground throw does this instead when he holds one."
+
+[[symbol]]
+name = "hero_anim_rate_to_frame"
+address = 0x0066F4C0
+kind = "function"
+confidence = "medium"
+note = "The animation rate that brings a frame to the landing: 0.5 x frames left x keyframe ticks / ticks to land."
+
+[[symbol]]
+name = "anim_frame_crossed"
+address = 0x0067C5C0
+kind = "function"
+confidence = "medium"
+note = "Whether the hero's animation frame passed a given frame this frame."
+
+[[symbol]]
+name = "hero_anim_jump_to"
+address = 0x00688FE0
+kind = "function"
+confidence = "low"
+note = "Moves the hero's animation to a keyframe with no blend; the throw uses it for its catch."
+
+[[symbol]]
+name = "gadget_level"
+address = 0x006BE198
+kind = "function"
+confidence = "medium"
+note = "A gadget's level from the gadget box (hero + 0x26E4)."
+
+[[symbol]]
+name = "gadget_damage"
+address = 0x006BE8B8
+kind = "function"
+confidence = "medium"
+note = "A gadget's damage at its level; the wrench's is 1-25 for swings and 4-100 for the jump attack over levels 0-7."
+
+[[symbol]]
+name = "gadget_level_damage"
+address = 0x006BE7D8
+kind = "function"
+confidence = "low"
+note = "A gadget level row's damage column."
+
+[[symbol]]
+name = "gadget_level_defs"
+address = 0x006BF240
+kind = "function"
+confidence = "low"
+note = "The row of gadget_level_defs_table for a gadget and level."
+
+[[symbol]]
+name = "gadget_level_def_index"
+address = 0x006BDFF0
+kind = "function"
+confidence = "low"
+note = "The index table lookup behind gadget_level_defs."
+
+[[symbol]]
+name = "pad_rumble"
+address = 0x00533730
+kind = "function"
+confidence = "low"
+note = "Starts a rumble preset; the jump attack plays 0x19 at frame 25.7."
+
+[[symbol]]
+name = "attack_table"
+address = 0x003B0358
+kind = "data"
+confidence = "high"
+note = "Eleven rows of 0x2C bytes in UYA's layout (kind, step, chain_before, buffer_from, chain_from, jump_from, end, hit_from, hit_to, two unread): 0-2 the combo, 3 the throw, 4 the jump attack (hit_to 29), 5-6 the magnetic attack, 7-10 the flail."
+
+[[symbol]]
+name = "gadget_level_defs_table"
+address = 0x003BE5B8
+kind = "data"
+confidence = "medium"
+note = "0x20-byte rows of per-level gadget values, laid out like libdl's GadgetDefsEntry; the wrench's levels 0-7 are rows 1-8."
+
+[[symbol]]
+name = "gadget_level_index_table"
+address = 0x003BE158
+kind = "data"
+confidence = "medium"
+note = "Maps (gadget, level) to a row of gadget_level_defs_table."
+
+[[symbol]]
+name = "target_list"
+address = 0x0028CA20
+kind = "data"
+confidence = "medium"
+note = "The objects the aim scores, as UYA's 0x21E8E0."
+
+[[symbol]]
+name = "collision_result"
+address = 0x00242340
+kind = "data"
+confidence = "medium"
+note = "The last collision query: +0x18 the moby hit, +0x1C the surface word, +0x20 the point."
+
+[[symbol]]
+name = "multiplayer_flag"
+address = 0x0021E824
+kind = "data"
+confidence = "low"
+note = "0 in single player; the melee code reads other damage columns and limits when it is set."
 
 # Seeded 2026-10-15 from libdl (MIT, re/README.md "Sources"; PLAN.md RE.2). Deadlocked's
 # single player and multiplayer share one resident program, so libdl's fixed addresses for

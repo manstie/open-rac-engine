@@ -11,7 +11,9 @@ mod spectator;
 
 use bevy::prelude::*;
 use rac_combat::{CombatPlugin, Destroyed, HitReaction, Hitpoints, Pushable, target_bundle};
-use rac_hero::{Checkpoint, Collider, FollowCamera, HeroPlugin, HeroTuning, LockOn, hero_bundle};
+use rac_hero::{
+    Checkpoint, Collider, FollowCamera, HeroBody, HeroPlugin, HeroTuning, LockOn, hero_bundle,
+};
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
@@ -31,6 +33,15 @@ struct Flash {
     normal: Handle<StandardMaterial>,
     lit: Handle<StandardMaterial>,
 }
+
+/// A spark where the wrench clanked off something, shrinking away.
+#[derive(Component, Debug, Clone, Copy)]
+struct Spark {
+    ticks_left: u32,
+}
+
+/// How long a clank's spark lasts.
+const SPARK_TICKS: u32 = 10;
 
 /// The ring shown round the target the hero is locked on to.
 #[derive(Component, Debug, Default, Clone, Copy)]
@@ -64,7 +75,10 @@ impl Plugin for DemoPlugin {
         }
         app.init_resource::<DemoSettings>()
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
-            .add_systems(FixedUpdate, break_targets.in_set(SimSet::Particles))
+            .add_systems(
+                FixedUpdate,
+                (break_targets, show_clanks).in_set(SimSet::Particles),
+            )
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera))
             .add_systems(Update, (flash_targets, show_lock_on));
     }
@@ -313,6 +327,43 @@ fn break_targets(
             TargetKind::Crate => commands.entity(event.target).despawn(),
             TargetKind::Dummy => hitpoints.current = hitpoints.max,
         }
+    }
+}
+
+/// Sparks where the wrench clanks off a wall or the ground, each shrinking away.
+fn show_clanks(
+    heroes: Query<&HeroBody>,
+    mut sparks: Query<(Entity, &mut Spark, &mut Transform)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, mut spark, mut transform) in &mut sparks {
+        spark.ticks_left = spark.ticks_left.saturating_sub(1);
+        if spark.ticks_left == 0 {
+            commands.entity(entity).despawn();
+        } else {
+            transform.scale = Vec3::splat(spark.ticks_left as f32 / SPARK_TICKS as f32);
+        }
+    }
+    for body in &heroes {
+        let Some(clank) = body.0.clank else {
+            continue;
+        };
+        commands.spawn((
+            Name::new("clank"),
+            DemoEntity,
+            Spark {
+                ticks_left: SPARK_TICKS,
+            },
+            Mesh3d(meshes.add(Sphere::new(0.12))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.9, 0.5),
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_translation(clank.point),
+        ));
     }
 }
 

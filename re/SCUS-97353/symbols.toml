@@ -680,11 +680,11 @@ confidence = "medium"
 note = "Scores one target for hero_auto_aim."
 
 [[symbol]]
-name = "wrench_reach_scale"
+name = "wrench_line_shorten"
 address = 0x00337FD0
 kind = "function"
-confidence = "medium"
-note = "Scales the swing's lunge so it reaches the aimed target."
+confidence = "high"
+note = "Shortens a vector from the hero by its angle off his facing: full length at 0, falling evenly to 70% at 105 degrees and beyond. The wrench's hit line and the clank ray use it. (Named wrench_reach_scale until 2026-10-15, wrongly.)"
 
 [[symbol]]
 name = "wrench_sweep_test"
@@ -1755,6 +1755,122 @@ address = 0x0033BE30
 kind = "function"
 confidence = "low"
 note = "Breaking a crate (classes 0x1F4, 0x1F5, 0x1F8, 0x1FF, 0x200). For the Inferno crate (0x1F8) it starts Inferno Mode: armor_worn 4 for 1,200 frames (0x1A4E14 counts down) and hero_mesh_swap."
+
+# 2026-10-15, the grind attack, the wrench's clank and the grind's stance (PLAN.md P1.8;
+# docs/research/hero-controller.md, "The grind attack", "What the wrench hits",
+# "Grinding"). Addresses from Veldin's build.
+
+[[symbol]]
+name = "moby_point_position"
+address = 0x00437698
+kind = "function"
+confidence = "high"
+note = "(moby, point, out): the world position of one of a moby class's points, the last joint of a chain listed at class + 0x1C, scaled by the moby's scale, turned and placed. The hero's point 0 is joint 56, the wrench's point 1 its tip, joint 5."
+
+[[symbol]]
+name = "moby_pose_chain"
+address = 0x0043CE28
+kind = "function"
+confidence = "medium"
+note = "Poses the joints of the given point chains into scratchpad matrices and copies out each chain's last joint's matrix; moby_point_position uses it."
+
+[[symbol]]
+name = "wrench_sparks"
+address = 0x00337BD8
+kind = "function"
+confidence = "high"
+note = "Sprays about 20 sparks from the last collision ray's hit point (0x1EAAA0) towards the camera, then 10 small flashes; more for the jump attack. Purely for show."
+
+[[symbol]]
+name = "wrench_spark_burst"
+address = 0x003378E0
+kind = "function"
+confidence = "medium"
+note = "A burst of flashes at a point; wrench_sparks adds it in the jump attack."
+
+[[symbol]]
+name = "wrench_hit_sound"
+address = 0x00337850
+kind = "function"
+confidence = "medium"
+note = "Picks the wrench's hit sound, 0 or 1."
+
+[[symbol]]
+name = "moby_play_sound"
+address = 0x004A7200
+kind = "function"
+confidence = "high"
+note = "(index, flags, moby): plays the moby class's sound number index from its sound table (class + 0x28, count at + 0xD, 0x20 bytes each). The wrench's sound 2 is its clank."
+
+[[symbol]]
+name = "damage_queue_add"
+address = 0x00443938
+kind = "function"
+confidence = "medium"
+note = "Queues damage to a moby (64 entries at 0x1EED00); the clank sends 1 to an object its ray hits."
+
+[[symbol]]
+name = "collision_hit_material"
+address = 0x003FC730
+kind = "function"
+confidence = "high"
+note = "The last collision ray's hit material, the low five bits of the result word at 0x1EAA9C, or -1 when none. The clank needs it to be non-zero."
+
+[[symbol]]
+name = "attack_clank_latch"
+address = 0x001A57BE
+kind = "data"
+confidence = "high"
+note = "Set when the attack under way has clanked off a wall or hit a target; a new attack clears it. While set, no clank, hit sound or sparks."
+
+[[symbol]]
+name = "attack_row"
+address = 0x001A57BC
+kind = "data"
+confidence = "high"
+note = "The attack table row of the attack under way: 0-2 the combo, 3 the throw, 4 the jump attack, and 0 or 1 again for the grind attack's two swings."
+
+[[symbol]]
+name = "hero_state_type"
+address = 0x001A71AC
+kind = "data"
+confidence = "high"
+note = "The hero state's type (libuya's PlayerType): 6 for attacks, 15 for the grind states 39-42."
+
+[[symbol]]
+name = "grind_stance"
+address = 0x001A51D8
+kind = "data"
+confidence = "high"
+note = "The grind's stance offset, added to the rail's yaw for the facing: -pi/2 on getting on, +pi/2 when grind_stance_object lies the other way."
+
+[[symbol]]
+name = "grind_stance_side"
+address = 0x001A51DC
+kind = "data"
+confidence = "high"
+note = "0 or 1 with grind_stance: the grind plays sequence 44 + this."
+
+[[symbol]]
+name = "grind_stance_object"
+address = 0x001A5228
+kind = "data"
+confidence = "low"
+note = "A moby pointer the grind's entry checks; more than 90 degrees from the stance side, it turns the stance round. What sets it isn't read."
+
+[[symbol]]
+name = "grind_end_frames"
+address = 0x001A51C0
+kind = "data"
+confidence = "medium"
+note = "Frames since the rail's spline ran out; at 6 the grind falls, and the grind attack needs it 0 to start."
+
+[[symbol]]
+name = "grind_off_frames"
+address = 0x001A5248
+kind = "data"
+confidence = "medium"
+note = "Frames the hero has been more than 1.07 u above the ground under the rail, 30 frames into a grind; at 6 he falls."
 
 # 2026-10-15, the idle's fidgets, landings and the walk's animation
 # (docs/research/hero-controller.md, "Idle fidgets", "Landings", "The walk's animation").

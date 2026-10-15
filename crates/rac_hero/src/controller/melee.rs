@@ -1,5 +1,6 @@
 //! The wrench (`hero-controller.md`, "Melee"): the three-swing combo (state 19), the jump
-//! attack (20), the throw (21) and the thrown wrench.
+//! attack (20), the throw (21), the thrown wrench, the grind attack (42) and the clank off
+//! walls.
 //!
 //! The games time their attacks by the hero's animation, so each attack here keeps the
 //! animation's frame as the game would play it, and the profile's windows are in those
@@ -88,6 +89,13 @@ fn distance_to_segment(point: Vec3, a: Vec3, b: Vec3) -> f32 {
     point.distance(a + ab * s)
 }
 
+/// The wrench clanking off a wall or the ground: where, and the surface's normal there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Clank {
+    pub point: Vec3,
+    pub normal: Vec3,
+}
+
 /// The wrench while it is out of the hero's hand.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThrownWrench {
@@ -124,10 +132,14 @@ pub(super) struct Attack {
     catch_due: bool,
     /// The wrench's line last tick, hand to tip.
     last_line: Option<(Vec3, Vec3)>,
+    /// It has clanked off a wall, which it does once.
+    clanked: bool,
 }
 
 const JUMP_ATTACK: usize = 4;
 const THROW: usize = 3;
+/// The grind attack's two swings follow.
+const GRIND: usize = 5;
 
 impl Default for Attack {
     fn default() -> Self {
@@ -144,6 +156,7 @@ impl Default for Attack {
             descending: false,
             catch_due: false,
             last_line: None,
+            clanked: false,
         }
     }
 }
@@ -167,7 +180,7 @@ impl HeroMotion {
 
     /// Where the wrench is during a swing or jump attack, hand to tip, in the world.
     pub fn wrench_line(&self) -> Option<(Vec3, Vec3)> {
-        matches!(self.state, HeroState::Combo(_) | HeroState::JumpAttack)
+        swings(self.state)
             .then_some(self.attack.last_line)
             .flatten()
     }
@@ -185,8 +198,17 @@ fn row(profile: &HeroProfile, row: usize) -> &AttackProfile {
     match row {
         JUMP_ATTACK => &melee.jump_attack,
         THROW => &melee.throw,
+        GRIND.. => &melee.grind.swings[row - GRIND],
         step => &melee.combo[step],
     }
+}
+
+/// The states whose wrench swings through the air.
+fn swings(state: HeroState) -> bool {
+    matches!(
+        state,
+        HeroState::Combo(_) | HeroState::JumpAttack | HeroState::GrindAttack(_)
+    )
 }
 
 /// Starts an attack when melee was pressed in time, from the states that allow it
@@ -251,7 +273,8 @@ pub(super) fn try_attack(
             let current = row(profile, attack.row);
             let blending = attack.blending(t);
             let thrown = profile.melee.thrown.again_after_tick;
-            if hero.state == HeroState::Throw
+            if melee.chain_throw
+                && hero.state == HeroState::Throw
                 && t > thrown
                 && !blending
                 && attack.frame >= current.chain_from
@@ -266,7 +289,11 @@ pub(super) fn try_attack(
                     press_window(attack.frame, current.buffer_from).clamp(1, melee.chain_press_max);
                 press
                     .within(window)
-                    .then_some(if crouch { Next::Throw } else { Next::Combo })
+                    .then_some(if crouch && melee.chain_throw {
+                        Next::Throw
+                    } else {
+                        Next::Combo
+                    })
             }
         }
         _ => None,
@@ -351,7 +378,66 @@ fn start_attack(
         }
     }
     hero.speed = flat_length(hero.velocity);
+    if !melee.blend_creeps {
+        straight_from_start(hero, profile);
+    }
     hero.restart_state(state);
+}
+
+/// DL's attacks don't wait for their animation to blend in: the frame runs from the start
+/// frame, a tick on already.
+fn straight_from_start(hero: &mut HeroMotion, profile: &HeroProfile) {
+    hero.attack.blend = 0;
+    hero.attack.frame += profile.melee.frames_per_tick;
+}
+
+/// Whether the grind attack under way may jump off the rail: from its swing's `jump_from`
+/// frame.
+pub(super) fn grind_attack_may_jump(hero: &HeroMotion, profile: &HeroProfile) -> bool {
+    hero.attack.frame >= row(profile, hero.attack.row).jump_from
+}
+
+/// On a rail a melee press swings the wrench, and the swing ends back in the grind (UYA's
+/// transitions for states 39 and 42). A press past a swing's `chain_from` frame starts the
+/// other swing; one before it waits, and holds the swing from ending meanwhile.
+pub(super) fn grind_attack_transitions(hero: &mut HeroMotion, profile: &HeroProfile) {
+    let pressed = hero.melee_press.within(profile.melee.grind.press_window);
+    match hero.state {
+        HeroState::Grind if pressed => start_grind_attack(hero, 0, profile),
+        HeroState::GrindAttack(step) => {
+            let current = row(profile, hero.attack.row);
+            if pressed {
+                if hero.attack.frame > current.chain_from {
+                    start_grind_attack(hero, (step + 1) % 2, profile);
+                }
+            } else if hero.attack.frame > current.end {
+                hero.set_state(HeroState::Grind);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Starts grind swing `step`: the first from the grind, the other straight after a swing.
+/// It has no aim; the rail takes him on.
+fn start_grind_attack(hero: &mut HeroMotion, step: u8, profile: &HeroProfile) {
+    hero.melee_press.used = true;
+    let row_index = GRIND + usize::from(step);
+    let current = row(profile, row_index);
+    hero.attack_serial += 1;
+    hero.attack = Attack {
+        row: row_index,
+        frame: current.start_frame,
+        rate: 1.0,
+        blend: current.blend_ticks,
+        serial: hero.attack_serial,
+        aim_yaw: hero.yaw,
+        ..default()
+    };
+    if !profile.melee.blend_creeps {
+        straight_from_start(hero, profile);
+    }
+    hero.restart_state(HeroState::GrindAttack(step));
 }
 
 /// Picks a target for the attack under way, and takes the stick's direction when it is
@@ -500,7 +586,7 @@ fn leave_attack(
     };
     if !blending && frame > current.jump_from && hero.jump_press.within(jump_window) {
         hero.jump_press.used = true;
-        let kind = if input.held(Action::Crouch) {
+        let kind = if melee.crouch_jump_out && input.held(Action::Crouch) {
             // A jump from a crouch.
             let long = &profile.long_jump;
             if !hero.abilities.heli_pack {
@@ -735,7 +821,12 @@ fn jump_attack_motion(
 
     // The animation: slow going up, then timed so the strike lands with him.
     let frame = hero.attack.frame;
-    hero.attack.rate = if !hero.attack.descending {
+    let far_up = hero.ground.is_none()
+        && jump.hover_ticks > 0
+        && ticks_to_land(height, hero.velocity.y, jump.gravity) >= jump.hover_ticks;
+    hero.attack.rate = if far_up {
+        jump.hover_rate
+    } else if !hero.attack.descending {
         jump.rise_rate
     } else if hero.ground.is_some() {
         if frame < jump.strike_frame {
@@ -903,8 +994,7 @@ pub(super) fn thrown_tick(
 pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
     hero.strikes.clear();
     let melee = &profile.melee;
-    let swinging = matches!(hero.state, HeroState::Combo(_) | HeroState::JumpAttack);
-    if swinging {
+    if swings(hero.state) {
         let current = row(profile, hero.attack.row);
         if let Some((hand, tip)) = swing_line(hero, current) {
             let attack = hero.attack;
@@ -913,10 +1003,10 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
             let live = !attack.blending(hero.ticks)
                 && frame >= current.hit_from
                 && frame <= current.hit_to;
-            // A swing only hits in front of him.
+            // A combo swing only hits in front of him.
             let out_to = yaw_of(tip - hero.position);
-            let in_front =
-                hero.state == HeroState::JumpAttack || wrap(out_to - hero.yaw).abs() <= FRAC_PI_2;
+            let in_front = !matches!(hero.state, HeroState::Combo(_))
+                || wrap(out_to - hero.yaw).abs() <= FRAC_PI_2;
             if live && in_front {
                 let push = match current.push {
                     Push::Left => facing(out_to + FRAC_PI_2),
@@ -934,6 +1024,20 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
                     },
                 });
             }
+        }
+        // The grind attack's first ticks hit all round him too.
+        let grind = &melee.grind;
+        if matches!(hero.state, HeroState::GrindAttack(_)) && hero.ticks < grind.ball_ticks {
+            hero.strikes.push(Strike {
+                serial: hero.attack.serial,
+                damage: grind.ball_damage,
+                push: facing(hero.rail_yaw + grind.ball_push_degrees.to_radians())
+                    * grind.ball_knockback,
+                shape: StrikeShape::Ball {
+                    centre: hero.position + Vec3::Y * grind.ball_above,
+                    radius: grind.ball_radius,
+                },
+            });
         }
         let jump = &melee.jump;
         if hero.state == HeroState::JumpAttack
@@ -969,6 +1073,66 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
                 radius: thrown.radius,
             },
         });
+    }
+}
+
+/// The wrench clanking off a wall it swings into (UYA's wrench object, 0x338088), and the
+/// jump attack's off the ground it lands on. Neither stops the swing. Runs after
+/// [`update_strikes`], which has placed this tick's wrench.
+pub(super) fn clank(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
+    hero.clank = None;
+    let jump_attack = hero.state == HeroState::JumpAttack;
+    if !matches!(hero.state, HeroState::Combo(_)) && !jump_attack {
+        return;
+    }
+    let Some((_, tip)) = hero.attack.last_line else {
+        return;
+    };
+    let clank = &profile.melee.clank;
+    // A ray from low on his body towards the tip, shortening as the wrench does when it
+    // comes round (0x337FD0).
+    let out_yaw = yaw_of(tip - hero.position);
+    let off = wrap(out_yaw - hero.yaw).abs();
+    let shorten_at = clank.shorten_degrees.to_radians();
+    if !hero.attack.clanked
+        && hero.ticks > clank.after_tick
+        && (jump_attack || off < clank.within_degrees.to_radians())
+    {
+        let length = clank.reach * (1.0 - clank.shorten * off.min(shorten_at) / shorten_at);
+        let from = hero.position + Vec3::Y * clank.above;
+        let direction = facing(out_yaw);
+        if let Some(hit) = world.cast_ray(from, direction * length) {
+            let point = from + direction * length * hit.fraction;
+            hero.attack.clanked = true;
+            hero.clank = Some(Clank {
+                point,
+                normal: hit.normal,
+            });
+            // Whatever is there takes the knock.
+            if clank.damage > 0.0 {
+                hero.strikes.push(Strike {
+                    serial: hero.attack.serial,
+                    damage: clank.damage,
+                    push: direction * clank.knockback,
+                    shape: StrikeShape::Ball {
+                        centre: point,
+                        radius: 0.0,
+                    },
+                });
+            }
+        }
+    }
+    let step = profile.melee.frames_per_tick * hero.attack.rate;
+    let frame = hero.attack.frame;
+    if jump_attack && frame > clank.ground_frame && frame - step <= clank.ground_frame {
+        let from = tip + Vec3::Y * clank.ground_above;
+        let span = clank.ground_above + clank.ground_below;
+        if let Some(hit) = world.cast_ray(from, Vec3::NEG_Y * span) {
+            hero.clank = Some(Clank {
+                point: from - Vec3::Y * span * hit.fraction,
+                normal: hit.normal,
+            });
+        }
     }
 }
 

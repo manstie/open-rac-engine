@@ -71,9 +71,25 @@ libuya's `MobyClass` layout matches UYA's data:
 | 0x0C | Sequence count |
 | 0x14 | Skeleton: one 0x40-byte record per joint |
 | 0x18 | Joint offsets: one 0x10-byte record per joint |
-| 0x1C | Animated-joint lists (not needed to play the hero's animations) |
+| 0x1C | Point lists, also the animated-joint lists: chains of joints, below |
 | 0x24 | Scale |
 | 0x48 | Sequence pointers, one per sequence (null if unused) |
+
+- **Points (class + 0x1C) [code, UYA NTSC, 2026-10-15]:**
+  - **What a point is:** a joint the game asks the world position of by number, through
+    `moby_point_position` (0x437698). The class + 0x1C word points to a table whose entry
+    n (at +4 + 4n) is a list: a u16 count, then from +4 that many joint numbers, a chain
+    from the root. The last joint in the chain is the point. The game poses the chain
+    and returns that joint's world origin.
+  - **The hero's points (Veldin):** 0 is joint 56 (the right hand, where the wrench sits),
+    1 is joint 55, 2 is 99, 3 is 93, 4 is 7 and 5 is 5.
+  - **The wrench's (class 0x47 and the two like it):** 0 is joint 1; 1 is joint 5, the
+    tip the swing's hit line ends at; then 9, 8, 10 and 14.
+  - **Checked:** the combo's traced wrench lines are reproduced by posing the hero and the
+    wrench this way (`hero-controller.md`, "The grind attack").
+- **DL's hero sequences** keep a {u16 ticks, u16 time stamp} pair per keyframe at
+  sequence + 0x20 + 4k, which `hero_set_animation` reads [code, DL NTSC]. Turning
+  keyframes into frames this way gives UYA's own start frames back when run on UYA.
 
 ## Skeleton [verified]
 

@@ -588,8 +588,10 @@ pub struct GrindProfile {
     pub slope_fall: f32,
     pub slope_min: f32,
     pub slope_max: f32,
-    /// Turning to face along the rail.
+    /// Turning to face the rail: he rides side on, turned `stance_degrees` from the way
+    /// it goes.
     pub turn: TurnSpring,
+    pub stance_degrees: f32,
     /// A jump press this recent jumps off the rail.
     pub jump_press_window: u32,
     /// The grind jump and the switch jump (states 40 and 41).
@@ -773,6 +775,10 @@ pub struct SwimProfile {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MeleeProfile {
     pub frames_per_tick: f32,
+    /// An attack's animation blends in by creeping its frame from the start frame, then
+    /// starts over from it (UYA). Without this the frame runs from the start, already a
+    /// tick on when the attack begins, and nothing waits for a blend (DL).
+    pub blend_creeps: bool,
     /// How old a melee press may be to start an attack: standing, walking or skidding;
     /// crouching (a throw); and in the air, where it waits `air_after_tick` into the jump,
     /// or longer into a double jump or a flip, which also remember the press longer.
@@ -790,6 +796,12 @@ pub struct MeleeProfile {
     pub chain_press_max: u32,
     /// The combo goes on from where it stopped if it stopped less than this long ago.
     pub chain_memory_ticks: u32,
+    /// During an attack, a press with crouch held throws instead of swinging, and a throw
+    /// can throw again (UYA; DL always swings).
+    pub chain_throw: bool,
+    /// A jump out of an attack with crouch held is a jump from a crouch (UYA; DL's is
+    /// always a standing jump).
+    pub crouch_jump_out: bool,
     /// A combo swing or throw walks off past `walk_out_frame` with the stick past
     /// `walk_out_stick`; once over, it walks with the stick past `end_walk_stick` and
     /// otherwise idles `end_idle_frames` later.
@@ -820,6 +832,8 @@ pub struct MeleeProfile {
     pub throw_aim: AimProfile,
     pub jump: JumpAttackProfile,
     pub thrown: ThrownWrenchProfile,
+    pub grind: GrindAttackProfile,
+    pub clank: ClankProfile,
 }
 
 /// One attack's timing, motion and hit (a row of UYA's table at 0x2F6310, with the
@@ -929,6 +943,10 @@ pub struct JumpAttackProfile {
     pub low_rate_below: f32,
     pub low_rate_min: f32,
     pub landed_rate: f32,
+    /// In the air at least `hover_ticks` from landing, the animation all but stops, at
+    /// `hover_rate` (DL; 0 ticks for never).
+    pub hover_ticks: u32,
+    pub hover_rate: f32,
     /// Blends in longer right after a flip.
     pub blend_after_flip: u32,
     pub after_flip_ticks: u32,
@@ -979,6 +997,51 @@ pub struct ThrownWrenchProfile {
     pub again_after_tick: u32,
     /// A jump out of a throw counts presses this many ticks back.
     pub jump_out_window: u32,
+}
+
+/// The grind attack, a swing on a rail (UYA's state 42; `hero-controller.md`, "The grind
+/// attack"). He rides on as he swings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GrindAttackProfile {
+    /// A melee press this recent on a rail swings.
+    pub press_window: u32,
+    /// A jump press this recent, from the swing's `jump_from` frame, jumps off the rail.
+    pub jump_press_window: u32,
+    /// The first swing, and the other one, which a press past a swing's `chain_from` frame
+    /// starts in its place. The other fields are as a combo swing's.
+    pub swings: Vec<AttackProfile>,
+    /// For his first `ball_ticks` a ball of `ball_radius` round a point `ball_above` his
+    /// feet hits as well, for `ball_damage`, pushing at `ball_knockback` along the rail
+    /// turned `ball_push_degrees` to the left.
+    pub ball_ticks: u32,
+    pub ball_radius: f32,
+    pub ball_above: f32,
+    pub ball_damage: f32,
+    pub ball_knockback: f32,
+    pub ball_push_degrees: f32,
+}
+
+/// The wrench clanking off a wall (`hero-controller.md`, "What the wrench hits"): once an
+/// attack, a ray from `above` his feet towards the wrench's tip, `reach` long, finds the
+/// wall. It looks only past `after_tick` and while the tip is within `within_degrees` of
+/// his facing; the jump attack's tip may be anywhere. The ray shortens as the tip comes
+/// round, as the wrench does: to `1 - shorten` of its length at `shorten_degrees`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClankProfile {
+    pub after_tick: u32,
+    pub within_degrees: f32,
+    pub above: f32,
+    pub reach: f32,
+    pub shorten: f32,
+    pub shorten_degrees: f32,
+    /// What it hits there takes `damage`, pushed the way the ray went at `knockback`.
+    pub damage: f32,
+    pub knockback: f32,
+    /// The jump attack also clanks when its frame passes `ground_frame`, on ground found
+    /// from `ground_above` over the tip to `ground_below` under it.
+    pub ground_frame: f32,
+    pub ground_above: f32,
+    pub ground_below: f32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").
@@ -1122,7 +1185,10 @@ mod tests {
                         compare(path, value, &b[key], found);
                     }
                 }
-                (ron::Value::Seq(a), ron::Value::Seq(b)) if a.len() == b.len() => {
+                // A swing's keys differ as a whole when the games' animations do.
+                (ron::Value::Seq(a), ron::Value::Seq(b))
+                    if a.len() == b.len() && !path.ends_with(".swing") =>
+                {
                     for (index, (a, b)) in a.iter().zip(b).enumerate() {
                         compare(format!("{path}[{index}]"), a, b, found);
                     }
@@ -1153,6 +1219,40 @@ mod tests {
                 "jump.air_speed",
                 "ledge.climb.air_speed",
                 "ledge.climb.pushoff_ticks",
+                // "Deadlocked's melee".
+                "melee.blend_creeps",
+                "melee.chain_throw",
+                "melee.clank.damage",
+                "melee.clank.ground_frame",
+                "melee.combo[0].head_radius",
+                "melee.combo[0].lunge[0][0]",
+                "melee.combo[0].lunge[0][1]",
+                "melee.combo[0].start_frame",
+                "melee.combo[0].swing",
+                "melee.combo[1].head_radius",
+                "melee.combo[1].lunge[0][0]",
+                "melee.combo[1].lunge[0][1]",
+                "melee.combo[1].lunge[1][0]",
+                "melee.combo[1].lunge[1][1]",
+                "melee.combo[1].lunge[2][0]",
+                "melee.combo[1].lunge[2][1]",
+                "melee.combo[1].swing",
+                "melee.combo[2].head_radius",
+                "melee.combo[2].lunge[0][0]",
+                "melee.combo[2].lunge[0][1]",
+                "melee.combo[2].swing",
+                "melee.crouch_jump_out",
+                "melee.double_jump_after_tick",
+                "melee.grind.press_window",
+                "melee.jump.hover_rate",
+                "melee.jump.hover_ticks",
+                "melee.jump.slam_damage",
+                "melee.jump_attack.damage",
+                "melee.jump_attack.head_radius",
+                "melee.jump_attack.hit_to",
+                "melee.jump_attack.swing",
+                "melee.thrown.catch_ahead_ticks",
+                "melee.thrown.radius",
                 "name",
                 "run_jump.air_speed",
                 "strafe.flips",

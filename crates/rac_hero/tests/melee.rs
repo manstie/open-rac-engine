@@ -1,12 +1,14 @@
 //! P1.8's wrench against `docs/research/hero-controller.md`, "Melee": the combo, the jump
-//! attack and the throw. Speeds and frames are the ones in UYA NTSC's traces
+//! attack, the throw, the grind attack and the clank. Speeds and frames are the ones in
+//! UYA NTSC's traces
 //! `uyantsc-veldin-moves-2` (a standing combo and jump attack) and
 //! `uyantsc-veldin-melee-1` (throws, a combo with the stick held, a run-jump attack); the
-//! rest are the code's numbers.
+//! rest are the code's numbers. UYA has no rail to grind on, so the grind attack is the
+//! code's alone.
 
 use bevy::prelude::*;
 use rac_hero::{
-    BodyPlacement, Collider, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
+    BodyPlacement, Collider, GrindRail, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
     controller::{StrikeShape, TICK, best_target, step},
     profile::AimProfile,
 };
@@ -552,4 +554,171 @@ fn attacks_have_the_games_state_numbers() {
     assert_eq!(HeroState::Combo(2).game_number(), 19);
     assert_eq!(HeroState::JumpAttack.game_number(), 20);
     assert_eq!(HeroState::Throw.game_number(), 21);
+}
+
+#[test]
+fn the_grind_attack_is_state_42() {
+    assert_eq!(HeroState::GrindAttack(1).game_number(), 42);
+    assert!(HeroState::GrindAttack(0).is_attacking());
+    assert!(HeroState::GrindAttack(0).is_grinding());
+}
+
+// --- The grind attack -------------------------------------------------------------------
+
+/// The hero riding a long straight rail 2 u up, along −z (yaw 0), at full speed.
+fn grinding() -> Rig {
+    let rail = GrindRail::new(vec![Vec3::new(0.0, 2.0, 0.0), Vec3::new(0.0, 2.0, -500.0)]);
+    let mut rig = Rig {
+        hero: HeroMotion::new(Vec3::new(0.0, 3.0, -1.0), 0.0),
+        profile: HeroProfile::uya(),
+        world: ParryWorld::new(&[floor()]).with_rails(vec![rail]),
+    };
+    rig.until(30, &idle(), |hero| hero.state == HeroState::Grind);
+    rig.ticks(240, &idle());
+    rig
+}
+
+fn jump() -> PlayerInput {
+    input(None, &[], &[Action::Jump])
+}
+
+#[test]
+fn he_rides_a_rail_side_on() {
+    // "Grinding": he turns to the rail's way less 90°, so he faces to its right.
+    let rig = grinding();
+    assert!(
+        (rig.hero.yaw + FRAC_PI_2).abs() < 0.01,
+        "yaw {}",
+        rig.hero.yaw
+    );
+}
+
+#[test]
+fn melee_on_a_rail_swings_and_he_rides_on() {
+    // "The grind attack": sequence 70 from frame 14, blending in over 4 ticks, then half a
+    // frame a tick; past frame 26 it is back to the grind, at the grind's own speed.
+    let mut rig = grinding();
+    let speed = rig.hero.speed;
+    rig.tick(&melee());
+    assert_eq!(rig.hero.state, HeroState::GrindAttack(0));
+    assert_eq!(rig.hero.attack_frame(), 14.0);
+    let ticks = rig.until(60, &idle(), |hero| hero.state == HeroState::Grind);
+    assert_eq!(ticks, 4 + 25, "frame 26.5 is 25 half frames on from 14");
+    assert!((rig.hero.speed - speed).abs() < 1e-3);
+    assert!(rig.hero.velocity.z < -11.9, "{}", rig.hero.velocity);
+}
+
+#[test]
+fn the_grind_attack_hits_all_round_him_then_with_the_wrench() {
+    // A ball of 1 u round a point 0.6 u up for its first ticks, pushing forward and to the
+    // left of the rail; then the wrench's line on frames 17 to 23, its head 0.7 u.
+    let mut rig = grinding();
+    let mut balls = 0;
+    let mut sweeps = Vec::new();
+    rig.tick(&melee());
+    while matches!(rig.hero.state, HeroState::GrindAttack(_)) {
+        for strike in &rig.hero.strikes {
+            match strike.shape {
+                StrikeShape::Ball { centre, radius } => {
+                    balls += 1;
+                    assert_eq!(radius, 1.0);
+                    assert!(close(centre.y - rig.hero.position.y, 0.6, 1e-4));
+                    assert!(
+                        strike.push.z < 0.0 && strike.push.x < 0.0,
+                        "{}",
+                        strike.push
+                    );
+                }
+                StrikeShape::Sweep { head_radius, .. } => {
+                    assert_eq!(head_radius, 0.7);
+                    sweeps.push(rig.hero.attack_frame());
+                }
+            }
+        }
+        rig.tick(&idle());
+    }
+    assert_eq!(balls, 19);
+    assert_eq!(sweeps.first(), Some(&17.0));
+    assert_eq!(sweeps.last(), Some(&23.0));
+}
+
+#[test]
+fn a_press_late_in_a_grind_swing_swings_back_the_other_way() {
+    // A press waits for frame 23 to start the other swing, sequence 71 from frame 6; a
+    // press straight after that one swings the first again.
+    let mut rig = grinding();
+    rig.tick(&melee());
+    rig.until(60, &idle(), |hero| hero.attack_frame() >= 20.0);
+    rig.tick(&melee());
+    assert_eq!(rig.hero.state, HeroState::GrindAttack(0));
+    rig.until(20, &idle(), |hero| hero.state != HeroState::GrindAttack(0));
+    assert_eq!(rig.hero.state, HeroState::GrindAttack(1));
+    assert_eq!(rig.hero.attack_frame(), 6.0);
+    rig.until(60, &idle(), |hero| hero.attack_frame() > 14.0);
+    rig.tick(&melee());
+    assert_eq!(rig.hero.state, HeroState::GrindAttack(0));
+}
+
+#[test]
+fn x_leaves_a_grind_swing_only_from_its_jump_frame() {
+    // X counts for 5 ticks, and only from frame 24 of the first swing.
+    let mut rig = grinding();
+    rig.tick(&melee());
+    rig.until(60, &idle(), |hero| hero.attack_frame() >= 17.0);
+    rig.tick(&jump());
+    rig.until(60, &idle(), |hero| hero.attack_frame() >= 24.0);
+    assert_eq!(rig.hero.state, HeroState::GrindAttack(0));
+    rig.tick(&jump());
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Grind));
+}
+
+// --- The clank --------------------------------------------------------------------------
+
+/// The clanks during the attack melee starts, with the tick of each.
+fn clanks(rig: &mut Rig) -> Vec<(u32, rac_hero::Clank)> {
+    let mut out = Vec::new();
+    rig.tick(&melee());
+    let state = rig.hero.state;
+    while rig.hero.state == state {
+        rig.tick(&idle());
+        if let Some(clank) = rig.hero.clank {
+            out.push((rig.hero.ticks, clank));
+        }
+    }
+    out
+}
+
+#[test]
+fn a_swing_into_a_wall_clanks_once_and_swings_on() {
+    // "What the wrench hits": a 1.4 u ray from 0.5 u up towards the tip, past the swing's
+    // tenth tick and within 70° of his facing. The wall's face is 1.2 u ahead.
+    let wall = block(Vec3::new(0.0, 1.0, -1.7), Vec3::new(5.0, 1.0, 0.5));
+    let mut rig = Rig::new(&[floor(), wall], Vec::new());
+    let found = clanks(&mut rig);
+    assert_eq!(found.len(), 1, "{found:?}");
+    let (tick, clank) = found[0];
+    assert!(tick > 10, "{tick}");
+    assert!(close(clank.point.z, -1.2, 1e-3), "{}", clank.point);
+    assert!(close(clank.point.y, 0.5, 1e-3), "{}", clank.point);
+    assert!(clank.normal.z > 0.99, "{}", clank.normal);
+    // In the open there is nothing to clank on.
+    assert!(clanks(&mut Rig::open()).is_empty());
+}
+
+#[test]
+fn the_jump_attack_clanks_on_the_ground_it_comes_down_on() {
+    // As its frame passes 27, the ground under the wrench's tip.
+    let mut rig = Rig::open();
+    jump_attack(&mut rig);
+    let mut found = Vec::new();
+    while rig.hero.state == HeroState::JumpAttack {
+        rig.tick(&idle());
+        if let Some(clank) = rig.hero.clank {
+            found.push((rig.hero.attack_frame(), clank));
+        }
+    }
+    assert_eq!(found.len(), 1, "{found:?}");
+    let (frame, clank) = found[0];
+    assert!(frame > 27.0 && frame <= 28.0, "{frame}");
+    assert!(clank.point.y.abs() < 1e-3, "{}", clank.point);
 }

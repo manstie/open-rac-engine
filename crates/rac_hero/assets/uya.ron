@@ -428,6 +428,8 @@
         slope_min: -2.5, // -0.041666668 u per frame
         slope_max: 12.0, // 0.2 u per frame
         turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
+        // Side on: towards the rail's direction less 90° (0x1A51D8) [code].
+        stance_degrees: -90.0,
         jump_press_window: 7,
         // States 40 and 41, "Jump parameters by state" [code].
         jump: (
@@ -570,6 +572,7 @@
     // 0x2F6310; per-frame game values are given in comments.
     melee: (
         frames_per_tick: 0.5, // the animation global 0x1A57E4
+        blend_creeps: true, // [traced]
         ground_press_window: 10,
         crouch_press_window: 15,
         air_press_window: 14,
@@ -580,6 +583,8 @@
         combo_below_height: 0.1,
         chain_press_max: 15,
         chain_memory_ticks: 27,
+        chain_throw: true,
+        crouch_jump_out: true,
         walk_out_frame: 34.0,
         walk_out_stick: 0.9,
         end_walk_stick: 0.8,
@@ -776,6 +781,8 @@
             low_rate_below: 0.7,
             low_rate_min: 0.75,
             landed_rate: 2.0,
+            hover_ticks: 0,
+            hover_rate: 1.0,
             blend_after_flip: 17,
             after_flip_ticks: 42,
             slam_from_frame: 23.5,
@@ -809,6 +816,102 @@
             blend_again: 3, // [traced]
             again_after_tick: 30,
             jump_out_window: 8,
+        ),
+        // [code; the wrench's line computed from the disc's animations: sequences 70 and 71
+        // with the wrench's 12 and 13, which reproduce the combo's traced keys to 0.04-0.2 u.
+        // The game reuses the combo's first two rows of frames; the press frames 23 and 14
+        // and the head's 0.7 are the grind attack's own.]
+        grind: (
+            press_window: 10,
+            jump_press_window: 5,
+            swings: [
+                // Right to left across his front and out ahead along the rail.
+                (
+                    start_frame: 14.0, // sequence 70 from its first keyframe
+                    blend_ticks: 4,
+                    chain_before: 0.0,
+                    buffer_from: 0.0,
+                    chain_from: 23.0,
+                    jump_from: 24.0,
+                    end: 26.0,
+                    hit_from: 17.0,
+                    hit_to: 23.0,
+                    lunge: [],
+                    reach: None,
+                    damage: 1.0,
+                    knockback: 1.0,
+                    push: Left,
+                    head_radius: 0.7,
+                    swing: [
+                        (frame: 16.5, hand: (0.58, 0.15, 0.66), tip: (0.25, -0.75, 0.93)),
+                        (frame: 17.0, hand: (0.59, 0.36, 0.62), tip: (0.51, -0.74, 0.86)),
+                        (frame: 17.5, hand: (0.54, 0.52, 0.58), tip: (0.99, -0.59, 0.94)),
+                        (frame: 18.0, hand: (0.44, 0.65, 0.53), tip: (1.62, -0.33, 1.04)),
+                        (frame: 18.5, hand: (0.30, 0.74, 0.48), tip: (2.21, 0.47, 1.05)),
+                        (frame: 19.0, hand: (0.14, 0.78, 0.44), tip: (2.25, 1.70, 0.88)),
+                        (frame: 19.5, hand: (-0.02, 0.76, 0.42), tip: (1.57, 2.92, 0.61)),
+                        (frame: 20.0, hand: (-0.16, 0.69, 0.41), tip: (0.12, 2.96, 0.37)),
+                        (frame: 20.5, hand: (-0.21, 0.65, 0.41), tip: (-0.55, 2.50, 0.44)),
+                        (frame: 21.0, hand: (-0.25, 0.60, 0.41), tip: (-1.06, 2.13, 0.50)),
+                        (frame: 21.5, hand: (-0.29, 0.54, 0.41), tip: (-1.42, 1.64, 0.52)),
+                        (frame: 22.0, hand: (-0.31, 0.49, 0.41), tip: (-1.63, 1.12, 0.52)),
+                        (frame: 22.5, hand: (-0.33, 0.43, 0.41), tip: (-1.67, 0.59, 0.48)),
+                        (frame: 23.0, hand: (-0.34, 0.37, 0.40), tip: (-1.58, 0.13, 0.41)),
+                    ],
+                ),
+                // From behind, out ahead along the rail and round to his front.
+                (
+                    start_frame: 6.0, // sequence 71
+                    blend_ticks: 4,
+                    chain_before: 0.0,
+                    buffer_from: 0.0,
+                    chain_from: 14.0,
+                    jump_from: 13.0,
+                    end: 15.0,
+                    hit_from: 8.0,
+                    hit_to: 13.0,
+                    lunge: [],
+                    reach: None,
+                    damage: 1.0,
+                    knockback: 1.0,
+                    push: Right,
+                    head_radius: 0.7,
+                    swing: [
+                        (frame: 7.5, hand: (-0.23, 0.61, 0.47), tip: (-0.93, -0.21, 0.58)),
+                        (frame: 8.0, hand: (-0.06, 0.72, 0.48), tip: (-1.09, 0.16, 0.54)),
+                        (frame: 8.5, hand: (0.13, 0.75, 0.50), tip: (-1.12, 0.58, 0.47)),
+                        (frame: 9.0, hand: (0.31, 0.71, 0.54), tip: (-1.09, 0.99, 0.37)),
+                        (frame: 9.5, hand: (0.44, 0.58, 0.56), tip: (-0.91, 1.41, 0.27)),
+                        (frame: 10.0, hand: (0.52, 0.40, 0.58), tip: (-0.54, 1.79, 0.20)),
+                        (frame: 10.5, hand: (0.53, 0.19, 0.61), tip: (-0.01, 2.04, 0.19)),
+                        (frame: 11.0, hand: (0.46, -0.01, 0.63), tip: (0.63, 2.11, 0.26)),
+                        (frame: 11.5, hand: (0.34, -0.18, 0.64), tip: (1.31, 1.94, 0.40)),
+                        (frame: 12.0, hand: (0.17, -0.28, 0.62), tip: (1.66, 1.22, 0.63)),
+                        (frame: 12.5, hand: (0.14, -0.29, 0.61), tip: (1.68, 0.81, 0.65)),
+                        (frame: 13.0, hand: (0.12, -0.30, 0.60), tip: (1.62, 0.42, 0.67)),
+                    ],
+                ),
+            ],
+            ball_ticks: 20,
+            ball_radius: 1.0,
+            ball_above: 0.6,
+            ball_damage: 1.0,
+            ball_knockback: 1.0,
+            ball_push_degrees: 27.5, // [simplified]: the game draws 20°-35° at random
+        ),
+        // [code, 0x338088 and 0x337FD0]
+        clank: (
+            after_tick: 10,
+            within_degrees: 70.0,
+            above: 0.5,
+            reach: 1.4,
+            shorten: 0.3,
+            shorten_degrees: 105.0,
+            damage: 1.0,
+            knockback: 1.0,
+            ground_frame: 27.0,
+            ground_above: 0.7,
+            ground_below: 0.9,
         ),
     ),
     // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].

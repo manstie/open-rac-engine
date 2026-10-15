@@ -2,8 +2,9 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-15 (the crouch flip and the crouch turn, traced on UYA NTSC;
-Deadlocked's movement against UYA's, with DL NTSC traces, for the kit's per-game profiles;
+(RE.6). Last updated 2026-10-15 (the grind attack, the wrench's clank and the grind's side-on
+stance, read in UYA NTSC's code; Deadlocked's melee, read in code and traced on DL NTSC; the
+crouch flip and the crouch turn, traced on UYA NTSC; Deadlocked's movement against UYA's;
 strafing and lock-on; zip lines).
 
 ## Status and method
@@ -613,7 +614,7 @@ rad.
   - Close to the ground on PAL the fall slows again in a way not yet explained.
   - Its timing, aim and hits: "Melee".
 
-## Melee (states 19–21) [code, verified on UYA NTSC, 2026-10-13]
+## Melee (states 19–21 and 42) [code, verified on UYA NTSC, 2026-10-13]
 
 Read in UYA NTSC's code on Veldin:
 - the attack check that runs before the transitions' switch (`hero_attack_start`,
@@ -666,8 +667,10 @@ the throw sends the wrench out and back (P1.8).
   - 0–2: the combo's swings;
   - 3: the throw;
   - 4: the jump attack;
-  - 5–6: two more swings, probably the grind attack's;
+  - 5–6: state 114's two swings;
   - 7–8: state 77's.
+- The grind attack uses rows 0 and 1, the combo's first two swings' frames, on animations
+  of its own ("The grind attack").
 - **Words:**
   - the kind: 0 a swing, 1 the jump attack, 2 the throw;
   - the swing's number;
@@ -809,8 +812,9 @@ the throw sends the wrench out and back (P1.8).
     - the hero's joint 0, the wrench hand;
     - the wrench's joint 1, its tip.
   - The tip is pushed 0.17 u further out.
-  - Then it is pulled in by up to 30% as it comes round past 105° from his facing
-    (0x337FD0).
+  - Then the line is shortened by how far round from his facing it points (0x337FD0):
+    full length straight ahead, falling evenly to 70% at 105° and staying there beyond.
+    The grind attack skips this.
   - The kit's swing keys are these points, relative to his feet, from the traces'
     standing swings. Each reaches about 2.4 u ahead at 0.4–0.75 u up; swing 3 reaches
     2.0 u. Swing 1 sweeps right to left, swings 2 and 3 left to right. The jump attack
@@ -821,7 +825,7 @@ the throw sends the wrench out and back (P1.8).
   - The line is swept from last frame's to this frame's as five lines in between
     (0x443AB8). Anything they cross is hit.
   - A ball round the wrench's head, 0.085 u in from the tip, hits too. Its radius is
-    0.35, or 0.47 in the jump attack.
+    0.35, or 0.47 in the jump attack and 0.7 in the grind attack.
 - **Damage:**
   - It comes from the wrench's weapon row. Rows are 0xF0 bytes from 0x2C5640; an item's row
     number is at 0x1425C0 + item.
@@ -832,12 +836,28 @@ the throw sends the wrench out and back (P1.8).
     his right for swing 2. Its strength is 1.0.
   - The jump attack pushes forward at 1.55.
 - **Once per attack:** each hit carries the attack's number, so a target takes one hit
-  per swing.
+  per swing. To recheck: the field the hit record fills there (+0x1A) is copied from the
+  wrench object's +0xAA, which DL's code fills with the wrench's class instead (DL's
+  reading below), and the only latch per attack found in either game is the clank's.
 - **The jump attack's slam:** past frame 23.5, while falling and in the air, a ball of
   0.4 u at 0.5 u under his feet hits for 2, pushing forward at 2.
-- **A wall in front** sparks and sounds, but doesn't stop the swing. The test is a 1.4 u
-  ray from 0.5 u up towards the wrench, past frame 10, within 70° of the facing. The kit
-  doesn't do this yet.
+- **The clank off a wall [code, 0x338088]:** a wall in the wrench's way sparks and sounds,
+  but doesn't stop the swing, slow it or knock him back.
+  - **When:** in the combo and the jump attack (the type-6 states but for 114, and not the
+    grind attack), once the state is more than 10 frames old, with the tip within 70° of
+    his facing; the jump attack's tip may be anywhere.
+  - **The test:** a ray from 0.5 u above his feet, 1.4 u horizontally towards the tip,
+    shortened as the wrench's line is. It must hit a surface whose material isn't 0
+    (0x3FC730 gives the hit's material, the low five bits of the collision result).
+  - **Once per attack:** the clank sets a flag (0x1A57BE) that a new attack clears, and
+    the wrench's first hit on a target sets it too. With it set there is no more clank,
+    and no hit sound or sparks either.
+  - **What it does:** the wrench object plays its sound 2 (0x4A7200 plays a class's sound
+    by number), sprays sparks at the hit point (0x337BD8, about 30 of them, purely for
+    show), and if the ray hit an object, hands that object 1 damage, pushed the ray's way
+    (0x443938, the damage queue).
+- **The jump attack's ground clank:** when its frame passes 27 it plays the same sound,
+  and sparks where a ray from 0.7 u above the tip to 0.9 u below it meets the ground.
 
 ### The thrown wrench (0x4F1A08, 0x338088)
 
@@ -869,25 +889,185 @@ the throw sends the wrench out and back (P1.8).
 - **Duration:** standing still, the throw lasts 95 frames. He can walk off once the
   wrench is gone, at frame 34.
 
+### The grind attack (state 42) [code, UYA NTSC, 2026-10-15]
+
+Read in `hero_change_state`, `hero_update_state`, `hero_transitions` and the wrench object
+(0x338088). UYA has nowhere to grind ("Grinding"), so it is untraced.
+
+- **Starting:** on a rail (state 39), Square in the last 10 frames, while the rail hasn't
+  run out (both rail-end counters 0).
+- **Which swing:** the first, unless it comes straight from a grind swing, when it is the
+  other one. Its state type is the grind's (15), not an attack's.
+  - **Swing 1:** the hero's sequence 70 and the wrench's 12;
+  - **swing 2:** sequences 71 and 13.
+  - Each starts from its first keyframe, blending over 4 frames. That is frame 14 of
+    sequence 70 and frame 6 of 71, both at 0.5 frames a frame.
+- **Its frames are the table's rows 0 and 1** (the combo's first two swings):
+  - swing 1 hits on frames 17–23, can jump from 24 and ends after 26;
+  - swing 2 hits on 8–13, can jump from 13 and ends after 15.
+- **The transitions, in order:**
+  1. X in the last 5 frames, from the jump frame on: the grind jump (40).
+  2. Square in the last 10 frames: past frame 23 (swing 1) or 14 (swing 2), the other
+     swing. Before that the press waits, and the swing doesn't end meanwhile.
+  3. Past the end frame: back to the grind (39), whose speed carries on.
+  4. The rail running out (6 frames) before then: the fall (6), as from the grind.
+- **Motion:** the grind's own. The shared update for states 39–42 carries him along the
+  rail at the grind's speed and turns him side on to it ("Grinding").
+- **Hits:**
+  - **The wrench's line** hits on the row's frames, at any angle from his facing (the grind
+    attack skips the in-front test and the shortening). Its head ball is 0.7 u.
+  - **Damage and push** are a swing's: 1, pushing across the line at 1.0, to the left for
+    swing 1 and to the right for swing 2.
+  - **A ball round him:** while the state is under 20 frames old, a ball of 1 u round a
+    point 0.6 u above his feet hits for 1. It pushes along the rail turned 20°–35° to
+    the left, drawn at random each frame. It carries no attack number.
+  - **No clank:** the wall ray isn't cast.
+- **The wrench's line, from the animations [computed, 2026-10-15]:**
+  - **Method:** posing the hero's skeleton from the disc. The hand is point 0 of the
+    hero's class, joint 56; the tip is point 1 of the wrench's class (0x47), its joint 5.
+    A class's points are chains of joints listed at class + 0x1C, the last being the
+    point; `moby_point_position` (0x437698) takes the chain's last joint's world origin.
+  - **The wrench's pose:** the wrench sits on joint 56 and plays its own animation, which
+    stretches it from about 0.8 u to over 3 u along a swing.
+  - **Checked against the combo's traced keys:** the wrench's animation runs a tick (half
+    a frame) ahead of the hero's. With that, the 0.17 u push and the shortening above, the
+    hand lands within 0.006–0.1 u RMS of the traced keys. The tip lands within 0.04 u
+    (swing 3), 0.12 (swing 2) and 0.2 (swing 1, the fastest sweep, which moves up to
+    1.4 u a half frame).
+  - **Swing 1's tip** sweeps from his right across his front and out to his left. That is
+    ahead along the rail, reaching 3.3 u at frame 19.5.
+  - **Swing 2's** comes from behind, out ahead along the rail and round to his front.
+
 ### Not read yet
 
-- The grind attack (state 42) and table rows 5–6.
-- State 77 (rows 7–8) and state 32 (the attack bounce).
+- State 114 (rows 5–6), state 77 (rows 7–8) and state 32 (the attack bounce).
 - The wrench upgrades' rows.
 - The giant-Clank mode (flag 0x1A4E14): damage × 50, a stronger lunge and a wider aim.
-- Deadlocked's melee.
+- What material 0 is, which the clank skips.
 
 ### In the kit
 
 - `rac_hero/src/controller/melee.rs` and the profile's `melee` section implement the
-  above. Hits are tested in `rac_combat`.
+  above, the grind attack and the clank included. Hits are tested in `rac_combat`. A
+  clank is `HeroMotion::clank` for the tick, with the hit point and normal; the demo shows
+  a spark there.
 - Simplifications:
-  - the swing's line comes from the traced keys, at every half frame;
+  - the swing's line comes from the traced keys, at every half frame; the grind attack's
+    from the keys computed above;
+  - the grind attack's ball pushes at 27.5°, the middle of the game's random 20°–35°;
+  - a clank happens on any surface, and only a wall stops later clanks, not a hit (the
+    controller doesn't know what its strikes hit); what it damages is a point strike at
+    the hit;
+  - the jump attack's ground clank is only reported where the ray finds ground, though
+    the game plays its sound either way;
   - the thrown wrench hits as one ball at its middle;
   - targets are points;
   - the animation holds at frame 81 while the wrench is out;
   - the kit's catch starts a tick before the trace's, so its throw lasts 94 ticks to the
     game's 95.
+
+### Deadlocked's melee [code, verified on DL NTSC, 2026-10-15]
+
+**Sources:**
+- **Code:** read in DL NTSC's code on DreadZone Station (`re/SCUS-97465/symbols.toml`):
+  - the attack states' handlers, found through the state tables;
+  - the attack start, which is part of `hero_common_transitions` (0x6A5248) and runs where
+    UYA's `hero_attack_start` does;
+  - DL's attack table (0x3B0358) and the wrench object (0x460530).
+- **Traces:** five of our own, `dlntsc-dreadzone-melee-1` to `-5` (`docs/re-setup.md`),
+  from the third-person savestate:
+  - single swings and the combo at two paces;
+  - swings from a run;
+  - jump attacks from a standing jump, a run jump and double jumps;
+  - throws;
+  - Square, X and R1 pressed into a swing.
+- **Getting the wrench:** the savestate's hero holds a gun, and the first Square swaps it
+  for the wrench and swings.
+
+**The same as UYA [code]:**
+- the states (19 combo, 20 jump attack, 21 throw);
+- the press windows: 10 frames on the ground, 15 crouching, 14 or 18 in the air, and the
+  chain window from the presses-from frame;
+- how the next swing is chosen;
+- the walk-out and the end;
+- the jump attack's rise, hold, fall, braking and carry;
+- the aim's ranges and cones, and the reach scale;
+- the edge stop;
+- the throw's motion and the thrown wrench's flight;
+- the wrench line's 0.17 u push and its shortening;
+- the pushes' directions.
+
+The table's rows 0–4 are UYA's but for the jump attack's last hit frame. The lunges'
+acceleration (37 u/s²) and braking (28 u/s²) match **[traced]**.
+
+**Where DL differs:**
+- **The animation frame [traced]:** an attack's frame doesn't creep through a blend and
+  start over. It runs from the start frame at 0.5 a frame, already half a frame on in
+  the frame the attack begins, and the blending flag (hero + 0x64C) stays 0. Swing 1
+  shows 15.5, 16, 16.5 … in its first frames.
+- **Swing 1's start frame:** 15, keyframe 1 of DL's sequence 40 (UYA 16) **[code,
+  traced]**.
+- **Lunge speeds [code, traced]:**
+  - swing 1: 4.75 u/s while the frame is under 20;
+  - swing 2: 5.95, then 4.75 past frame 7 and 3.25 past frame 10, while under 12;
+  - swing 3: 3.95 while under 12.
+  - DL's update tests the frame before the frame's own advance. So a lunge holds through
+    the frame whose frame number reaches the limit, as all three swings' traces show.
+- **The head ball:** 0.75 u for the swings and 1.75 for the jump attack (UYA 0.35 and
+  0.47) **[code]**.
+- **Damage** comes from the wrench's level (the gadget box and DL's gadget tables at
+  0x3BE158 and 0x3BE5B8), not a fixed weapon row **[code]**:
+
+  | Level | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+  |---|---|---|---|---|---|---|---|---|
+  | Swings, thrown wrench | 1 | 3 | 5 | 7 | 10 | 15 | 20 | 25 |
+  | Jump attack and its slam | 4 | 12 | 20 | 28 | 40 | 60 | 80 | 100 |
+
+  - The push grows with it: (1 + level / 5), times 1.55 in the jump attack.
+  - Multiplayer reads other columns.
+- **The jump attack** hits to frame 29 (UYA 28). While in the air 16 or more frames from
+  landing, its animation runs at 0.01, all but stopped **[code]**. The trace's standing
+  jump attack holds at frame 21.3 for several frames that way **[traced]**.
+- **No throw from a chain [code, traced]:** a press with R1 held during an attack swings,
+  where UYA throws. R1 and Square at swing 1's frame 28 chained swing 2. The throw-again
+  branch is dead too.
+- **Jumping out is always a standing jump [code, traced]:** R1 and X at swing 1's frame
+  26 jumped as from standing (state 7).
+- **From a double jump**, an attack can start once its animation is past frame 16 (UYA
+  32) **[code]**. That is its 12th frame.
+  - In the traces, a press on its 13th frame attacked on its 14th.
+  - One held from its 9th waited until its 15th, which this rule doesn't explain.
+- **The throw's button** follows the camera option: L2 in lock-strafe and first person,
+  L1 or R1 in third person. In the kit it is crouch, as in UYA.
+- **The thrown wrench** hits as a ball of 0.75 u at either end (UYA 0.4), and its catch
+  starts within 5 frames of the hand (UYA 4) **[code]**.
+- **The clank** does no damage to what it hits, and the jump attack's ground clank comes
+  at frame 28 (UYA 27) **[code]**.
+- **The grind attack's code is there, but nothing starts it:** the grind reads Square
+  and drops the result **[code, medium-high confidence]**.
+- **Blocking:** Triangle (and R2 in lock-strafe) blocks a ground attack; R2 blocks one in
+  the air. Neither is modelled.
+
+**Not read yet:**
+- DL's other melee states:
+  - the flail (145, its own combo over table rows 7–10);
+  - the shuriken throw (133);
+  - the glove (34);
+  - the magnetic attack (111, rows 5–6).
+- DL's throw: with the wrench back in the hand, the animation jumps to frame 62. As read,
+  that would cut a throw short before the release, so something in DL's blend or
+  release isn't understood yet.
+- Hero fields +0x4AC (it blocks the combo) and +0x435/+0x436/+0x439.
+
+**In the kit:** `dl.ron`'s `melee` section has all of the above at the wrench's level 0.
+- The wrench's line is DL's own, from the traces: one standing swing each, and a
+  standing jump attack.
+- Switches for the differences:
+  - `blend_creeps`, `chain_throw`, `crouch_jump_out`;
+  - the jump attack's `hover_ticks`;
+  - a grind attack press window of 0.
+- **Simplified:** DL's lunge frames are given half a frame later than the code's, as the
+  kit tests the frame after its advance.
 
 ## Ledges and getting hit
 
@@ -1228,7 +1408,20 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
     animations** (sequences 44, 45 and 72). With the grind boots set, a fall onto Crash
     Site's cable starts state 39. Then the game writes through a bad pointer, and PCSX2
     aborts on the next frame (twice with OpenGL, once with the software renderer).
-  - Veldin's hero class has all 127 sequences, but Veldin has no rails.
+  - Veldin's hero class has all 127 sequences, but Veldin has no rails. Sequence 45, the
+    grind's second stance, is a stub there: one keyframe, no length.
+  - **A rail written into Veldin's memory isn't enough either [tried 2026-10-15].**
+    - **The setup:** Veldin's rail list is empty (count 0 at 0x1DFD14). We pointed it at
+      a list of our own in spare memory: one 25 u rail 0.5 u over flat ground north of
+      the start, in the gameplay file's layout, with the grind boots set.
+    - **What happened:** a hero dropped onto it starts state 39, and PCSX2 aborts two
+      frames later on a read of the VIF1 FIFO with nothing in it. Blanking the grind's
+      spark and sound calls in the update (0x4F6CD8, 0x4F6E0C, 0x4F7CBC, 0x4F7CCC,
+      0x4F7DC8, 0x4F6D24) didn't help.
+    - **Not the cause:** the rail data, which is sane in the hero's grind block, and the
+      first stance's animation (sequence 44, five keyframes).
+    - **Still unknown:** what grinding uses that UYA's levels lack. 208 instructions read
+      the state type, so we left it.
   - So a grind trace needs GC or DL. GC's rails are many but its disc is PAL and later
     (PLAN D3); DL's arenas can't be played from a new game yet (`docs/re-setup.md`).
 - **Rails** are splines in a level list (0x1DFD10 in Veldin's build, count at 0x1DFD14),
@@ -1258,13 +1451,20 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
     - downhill it is `|θ| × 72/π` u/s, so 12 u/s more at 30°;
     - it rises at 8 u/s² and falls at 2 u/s², so speed from a descent lingers;
     - it is clamped to −2.5..12 u/s.
-- **Facing:** the hero turns to the rail's direction with gain 0.015, damping 0.15 and
-  a cap of 0.1047 rad per frame. The stick only leans him (up to 45°, for the
-  animation).
+- **Facing: he rides side on.** The shared update for states 39–42 turns him to the
+  rail's direction plus a stance offset (0x1A51D8), with gain 0.015, damping 0.15 and a
+  cap of 0.1047 rad per frame.
+  - Getting on sets the offset to −90°, so he faces to the rail's right with his left
+    side leading, playing sequence 44.
+  - It is +90° with sequence 45 instead when an object the hero struct points to
+    (0x1A5228) lies more than 90° the other way. What that object is wasn't read.
+  - The stick only leans him (up to 45°, for the animation). Until 2026-10-15 this note
+    said he faced the rail's direction; the offset had been missed.
 - **Ways off:**
   - **X pressed within 7 frames:** the grind jump (40). It is 2.4–2.45 u, hold 17,
     push-off 5, gravity 27.
-  - **Square within 10 frames:** the grind attack (42), a wrench swing on the rail.
+  - **Square within 10 frames:** the grind attack (42), a wrench swing on the rail ("The
+    grind attack", under "Melee").
   - **The rail's end:** 6 frames after the spline runs out, the hero falls (state 6). He
     keeps his velocity, and rails are ignored for 8 frames.
   - The hero also falls when he is more than 1.07 u above the ground under the rail for
@@ -1281,16 +1481,18 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
     2, gravity 24.
   - **Moving across:** the horizontal position blends from the old rail to the nearest
     point on the new one over 48 frames, with both moving along.
-- **Not modelled yet:** the grind attack, rails that jump the hero over a gap
-  automatically (flags at 0x1A520C/0x1A5210), and the grind hit (62).
+- **Not modelled yet:** rails that jump the hero over a gap automatically (flags at
+  0x1A520C/0x1A5210), and the grind hit (62).
 - **In the hero kit (P1.5):** rails are one-way polylines (`GrindRail`), and the
-  getting-on rule, speed model, grind jump, switch jump and rail end are as above. The
-  pull onto the rail uses the game's spring (gain 0.03, damping 0.3, up to 7 u/s).
+  getting-on rule, speed model, side-on stance, grind jump, switch jump, rail end and grind
+  attack are as above. The pull onto the rail uses the game's spring (gain 0.03, damping
+  0.3, up to 7 u/s).
   **[simplified]:**
   - nothing collides while grinding;
   - the hero falls as soon as the rail ends, not 6 frames later;
   - no solid ground is needed under a rail;
-  - the fall from a rail with nothing under it isn't there.
+  - the fall from a rail with nothing under it isn't there;
+  - the stance is always −90°; the object that turns it the other way isn't modelled.
 
 ## Zip lines (state 118) [code, then verified on UYA NTSC, 2026-10-15]
 

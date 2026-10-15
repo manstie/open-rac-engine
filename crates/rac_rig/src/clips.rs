@@ -58,6 +58,8 @@ pub enum RigMove {
     ShimmyLeft,
     ShimmyRight,
     Grind,
+    /// A swing of the wrench on a rail, 0 or 1.
+    GrindAttack(u8),
     ZipLine,
     Swim,
     SwimIdle,
@@ -131,6 +133,7 @@ impl RigMove {
             HeroState::LedgeShimmy(Side::Left) => RigMove::ShimmyLeft,
             HeroState::LedgeShimmy(Side::Right) => RigMove::ShimmyRight,
             HeroState::Grind => RigMove::Grind,
+            HeroState::GrindAttack(swing) => RigMove::GrindAttack(swing),
             HeroState::ZipLine => RigMove::ZipLine,
             HeroState::UnderwaterSwim => RigMove::Swim,
             HeroState::UnderwaterIdle => RigMove::SwimIdle,
@@ -148,7 +151,7 @@ impl RigMove {
     pub fn follows_attack_frame(self) -> bool {
         matches!(
             self,
-            RigMove::Combo(_) | RigMove::JumpAttack | RigMove::Throw
+            RigMove::Combo(_) | RigMove::JumpAttack | RigMove::Throw | RigMove::GrindAttack(_)
         )
     }
 

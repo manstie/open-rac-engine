@@ -16,7 +16,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 mod melee;
 
-pub use melee::{Strike, StrikeShape, ThrownWrench, best_target, target_score};
+pub use melee::{Clank, Strike, StrikeShape, ThrownWrench, best_target, target_score};
 
 use crate::{
     collision::{BodyId, CollisionWorld, Material},
@@ -88,6 +88,8 @@ pub enum HeroState {
     LedgeShimmy(Side),
     /// Riding a rail.
     Grind,
+    /// A wrench swing while riding a rail, 0 or 1.
+    GrindAttack(u8),
     /// Hanging from a zip line and sliding along it.
     ZipLine,
     /// The charge boots' dash.
@@ -141,6 +143,7 @@ impl HeroState {
             HeroState::LedgeShimmy(Side::Right) => 26,
             HeroState::Jump(JumpKind::Ledge) => 27,
             HeroState::Grind => 39,
+            HeroState::GrindAttack(_) => 42,
             HeroState::Jump(JumpKind::Grind) => 40,
             HeroState::Jump(JumpKind::GrindSwitch) => 41,
             HeroState::UnderwaterSwim => 50,
@@ -187,8 +190,16 @@ impl HeroState {
     pub fn is_attacking(self) -> bool {
         matches!(
             self,
-            HeroState::Combo(_) | HeroState::JumpAttack | HeroState::Throw
+            HeroState::Combo(_)
+                | HeroState::JumpAttack
+                | HeroState::Throw
+                | HeroState::GrindAttack(_)
         )
+    }
+
+    /// Riding a rail, swinging or not.
+    pub fn is_grinding(self) -> bool {
+        matches!(self, HeroState::Grind | HeroState::GrindAttack(_))
     }
 }
 
@@ -366,6 +377,8 @@ pub struct HeroMotion {
     pub thrown: Option<ThrownWrench>,
     /// What the wrench can hit this tick.
     pub strikes: Vec<Strike>,
+    /// Where the wrench clanked off something this tick, for sparks and a sound.
+    pub clank: Option<Clank>,
     /// Strafe or lock-on is held: on the ground he faces the camera and moves with the
     /// stick (`hero-controller.md`, "Strafing").
     pub strafing: bool,
@@ -450,6 +463,8 @@ pub struct HeroMotion {
     grind_base: f32,
     grind_slope: f32,
     grind_speed: f32,
+    /// The way the rail ridden goes.
+    rail_yaw: f32,
     /// How far the hero still is from the rail he got on, and how fast he closes it.
     rail_offset: Vec3,
     rail_pull: f32,
@@ -512,6 +527,7 @@ impl HeroMotion {
             pitch: 0.0,
             thrown: None,
             strikes: Vec::new(),
+            clank: None,
             strafing: false,
             strafe_side: StrafeSide::Forward,
             flip_side: StrafeSide::Forward,
@@ -560,6 +576,7 @@ impl HeroMotion {
             grind_base: 0.0,
             grind_slope: 0.0,
             grind_speed: 0.0,
+            rail_yaw: 0.0,
             rail_offset: Vec3::ZERO,
             rail_pull: 0.0,
             switch_from: None,
@@ -960,7 +977,7 @@ pub fn step(
         HeroState::Hit => hit_tick(hero, profile),
         HeroState::Charge => charge_tick(hero, &stick, profile),
         HeroState::Bounce => bounce_tick(hero, profile),
-        HeroState::Grind => grind_tick(hero, input, &stick, wish, profile, world),
+        state if state.is_grinding() => grind_tick(hero, input, &stick, wish, profile, world),
         HeroState::ZipLine => zip_line_tick(hero, profile, world),
         state if state.is_on_surface() => surface_tick(hero, input, &stick, wish, profile),
         state if state.is_underwater() => underwater_tick(hero, input, &stick, wish, profile),
@@ -976,6 +993,7 @@ pub fn step(
     move_hero(hero, &stick, profile, world);
     melee::thrown_tick(hero, profile, world);
     melee::update_strikes(hero, profile);
+    melee::clank(hero, profile, world);
 
     let mut events = StepEvents::default();
     if let Some(ground) = hero.ground {
@@ -997,7 +1015,7 @@ fn move_hero(
     world: &dyn CollisionWorld,
 ) {
     let state = hero.state;
-    if matches!(state, HeroState::Grind | HeroState::ZipLine) {
+    if state.is_grinding() || state == HeroState::ZipLine {
         // The rail carries him; nothing else stops him.
         hero.position += hero.velocity * TICK;
         hero.ground = None;
@@ -2106,7 +2124,7 @@ fn start_grind(hero: &mut HeroMotion, rail: &GrindRail, at: RailPoint) {
     hero.set_state(HeroState::Grind);
 }
 
-/// One tick on a rail (state 39).
+/// One tick on a rail (states 39 and 42): the grind, or the grind attack riding it.
 fn grind_tick(
     hero: &mut HeroMotion,
     input: &PlayerInput,
@@ -2124,8 +2142,14 @@ fn grind_tick(
         return;
     };
     let along = rail.direction(at);
+    hero.rail_yaw = yaw_of(flat(along));
 
-    if hero.jump_press.within(grind.jump_press_window) {
+    let jump_window = match hero.state {
+        HeroState::GrindAttack(_) if !melee::grind_attack_may_jump(hero, profile) => 0,
+        HeroState::GrindAttack(_) => profile.melee.grind.jump_press_window,
+        _ => grind.jump_press_window,
+    };
+    if hero.jump_press.within(jump_window) {
         hero.jump_press.used = true;
         hero.set_horizontal_velocity(flat(along) * hero.grind_speed);
         start_jump(hero, JumpKind::Grind, profile);
@@ -2133,6 +2157,7 @@ fn grind_tick(
         air_tick(hero, input, stick, wish, profile);
         return;
     }
+    melee::grind_attack_transitions(hero, profile);
 
     // The speed: a base towards 12 u/s, plus a term for the rail's slope.
     hero.grind_base = approach(hero.grind_base, grind.speed, grind.accel * TICK);
@@ -2151,7 +2176,12 @@ fn grind_tick(
         approach(hero.grind_slope, target, rate * TICK).clamp(grind.slope_min, grind.slope_max);
     hero.grind_speed = (hero.grind_base + hero.grind_slope).max(0.0);
     hero.speed = hero.grind_speed;
-    turn(hero, yaw_of(flat(along)), grind.turn);
+    // Side on to the rail.
+    turn(
+        hero,
+        hero.rail_yaw + grind.stance_degrees.to_radians(),
+        grind.turn,
+    );
 
     if !rail.advance(&mut at, hero.grind_speed * TICK) {
         // Off the end, flying on the way the rail went.
@@ -2232,7 +2262,12 @@ fn follow_rail_in_air(
     }
     hero.velocity.x = (target.x - hero.position.x) / TICK;
     hero.velocity.z = (target.z - hero.position.z) / TICK;
-    turn(hero, yaw_of(flat(rail.direction(at))), grind.turn);
+    hero.rail_yaw = yaw_of(flat(rail.direction(at)));
+    turn(
+        hero,
+        hero.rail_yaw + grind.stance_degrees.to_radians(),
+        grind.turn,
+    );
 }
 
 /// Another rail to the side the stick points, for a switch jump: looked for that far
@@ -2282,10 +2317,11 @@ fn find_switch_rail(
 /// falling or grinding, as the games' state types 4, 2 and 15. A rail found by the grind
 /// search came first.
 fn try_catch_zip_line(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
-    let may = matches!(
-        hero.state,
-        HeroState::Fall | HeroState::Jump(_) | HeroState::DoubleJump | HeroState::Grind
-    );
+    let may = hero.state.is_grinding()
+        || matches!(
+            hero.state,
+            HeroState::Fall | HeroState::Jump(_) | HeroState::DoubleJump
+        );
     if !may || hero.no_zip_ticks > 0 {
         return;
     }

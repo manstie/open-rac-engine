@@ -34,8 +34,8 @@ use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
 pub use camera::FollowCamera;
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
 pub use controller::{
-    Abilities, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike, StrikeShape,
-    ThrownWrench,
+    Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
+    StrikeShape, ThrownWrench,
 };
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;

@@ -85,6 +85,8 @@ const MOVES: &[(RigMove, usize, bool, usize)] = &[
     (RigMove::ShimmyLeft, 36, true, 0),
     (RigMove::ShimmyRight, 37, true, 0),
     (RigMove::Grind, 44, true, 0),
+    (RigMove::GrindAttack(0), 70, false, 0),
+    (RigMove::GrindAttack(1), 71, false, 0),
     (RigMove::ZipLine, 90, true, 0),
     (RigMove::Swim, 54, true, 0),
     (RigMove::SwimIdle, 55, true, 0),

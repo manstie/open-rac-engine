@@ -443,6 +443,8 @@
         slope_min: -2.5, // -0.041666668 u per frame
         slope_max: 12.0, // 0.2 u per frame
         turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
+        // As UYA [not read in DL].
+        stance_degrees: -90.0,
         jump_press_window: 7,
         // States 40 and 41, "Jump parameters by state" [code].
         jump: (
@@ -581,21 +583,25 @@
         under_stroke_rate_min: 0.25,
         under_stroke_rate_max: 0.75,
     ),
-    // As UYA [not read in DL]: "Melee" [code, UYA NTSC; the wrench's line from UYA's
-    // traces]. Frame windows are rows of UYA's attack table at 0x2F6310; per-frame game
+    // "Deadlocked's melee" [code, DL NTSC: the attack states, DL's attack table at 0x3B0358
+    // and the wrench's object at 0x460530]. Values marked [code] are DL's own; the rest
+    // match UYA's ("Melee"). The wrench's line is UYA's [not read in DL]. Per-frame game
     // values are given in comments.
     melee: (
         frames_per_tick: 0.5, // the animation global 0x1A57E4
+        blend_creeps: false, // [traced]
         ground_press_window: 10,
         crouch_press_window: 15,
         air_press_window: 14,
         air_press_window_late: 18, // after a flip or double jump
         air_after_tick: 10, // the game's state timer at least 11
-        double_jump_after_tick: 19, // its animation past frame 32 [traced]
+        double_jump_after_tick: 11, // its animation past frame 16 [code], its 12th [traced]
         flip_after_tick: 30, // past frame 18 [traced]; 20 for one flip kind, not read
         combo_below_height: 0.1,
         chain_press_max: 15,
         chain_memory_ticks: 27,
+        chain_throw: false, // the crouch's mask is read and dropped [code]
+        crouch_jump_out: false, // always state 7 [code]
         walk_out_frame: 34.0,
         walk_out_stick: 0.9,
         end_walk_stick: 0.8,
@@ -610,9 +616,9 @@
         edge_probe_above: 0.3,
         edge_probe_below: 0.35,
         combo: [
-            // Swing 1, right to left [lunge traced].
+            // Swing 1, right to left.
             (
-                start_frame: 16.0,
+                start_frame: 15.0, // sequence 40 from keyframe 1 [code]
                 blend_ticks: 5,
                 chain_before: 33.0,
                 buffer_from: 19.0,
@@ -621,27 +627,29 @@
                 end: 26.0,
                 hit_from: 17.0,
                 hit_to: 23.0,
-                lunge: [(18.0, 4.4)], // 0.073333 u per frame
+                // 0.079167 u per frame while the frame is under 20 [code, 0x698280]. DL's
+                // update sees the frame before the tick moves it on, so 20.5 here [traced].
+                lunge: [(20.5, 4.75)],
                 reach: Some((offset: 0.75, range: 0.8, max_scale: 4.0)),
-                damage: 1.0, // the wrench's weapon row (0x2C56AC)
+                damage: 1.0, // the wrench at level 0 (0x3BE5B8) [code]
                 knockback: 1.0,
                 push: Left,
-                head_radius: 0.35,
+                head_radius: 0.75, // [code, 0x460530]
                 swing: [
-                    (frame: 16.5, hand: (-0.30, -0.35, 0.57), tip: (-0.81, 0.02, 0.97)),
-                    (frame: 17.0, hand: (-0.06, -0.51, 0.51), tip: (-0.90, -0.58, 0.71)),
-                    (frame: 17.5, hand: (0.36, -0.48, 0.46), tip: (-0.45, -0.95, 0.72)),
-                    (frame: 18.0, hand: (0.65, -0.19, 0.41), tip: (-0.03, -1.14, 0.55)),
-                    (frame: 18.5, hand: (0.76, 0.20, 0.37), tip: (1.34, -1.24, 0.52)),
-                    (frame: 19.0, hand: (0.63, 0.51, 0.37), tip: (2.46, 0.04, 0.45)),
-                    (frame: 19.5, hand: (0.47, 0.52, 0.38), tip: (2.42, 0.74, 0.48)),
-                    (frame: 20.0, hand: (0.33, 0.51, 0.41), tip: (1.71, 1.24, 0.52)),
-                    (frame: 20.5, hand: (0.24, 0.52, 0.43), tip: (1.14, 1.35, 0.54)),
-                    (frame: 21.0, hand: (0.16, 0.52, 0.46), tip: (0.77, 1.45, 0.54)),
-                    (frame: 21.5, hand: (0.08, 0.52, 0.47), tip: (0.34, 1.45, 0.59)),
-                    (frame: 22.0, hand: (0.01, 0.50, 0.48), tip: (-0.02, 1.37, 0.59)),
-                    (frame: 22.5, hand: (-0.03, 0.48, 0.50), tip: (-0.27, 1.23, 0.64)),
-                    (frame: 23.0, hand: (-0.06, 0.45, 0.52), tip: (-0.49, 1.08, 0.65)),
+                    (frame: 16.00, hand: (-0.17, -0.39, 0.56), tip: (0.01, -0.75, 1.13)),
+                    (frame: 16.50, hand: (-0.36, -0.36, 0.56), tip: (-0.51, -0.55, 1.14)),
+                    (frame: 17.00, hand: (-0.35, -0.43, 0.57), tip: (-0.75, -0.39, 1.10)),
+                    (frame: 17.50, hand: (-0.13, -0.59, 0.54), tip: (-0.80, -0.72, 0.91)),
+                    (frame: 18.00, hand: (0.29, -0.60, 0.49), tip: (-0.37, -1.01, 0.92)),
+                    (frame: 18.50, hand: (0.64, -0.30, 0.47), tip: (0.06, -1.07, 0.79)),
+                    (frame: 19.00, hand: (0.83, 0.11, 0.42), tip: (1.28, -1.06, 0.79)),
+                    (frame: 19.50, hand: (0.81, 0.47, 0.40), tip: (2.48, -0.29, 0.55)),
+                    (frame: 20.00, hand: (0.66, 0.56, 0.42), tip: (2.92, 0.34, 0.50)),
+                    (frame: 20.50, hand: (0.50, 0.60, 0.44), tip: (2.66, 1.17, 0.50)),
+                    (frame: 21.00, hand: (0.37, 0.64, 0.46), tip: (2.17, 1.80, 0.46)),
+                    (frame: 21.50, hand: (0.24, 0.66, 0.48), tip: (1.30, 1.99, 0.50)),
+                    (frame: 22.00, hand: (0.13, 0.64, 0.50), tip: (0.60, 1.86, 0.51)),
+                    (frame: 23.00, hand: (-0.04, 0.56, 0.55), tip: (-0.20, 1.59, 0.61)),
                 ],
             ),
             // Swing 2, left to right.
@@ -655,25 +663,26 @@
                 end: 15.0,
                 hit_from: 8.0,
                 hit_to: 13.0,
-                lunge: [(7.0, 5.7), (8.0, 4.5), (9.0, 3.0)], // 0.095, 0.075, 0.05
+                // 0.099167, 0.079167 past frame 7, 0.054167 past 10 and under 12 [code],
+                // half a frame on as swing 1's [traced].
+                lunge: [(7.5, 5.95), (10.5, 4.75), (12.5, 3.25)],
                 reach: Some((offset: 0.6, range: 1.7, max_scale: 4.0)),
                 damage: 1.0,
                 knockback: 1.0,
                 push: Right,
-                head_radius: 0.35,
+                head_radius: 0.75,
                 swing: [
-                    (frame: 7.5, hand: (0.32, 0.36, 0.49), tip: (-0.55, 0.48, 0.47)),
-                    (frame: 8.0, hand: (0.45, 0.24, 0.51), tip: (-0.54, 0.63, 0.42)),
-                    (frame: 8.5, hand: (0.53, 0.03, 0.51), tip: (-0.14, 1.13, 0.43)),
-                    (frame: 9.0, hand: (0.52, -0.20, 0.53), tip: (0.56, 1.70, 0.51)),
-                    (frame: 9.5, hand: (0.38, -0.41, 0.55), tip: (1.40, 1.59, 0.40)),
-                    (frame: 10.0, hand: (0.17, -0.52, 0.59), tip: (2.16, 0.99, 0.44)),
-                    (frame: 10.5, hand: (-0.03, -0.51, 0.62), tip: (2.38, 0.10, 0.36)),
-                    (frame: 11.0, hand: (-0.21, -0.42, 0.64), tip: (1.87, -0.74, 0.44)),
-                    (frame: 11.5, hand: (-0.29, -0.33, 0.64), tip: (1.12, -1.03, 0.46)),
-                    (frame: 12.0, hand: (-0.35, -0.23, 0.63), tip: (0.60, -1.13, 0.48)),
-                    (frame: 12.5, hand: (-0.35, -0.21, 0.63), tip: (0.29, -1.09, 0.51)),
-                    (frame: 13.0, hand: (-0.36, -0.19, 0.62), tip: (0.05, -1.02, 0.54)),
+                    (frame: 7.50, hand: (0.22, -0.42, 0.61), tip: (0.84, -0.29, 1.07)),
+                    (frame: 8.00, hand: (0.40, -0.28, 0.63), tip: (0.79, 0.22, 1.05)),
+                    (frame: 9.00, hand: (0.53, -0.22, 0.65), tip: (0.61, 0.68, 0.88)),
+                    (frame: 9.50, hand: (0.53, -0.35, 0.68), tip: (0.94, 0.87, 0.78)),
+                    (frame: 10.00, hand: (0.41, -0.53, 0.67), tip: (1.40, 1.00, 0.69)),
+                    (frame: 10.50, hand: (0.15, -0.66, 0.67), tip: (2.45, 0.81, 0.60)),
+                    (frame: 11.00, hand: (-0.10, -0.63, 0.68), tip: (3.03, -0.15, 0.62)),
+                    (frame: 11.50, hand: (-0.30, -0.52, 0.67), tip: (2.76, -1.37, 0.67)),
+                    (frame: 12.00, hand: (-0.41, -0.40, 0.68), tip: (1.92, -1.95, 0.65)),
+                    (frame: 12.50, hand: (-0.48, -0.27, 0.69), tip: (0.88, -1.98, 0.61)),
+                    (frame: 13.00, hand: (-0.49, -0.21, 0.69), tip: (0.26, -1.69, 0.61)),
                 ],
             ),
             // Swing 3, left to right; the next press starts the combo over.
@@ -687,23 +696,23 @@
                 end: 21.0,
                 hit_from: 12.0,
                 hit_to: 16.0,
-                lunge: [(12.0, 3.7)], // 0.061667
+                lunge: [(12.5, 3.95)], // 0.065833 under frame 12 [code, traced]
                 reach: Some((offset: 1.3, range: 1.7, max_scale: 1.9)),
                 damage: 1.0,
                 knockback: 1.0,
                 push: Left,
-                head_radius: 0.35,
+                head_radius: 0.75,
                 swing: [
-                    (frame: 11.5, hand: (-0.05, 0.32, 0.65), tip: (-0.67, -0.21, 0.56)),
-                    (frame: 12.0, hand: (0.15, 0.33, 0.65), tip: (-0.72, 0.15, 0.58)),
-                    (frame: 12.5, hand: (0.38, 0.17, 0.64), tip: (-0.38, 0.76, 0.64)),
-                    (frame: 13.0, hand: (0.42, -0.10, 0.63), tip: (0.27, 1.25, 0.65)),
-                    (frame: 13.5, hand: (0.26, -0.30, 0.64), tip: (1.40, 1.35, 0.66)),
-                    (frame: 14.0, hand: (0.02, -0.33, 0.65), tip: (2.04, 0.17, 0.68)),
-                    (frame: 14.5, hand: (-0.14, -0.26, 0.60), tip: (1.56, -0.97, 0.72)),
-                    (frame: 15.0, hand: (-0.20, -0.12, 0.56), tip: (0.55, -1.35, 0.59)),
-                    (frame: 15.5, hand: (-0.19, -0.07, 0.55), tip: (0.15, -1.20, 0.60)),
-                    (frame: 16.0, hand: (-0.17, -0.01, 0.54), tip: (-0.11, -1.10, 0.58)),
+                    (frame: 11.50, hand: (-0.31, 0.16, 0.75), tip: (-0.68, -0.64, 0.56)),
+                    (frame: 12.00, hand: (-0.14, 0.33, 0.76), tip: (-0.89, -0.25, 0.63)),
+                    (frame: 12.50, hand: (0.11, 0.38, 0.76), tip: (-0.92, 0.27, 0.70)),
+                    (frame: 13.00, hand: (0.40, 0.21, 0.77), tip: (-0.49, 0.91, 0.79)),
+                    (frame: 13.50, hand: (0.46, -0.13, 0.79), tip: (0.28, 1.46, 0.81)),
+                    (frame: 14.00, hand: (0.25, -0.39, 0.80), tip: (1.60, 1.55, 0.89)),
+                    (frame: 14.50, hand: (-0.06, -0.41, 0.79), tip: (2.36, 0.11, 0.82)),
+                    (frame: 15.00, hand: (-0.28, -0.29, 0.74), tip: (1.77, -1.05, 0.93)),
+                    (frame: 15.50, hand: (-0.37, -0.06, 0.69), tip: (0.66, -1.45, 0.86)),
+                    (frame: 16.00, hand: (-0.34, 0.09, 0.68), tip: (0.09, -1.24, 0.76)),
                 ],
             ),
         ],
@@ -717,33 +726,40 @@
             jump_from: 28.0,
             end: 30.0,
             hit_from: 1.0,
-            hit_to: 28.0,
+            hit_to: 29.0, // DL's table at 0x3B0358 [code]
             lunge: [],
             reach: None,
-            damage: 2.0, // 0x2C56B0
+            damage: 4.0, // the wrench at level 0 [code]
             knockback: 1.55,
             push: Forward,
-            head_radius: 0.47,
+            head_radius: 1.75, // [code]
             swing: [
-                (frame: 19.0, hand: (-0.43, -0.26, 1.34), tip: (-1.78, 0.16, 0.48)),
-                (frame: 19.5, hand: (-0.42, -0.28, 1.37), tip: (-1.84, 0.18, 0.45)),
-                (frame: 20.0, hand: (-0.42, -0.30, 1.40), tip: (-1.82, 0.19, 0.46)),
-                (frame: 20.5, hand: (-0.42, -0.32, 1.42), tip: (-1.81, 0.20, 0.48)),
-                (frame: 21.0, hand: (-0.41, -0.33, 1.46), tip: (-1.80, 0.22, 0.52)),
-                (frame: 21.5, hand: (-0.36, -0.32, 1.49), tip: (-1.78, 0.25, 0.61)),
-                (frame: 22.0, hand: (-0.29, -0.29, 1.52), tip: (-1.75, 0.29, 0.71)),
-                (frame: 22.5, hand: (-0.23, -0.26, 1.55), tip: (-1.72, 0.31, 0.80)),
-                (frame: 23.0, hand: (-0.09, -0.20, 1.53), tip: (-1.66, 0.35, 0.99)),
-                (frame: 23.5, hand: (0.20, -0.08, 1.40), tip: (-1.44, 0.44, 1.39)),
-                (frame: 24.0, hand: (0.52, -0.00, 1.12), tip: (-0.95, 0.56, 1.80)),
-                (frame: 24.5, hand: (0.73, 0.00, 0.76), tip: (-0.25, 0.58, 2.05)),
-                (frame: 25.0, hand: (0.82, -0.04, 0.44), tip: (0.53, 0.44, 2.09)),
-                (frame: 25.5, hand: (0.74, -0.09, 0.33), tip: (1.18, 0.47, 1.93)),
-                (frame: 26.0, hand: (0.65, -0.11, 0.28), tip: (1.69, 0.36, 1.58)),
-                (frame: 26.5, hand: (0.56, -0.13, 0.25), tip: (2.06, 0.14, 1.04)),
-                (frame: 27.0, hand: (0.47, -0.14, 0.24), tip: (2.21, -0.05, 0.35)),
-                (frame: 27.5, hand: (0.44, -0.14, 0.29), tip: (2.19, -0.02, 0.34)),
-                (frame: 28.0, hand: (0.42, -0.15, 0.33), tip: (2.16, 0.01, 0.34)),
+                (frame: 19.50, hand: (0.06, -0.44, 1.29), tip: (-0.11, -0.54, 2.14)),
+                (frame: 19.66, hand: (0.04, -0.44, 1.34), tip: (-0.23, -0.41, 2.24)),
+                (frame: 19.83, hand: (0.01, -0.43, 1.39), tip: (-0.39, -0.24, 2.30)),
+                (frame: 19.99, hand: (-0.03, -0.40, 1.44), tip: (-0.62, -0.02, 2.27)),
+                (frame: 20.16, hand: (-0.08, -0.36, 1.48), tip: (-0.88, 0.20, 2.11)),
+                (frame: 20.32, hand: (-0.15, -0.32, 1.50), tip: (-1.13, 0.37, 1.80)),
+                (frame: 20.49, hand: (-0.23, -0.28, 1.49), tip: (-1.30, 0.46, 1.40)),
+                (frame: 20.65, hand: (-0.30, -0.24, 1.45), tip: (-1.36, 0.49, 0.99)),
+                (frame: 20.82, hand: (-0.35, -0.21, 1.41), tip: (-1.34, 0.48, 0.63)),
+                (frame: 20.98, hand: (-0.38, -0.19, 1.37), tip: (-1.29, 0.48, 0.36)),
+                (frame: 21.31, hand: (-0.39, -0.16, 1.33), tip: (-1.26, 0.54, 0.13)),
+                (frame: 21.66, hand: (-0.36, -0.12, 1.30), tip: (-1.20, 0.56, 0.07)),
+                (frame: 22.18, hand: (-0.34, -0.08, 1.27), tip: (-1.15, 0.57, 0.03)),
+                (frame: 22.52, hand: (-0.32, -0.04, 1.24), tip: (-1.09, 0.59, -0.02)),
+                (frame: 22.87, hand: (-0.29, 0.01, 1.21), tip: (-1.04, 0.62, -0.06)),
+                (frame: 23.22, hand: (-0.26, 0.05, 1.17), tip: (-0.99, 0.65, -0.13)),
+                (frame: 23.58, hand: (-0.19, 0.10, 1.14), tip: (-0.99, 0.67, -0.15)),
+                (frame: 24.00, hand: (-0.12, 0.14, 1.12), tip: (-1.00, 0.70, -0.16)),
+                (frame: 24.25, hand: (-0.09, 0.16, 1.10), tip: (-1.01, 0.71, -0.15)),
+                (frame: 25.34, hand: (0.15, 0.04, 1.13), tip: (-1.20, 0.59, 0.28)),
+                (frame: 25.84, hand: (0.53, -0.05, 1.10), tip: (-1.08, 0.62, 1.08)),
+                (frame: 26.84, hand: (0.85, -0.09, 0.96), tip: (-0.56, 0.65, 1.76)),
+                (frame: 27.34, hand: (1.00, -0.13, 0.35), tip: (2.82, 0.03, 0.11)),
+                (frame: 27.84, hand: (1.00, -0.14, 0.40), tip: (2.83, -0.05, 0.11)),
+                (frame: 28.34, hand: (0.99, -0.15, 0.45), tip: (2.83, -0.07, 0.19)),
+                (frame: 28.84, hand: (0.95, -0.14, 0.47), tip: (2.78, -0.06, 0.23)),
             ],
         ),
         // The throw hits only with the thrown wrench (`thrown`).
@@ -792,12 +808,14 @@
             low_rate_below: 0.7,
             low_rate_min: 0.75,
             landed_rate: 2.0,
+            hover_ticks: 16, // [code, 0x6A0318]
+            hover_rate: 0.01,
             blend_after_flip: 17,
             after_flip_ticks: 42,
             slam_from_frame: 23.5,
             slam_below: 0.5,
             slam_radius: 0.4,
-            slam_damage: 2.0,
+            slam_damage: 4.0, // [code]
             slam_knockback: 2.0,
         ),
         // [code; the flight traced in uyantsc-veldin-melee-1: out 8.65 u in 30 ticks, back
@@ -814,17 +832,110 @@
             sink: 1.0, // 0.016667
             wall_slow: 0.5,
             lost_beyond: 32.0,
-            radius: 0.4,
-            damage: 1.0, // the wrench's weapon row (0x2C56AC)
+            radius: 0.75, // [code; DL tests a ball at each end]
+            damage: 1.0, // the wrench at level 0
             knockback_out: 1.2,
             knockback_back: 0.37,
             hold_frame: 81.0, // [simplified]: the game's animation runs on, then switches
             catch_frame: 82.0, // [traced]
-            catch_ahead_ticks: 4.0,
+            catch_ahead_ticks: 5.0, // [code]
             catch_after_tick: 101,
             blend_again: 3, // [traced]
             again_after_tick: 30,
             jump_out_window: 8,
+        ),
+        // DL keeps the grind attack's code, but nothing enters it [code]; as UYA otherwise.
+        grind: (
+            press_window: 0, // never
+            jump_press_window: 5,
+            swings: [
+                // Right to left across his front and out ahead along the rail.
+                (
+                    start_frame: 14.0, // sequence 70 from its first keyframe
+                    blend_ticks: 4,
+                    chain_before: 0.0,
+                    buffer_from: 0.0,
+                    chain_from: 23.0,
+                    jump_from: 24.0,
+                    end: 26.0,
+                    hit_from: 17.0,
+                    hit_to: 23.0,
+                    lunge: [],
+                    reach: None,
+                    damage: 1.0,
+                    knockback: 1.0,
+                    push: Left,
+                    head_radius: 0.7,
+                    swing: [
+                        (frame: 16.5, hand: (0.58, 0.15, 0.66), tip: (0.25, -0.75, 0.93)),
+                        (frame: 17.0, hand: (0.59, 0.36, 0.62), tip: (0.51, -0.74, 0.86)),
+                        (frame: 17.5, hand: (0.54, 0.52, 0.58), tip: (0.99, -0.59, 0.94)),
+                        (frame: 18.0, hand: (0.44, 0.65, 0.53), tip: (1.62, -0.33, 1.04)),
+                        (frame: 18.5, hand: (0.30, 0.74, 0.48), tip: (2.21, 0.47, 1.05)),
+                        (frame: 19.0, hand: (0.14, 0.78, 0.44), tip: (2.25, 1.70, 0.88)),
+                        (frame: 19.5, hand: (-0.02, 0.76, 0.42), tip: (1.57, 2.92, 0.61)),
+                        (frame: 20.0, hand: (-0.16, 0.69, 0.41), tip: (0.12, 2.96, 0.37)),
+                        (frame: 20.5, hand: (-0.21, 0.65, 0.41), tip: (-0.55, 2.50, 0.44)),
+                        (frame: 21.0, hand: (-0.25, 0.60, 0.41), tip: (-1.06, 2.13, 0.50)),
+                        (frame: 21.5, hand: (-0.29, 0.54, 0.41), tip: (-1.42, 1.64, 0.52)),
+                        (frame: 22.0, hand: (-0.31, 0.49, 0.41), tip: (-1.63, 1.12, 0.52)),
+                        (frame: 22.5, hand: (-0.33, 0.43, 0.41), tip: (-1.67, 0.59, 0.48)),
+                        (frame: 23.0, hand: (-0.34, 0.37, 0.40), tip: (-1.58, 0.13, 0.41)),
+                    ],
+                ),
+                // From behind, out ahead along the rail and round to his front.
+                (
+                    start_frame: 6.0, // sequence 71
+                    blend_ticks: 4,
+                    chain_before: 0.0,
+                    buffer_from: 0.0,
+                    chain_from: 14.0,
+                    jump_from: 13.0,
+                    end: 15.0,
+                    hit_from: 8.0,
+                    hit_to: 13.0,
+                    lunge: [],
+                    reach: None,
+                    damage: 1.0,
+                    knockback: 1.0,
+                    push: Right,
+                    head_radius: 0.7,
+                    swing: [
+                        (frame: 7.5, hand: (-0.23, 0.61, 0.47), tip: (-0.93, -0.21, 0.58)),
+                        (frame: 8.0, hand: (-0.06, 0.72, 0.48), tip: (-1.09, 0.16, 0.54)),
+                        (frame: 8.5, hand: (0.13, 0.75, 0.50), tip: (-1.12, 0.58, 0.47)),
+                        (frame: 9.0, hand: (0.31, 0.71, 0.54), tip: (-1.09, 0.99, 0.37)),
+                        (frame: 9.5, hand: (0.44, 0.58, 0.56), tip: (-0.91, 1.41, 0.27)),
+                        (frame: 10.0, hand: (0.52, 0.40, 0.58), tip: (-0.54, 1.79, 0.20)),
+                        (frame: 10.5, hand: (0.53, 0.19, 0.61), tip: (-0.01, 2.04, 0.19)),
+                        (frame: 11.0, hand: (0.46, -0.01, 0.63), tip: (0.63, 2.11, 0.26)),
+                        (frame: 11.5, hand: (0.34, -0.18, 0.64), tip: (1.31, 1.94, 0.40)),
+                        (frame: 12.0, hand: (0.17, -0.28, 0.62), tip: (1.66, 1.22, 0.63)),
+                        (frame: 12.5, hand: (0.14, -0.29, 0.61), tip: (1.68, 0.81, 0.65)),
+                        (frame: 13.0, hand: (0.12, -0.30, 0.60), tip: (1.62, 0.42, 0.67)),
+                    ],
+                ),
+            ],
+            ball_ticks: 20,
+            ball_radius: 1.0,
+            ball_above: 0.6,
+            ball_damage: 1.0,
+            ball_knockback: 1.0,
+            ball_push_degrees: 27.5, // [simplified]: the game draws 20°-35° at random
+        ),
+        // [code, 0x460530]: as UYA's, but the clank does no damage.
+        clank: (
+            after_tick: 10,
+            within_degrees: 70.0,
+            above: 0.5,
+            reach: 1.4,
+            shorten: 0.3,
+            shorten_degrees: 105.0,
+            damage: 0.0, // a touch of no damage [code]
+            knockback: 1.0,
+            ground_frame: 28.0, // [code]
+            ground_above: 0.7,
+            ground_below: 0.9,
         ),
     ),
     // As UYA [not read in DL]: state 22, "Getting hit and dying" [code, UYA NTSC].

@@ -336,12 +336,18 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
             b.sides(joint::THIGH_R, joint::THIGH_L, rx(0.1 * (time * 1.5).sin()));
             tail(&mut b, 0.3, -1.0, time);
         }
-        HeroState::Grind => {
+        HeroState::Grind | HeroState::GrindAttack(_) => {
             legs_bent(&mut b, 0.12);
             b.pose.offsets[joint::HIPS] = Vec3::new(0.0, -0.12, 0.0);
             b.set(joint::HIPS, ry(0.5) * rx(-0.2));
             arms_down(&mut b, 0.0, 0.9);
             tail(&mut b, 0.4, 0.8, time * 2.0);
+            if let Some((hand, tip)) = hero.wrench_line() {
+                let to_local = Quat::from_rotation_y(hero.yaw).inverse();
+                let hand = to_local * (hand - hero.position);
+                let tip = to_local * (tip - hero.position);
+                reach_right(&mut b, joints, hand, tip);
+            }
         }
         HeroState::ZipLine => {
             // Hanging by both hands from the cable above, legs trailing.

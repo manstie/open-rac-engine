@@ -137,6 +137,7 @@ const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick.
     Crouch: Ctrl / R1. Then jump: heli jump, or a long jump while running.\n\
     Crouch, then push sideways or back as you jump: flip.\n\
     Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.\n\
+    Wrench: F / Square, again in time for the combo. Crouch first: throw it.\n\
     Lock on (gamepad): L2 and R2 together.";
 
 const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
