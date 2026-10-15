@@ -78,13 +78,39 @@ libuya's `MobyClass` layout matches UYA's data:
 ## Skeleton [verified]
 
 - **Joint offsets** (class + 0x18), 16 bytes per joint: the joint's position relative to
-  its parent as three floats, then the parent's address in scratchpad memory,
-  0x70000000 + parent × 0x40. Joint 0 is the root and has no parent.
-- **Skeleton records** (class + 0x14), 0x40 bytes per joint: a 3×4 matrix whose fourth
-  column repeats the offset, then the negated rest position in model space at +0x30
-  (an inverse bind with no rotation) and the parent's address again at +0x3C.
-- **The rest pose has no rotations:** every joint's rest orientation is the identity, so
-  a joint's rest position is the sum of its offsets up the chain.
+  its parent, along the parent's axes at rest, as three floats; then the parent's address
+  in scratchpad memory, 0x70000000 + parent × 0x40. Joint 0 is the root and has no
+  parent.
+- **Skeleton records** (class + 0x14), 0x40 bytes per joint: the joint's **inverse bind
+  matrix as VU0 keeps a matrix**, four quadwords that are its columns. The first three
+  are the rotation's columns, with the joint offset's x, y and z in their w lanes; the
+  fourth (+0x30) is the translation, with the parent's address in its w lane. VU0's own
+  matrices in a savestate have the same shape (rotation columns, then the translation
+  with w = 1). The game skins a vertex at rest by the joint's posed transform times this
+  matrix. [verified 2026-10-15, from the data; the multiply itself wasn't found in code:
+  `moby_pose_build` only builds each joint's local rotation, scale and translation]
+- **Joints can be turned at rest.** The rotation is the joint's orientation at rest
+  transposed. It is the identity for most of the hero's joints, but not for all: his
+  legs 92–99 turn 0.7° about z, his eyes 21–24 more. Clank's face joints 14–25 are
+  turned, and so is every joint of the wrench (one 120° turn, (x, y, z) to (z, −x, −y)).
+  About 40 of the 70 classes in Veldin's core have such joints.
+  - A joint's rest position is the point its inverse bind takes to the origin (−R⁻¹t),
+    which is −t only where R is the identity. Until 2026-10-15 we read −t everywhere and
+    left the rotation out of skinning. That put Clank's eye vertices a median 9.8 cm
+    (up to 25 cm) from his face in his standing pose, and the wrench turned 120° from
+    the way it's held.
+  - **How it was checked:**
+    - Read this way, every joint of the hero, of Clank in both forms (0x259, 0x25F) and
+      of the wrench (0x47, and 0x1245 and 0x1247 like it) sits at its parent's rest
+      position plus its offset turned by the parent's rest orientation, to 0.004 units.
+      Some classes in Veldin's core break that rule whichever way they're read, even
+      with no turned joints (0x189B, 0x18AD, …): their offsets don't describe their bind
+      pose.
+    - Posed in Clank's standing keyframe, his eye vertices sit where his head alone
+      carries them, to 2 mm. The pupils (16, 22) and the pieces the pose hides (18, 24)
+      move on their own.
+    - The wrench's mesh follows its own posed joints, and it is held upright by the
+      head, as in the game's own screenshot of Ratchet standing on Veldin.
 - **UYA's hero skeleton** (111 joints, positions in world units at the hero's scale):
 
   | Joints | Part |
@@ -95,7 +121,8 @@ libuya's `MobyClass` layout matches UYA's data:
   | 6, 7 | Chest (0.90), neck (0.95) |
   | 8 | Head (1.08) |
   | 9–51 | Face: jaw 10–15, eyes, brows and lids 16–20 and 25–40, cheeks 47 and 48 |
-  | 21–24 | Two pairs far in front of the face, probably eye-aim targets |
+  | 21, 23 | Right and left eye (1.13 up, 0.015 ahead of the head joint), turned at rest |
+  | 22, 24 | Hang from the eyes, 0.1 ahead and above them; their binds also scale |
   | 41–43, 44–46 | Left and right ear (tips at 1.35, 0.36 out, 0.27 back) |
   | 52–56 | Right clavicle, shoulder, elbow, forearm twist, hand (0.52 out at 0.88 in the T-pose) |
   | 57–68, 69–70 | Right fingers (four of three joints) and thumb; 71 an elbow helper |
@@ -157,6 +184,16 @@ libuya's `MobyClass` layout matches UYA's data:
   the wrench and the 0x50A object land within 0.0005 u.
 - The moby's own rotation matrix (moby + 0xC0) maps class axes to world axes row by row,
   and its position (moby + 0x10) is the root's world position.
+- **A joint turned at rest carries that turn in its keyframes.** Clank's standing
+  keyframe turns each eye by about its rest orientation. A vertex bound at rest moves by
+  the joint's world transform times its inverse bind ("Skeleton"), which is the joint's
+  turn *from* rest. That turn is also what a rig with unturned joints needs
+  (`hero_anims::pose`). [verified 2026-10-15]
+- **Scales hide parts.** Clank's standing keyframe (sequence 13, keyframe 24) scales
+  joints 18 and 24 to (0, 0, 0.0002), which collapses their 22 vertices each to a point.
+  Elsewhere in the sequence they show briefly (0.39 at keyframe 32). Its other scale,
+  joint 1's, stays within 1.2% of 1. Whether a child inherits its parent's scale isn't
+  read: the import scales only the joint's own vertices. [data]
 
 ## Mesh [verified 2026-10-13]
 
@@ -297,13 +334,16 @@ memory image's hero mesh (0x1F28000) except for the relocated pointers.
   its class axes unturned, and Clank at joint 5's.
 - **Their own poses:** each plays its own sequence: the wrench sequence 1 and Clank
   sequence 13 in the Veldin image, where Ratchet stands. Posed that way, the wrench points
-  out along Ratchet's T-pose arm and up, about (0.87, 0.47, 0.12) in the hero's
-  Bevy-axis space from the hand; that is the direction the rig's wrench joint uses for
-  every model (`rac_rig::model::wrench_points`).
+  forward from the fist, a little out and down: about (0.47, −0.12, −0.87) in the hero's
+  Bevy-axis space from the hand. That is the direction the rig's wrench joint uses for
+  every model (`rac_rig::model::wrench_points`). Until 2026-10-15 it was (0.87, 0.47,
+  0.12), out along the arm, measured on a bake that left out the wrench's rest
+  orientation ("Skeleton").
 - **Clank's back form** (class 0x259, 33 joints): 0 the root, 1 the hips, 4 the head's
   pivot, 5 the top of the head with the antenna chain 6–10, the face (eyes, lids, mouth)
   13–25 under 4, the feet 27 (right) and 28 (left) under 26, and a back plate 29–32. It
-  has no arm joints.
+  has no arm joints. The eye joints 14–25 are turned at rest, and their pivots sit
+  behind the face, so turning them slides the eyes across it.
 
 ## DL's skins [verified 2026-10-15]
 
@@ -338,8 +378,12 @@ skin's skeleton and textures come out identical.
   for the packet table, packet counts, joint count and scale (0.2083, as UYA's hero),
   but:
   - the skeleton (+0x14) is a 3×4 inverse bind matrix per joint (0x30 bytes: three
-    rows of rotation then translation), and some face joints are turned at rest, so a
-    joint's rest position is where its matrix takes to the origin;
+    rows of rotation then translation, where UYA has four VU0 columns), and some face
+    joints are turned at rest, so a joint's rest position is where its matrix takes to
+    the origin. Read so, skins 5–15 put every joint at its parent's rest position plus
+    its offset turned by the parent's rest orientation, to 0.001 units, as UYA's do.
+    Ratchet's armors (0–4, 16) break that only at joint 44, whose bind puts it 10% short
+    of or past its offset: maybe a scale, not read;
   - each joint offset record (+0x18) ends with a byte naming the parent in its low
     seven bits (0x7F for the root); the skins set the high bit, another class (a
     winged pack, 0x246B) doesn't;
@@ -362,8 +406,8 @@ skin's skeleton and textures come out identical.
   assembled mesh), tested on synthetic data; `rac_formats::armor` and
   `rac_formats::texture` read the armor WAD and its images.
 - `openrac-tool moby`: describes a class in an EE image and writes it as a `.glb` into
-  `cache/models/`, now with the mesh's own skin weights (`docs/re-setup.md`, "Extracting a
-  model").
+  `cache/models/`, now with the mesh's own skin weights, and each joint's rest turn and
+  inverse bind (`docs/re-setup.md`, "Extracting a model").
 - `openrac-tool hero`: reads the hero's skeleton and animations from the UYA disc image
   itself, and with `--check-ee` compares them with a memory image of the same level.
 - `crates/rac_rig`: the hero kit's skeleton and its open model. Its joints sit where UYA's

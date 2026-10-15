@@ -522,6 +522,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     Ratchet's head for DL's five armors (they stop at the neck); DL's own wrench (class
     0x23FA in its level cores; the skins hold the open wrench meanwhile); the game's names
     for UYA's suits; UYA's armor entries 35–55; the gadget texture slot.
+  - `wrench_points` had been measured on a bake that ignored the wrench's rest turn (P3.7).
+    It is now (0.47, −0.12, −0.87), forward from the fist, which matches the game's
+    screenshot. Every model's wrench and the procedural poses follow it.
 - [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
   - Host and join by `IP:port`, or by swapping join codes, over UDP.
   - Port mapping (UPnP IGD, NAT-PMP, PCP) and hole punching (D8).
@@ -610,6 +613,14 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   (`MobyClass::read_dl`, `armor::{SkinTable, Skin}`).
   - To do: bangles, UYA's armor entries 35–55 (whole classes), DL's sequences, and
     mobys other than the hero as Bevy meshes and `AnimationClip`s.
+  - UYA joints can be turned at rest (Clank's face, the whole wrench, the hero's eyes and
+    legs). The skeleton record is the inverse bind as four VU0 columns, but we read −t
+    as the rest position and left the turn out, which threw Clank's eyes off his face.
+    Fixed: `Joint::inverse_bind` and `rest_rotation`, poses as turns from rest, and the
+    bake applies keyframe scales (`moby-format.md`, "Skeleton").
+  - Open: where the game multiplies by the inverse bind (not found in code); whether
+    children inherit a joint's scale; classes whose offsets don't fit their binds (0x189B,
+    0x18AD, …); DL armors' joint 44.
 - [ ] **P3.8** Sky: shells, and rotation converted from per-frame to per-second using the
   region's refresh rate.
 - [ ] **P3.9** Collision: the octant grid and triangle/quad faces with their type byte; a

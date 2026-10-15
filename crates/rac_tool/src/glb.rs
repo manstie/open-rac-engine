@@ -5,7 +5,7 @@
 use rac_formats::moby::{MobyClass, PacketKind};
 use serde_json::{Value, json};
 
-use crate::pose::{Local, local_pose, to_gltf};
+use crate::pose::{Local, inverse_bind, local_pose, rest_local, to_gltf};
 
 /// Ticks per second: keyframe lengths are in 60 Hz ticks.
 const TICK_HZ: f32 = 60.0;
@@ -110,6 +110,7 @@ pub fn write(class: &MobyClass, name: &str) -> anyhow::Result<Written> {
             json!({
                 "name": format!("j{index:03}"),
                 "translation": to_gltf(joint.offset.map(|v| v * unit)),
+                "rotation": rest_local(class, index),
             })
         })
         .collect();
@@ -161,14 +162,9 @@ pub fn write(class: &MobyClass, name: &str) -> anyhow::Result<Written> {
         None,
     );
 
-    // The rest pose has no rotations, so each inverse bind only moves the joint home.
-    let mut inverse_binds = Vec::with_capacity(class.joints.len() * 16);
-    for joint in &class.joints {
-        let [x, y, z] = to_gltf(joint.rest.map(|v| -v * unit));
-        inverse_binds.extend([
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0,
-        ]);
-    }
+    let inverse_binds: Vec<f32> = (0..class.joints.len())
+        .flat_map(|joint| inverse_bind(class, joint))
+        .collect();
     let inverse_bind = buffer.floats(&inverse_binds, 16, false);
 
     let animations = animations(class, &mut buffer);
@@ -332,6 +328,11 @@ mod tests {
             parent,
             offset: rest,
             rest,
+            inverse_bind: [
+                [1.0, 0.0, 0.0, -rest[0]],
+                [0.0, 1.0, 0.0, -rest[1]],
+                [0.0, 0.0, 1.0, -rest[2]],
+            ],
         };
         let keyframe = |ticks: f32| Keyframe {
             rate: 1.0 / ticks,

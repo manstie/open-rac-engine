@@ -67,13 +67,13 @@ pub struct JointDef {
     pub uya: Option<u8>,
 }
 
-/// Which way the wrench points from the right hand at rest, in the hero's space: out
-/// along the arm and up, as UYA's held wrench does (its pose while Ratchet stands,
-/// measured on the user's disc). Every model's wrench points this way, so clips from a
-/// disc swing any of them as the game swings its own, and the procedural poses aim the
-/// hand by it.
+/// Which way the wrench points from the right hand at rest, in the hero's space: forward
+/// from the fist, a little out and down, as UYA's held wrench does (its pose while
+/// Ratchet stands, measured on the user's disc). Every model's wrench points this way, so
+/// clips from a disc swing any of them as the game swings its own, and the procedural
+/// poses aim the hand by it.
 pub fn wrench_points() -> Vec3 {
-    Vec3::new(0.87, 0.47, 0.12).normalize()
+    Vec3::new(0.47, -0.12, -0.87).normalize()
 }
 
 /// The open wrench is modelled pointing forward, then turned about the hand by this.

@@ -37,7 +37,7 @@ use rac_formats::texture::Texture;
 use rac_formats::{DiscReader, FormatError};
 use rac_rig::{JointDef, ModelData, Paint, RigModels, SkeletonMap, Surface, joint, model};
 
-use crate::hero_anims::{pose, skeleton_map, to_bevy};
+use crate::hero_anims::{pose, rest_orientation, skeleton_map, to_bevy};
 
 const WRENCH_CLASS: u32 = 0x47;
 const CLANK_CLASS: u32 = 0x259;
@@ -623,11 +623,29 @@ fn baked(
         .iter()
         .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
         .collect();
-    let skin_matrix = |joint: usize| -> (Quat, Vec3) {
-        let rotation = rotations.get(joint).copied().unwrap_or_default();
+    // A keyframe can scale a joint along its own axes; Clank's standing pose hides two
+    // pieces of his eyes by scaling them to nothing. Only the joint's own vertices are
+    // scaled here. Whether its children inherit it isn't read; the only scaled joint with
+    // children here, Clank's hips, stays within 1.2% of 1.
+    let mut scales = vec![Vec3::ONE; class.joints.len()];
+    for entry in &frame.scales {
+        if let Some(scale) = scales.get_mut(entry.joint as usize) {
+            // `to_bevy` permutes the axes, with signs a scale doesn't have.
+            let [x, y, z] = entry.scale;
+            *scale = Vec3::new(y, z, x);
+        }
+    }
+    let skin = |joint: usize, at: Vec3| -> Vec3 {
+        let turn = rotations.get(joint).copied().unwrap_or_default();
         let position = positions.get(joint).copied().unwrap_or_default();
         let rest = rest.get(joint).copied().unwrap_or_default();
-        (rotation, position - rotation * rest)
+        let orientation = class
+            .joints
+            .get(joint)
+            .map_or(Quat::IDENTITY, rest_orientation);
+        let scale = scales.get(joint).copied().unwrap_or(Vec3::ONE);
+        // Into the joint's own axes at rest, scaled there, then turned and moved with it.
+        position + turn * (orientation * (scale * (orientation.inverse() * (at - rest))))
     };
     let vertices = mesh
         .vertices
@@ -637,10 +655,10 @@ fn baked(
             let normal_at = to_bevy(Vec3::from_array(normal(v.normal)));
             let (mut placed, mut turned) = (Vec3::ZERO, Vec3::ZERO);
             for (&joint, &weight) in v.skin.joints.iter().zip(&v.skin.weights) {
-                let (rotation, shift) = skin_matrix(joint as usize);
+                let joint = joint as usize;
                 let weight = weight as f32 / 256.0;
-                placed += weight * (rotation * at + shift);
-                turned += weight * (rotation * normal_at);
+                placed += weight * skin(joint, at);
+                turned += weight * (rotations.get(joint).copied().unwrap_or_default() * normal_at);
             }
             Placed {
                 position: attach + placed,
@@ -919,6 +937,91 @@ mod tests {
 mod disc_tests {
     use super::*;
     use crate::discs::{Release, find};
+
+    fn veldin() -> Core {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) =
+            find(std::path::Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
+        Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap()
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn joints_sit_along_their_parents_axes_at_rest() {
+        // Read as the inverse bind it is, every record puts its joint at its parent's rest
+        // position plus the offset turned by the parent's rest orientation, also where the
+        // parent is turned at rest (Clank's face, the wrench).
+        let core = veldin();
+        for (what, class) in [
+            ("the hero", core.hero().unwrap()),
+            ("Clank", core.moby_class(CLANK_CLASS).unwrap()),
+            ("Clank's pack form", core.moby_class(0x25F).unwrap()),
+            ("the wrench", core.moby_class(WRENCH_CLASS).unwrap()),
+        ] {
+            for (index, joint) in class.joints.iter().enumerate() {
+                let Some(parent) = joint.parent.map(|p| &class.joints[p]) else {
+                    continue;
+                };
+                let along = Quat::from_array(parent.rest_rotation()) * Vec3::from(joint.offset);
+                let expected = Vec3::from(parent.rest) + along;
+                let error = expected.distance(Vec3::from(joint.rest));
+                assert!(error < 0.01, "{what} joint {index}: {error} units off");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn clanks_eyes_stay_on_his_face_in_the_standing_pose() {
+        let core = veldin();
+        let clank = core.moby_class(CLANK_CLASS).unwrap();
+        let mesh = clank.mesh(PacketKind::High).unwrap();
+        let (vertices, _) = baked(&clank, &mesh, CLANK_POSE, "Clank", Vec3::ZERO, |_| 0).unwrap();
+        let frame = &clank.sequences[CLANK_POSE.0].as_ref().unwrap().keyframes[CLANK_POSE.1];
+        let (rotations, positions) = pose(&clank, frame);
+        // Where his head (joint 4) alone would carry a vertex from rest.
+        const HEAD: usize = 4;
+        let unit = clank.unit();
+        let head_rest = to_bevy(Vec3::from(clank.joints[HEAD].rest) * unit);
+        let carried = |v: &MeshVertex| {
+            positions[HEAD] + rotations[HEAD] * (to_bevy(position(v) * unit) - head_rest)
+        };
+        // His eyes and lids hang from joints 14-25, turned at rest. The pupils (16, 22) and
+        // the pieces this pose hides (18, 24) move on their own.
+        let on = |v: &MeshVertex, joints: &[u8]| {
+            v.skin
+                .joints
+                .iter()
+                .zip(v.skin.weights)
+                .any(|(j, w)| w > 0 && joints.contains(j))
+        };
+        let still: Vec<f32> = mesh
+            .vertices
+            .iter()
+            .zip(&vertices)
+            .filter(|(v, _)| on(v, &[14, 19, 20, 25]) && !on(v, &[16, 18, 22, 24]))
+            .map(|(v, placed)| placed.position.distance(carried(v)))
+            .collect();
+        assert!(still.len() > 200, "{} vertices", still.len());
+        let worst = still.iter().copied().fold(0.0, f32::max);
+        assert!(
+            worst < 0.002,
+            "an eye vertex {worst} m from where his head has it"
+        );
+        for hidden in [18, 24] {
+            let (low, high) = bounds(
+                mesh.vertices
+                    .iter()
+                    .zip(&vertices)
+                    .filter(|(v, _)| on(v, &[hidden]))
+                    .map(|(_, placed)| placed.position),
+            );
+            assert!(
+                low.distance(high) < 1e-4,
+                "joint {hidden}'s piece is hidden"
+            );
+        }
+    }
 
     #[test]
     #[ignore = "needs game discs"]

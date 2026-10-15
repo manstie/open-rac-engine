@@ -10,7 +10,7 @@
 //!   has it at rest, so every model the rig wears keeps its own proportions.
 
 use bevy::math::{Quat, Vec3};
-use rac_formats::moby::{Keyframe, MobyClass};
+use rac_formats::moby::{Joint, Keyframe, MobyClass};
 use rac_rig::{
     FlipSide, LineUpError, RigAnimations, RigClip, RigKeyframe, RigMove, SkeletonMap, model,
 };
@@ -74,8 +74,16 @@ fn quat_to_bevy(q: Quat) -> Quat {
     Quat::from_xyzw(v.x, v.y, v.z, q.w)
 }
 
-/// Each UYA joint's rotation and position (world units) in the hero's space, for one
-/// keyframe.
+/// A joint's orientation at rest in the hero's space. Most joints aren't turned at rest,
+/// but some are: the hero's legs by 0.7°, Clank's face, the whole wrench
+/// (`moby-format.md`, "Skeleton").
+pub(crate) fn rest_orientation(joint: &Joint) -> Quat {
+    quat_to_bevy(Quat::from_array(joint.rest_rotation()))
+}
+
+/// Each UYA joint's turn from its rest orientation, and its position (world units), in the
+/// hero's space, for one keyframe. Keyframes carry a joint's rest orientation in its
+/// rotation; the rig and a mesh bound at rest need only the turn from rest.
 pub(crate) fn pose(class: &MobyClass, keyframe: &Keyframe) -> (Vec<Quat>, Vec<Vec3>) {
     let count = class.joints.len();
     let mut translations: Vec<Vec3> = class
@@ -105,7 +113,11 @@ pub(crate) fn pose(class: &MobyClass, keyframe: &Keyframe) -> (Vec<Quat>, Vec<Ve
     }
     let unit = class.unit();
     (
-        rotations.into_iter().map(quat_to_bevy).collect(),
+        rotations
+            .into_iter()
+            .zip(&class.joints)
+            .map(|(rotation, joint)| quat_to_bevy(rotation) * rest_orientation(joint).inverse())
+            .collect(),
         positions.into_iter().map(|p| to_bevy(p * unit)).collect(),
     )
 }
@@ -195,6 +207,11 @@ mod tests {
                 parent,
                 offset,
                 rest,
+                inverse_bind: [
+                    [1.0, 0.0, 0.0, -rest[0]],
+                    [0.0, 1.0, 0.0, -rest[1]],
+                    [0.0, 0.0, 1.0, -rest[2]],
+                ],
             });
         }
         // The game stores the inverse rotation: -90° about z for a +90° turn.
@@ -239,6 +256,28 @@ mod tests {
         assert!(
             facing.distance(Vec3::NEG_X) < 1e-3,
             "forward turned to the left: {facing}"
+        );
+    }
+
+    #[test]
+    fn a_joint_turned_at_rest_poses_as_its_turn_from_rest() {
+        // The hips turned a quarter turn about UYA's up at rest, as Clank's eyes are: the
+        // keyframe's quarter turn is then only the rest orientation, so no turn at all.
+        let mut class = class();
+        class.joints[1].inverse_bind = [
+            [0.0, 1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, -1.0],
+        ];
+        let (rotations, positions) =
+            pose(&class, &class.sequences[0].as_ref().unwrap().keyframes[0]);
+        assert!(rotations[1].angle_between(Quat::IDENTITY) < 1e-3);
+        assert!(positions[1].distance(Vec3::Y) < 1e-5);
+        assert!(
+            rest_orientation(&class.joints[1])
+                .angle_between(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2))
+                < 1e-3,
+            "a turn to the left about UYA's up is one about Bevy's"
         );
     }
 

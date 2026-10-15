@@ -25,11 +25,66 @@ const JOINT_RECORD: u32 = 0x40;
 pub struct Joint {
     /// Joint 0 is the root and has none; every other joint's parent comes before it.
     pub parent: Option<usize>,
-    /// Where the joint sits relative to its parent at rest. The rest pose has no
-    /// rotations, so this is also the offset in model space.
+    /// Where the joint sits relative to its parent at rest, along the parent's axes at
+    /// rest.
     pub offset: [f32; 3],
     /// Where the joint sits in model space at rest.
     pub rest: [f32; 3],
+    /// Takes a point in model space at rest into the joint's own space, as the game skins
+    /// with it: three rows of a 3×4 matrix, a rotation then a translation. Most joints
+    /// aren't turned at rest, but some are (Clank's face, the wrench), and their vertices
+    /// only land right through this.
+    pub inverse_bind: [[f32; 4]; 3],
+}
+
+impl Joint {
+    /// The joint's orientation at rest, as a unit quaternion `[x, y, z, w]` in
+    /// [`Keyframe::rotation`]'s convention: it turns the joint's axes into the model's.
+    /// For the rare bind that also scales, it's the rotation part, normalised.
+    pub fn rest_rotation(&self) -> [f32; 4] {
+        // The orientation is the inverse bind's rotation transposed.
+        let m = |row: usize, column: usize| self.inverse_bind[column][row];
+        let trace = m(0, 0) + m(1, 1) + m(2, 2);
+        let q = if trace > 0.0 {
+            let s = (trace + 1.0).sqrt() * 2.0;
+            [
+                (m(2, 1) - m(1, 2)) / s,
+                (m(0, 2) - m(2, 0)) / s,
+                (m(1, 0) - m(0, 1)) / s,
+                s / 4.0,
+            ]
+        } else if m(0, 0) > m(1, 1) && m(0, 0) > m(2, 2) {
+            let s = (1.0 + m(0, 0) - m(1, 1) - m(2, 2)).sqrt() * 2.0;
+            [
+                s / 4.0,
+                (m(0, 1) + m(1, 0)) / s,
+                (m(0, 2) + m(2, 0)) / s,
+                (m(2, 1) - m(1, 2)) / s,
+            ]
+        } else if m(1, 1) > m(2, 2) {
+            let s = (1.0 + m(1, 1) - m(0, 0) - m(2, 2)).sqrt() * 2.0;
+            [
+                (m(0, 1) + m(1, 0)) / s,
+                s / 4.0,
+                (m(1, 2) + m(2, 1)) / s,
+                (m(0, 2) - m(2, 0)) / s,
+            ]
+        } else {
+            let s = (1.0 + m(2, 2) - m(0, 0) - m(1, 1)).sqrt() * 2.0;
+            [
+                (m(0, 2) + m(2, 0)) / s,
+                (m(1, 2) + m(2, 1)) / s,
+                s / 4.0,
+                (m(1, 0) - m(0, 1)) / s,
+            ]
+        };
+        let length = q.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if length.is_finite() && length > 0.0 {
+            q.map(|v| v / length)
+        } else {
+            [0.0, 0.0, 0.0, 1.0]
+        }
+    }
 }
 
 /// A moby class: the shared data of every moby of one kind.
@@ -123,11 +178,27 @@ impl MobyClass {
                     Some(parent as usize)
                 }
             };
-            let inverse = image.f32s::<3>(skeleton + index * JOINT_RECORD + 0x30)?;
+            // The record is the inverse bind as VU0 keeps a matrix: four quadwords, each a
+            // column. The w lanes, which the game doesn't multiply by, hold the offset and
+            // the parent's address again.
+            let record = skeleton + index * JOINT_RECORD;
+            let columns = [
+                image.f32s::<3>(record)?,
+                image.f32s::<3>(record + 0x10)?,
+                image.f32s::<3>(record + 0x20)?,
+                image.f32s::<3>(record + 0x30)?,
+            ];
+            let inverse_bind: [[f32; 4]; 3] =
+                std::array::from_fn(|row| std::array::from_fn(|column| columns[column][row]));
             joints.push(Joint {
                 parent,
                 offset,
-                rest: inverse.map(|value| -value),
+                rest: unbind(inverse_bind).ok_or_else(|| FormatError::Invalid {
+                    what: "joint bind matrix",
+                    address: record,
+                    detail: format!("joint {index}'s doesn't invert"),
+                })?,
+                inverse_bind,
             });
         }
 
@@ -166,8 +237,7 @@ impl MobyClass {
     /// keeps UYA's packet table, counts and scale, but its skeleton differs (`moby-format.md`,
     /// "DL's classes"):
     /// - the skeleton (+0x14) is a 3×4 inverse bind matrix per joint (0x30 bytes, rows of
-    ///   rotation then translation), and a joint may be turned at rest, so its rest
-    ///   position is the matrix's inverse applied to the origin;
+    ///   rotation then translation), not UYA's 0x40-byte records of VU0 columns;
     /// - the joint offsets (+0x18) end with a byte naming the parent by its number in the
     ///   low seven bits, 0x7F for the root's none; the high bit is a flag we don't use.
     ///
@@ -210,6 +280,7 @@ impl MobyClass {
                     address: skeleton + index * 0x30,
                     detail: format!("joint {index}'s doesn't invert"),
                 })?,
+                inverse_bind: rows,
             });
         }
         let packets = if packet_table == 0 {
@@ -334,6 +405,20 @@ pub(crate) mod tests {
         }
     }
 
+    const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+    /// A UYA skeleton record at the writer's position: the inverse bind's rotation, given
+    /// by its columns, and its translation, each a quadword as VU0 keeps a matrix. The w
+    /// lanes are left 0; the game keeps the offset and parent there.
+    fn record(w: &mut Writer, columns: [[f32; 3]; 3], translation: [f32; 3]) {
+        for column in columns.into_iter().chain([translation]) {
+            for value in column {
+                w.f32(value);
+            }
+            w.u32(0);
+        }
+    }
+
     /// A class with three joints in a chain and no sequences or packets.
     fn three_joints() -> Vec<u8> {
         let mut w = Writer::default();
@@ -348,11 +433,8 @@ pub(crate) mod tests {
         let offsets: [[f32; 3]; 3] = [[0.0, 0.0, 0.0], [0.0, 0.0, 10.0], [5.0, 0.0, 2.0]];
         let rests: [[f32; 3]; 3] = [[0.0, 0.0, 0.0], [0.0, 0.0, 10.0], [5.0, 0.0, 12.0]];
         for (joint, rest) in rests.iter().enumerate() {
-            w.at(0x200 + joint as u32 * 0x40 + 0x30);
-            for &value in rest {
-                w.f32(-value);
-            }
-            w.u32(0);
+            w.at(0x200 + joint as u32 * 0x40);
+            record(&mut w, IDENTITY, rest.map(|value| -value));
         }
         w.at(0x400);
         for (joint, offset) in offsets.iter().enumerate() {
@@ -380,6 +462,41 @@ pub(crate) mod tests {
         assert_eq!(class.joints[2].offset, [5.0, 0.0, 2.0]);
         assert_eq!(class.joints[2].rest, [5.0, 0.0, 12.0]);
         assert!(class.sequences.is_empty() && class.packets.is_empty());
+    }
+
+    #[test]
+    fn a_joint_turned_at_rest_keeps_its_whole_inverse_bind() {
+        // Joint 2 is turned a quarter turn about z at rest, as Clank's eyes and the wrench
+        // are. Its offset (5, 0, 2) is along joint 1's axes, which aren't turned, so it sits
+        // at (5, 0, 12). Its inverse bind turns model axes into its own: x to -y and y to
+        // x, so the columns are (0, -1, 0) and (1, 0, 0), and t = -R·(5, 0, 12).
+        let mut turned = Writer::default();
+        record(
+            &mut turned,
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            [0.0, 5.0, -12.0],
+        );
+        let mut w = Writer {
+            bytes: three_joints(),
+        };
+        for (index, word) in turned.bytes.chunks(4).enumerate() {
+            let word = u32::from_le_bytes(word.try_into().unwrap());
+            w.poke_u32(0x280 + index as u32 * 4, word);
+        }
+        let class = MobyClass::read(&Image::new(&w.bytes, 0), 0x100).unwrap();
+        let joint = &class.joints[2];
+        assert_eq!(joint.rest, [5.0, 0.0, 12.0], "not -t, which is (0, -5, 12)");
+        assert_eq!(joint.inverse_bind[0], [0.0, 1.0, 0.0, 0.0]);
+        assert_eq!(joint.inverse_bind[1], [-1.0, 0.0, 0.0, 5.0]);
+        // Its orientation turns its x axis to the model's y: +90° about z.
+        let [x, y, z, w] = joint.rest_rotation();
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        assert!(x.abs() < 1e-6 && y.abs() < 1e-6, "{x} {y}");
+        assert!(
+            (z - half).abs() < 1e-6 && (w - half).abs() < 1e-6,
+            "{z} {w}"
+        );
+        assert_eq!(class.joints[1].rest_rotation(), [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -412,7 +529,9 @@ pub(crate) mod tests {
             .u32(0x100)
             .put(&[0; 8]);
         w.f32(1024.0);
-        w.at(class + 0x80 + 0x40 + 0x30).f32(0.0).f32(0.0).f32(-5.0);
+        w.at(class + 0x80);
+        record(&mut w, IDENTITY, [0.0; 3]);
+        record(&mut w, IDENTITY, [0.0, 0.0, -5.0]);
         w.at(class + 0x100)
             .put(&[0; 16])
             .f32(0.0)
