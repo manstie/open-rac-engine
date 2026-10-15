@@ -35,8 +35,9 @@ session is working on the task now; notes on problems met stay with their task (
 - **Reverse engineering:** the hero's movement and camera are read in UYA's and DL's code
   and checked against traces (RE.3, RE.4); RE.8 is answered (NTSC-U is the native tuning).
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
-  from the disc, and DL's skin WAD (P2.1–P2.4, P3.3, P3.7, P3.10). All eight discs,
-  including the NTSC-U R&C1 and GC, are identified in `disc-layout.md`.
+  from the disc, and DL's skin WAD (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
+  executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
+  R&C1 and GC, are identified in `disc-layout.md`.
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
@@ -46,7 +47,7 @@ session is working on the task now; notes on problems met stay with their task (
    from, its crouch moves (a savestate past the tutorial), and the `dl.ron` sections
    marked "not read in DL".
 3. P1.9: weapons, which also read the lock-on target.
-4. At lower priority: the disc layer, P2.2–P2.6, and the rest of RE.2.
+4. At lower priority: the disc layer, P2.2–P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
 (`docs/re-setup.md`, "Still wanted").
@@ -550,8 +551,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
 
 ### Phase 2: Disc and data layer
 
-Crates: `rac_iso`, `rac_formats` and `rac_tool`. Once the UYA and DL executables can be
-unpacked (P2.5), the RE track no longer needs savestates or Wrench.
+Crates: `rac_iso`, `rac_formats` and `rac_tool`. The boot programs unpack (P2.5), so only
+level code still needs savestates or Wrench, until P2.6 extracts the overlays.
 
 - [x] **P2.1** `rac_iso` reads ISO9660 over `Read + Seek` (PVD, directories, file extents)
   with a raw sector API, never loading a whole image.
@@ -560,8 +561,9 @@ unpacked (P2.5), the RE track no longer needs savestates or Wrench.
   - To do: read `SYSTEM.CNF` (`BOOT2`, `VER`, `VMODE`) and the boot ELF's SHA-1, map them
     to a `Release { game, region, version, serial }` from a table of known releases (the
     eight discs in `disc-layout.md`, each with its TOC LBA, `SYSTEM.CNF` LBA and whether
-    the ELF is packed), and give unknown discs a clear error. GC USA shipped as v1.01 and
-    v2.00 under one serial, so `VER` and the ELF hash tell them apart.
+    the ELF is packed, `rac_formats::elf::is_packed`), and give unknown discs a clear
+    error. GC USA shipped as v1.01 and v2.00 under one serial, so `VER` and the ELF hash
+    tell them apart.
 - [~] **P2.3** TOC parsers. Done: UYA's (`rac_formats::level::Toc`; `disc-layout.md`,
   "Level data"), and DL's and Gladiator's eight global headers (`Toc::read_dl_disc`).
   - To do: DL's level table (what follows its global headers isn't UYA's), with its
@@ -571,14 +573,20 @@ unpacked (P2.5), the RE track no longer needs savestates or Wrench.
   (`rac_formats::wad`), run on every WAD of Veldin's level data.
   - To do: run it on every WAD of every disc; fuzzing (`cargo-fuzz`) and property tests; a
     compressor later, for tests and mods.
-- [ ] **P2.5** Unpacker for the packed executables (R&C3, UYA, DL, Gladiator: the stub plus
-  a WAD in `.rodata`, at offset 0x7080 on our discs) → the real game ELF.
+- [x] **P2.5** Unpacker for the packed executables (R&C3, UYA, DL, Gladiator, and the
+  network start-up `I5BOOTN.ELF`): `rac_formats::elf` reads the stub's WAD as the boot
+  ELF's sections, in the overlays' record format, and writes them out as a plain ELF that
+  Ghidra imports with `$gp` and section names; `openrac-tool unpack-elf`. Read in the
+  stub's code and checked byte for byte against savestates (`disc-layout.md`, "Packed
+  executables"). The boot program's `.text` is the title screen's, so level code waits
+  for P2.6.
 - [ ] **P2.6** Level overlay extraction: read the 16-byte `{dest, size, type, entry}`
   records and produce per-level code images (for reverse engineering and the recompiler).
+  `rac_formats::elf::Program` already reads the records and writes ELFs (P2.5); what's
+  left is finding each level's overlay on the disc and the loader that applies it.
 - [~] **P2.7** `openrac-tool` CLI. Done: `moby` (a class from an EE memory image, or as a
-  `.glb` into `cache/`), `hero` and `rails`.
-  - To do: `identify`, `toc`, `extract --out cache/<release>/`, `unpack-elf` and
-    `dump-overlay`.
+  `.glb` into `cache/`), `hero`, `rails` and `unpack-elf`.
+  - To do: `identify`, `toc`, `extract --out cache/<release>/` and `dump-overlay`.
 - [ ] **P2.8** Cache layout and versioning:
   - Path: `cache/<serial>-<elfsha1[0..8]>/…`.
   - A manifest records the tool version and source hashes, so extraction can be incremental

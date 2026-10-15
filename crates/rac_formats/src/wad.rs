@@ -188,12 +188,13 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// WADs built for tests, here and in the other modules.
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod build {
+    use super::{BLOCK, HEADER};
 
     /// A WAD around `packets`, already split into blocks by the caller.
-    fn wad(packets: &[u8]) -> Vec<u8> {
+    pub(crate) fn wad(packets: &[u8]) -> Vec<u8> {
         let mut out = b"WAD".to_vec();
         out.extend(((packets.len() + HEADER) as u32).to_le_bytes());
         out.resize(HEADER, 0);
@@ -203,7 +204,7 @@ mod tests {
 
     /// Packs `data` as literal runs only, separated by empty packets, ending each block
     /// with a block switch. Good enough to make long histories for the tests.
-    fn literals_only(data: &[u8]) -> Vec<u8> {
+    pub(crate) fn literals_only(data: &[u8]) -> Vec<u8> {
         let mut packets = Vec::new();
         let mut block_start = 0;
         let mut first = true;
@@ -215,14 +216,43 @@ mod tests {
                 block_start = packets.len();
                 first = true;
             }
-            if !first {
-                packets.extend([0x11, 0, 0]);
+            if chunk.len() < 4 {
+                // Too short for a run (only the last chunk can be): an empty packet's
+                // trailing literals.
+                packets.extend([0x11, chunk.len() as u8, 0]);
+            } else {
+                if !first {
+                    packets.extend([0x11, 0, 0]);
+                }
+                if chunk.len() >= 0x12 {
+                    packets.extend([0, (chunk.len() - 0x12) as u8]);
+                } else {
+                    packets.push(chunk.len() as u8 - 3);
+                }
             }
-            packets.extend([0, (chunk.len() - 0x12) as u8]);
             packets.extend_from_slice(chunk);
             first = false;
         }
         packets
+    }
+
+    /// A whole WAD that unpacks to `data`.
+    pub(crate) fn stored(data: &[u8]) -> Vec<u8> {
+        wad(&literals_only(data))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build::*;
+    use super::*;
+
+    #[test]
+    fn stored_data_of_any_length_round_trips() {
+        for len in [0, 1, 3, 4, 17, 18, 200, 201, 203, 3 * BLOCK + 5] {
+            let data: Vec<u8> = (0..len as u32).map(|i| (i * 13 + i / 7) as u8).collect();
+            assert_eq!(decompress(&stored(&data)).unwrap(), data, "{len} bytes");
+        }
     }
 
     #[test]

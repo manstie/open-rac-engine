@@ -84,8 +84,8 @@ sectors through their own table of contents (TOC). R&C2 is the exception.
   (109 MiB), against PAL's two. `AUDIO.WAD` is 34 MiB against PAL's 104 MiB, which carries
   more languages.
 - **R&C3 (SCES-52456) and UYA (SCUS-97353):** the game data is hidden. The tree contains:
-  - `SYSTEM.CNF` (LBA 1000), the boot ELF and `I5BOOTN.ELF` (a second packed ELF whose
-    purpose is TBD);
+  - `SYSTEM.CNF` (LBA 1000), the boot ELF and `I5BOOTN.ELF` (a second packed ELF, the
+    network start-up; see "Packed executables");
   - `IOPRP300.IMG`, `DNAS300.IMG` (online authentication) and `DEV9.IRX` (network
     adapter);
   - `/CNF/` (icons) and `/NETGUI/`, which is Sony's network-configuration GUI with its own
@@ -149,21 +149,87 @@ and 13859. R&C2 adds 56883. Several R&C2 programs have more or larger chunks. So
 rendering microcode is shared and evolved from game to game, which is strong evidence
 for one engine lineage.
 
-### 2. R&C3, UYA, Deadlocked and Gladiator: packed executables
+### 2. R&C3, UYA, Deadlocked and Gladiator: packed executables [verified 2026-10-15]
 
-These load at `0x00800000` with entry `0x00800008`.
+These load at `0x00800000` with entry `0x00800008`: a small loader stub that carries the
+real program. `openrac-tool unpack-elf` unpacks it into a plain ELF (`rac_formats::elf`,
+PLAN.md P2.5).
 
-- `.text` is a `0x4fd8`-byte unpacker stub. The size is identical in all four games and
-  in `I5BOOTN.ELF`.
-- `.data` is `0x9dc` bytes.
-- `.rodata` contains the compressed game. At **file offset `0x7080`** it starts with
-  `"WAD"` and a `u32` compressed size: `0x000b53fc` on R&C3 PAL and `0x00195fbf` on
-  Deadlocked.
-- Entropy is about 7.0 bits/byte, against 3.3–4.1 for the R&C1/R&C2 executables.
-- `.mdebug.eabi64` is present but **empty**, so there is no STABS debug info.
+- **The stub:** `.text` is `0x4fd8` bytes, the same size in all four games and in
+  `I5BOOTN.ELF`; `.data` is `0x9dc` bytes; `.mdebug.eabi64` is present but **empty**, so
+  there is no STABS debug info. The file's entropy is about 7.0 bits/byte, against 3.3–4.1
+  for the R&C1/R&C2 executables. Its TLB set-up (0x8026F0, with printf strings like `# TLB
+  spad=0 kernel=1:%d …`) is called only from a `main` at 0x800698 that nothing on the
+  entry's path calls, so it is probably linked in unused.
+- **How it loads the program** (read in UYA NTSC-U's stub, whose loader is at `0x800488`;
+  the four games' stubs are the same size):
+  1. The entry clears the registers, puts the stack at `0x1FFF000`, calls the loader and
+     jumps to the address it returns.
+  2. The loader unpacks the WAD at `0x806080` (`0x680` bytes into `.rodata`, **file offset
+     `0x7080`**) to `0x8BC700`, just past the stub's own `.bss`. Its decompressor is the
+     levels' WAD codec, DMAing each 0x2000-byte block to scratchpad. The WAD header's size
+     word counts the whole WAD: `0xB53FC` on R&C3 PAL, `0x195FBF` on Deadlocked.
+  3. The unpacked program is a list of records: four `u32`s `{address, size, type,
+     entry}`, then `size` bytes. The loader copies each record's bytes to its address and
+     stops at the first record whose entry differs from the first record's, then returns
+     that first entry. There is no count: on every disc the records fill the unpacked data
+     exactly, and the loader stops on the zeroed memory after it. (When a size or address
+     isn't a multiple of 8 it copies by words and copies one word too many, into the
+     padding after the section.)
+- **The records are the original ELF's allocated sections.** `type` is the ELF section
+  type: 1 (`PROGBITS`), 8 (`NOBITS`, whose bytes are carried anyway, all zero) or
+  `0x70000006` (`MIPS_REGINFO`, 0x18 bytes, the last word being `$gp`). The first fourteen
+  have the types and order of GC's plain boot ELF's allocated sections, and the three level
+  tables hold one entry each (12, 20 and 8 bytes), as in R&C1 and GC. So we give them GC's
+  names; the stub itself carries none [interpretation].
 
-So the **WAD decompressor must come before any reverse engineering** of these four games.
-The stub's printf strings (`# TLB spad=0 kernel=1:%d …`) show that it also sets up the TLB.
+  | Section | UYA NTSC-U | R&C3 PAL | DL NTSC-U | Gladiator PAL |
+  |---|---|---|---|---|
+  | `.reginfo` | 0x100000 +0x18 | 0x100000 +0x18 | 0x100000 +0x18 | 0x100000 +0x18 |
+  | `.vutext` | 0x100080 +0x16EB0 | 0x100080 +0x16EB0 | 0x100080 +0x1A0E0 | 0x100080 +0x1A0E0 |
+  | `core.text` | 0x116F80 +0x264A0 | 0x116F80 +0x264A0 | 0x11A180 +0x49990 | 0x11A180 +0x49A38 |
+  | `core.data` | 0x13D480 +0x12B90 | 0x13D480 +0x12B90 | 0x163B80 +0x2E350 | 0x163C00 +0x2E310 |
+  | `core.rdata` | 0x150080 +0x2310 | 0x150080 +0x2310 | 0x191F00 +0x13248 | 0x191F80 +0x13248 |
+  | `core.bss` | 0x152400 +0x82980 | 0x152400 +0x82980 | 0x1A5180 +0x78AB8 | 0x1A5200 +0x78AB8 |
+  | `core.lit` | 0x1D4D80 +0x8C0 | 0x1D4D80 +0x8C0 | 0x21DC80 +0x4B8 | 0x21DD00 +0x4C0 |
+  | `.lit` | 0x1D5680 +0x4230 | 0x1D5680 +0x41F0 | 0x21E180 +0x2EF0 | 0x21E200 +0x2F10 |
+  | `.bss` | 0x1D9900 +0x142578 | 0x1D9880 +0x142578 | 0x221080 +0x1A4908 | 0x221180 +0x1A4808 |
+  | `.data` | 0x31BE80 +0x65110 | 0x31BE00 +0x65100 | 0x3C5A00 +0x2B404 | 0x3C5A00 +0x2B44C |
+  | `lvl.vtbl` | 0x381000 +0xC | 0x380F00 +0xC | 0x3F0E80 +0xC | 0x3F0E80 +0xC |
+  | `lvl.camvtbl` | 0x381080 +0x14 | 0x380F80 +0x14 | 0x3F0F00 +0x14 | 0x3F0F00 +0x14 |
+  | `lvl.sndvtbl` | 0x381100 +0x8 | 0x381000 +0x8 | 0x3F0F80 +0x8 | 0x3F0F80 +0x8 |
+  | `.text` | 0x381180 +0x71438 | 0x381080 +0x716F8 | 0x3F1000 +0x15C6D8 | 0x3F1000 +0x15DC40 |
+  | a second reginfo, all zero | 0x3F2600 | 0x3F2780 | 0x54D700 | 0x54EC80 |
+  | unnamed | 0x1800000 +0x6374 | 0x1800000 +0x6374 | 0x1E9A000 +0x97330 | 0x1E9A000 +0x97330 |
+  | unnamed | 0x1806380 +0x2F3C0 | 0x1806380 +0x2F3C0 | 0x1F31380 +0x6C20 | 0x1F31380 +0x6C20 |
+  | unnamed | 0x1835780 +0x34318 | 0x1835780 +0x34318 | | |
+
+  On R&C3 and UYA the section at 0x1800000 starts like GC's `legal.data`, so the three
+  are probably `legal.data` and two `mc1.data`. On DL and Gladiator the one at 0x1E9A000
+  is code.
+- **Entry and `$gp`:** the entry is crt0, in `core.text`, which loads `$gp` itself
+  (DL: `lui 0x22; addiu 0x597F`), matching `.reginfo`.
+
+  | Executable | Entry | `$gp` | `.text` |
+  |---|---|---|---|
+  | R&C3 PAL `SCES_524.56` | 0x13ADA8 | 0x1DC8B0 | 0x381080 +0x716F8 |
+  | UYA NTSC-U `SCUS_973.53` | 0x13ADA8 | 0x1DC8B0 | 0x381180 +0x71438 |
+  | DL NTSC-U `SCUS_974.65` | 0x1574E8 | 0x22597F | 0x3F1000 +0x15C6D8 |
+  | Gladiator PAL `SCES_532.85` | 0x1574E8 | 0x2259FF | 0x3F1000 +0x15DC40 |
+  | R&C3 PAL `I5BOOTN.ELF` | 0x192D18 | 0x247FC0 | 0x27B100 +0x25938 |
+  | UYA NTSC-U `I5BOOTN.ELF` | 0x192E08 | 0x248140 | 0x27B200 +0x257C8 |
+
+- **Checked against memory:** on UYA NTSC-U's title screen (`cache/ghidra/ee/
+  uyantsc-title.ee.bin`) every code and read-only section, and the sections past `.text`,
+  match EE memory byte for byte, and so does the ELF `unpack-elf` writes; only writable
+  data differs. In levels (UYA and R&C3 on Veldin, DL and Gladiator on DreadZone Station)
+  `.vutext`, `core.text` and `core.rdata` still match on all four, while `.lit`, `.data`,
+  the `lvl.*` tables and `.text` are mostly replaced and the sections past them are
+  overwritten. So **the boot program's `.text` is the title screen's**, and each level's
+  overlay replaces it ([engine-notes.md](engine-notes.md#code-layout-and-overlays)).
+- **`I5BOOTN.ELF`** (R&C3 and UYA) is the **network start-up**, packed the same way. Its
+  strings are network configuration (`ezNetCnf*`, `ezNetCtl*`), `cdrom0:\DNAS300.IMG`,
+  `cdrom0:\DEV9.IRX` and ISP connection messages [strings].
 
 ## Toolchain and libraries (from strings)
 
@@ -275,8 +341,10 @@ Veldin's level data:
    executable formats (plain, then WAD-packed). That fits a single engine with per-game
    profiles.
 3. A **WAD decompressor** is the first codec to write. Phase 2 depends on it, and so does
-   any automated reverse engineering of the packed executables. Until it exists, PCSX2
-   savestates (imported into Ghidra) supply the unpacked code.
+   any automated reverse engineering of the packed executables. Done (P2.4, P2.5):
+   `openrac-tool unpack-elf` gives Ghidra the boot program (the engine core and the title
+   screen) as an ELF. Level code still comes from savestates until P2.6 extracts the
+   overlays.
 4. R&C1 and R&C2 keep section headers. That makes them the easiest first targets for
    mapping engine versus game code and the level-overlay interface (`lvl.*vtbl`).
 5. The VU1 microcode is cleanly separated and catalogued, so the renderer's VU programs can

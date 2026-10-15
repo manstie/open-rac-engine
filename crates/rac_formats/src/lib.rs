@@ -8,6 +8,7 @@
 //! - [`moby`]: moby classes, with their skeleton, animation and mesh
 //!   (`docs/research/moby-format.md`).
 //! - [`armor`]: UYA's armor, the hero's mesh and textures.
+//! - [`elf`]: the boot executables, unpacked from their stub and written as plain ELFs.
 //! - [`texture`]: indexed images as the GS draws them.
 //! - [`wad`]: the games' LZ compression.
 //! - [`level`]: UYA's table of contents and level files, down to the moby classes.
@@ -17,6 +18,7 @@
 //! release we haven't seen.
 
 pub mod armor;
+pub mod elf;
 pub mod gameplay;
 pub mod image;
 pub mod level;

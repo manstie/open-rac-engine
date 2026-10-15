@@ -85,12 +85,18 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
     [disc-layout.md](disc-layout.md#wad-compression-verified-2026-10-13).
 - **Packed executables (R&C3, UYA, DL, Gladiator):** a loader stub plus a WAD-compressed
   game image in `.rodata`, which on our discs begins at file offset 0x7080 **[verified]**.
-  Wrench 0.4 and later can unpack them.
+  The image is the boot ELF's sections as overlay records (below); `openrac-tool
+  unpack-elf` writes it as a plain ELF **[verified 2026-10-15,
+  [disc-layout.md](disc-layout.md#2-rc3-uya-deadlocked-and-gladiator-packed-executables-verified-2026-10-15)]**.
+  Wrench 0.4 and later can unpack them too.
 
 ## Code layout and overlays
 
 - **What stays resident:** the boot ELF keeps `.vutext` and `core.text/.data/.rdata/.bss/.lit`
-  resident **[verified section names on R&C1/R&C2]**.
+  resident **[verified section names on R&C1/R&C2]**. On R&C3, UYA, DL and Gladiator,
+  `.vutext`, `core.text` and `core.rdata` in a level match the unpacked boot program byte
+  for byte, while `.lit`, `.data`, the `lvl.*` tables and `.text` don't: the boot program's
+  `.text` is the title screen's **[verified 2026-10-15 against savestates]**.
 - **What each level replaces:** `.lit .bss .data lvl.vtbl lvl.camvtbl lvl.sndvtbl .text`,
   with DL adding `net.text`.
   - Each level carries its own build of almost the whole game program.
@@ -99,7 +105,9 @@ from GPL sources into this repo. See the legal rules in `CLAUDE.md`.
     different addresses.
 - **Overlay data format:** a series of 16-byte records `{dest_addr, size, section_type, entry}`,
   each followed by its bytes. The loader copies records until `entry` changes, then calls
-  the level-init entry point.
+  the level-init entry point. The packed executables' stubs load the boot program from the
+  same records **[verified in UYA NTSC-U's stub, 2026-10-15]**; `rac_formats::elf::Program`
+  reads them.
 - **Load addresses:**
 
   | Build | Addresses |

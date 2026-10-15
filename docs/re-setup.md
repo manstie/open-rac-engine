@@ -90,10 +90,16 @@ Nothing here needs sudo. Everything lives under `~/.local`.
 **Headless analysis** is what Claude sessions use. For example:
 
 ```sh
-ghidra-headless /path/to/open-rac-engine/cache/ghidra uya_ntsc \
-  -import /path/to/unpacked/game.elf
+openrac-tool unpack-elf --iso "<UYA disc>.iso" --out cache/elf/SCUS_973.53.elf
+ghidra-headless cache/ghidra/elf uyantsc-boot -import cache/elf/SCUS_973.53.elf
 ```
 
+- **Unpacked boot programs** (verified 2026-10-15 on UYA NTSC-U; about a minute with
+  analysis): `unpack-elf` turns the packed boot executable of R&C3, UYA, DL or Gladiator
+  into a plain ELF (`--file I5BOOTN.ELF` for the network start-up). Ghidra takes `$gp`
+  from its `.reginfo`, keeps its section names and finds the functions from the entry. It
+  holds the engine core and the title screen only: a level's code still needs a savestate
+  (below) until P2.6. R&C1's and GC's boot ELFs import as they are.
 - **Processor:** the PS2 extension detects R5900 ELFs automatically as language
   `r5900:LE:32:default:default`.
 - **Harmless warning:** "Failed to add language defined memory block … rom0" just means the

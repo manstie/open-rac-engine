@@ -1,11 +1,13 @@
 //! `openrac-tool`: extracts and inspects the games' data (PLAN.md P2.7).
 //!
 //! Everything it writes is derived from the user's own disc, so it goes in `cache/`, never
-//! the repository. `hero` and `rails` read the disc itself; `moby` reads EE memory images made from
-//! savestates (`tools/ghidra/import-savestate.sh` writes them), for reverse engineering.
+//! the repository. `hero`, `rails` and `unpack-elf` read the disc itself; `moby` reads EE
+//! memory images made from savestates (`tools/ghidra/import-savestate.sh` writes them), for
+//! reverse engineering.
 
 mod glb;
 mod pose;
+mod unpack;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -76,6 +78,19 @@ enum Command {
         /// Only this level, with every point of its rails.
         #[arg(long)]
         level: Option<usize>,
+    },
+    /// Unpack a packed executable (R&C3, UYA, Deadlocked, Gladiator) from a disc image,
+    /// list its sections, and optionally write it as a plain ELF for Ghidra.
+    UnpackElf {
+        /// The disc image (.iso).
+        #[arg(long)]
+        iso: PathBuf,
+        /// The executable to unpack, such as I5BOOTN.ELF; by default the one the disc boots.
+        #[arg(long)]
+        file: Option<String>,
+        /// Write the ELF here (under cache/).
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -208,6 +223,9 @@ fn main() -> Result<()> {
                     .with_context(|| format!("reading level {number}'s grind paths"))?;
                 describe_rails(number, &paths, level.is_some());
             }
+        }
+        Command::UnpackElf { iso, file, out } => {
+            unpack::run(&iso, file.as_deref(), out.as_deref())?;
         }
     }
     Ok(())

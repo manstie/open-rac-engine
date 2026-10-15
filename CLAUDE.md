@@ -232,11 +232,14 @@ Setup, launchers, menu paths, gotchas and the catalogue of savestates and traces
   `replay.sh`, `warp.sh`), never the owner's. Stop processes by PID, not `pkill -f`.
 - **Prefer static analysis:** derive constants from the game code in Ghidra; traces verify
   them.
-- **Unpacked UYA/DL code before PLAN P2.5:** `tools/ghidra/import-savestate.sh <state.p2s>
+- **Unpacked UYA/DL code:** `openrac-tool unpack-elf --iso <disc> --out
+  cache/elf/<boot>.elf` writes the boot program (the engine core and the title screen) as
+  an ELF that Ghidra imports directly (about a minute). Level code, the hero's included,
+  comes from savestates until PLAN P2.6: `tools/ghidra/import-savestate.sh <state.p2s>
   <name> [symbols.toml]` imports a savestate's EE memory into Ghidra and analyses it
-  (about 3 minutes). Hero code is per level, so use a savestate in a level, not the title
-  screen. `DecompileAt.java` dumps chosen functions into `cache/`, never the repo.
-  `wrenchbuild unpack` also works: using a GPL tool is fine, copying its code is not.
+  (about 3 minutes); use a savestate in a level, not the title screen. `DecompileAt.java`
+  dumps chosen functions into `cache/`, never the repo. `wrenchbuild unpack` also works:
+  using a GPL tool is fine, copying its code is not.
 - **Measuring the hero:** `tools/pine-probe/replay.sh` replays a recording, or `boot.sh`
   plus xdotool plays a scripted take, and `pine-probe capture` logs the hero every frame
   from a layout; `pine-probe export` writes CSV. Where the hero lives per release is in
