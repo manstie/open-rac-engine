@@ -35,7 +35,9 @@ session is working on the task now; notes on problems met stay with their task (
   UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed.
 - **Reverse engineering:** the hero's movement and camera are read in UYA's and DL's code
-  and checked against traces (RE.3, RE.4); RE.8 is answered (NTSC-U is the native tuning).
+  and checked against traces (RE.3, RE.4), the camera's look, lock-strafe and first-person
+  views, height modes, obstacles and level cameras included; RE.8 is answered (NTSC-U is
+  the native tuning).
   UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
   level, ammo, XP, mods, aim assist, and the guns behind P1.9's five archetypes.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
@@ -47,12 +49,15 @@ session is working on the task now; notes on problems met stay with their task (
 **Next actions, in order:**
 1. **Owner:** push `re/hero-movement` so CI runs (it needs the owner's credentials). Then
    fix anything Windows-specific it finds (P0.7).
-2. RE.3 and P1.5 for DL: its lock-strafe camera (DL's default), where its flips come
-   from, its crouch moves (a savestate past the tutorial), and the `dl.ron` sections
-   marked "not read in DL".
-3. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
+2. P1.7: put RE.4's 2026-10-16 findings into the kit's camera (`camera.md`, "Next steps"
+   item 5): the free-look camera behind lock-strafe and first person, with DL's
+   lock-strafe as its default; the follow point's height modes; the pull-in and
+   collision; DL's 6 u follow distance; camera volumes.
+3. RE.3 and P1.5 for DL: where its flips come from, its crouch moves (a savestate past the
+   tutorial), and the `dl.ron` sections marked "not read in DL".
+4. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
    rules are read), with RE.7's next steps alongside.
-4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
+5. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
 (`docs/re-setup.md`, "Still wanted").
@@ -359,16 +364,39 @@ committed (names, addresses, layouts, derived constants).
   - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
     rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
     clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides.
-  - To do (`hero-controller.md`, "Next steps"): DL's lock-strafe camera, the source of
-    DL's flips, DL's crouch moves, which item gives DL's glide, the `dl.ron` sections
+  - DL's lock-strafe camera is read and traced under RE.4 (`camera.md`, "Deadlocked's
+    camera").
+  - To do (`hero-controller.md`, "Next steps"): the source of DL's flips, DL's crouch
+    moves, which item gives DL's glide, the `dl.ron` sections
     marked "not read in DL" (the crouch flip among them: DL's R1 didn't crouch where it was
     traced), wading (state 117), how the games carry the hero on moving platforms, and a
     half-tilt stick on NTSC.
 - [~] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
-  - Done: UYA's follow camera, read in code and checked against `uyantsc-veldin-cam-1`;
-    lock-on's steering; `GameCamera` at 0x1E2A40 on R&C3 PAL and UYA NTSC.
-  - To do: the lock-strafe and first-person modes, camera collision, and the camera
-    volumes and splines from level data.
+  - Done, UYA NTSC: the follow camera, read in code and checked against
+    `uyantsc-veldin-cam-1`; lock-on's steering; the follow point's height modes, verified
+    on `uyantsc-veldin-camvert-{1..5}`; obstacles and collision in code, the pull-in
+    verified on `uyantsc-phoenix-camwall-1`; the camera manager, the level's cameras,
+    camera volumes, the fixed-point and path cameras in code, their data checked in five
+    savestates; the look (L1), lock-strafe and first person in code, the look verified on
+    `uyantsc-veldin-camlock-1`. They are the hero's own free-look camera, which two camera
+    modes copy.
+  - Done, DL NTSC: the follow camera (UYA's, 6 u back, no push-back), lock-strafe and
+    first person, read in code and verified on `dlntsc-dreadzone-cam-{1,2,3}`.
+  - To do (each section of `camera.md` ends with its own list): traces of UYA's
+    lock-strafe and first-person settings, a gun in hand, a camera volume and a
+    flythrough activating, a low ceiling, a 30-frame blocked view, and a half-tilted
+    right stick; the blend code between camera modes (0x3F2090 on, 0x4421E8); the
+    collision masks' bits.
+  - Next step: UYA's lock-strafe take, `uyantsc-veldin-camlock.sh 2` on the `uya-camA`
+    boot (`camera.md`, "Lock-strafe and first person", "Not read yet / next steps").
+  - Our layouts' "camera" block at 0x1E2A40 is a copy 0x80 before libuya's `GameCamera`
+    (0x1E2AC0 on UYA NTSC, Veldin's build), so their offsets are libuya's + 0x80, and two
+    of their field names were wrong. Corrected in `camera.md`, "Where the camera lives";
+    the old traces stay readable.
+  - The camera blocks move with each level's build (0x580 lower on the Phoenix), like the
+    rest of the level overlay's data: find them per level before capturing.
+  - Captures slow the game to about 19 frames a real second, and some samples come out
+    torn (a value repeats, then skips a frame); simulations must skip those frames.
 - [~] **RE.5** **`tools/pine-probe`**: per-frame capture driven by a layout, savestate
   and recording readers, CSV export, `replay.sh` (a recording on Xvfb), `boot.sh` (a
   disc with the keyboard as controller 1, driven by xdotool), `warp.sh` (any level),
@@ -493,9 +521,14 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Simplified: collision is a 0.25 u sphere cast from the aim point; the landing
     catch-up rate is a placeholder; the pitch the player sets stays put (mouse-first, G5),
     where the game's springs back.
-  - To do: the vertical state machine's details, the obstacle pull-in helpers, the
-    lock-strafe mode (DL's default), first person, and camera volumes and splines from
-    level data (Phase 3).
+  - To do, all now read under RE.4 (`camera.md`, "Next steps" item 5): the follow point's
+    height modes and the look point's air gain, in place of the hold-then-catch-up; the
+    cosine pull-in, its stick bump and the 1.5 u minimum arm; the free-look camera for
+    the look, lock-strafe and first person, chosen by a camera setting whose default is
+    the profile's (UYA third person, DL lock-strafe), with its own stick response
+    (squared, 90°/s in UYA and 180°/s in DL, a 360°/s quick turn), which `rac_input`'s
+    linear look doesn't give yet; DL's follow distance of 6.0 with no push-back; camera
+    volumes as a kit component. Path cameras wait for level scripting.
 - [x] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
   and the crate `rac_combat`): the wrench combo, jump attack, throw, grind attack and the
   clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with
@@ -644,7 +677,7 @@ level code still needs savestates or Wrench, until P2.6 extracts the overlays.
   `rac_formats::elf::Program` already reads the records and writes ELFs (P2.5); what's
   left is finding each level's overlay on the disc and the loader that applies it.
 - [~] **P2.7** `openrac-tool` CLI. Done: `moby` (a class from an EE memory image, or as a
-  `.glb` into `cache/`), `hero`, `rails`, `unpack-elf` and `identify`.
+  `.glb` into `cache/`), `hero`, `rails`, `cameras`, `unpack-elf` and `identify`.
   - To do: `toc`, `extract --out cache/<release>/` and `dump-overlay`.
 - [ ] **P2.8** Cache layout and versioning:
   - Path: `cache/<serial>-<elfsha1[0..8]>/…`.
@@ -694,10 +727,12 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   debug overlay; **colliders for the hero kit**.
 - [~] **P3.10** Gameplay data. Done: UYA's rails, grind and zip line
   (`rac_formats::gameplay`, `gameplay-format.md`), checked against the game's own list on
-  Florana.
-  - To do: level settings; moby, tie and shrub instances with their pvars and per-game
-    record sizes; paths, volumes, cameras, lights, sound instances and areas; DL's
-    missions and art instances.
+  Florana; UYA's cameras, camera volumes (moby instances of class 2329 with their pvars),
+  paths, cuboids, spheres, cylinders and the camera collision list, checked against
+  five savestates (`openrac-tool cameras`).
+  - To do: level settings; tie and shrub instances, and the per-game moby record sizes;
+    lights, sound instances and areas; DL's gameplay files, its missions and art
+    instances.
 - [ ] **P3.11** The **classic** render path, PS2-faithful, used for validation and for
   classic mode, with shaders in WESL:
   - Vertex colour modulation (0x80 = 1.0, so 2× modulate).

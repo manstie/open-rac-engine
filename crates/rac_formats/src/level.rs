@@ -681,13 +681,13 @@ mod tests {
 
 /// Reads the real discs: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.
 #[cfg(test)]
-mod disc_tests {
+pub(crate) mod disc_tests {
     use super::*;
     use crate::moby::PacketKind;
     use std::fs::File;
     use std::io::BufReader;
 
-    struct Disc(rac_iso::Disc<BufReader<File>>);
+    pub(crate) struct Disc(rac_iso::Disc<BufReader<File>>);
 
     impl DiscReader for Disc {
         fn read(&mut self, offset: u64, len: usize) -> Result<Vec<u8>, FormatError> {
@@ -699,7 +699,7 @@ mod disc_tests {
 
     /// The disc image of `release` in `OPENRAC_SOURCE_DIR`, known by its boot executable.
     /// A relative folder counts from the workspace's root, since tests run in the crate's.
-    fn disc(release: rac_iso::Release) -> Disc {
+    pub(crate) fn disc(release: rac_iso::Release) -> Disc {
         let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         rac_iso::find_images(&root.join(folder), 2)

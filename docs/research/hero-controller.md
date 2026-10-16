@@ -1945,9 +1945,11 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
   - the glide's springs, and the heights and frames past which a double jump (1.5 u,
     t > 30) or a heli jump (0.6 u) turns into it. DL's check also has 1.0 u for standing
     and run jumps, which UYA's can't glide from; whether DL's can isn't traced.
-- **Not read in DL yet:** the stick's dead zone, the strafe turn, lock-on, the wall jump's
-  probes, ledges, grinding, zip lines, swimming, melee, getting hit and the camera. The
-  kit's DL profile keeps UYA's numbers for them, marked as such.
+- **Not read in DL yet:** the stick's dead zone, lock-on, the wall jump's probes, ledges,
+  grinding, zip lines, swimming and getting hit. The kit's DL profile keeps UYA's numbers
+  for them, marked as such. Melee is read ("Deadlocked's melee"), and so are the strafe
+  turn and the camera (2026-10-16, `camera.md`, "Deadlocked's camera"): UYA's strafe turn,
+  and a follow camera 6 u back.
 - **Releasing the stick in the air, both games:** the game brakes instead of steering
   when the speed the stick asks for (the move's air speed × the stick) is under 20% of
   the walk speed, not when the stick is under 20% (UYA 0x4EDE80, DL 0x680A88) [code].
@@ -1985,7 +1987,9 @@ in UYA; takes 3 and 6 with DL's default lock-strafe camera.
   at 17 first. The release skid depends on the held item (`hero_update_walk` reads the
   hand slot), not on the game.
 - **The lock-strafe camera:** the strafe flag is 2 while idle and 1 while walking, so the
-  hero always faces the camera. The kit doesn't have this camera yet.
+  hero faces the camera, with UYA's strafe turn; standing, he only turns once the camera
+  is more than 10° off. With the wrench in hand the flag is 0 and he turns to where he
+  walks (`camera.md`, "Deadlocked's camera"). The kit doesn't have this camera yet.
 - **DL's camera option:** libdl's `CameraType` (hero+0x1AE0: 0 third person,
   1 lock-strafe, 2 first person) follows a byte per player at 0x171DE0, which follows the
   option word per player at 0x1711D0 (`hero_camera_type_update`, 0x68BBA0).
@@ -2062,9 +2066,10 @@ Also read in code but not seen in a trace:
 
 1. **More on Deadlocked NTSC.** The charge (2026-10-12) and the walk, jumps and double
    jump (2026-10-15, "Deadlocked's moves") are verified. Next: where DL's flips come
-   from, DL's crouch (a savestate past the tutorial), the lock-strafe camera, the parts of
-   the kit's DL profile still marked "not read in DL", and the code behind the 0.43 u step
-   limit.
+   from, DL's crouch (a savestate past the tutorial), the parts of the kit's DL profile
+   still marked "not read in DL", and the code behind the 0.43 u step limit. The
+   lock-strafe camera is read and traced (2026-10-16, `camera.md`, "Deadlocked's
+   camera"); the kit doesn't have it yet (P1.7).
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
    swimming. Swimming, ledges and the wall jump were traced on 2026-10-13, and zip lines
    on 2026-10-15. UYA has no rail to grind on (section "Grinding"), so grinding waits for

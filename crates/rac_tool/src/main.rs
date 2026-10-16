@@ -1,10 +1,11 @@
 //! `openrac-tool`: extracts and inspects the games' data (PLAN.md P2.7).
 //!
 //! Everything it writes is derived from the user's own disc, so it goes in `cache/`, never
-//! the repository. `identify`, `hero`, `rails` and `unpack-elf` read the disc itself;
-//! `moby` reads EE memory images made from savestates (`tools/ghidra/import-savestate.sh`
-//! writes them), for reverse engineering.
+//! the repository. `identify`, `hero`, `rails`, `cameras` and `unpack-elf` read the disc
+//! itself; `moby` reads EE memory images made from savestates
+//! (`tools/ghidra/import-savestate.sh` writes them), for reverse engineering.
 
+mod cameras;
 mod glb;
 mod identify;
 mod pose;
@@ -86,6 +87,20 @@ enum Command {
         /// Only this level, with every point of its rails.
         #[arg(long)]
         level: Option<usize>,
+    },
+    /// List the cameras, camera volumes, shapes and paths of each level of a UYA disc
+    /// image, from the levels' gameplay files.
+    Cameras {
+        /// The disc image (.iso).
+        #[arg(long)]
+        iso: PathBuf,
+        /// Only this level, with every camera's and volume's fields.
+        #[arg(long)]
+        level: Option<usize>,
+        /// Check them against what the game loaded, in this EE memory image of the same
+        /// level.
+        #[arg(long, requires = "level")]
+        check_ee: Option<PathBuf>,
     },
     /// Unpack a packed executable (R&C3, UYA, Deadlocked, Gladiator) from a disc image,
     /// list its sections, and optionally write it as a plain ELF for Ghidra.
@@ -233,6 +248,11 @@ fn main() -> Result<()> {
                 describe_rails(number, &paths, level.is_some());
             }
         }
+        Command::Cameras {
+            iso,
+            level,
+            check_ee,
+        } => cameras::run(&iso, level, check_ee.as_deref())?,
         Command::UnpackElf { iso, file, out } => {
             unpack::run(&iso, file.as_deref(), out.as_deref())?;
         }

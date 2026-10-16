@@ -1602,3 +1602,244 @@ address = 0x003BF460
 kind = "data"
 confidence = "medium"
 note = "Gadget definitions, 0xB0 bytes each in libdl's GadgetDef layout, indexed by libdl's weapon id: 1 the wrench (class 0x23FA), 2-6 the Dual Vipers, Magma Cannon, Arbiter, Fusion Rifle and Mine Launcher. Found in the DreadZone Station image."
+
+# Added 2026-10-16 while reading DL's camera (RE.4; docs/research/camera.md,
+# "Deadlocked's camera"), checked against dlntsc-dreadzone-cam-{1,2,3} where noted.
+
+[[symbol]]
+name = "camera_mode_table"
+address = 0x003C7B00
+kind = "data"
+confidence = "high"
+note = "Camera modes, UYA's in UYA's order: entries of a mode number and four functions (condition, init, update, check), ended by -1. Mode 0 the follow camera (0x51F8F8, 0x51B550, 0x51F948, 0x51FC80); 4 first person; 0x20 lock-strafe (0x524E58, 0x524EC0, 0x524F58, 0x524FA0)."
+
+[[symbol]]
+name = "game_camera0"
+address = 0x00230280
+kind = "data"
+confidence = "high"
+note = "Camera 0, libdl's GameCamera (0x470 bytes a camera). +0x230 fpsCamPos and +0x200 fpsCamMtx (what modes 4 and 0x20 copy), +0x24C desiredCam (32 lock-strafe, 81 first person, 0 third person), +0x2B0 the blender, +0x434 the field of view (1.1100293)."
+
+[[symbol]]
+name = "camera0_follow_blocks"
+address = 0x0023C010
+kind = "data"
+confidence = "medium"
+note = "The follow blocks (0x280 each, 0x23C010 and 0x23C290; mode 0 uses either) and the base block at 0x23C510: distance +0x1AC 6.0, height +0x1B0 2.0."
+
+[[symbol]]
+name = "camera_follow_update"
+address = 0x0051F948
+kind = "function"
+confidence = "high"
+note = "Mode 0 update, UYA's 0x3E8850: orbit speed from the per-scheme camera-speed option, then the platform ride (0x518AA0), params, motion, arm and end of frame."
+
+[[symbol]]
+name = "camera_follow_init"
+address = 0x0051B550
+kind = "function"
+confidence = "high"
+note = "Mode 0 init, UYA's 0x3E52D0 with distance 6.0 instead of 4.64."
+
+[[symbol]]
+name = "camera_follow_params"
+address = 0x0051A660
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E42C0; some special-mode branches (flags at 0x2304FB-0x230503) use other numbers (6.75, 2.75)."
+
+[[symbol]]
+name = "camera_follow_motion"
+address = 0x00519D98
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E39E0: the look point's lag springs (0.015 / 0.0125, damping 0.2)."
+
+[[symbol]]
+name = "camera_arm_update"
+address = 0x0051F898
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E87B0: drag, stick input, manual input, obstacles, place, then 0x51E680."
+
+[[symbol]]
+name = "camera_arm_drag"
+address = 0x0051E518
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E7A70, identical."
+
+[[symbol]]
+name = "camera_stick_input"
+address = 0x0051DBA0
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E7478."
+
+[[symbol]]
+name = "camera_manual_input"
+address = 0x0051DE38
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E7668. Verified: 0.05018 rad a frame of orbit at speed 50 (dlntsc-dreadzone-cam-3)."
+
+[[symbol]]
+name = "camera_obstacles"
+address = 0x0051CA58
+kind = "function"
+confidence = "low"
+note = "UYA's 0x3E64E0."
+
+[[symbol]]
+name = "camera_place"
+address = 0x0051F1D8
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E82F8. The actual arm's yaw spring 0.015 / 0.2 checked in dlntsc-dreadzone-cam-3."
+
+[[symbol]]
+name = "camera_approach_distance"
+address = 0x0051EF38
+kind = "function"
+confidence = "medium"
+note = "UYA's 0x3E80A8; its far end 6.0 equals DL's base distance, so it no longer pushes the camera back."
+
+[[symbol]]
+name = "camera_end_of_frame"
+address = 0x0051A3A8
+kind = "function"
+confidence = "high"
+note = "UYA's 0x3E4008, identical."
+
+[[symbol]]
+name = "camera_spring"
+address = 0x00535610
+kind = "function"
+confidence = "high"
+note = "UYA's 0x3F13A8; gain and cap doubled with two or more local players at 30 Hz."
+
+[[symbol]]
+name = "camera_angle_spring"
+address = 0x005356C8
+kind = "function"
+confidence = "medium"
+note = "The angle version of camera_spring."
+
+[[symbol]]
+name = "camera_hero_view_init"
+address = 0x00524EC0
+kind = "function"
+confidence = "medium"
+note = "Mode 0x20 init: copies fpsCamPos and fpsCamMtx and sets the blend rates to 0.075 a frame."
+
+[[symbol]]
+name = "camera_hero_view_update"
+address = 0x00524F58
+kind = "function"
+confidence = "medium"
+note = "Mode 0x20 update: copies fpsCamPos and fpsCamMtx into its update camera. Verified: camera 0 equals the hero's look_cam every lock-strafe frame."
+
+[[symbol]]
+name = "camera_update_all"
+address = 0x00538610
+kind = "function"
+confidence = "medium"
+note = "Per-frame camera manager for each camera: mode checks, then the blender (0x5367D8 start, 0x537898 step)."
+
+[[symbol]]
+name = "camera_blend_pos"
+address = 0x00536AC8
+kind = "function"
+confidence = "medium"
+note = "Position and rotation blend: lerp(org, target, (1 - cos(pi t)) / 2), t += rate. Verified leaving first person: t from 0.25 by 0.075 a frame."
+
+[[symbol]]
+name = "hero_look_init"
+address = 0x005617A8
+kind = "function"
+confidence = "high"
+note = "Sets the hero's look block (hero + 0x1970): yaw rates 0.10472 fast / 0.05236 normal, accelerations 0.0034907 / 0.0019393, pitch 0.034907 / 0.0014544, aim-assist weights 0.5, 0.6, 0.666, 0.85, cone 0.349, pitch limits 85 degrees."
+
+[[symbol]]
+name = "hero_look_update"
+address = 0x005620A0
+kind = "function"
+confidence = "high"
+note = "DL's free-look camera (UYA 0x410B08): right-stick yaw and pitch speeds (scale fov / 1.11 x lerp(0.25, 1.25, speed / 64)), the fast gear after two frames past 0.99, the aim assist, the limits, then hero_look_place. Verified in dlntsc-dreadzone-cam-1."
+
+[[symbol]]
+name = "hero_look_place"
+address = 0x00562E40
+kind = "function"
+confidence = "high"
+note = "Places the lock-strafe camera at the pivot - forward x d (d = 6), cut in on a ray hit to the hit - 0.5 and eased out at 1/180 u a frame per frame up to 1/3. Verified."
+
+[[symbol]]
+name = "hero_aim_search"
+address = 0x00563710
+kind = "function"
+confidence = "medium"
+note = "The look's aim-assist target (hero + 0x19FC): a 35 u ray along the view, else targets within the 20-degree cone, scored by distance x (1 + centredness)."
+
+[[symbol]]
+name = "hero_eye_height"
+address = 0x0068DF20
+kind = "function"
+confidence = "high"
+note = "The look pivot (hero + 0x1950) = feet + up x eye height (2.0 lock-strafe, 1.15 first person), moved at 32 u/s^2 up to 64 u/s; holds at ground + 2 in jumps below 3.5 u; looking down moves it forward 0.45 x pitch / 90 degrees. Verified."
+
+[[symbol]]
+name = "hero_camera_type_set"
+address = 0x0068E3B0
+kind = "function"
+confidence = "high"
+note = "(hero, type): sets the camera type and its offset, eye height and pitch limits: 0 third person (1.15, 89 degrees), 1 lock-strafe (offset -6, eye 2.0, 70 degrees), 2 first person (eye 1.15, 89 degrees)."
+
+[[symbol]]
+name = "hero_strafe_turn"
+address = 0x0067BDE0
+kind = "function"
+confidence = "high"
+note = "UYA's: turns the facing to hero + 0x2CE8 (last frame's camera yaw rounded to 1/255 turn) with gain 0.042, damping 0.25, cap 19.2 rad/s. Verified."
+
+[[symbol]]
+name = "hero_facing_off_camera"
+address = 0x0067BC90
+kind = "function"
+confidence = "medium"
+note = "Whether the facing is more than an angle off the camera's yaw; hero_transitions asks with 10 degrees to start the standing turn-step in lock-strafe (verified: 9.9-11.7 degrees)."
+
+[[symbol]]
+name = "move_to"
+address = 0x00594FF0
+kind = "function"
+confidence = "high"
+note = "(target, accel, decel, max, &value, &rate): speeds up by accel to at most max and brakes by decel to arrive; the camera distance and eye height use it."
+
+[[symbol]]
+name = "lerp"
+address = 0x005949D8
+kind = "function"
+confidence = "high"
+note = "a + (b - a) x t."
+
+[[symbol]]
+name = "ease_lerp"
+address = 0x00591DB0
+kind = "function"
+confidence = "high"
+note = "(a, b, t): a + (b - a) x (1 - cos(pi t)) / 2."
+
+[[symbol]]
+name = "angle_add"
+address = 0x0055D828
+kind = "function"
+confidence = "high"
+note = "a + b wrapped to -pi..pi."
+
+[[symbol]]
+name = "camera_speed_option"
+address = 0x00171EF0
+kind = "data"
+confidence = "medium"
+note = "Camera speed per control scheme (stride 0x28) and player (stride 4); 50 in all. Invert options: x at 0x171E78, y at 0x171E00, same layout."
