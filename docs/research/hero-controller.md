@@ -268,9 +268,10 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
 - **Picking a target** (`hero_lock_on`, from `hero_transitions`):
   - It needs L2 and R2 both held, one of them pressed this frame. A failed search waits
     for the next press.
-  - The held item must allow it: bit 5 of its byte in `item_flags` (0x142A60). The bytes
-    are all zero in our savestates, so which weapons allow it is unknown. The wrench, the
-    only item we have, doesn't.
+  - The held item must allow it: bit 5 of its byte in `item_flags` (0x142A60), the
+    lock-on mod, which each gun's code sets from its level, mostly at V3 (`weapons.md`,
+    "Mods"). The bytes are all zero in our savestates, which hold no gun; the wrench
+    never sets it.
   - Not with the lock-strafe camera (camera mode 1).
   - The search (`target_search`, scored by `target_score` as the wrench's aim is: the
     least distance × (1 + angle off)) takes targets of class category 5 that are alive,

@@ -10,6 +10,7 @@ The source of truth for **scope, strategy, decisions, status and next steps**.
   - [prior-art.md](docs/research/prior-art.md): other projects, tools and their licences.
   - [hero-controller.md](docs/research/hero-controller.md): how Ratchet moves (RE.3).
   - [camera.md](docs/research/camera.md): how the camera follows him (RE.4).
+  - [weapons.md](docs/research/weapons.md): his weapons, their table, levels and mods (RE.7).
   - [moby-format.md](docs/research/moby-format.md): moby skeletons, animation and meshes
     (P3.7).
   - [gameplay-format.md](docs/research/gameplay-format.md): levels' gameplay files (P3.10).
@@ -35,6 +36,8 @@ session is working on the task now; notes on problems met stay with their task (
   and replayed.
 - **Reverse engineering:** the hero's movement and camera are read in UYA's and DL's code
   and checked against traces (RE.3, RE.4); RE.8 is answered (NTSC-U is the native tuning).
+  UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
+  level, ammo, XP, mods, aim assist, and the guns behind P1.9's five archetypes.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
@@ -47,7 +50,8 @@ session is working on the task now; notes on problems met stay with their task (
 2. RE.3 and P1.5 for DL: its lock-strafe camera (DL's default), where its flips come
    from, its crouch moves (a savestate past the tutorial), and the `dl.ron` sections
    marked "not read in DL".
-3. P1.9: weapons, which also read the lock-on target.
+3. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
+   rules are read), with RE.7's next steps alongside.
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
@@ -374,12 +378,27 @@ committed (names, addresses, layouts, derived constants).
   - To do: replay whole traces through the kit and compare them frame by frame (apex
     height, time to apex, run speed, acceleration, turn times, air control), with
     tolerances as tests.
-- [ ] **RE.7** **Weapons and combat:**
+- [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
+  `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
+  - Done for UYA NTSC-U, in code (no gun traced yet): the weapon table (0xF0-byte rows
+    per item and level) with every gun's damage, ammo, prices and XP thresholds; owning,
+    ammo, levelling, XP from kills and the bought Mega levels; the lock-on, shock and acid
+    mods and the levels that set them; switching and firing animations; the guns' aim
+    assist; the damage queue's one pending hit per target; and the Shock Blaster
+    (hitscan), N60 Storm (rapid fire), Nitro Launcher (lobbed), Lava Gun (stream),
+    Annihilator (homing) and Flux Rifle (sniper).
+  - The weapon table is static data in each level's overlay and moves per level, so the
+    disc path needs P2.6; until then the numbers come from savestate images.
+  - Row +0x50 is the rate of fire only for the guns whose code reads it; the N60 Storm
+    has its own 14-frame interval (`weapons.md`, "Numbers").
+  - Open: the hero's side of firing (0x4E6D40, 0x503930), the Flux Rifle's piercing, the
+    Annihilator's V2–V4 mines, the mods' damage over time, the other fourteen guns, a
+    savestate with guns for traces, and all of DL.
+  - Next step: read the hero's side of firing (`weapons.md`, "Next steps", item 1).
   - Weapon definitions (DL's `GadgetDef` is 0xB0 bytes): fire rates, damage and projectile
     behaviour.
   - Upgrade and XP tables: UYA V1–V5, and DL V1–V10 with mods.
   - Quick-select, aim assist, and how weapons use lock-on.
-  - Feeds P1.8 and P1.9.
 - [~] **RE.8** **Timing across regions:** answered for UYA and DL from both regions' code
   and checked with NTSC traces (`hero-controller.md`, "Frames and regions"). Constants
   are per second, tuned at 60 Hz; R&C3 PAL folds them with 1/50, Gladiator scales them at
@@ -494,6 +513,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [ ] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - UYA's rules and numbers for each archetype are in `docs/research/weapons.md`.
   - Data-driven definitions (RON):
     - fire mode: hitscan, projectile, lobbed, stream/beam or homing;
     - rate, ammo, damage and projectile physics;

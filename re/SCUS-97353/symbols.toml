@@ -733,14 +733,14 @@ name = "weapon_table"
 address = 0x002C5640
 kind = "data"
 confidence = "medium"
-note = "One 0xF0-byte row per weapon; the wrench's row holds its damage."
+note = "One 0xF0-byte row per item and level (layout in docs/research/weapons.md). Static data in each level's overlay: the same bytes sit at 0x2C3200 on Florana, 0x2C4A00 on the Phoenix and 0x2C2940 in the sewers."
 
 [[symbol]]
 name = "item_weapon_rows"
 address = 0x001425C0
 kind = "data"
 confidence = "medium"
-note = "Byte per item: its row in weapon_table."
+note = "Byte per item: its current row in weapon_table, which is its level; levelling up moves it along the rows' +0x46 chain. Identity in a new game."
 
 [[symbol]]
 name = "hero_attack_fields"
@@ -1079,15 +1079,15 @@ note = "Byte: the option for what L1 does; 0 gives the first-person view (camera
 name = "item_flags"
 address = 0x00142A60
 kind = "data"
-confidence = "low"
-note = "One byte per item, 0x9C of them, kept across a level reload with the save data. Bit 5 of the held item's byte allows lock-on. All zero in our savestates, none of which holds a weapon."
+confidence = "medium"
+note = "One byte per item, 0x9C of them, kept with the save data: the gun's mods, set by each gun's own code from its level. Bit 5 lock-on, bit 1 shock (0x34BF98), bit 3 acid. All zero in our savestates, none of which holds a gun."
 
 [[symbol]]
 name = "held_item"
 address = 0x001A5E08
 kind = "data"
 confidence = "medium"
-note = "The item in the hero's hand; 9 in every savestate we have, where he only has the wrench."
+note = "The item in the hero's hand, set by hero_spawn_item_mobys; 9 in every savestate we have, where he only has the wrench."
 
 [[symbol]]
 name = "hero_strafe_walk"
@@ -1931,3 +1931,439 @@ address = 0x001DBE90
 kind = "data"
 confidence = "medium"
 note = "Blend ticks for hero_anim_set's negative blends: -1 is 11, -2 16."
+
+# 2026-10-16, weapons (PLAN.md RE.7; docs/research/weapons.md).
+
+[[symbol]]
+name = "item_ammo"
+address = 0x001427F0
+kind = "data"
+confidence = "high"
+note = "Word per item: its rounds, capped at the row's +0x8A by ammo_add and taken by ammo_use."
+
+[[symbol]]
+name = "item_owned"
+address = 0x00142CA0
+kind = "data"
+confidence = "high"
+note = "Byte per item: owned. Set by item_give; grind_boots_owned is item 0x0E's byte."
+
+[[symbol]]
+name = "item_new"
+address = 0x00142D40
+kind = "data"
+confidence = "medium"
+note = "Byte per item, set with item_owned by item_give; probably the menus' new-item mark."
+
+[[symbol]]
+name = "item_xp"
+address = 0x00142DE0
+kind = "data"
+confidence = "high"
+note = "Word per item: XP in 1/32 points, compared against the row's +0x68 (total XP to leave the level) by weapon_level_up and the weapon menu page; moby_killed adds to it."
+
+[[symbol]]
+name = "equipped_gun"
+address = 0x001D4C40
+kind = "data"
+confidence = "medium"
+note = "The gun Circle brings out (hero_item_switch); 0x1D4C44 the boots slot, 0x1D4C48 the suit slot and 0x1D4C4C the back, all spawned by hero_spawn_item_mobys."
+
+[[symbol]]
+name = "quick_select_rings"
+address = 0x001D4C60
+kind = "data"
+confidence = "medium"
+note = "Two rings of eight item words, 0x1D4C60 and 0x1D4C80; quick_select_add fills the first free slot."
+
+[[symbol]]
+name = "weapon_level_up"
+address = 0x00416640
+kind = "function"
+confidence = "high"
+note = "(item): moves the item to its row's next level (+0x46), raising item_xp to the old row's threshold (+0x68 << 5) if below, and fills the ammo to the new maximum."
+
+[[symbol]]
+name = "weapon_set_level"
+address = 0x00416790
+kind = "function"
+confidence = "high"
+note = "(item, level): walks the row chain from V1 (+0x48 back, +0x46 forward) and stores the row in item_weapon_rows, if 0x4166F8 allows that level."
+
+[[symbol]]
+name = "item_can_quick_select"
+address = 0x00416968
+kind = "function"
+confidence = "medium"
+note = "(item): false for the wrench and the packs, true for the camera options (0x24-0x26) and weapons (row +0x00), or items in the list at 0x2E9F7E."
+
+[[symbol]]
+name = "quick_select_add"
+address = 0x00416A10
+kind = "function"
+confidence = "medium"
+note = "(item): puts a quick-selectable hand item (row +0x08 slot 0) into the first free slot of quick_select_rings."
+
+[[symbol]]
+name = "item_give"
+address = 0x00416B38
+kind = "function"
+confidence = "high"
+note = "(item): sets item_owned and item_new, gives the row's starting ammo (+0x8E) to a gun that has none, lists it for the vendor (0x416BF8) and quick select."
+
+[[symbol]]
+name = "weapon_level_message"
+address = 0x00416CC8
+kind = "function"
+confidence = "medium"
+note = "(item): shows the row's +0xD0 level-up message, then per-item help through the jump table at 0x2BBBC0."
+
+[[symbol]]
+name = "weapon_buy_mega"
+address = 0x004176F8
+kind = "function"
+confidence = "medium"
+note = "(item): the vendor's upgrade to level 5 (Mega): weapon_set_level(item, 5), full ammo, XP reset to 0."
+
+[[symbol]]
+name = "weapon_row_at_level"
+address = 0x00417810
+kind = "function"
+confidence = "medium"
+note = "(out, item, level): copies the row for a level of an item's chain into out (the vendor's preview)."
+
+[[symbol]]
+name = "moby_killed"
+address = 0x004412D0
+kind = "function"
+confidence = "medium"
+note = "Called by enemies as they die: the per-class XP to the killing gun (damage record +0x17), shared by damage for the big enemies listed at 0x1E0284, none to a V5 gun outside challenge mode; adds the hero's XP (0x142694) and drops bolts."
+
+[[symbol]]
+name = "ammo_use"
+address = 0x0050D8F8
+kind = "function"
+confidence = "high"
+note = "(item or -1 for the held one, n): takes n rounds and returns 1, or returns 0 if there aren't enough; always 1 for a gun without a maximum (+0x8A = 0). Every gun calls it as it fires."
+
+[[symbol]]
+name = "ammo_add"
+address = 0x0050D980
+kind = "function"
+confidence = "high"
+note = "(item, n): adds rounds, caps at the row's +0x8A and returns what didn't fit. Ammo pickups and the vendor use it."
+
+[[symbol]]
+name = "ammo_get"
+address = 0x0050DA08
+kind = "function"
+confidence = "high"
+note = "(item or -1): the item's rounds, or 1 for a gun without ammo."
+
+[[symbol]]
+name = "hero_spawn_item_mobys"
+address = 0x004E7148
+kind = "function"
+confidence = "medium"
+note = "Spawns the mobys of the hand item (row +0x10, +0x14) and the slots, sets held_item and the fire button (0x1A5DF0: 0x80 for the wrench, 0x20 Circle for guns)."
+
+[[symbol]]
+name = "hero_item_switch"
+address = 0x004E8830
+kind = "function"
+confidence = "medium"
+note = "Square brings out the wrench, Circle (or R1 where 0x50FF18 says R1 fires) the equipped gun; with the wrench out, L2 and R2 bring out the gun when its lock-on mod is set."
+
+[[symbol]]
+name = "hero_fire_anim"
+address = 0x004E6A08
+kind = "function"
+confidence = "medium"
+note = "(item or -1): plays the gun's firing animation: whole body (row +0x24) when standing, else arms only (+0x28, +0x2C in state type 12) on one arm layer or both for a two-handed gun (+0x18 = 2)."
+
+[[symbol]]
+name = "weapon_shock_mod"
+address = 0x0034BF98
+kind = "function"
+confidence = "low"
+note = "(target, item, gun): when the gun's shock mod (item_flags bit 1) is set, queues damage over time on the target (30 slots at 0x27F600, parameters at 0x2822A0)."
+
+[[symbol]]
+name = "shock_blaster_update"
+address = 0x0036A790
+kind = "function"
+confidence = "medium"
+note = "The Shock Blaster's moby update: fire rules, the charge from V2, its hitscan shot (barrel balls and 23 rays of 32 u) and its mods by level (lock-on V3, shock V4)."
+
+[[symbol]]
+name = "shock_blaster_ray"
+address = 0x0036B888
+kind = "function"
+confidence = "low"
+note = "One of the Shock Blaster's 23 rays."
+
+[[symbol]]
+name = "ammo_pickup_update"
+address = 0x0030E7F8
+kind = "function"
+confidence = "medium"
+note = "An ammo pickup's update: finds its gun by matching its class to row +0x3A, then adds the amount in its pvars with ammo_add."
+
+[[symbol]]
+name = "vendor_buy"
+address = 0x004B8560
+kind = "function"
+confidence = "medium"
+note = "The vendor's buy step: rounds at row +0x84 bolts (+0x86 in another mode) up to the maximum, or the item (item_give) or its Mega upgrade (weapon_buy_mega)."
+
+[[symbol]]
+name = "weapon_menu_page"
+address = 0x004824A0
+kind = "function"
+confidence = "medium"
+note = "The pause menu's weapon page: name, ammo and maximum, level, and XP within the level from the thresholds of the row and the one before."
+
+[[symbol]]
+name = "weapon_acid_mod"
+address = 0x0031AC38
+kind = "function"
+confidence = "low"
+note = "(target, item, source): the acid mod's check on a hit, gated by item_flags bit 3 of the gun's V1 item; the Nitro Launcher's blast calls it."
+
+[[symbol]]
+name = "n60_update"
+address = 0x003A5928
+kind = "function"
+confidence = "medium"
+note = "The N60 Storm's moby update: aim (gun_target, 35 u), a shot every 14 frames while Circle is held, alternating two muzzles; lock-on from V3, shock from V4."
+
+[[symbol]]
+name = "n60_bullet_spawn"
+address = 0x0035B240
+kind = "function"
+confidence = "medium"
+note = "Spawns an N60 bullet (class 0x1851) with its velocity, the row's damage and the gun."
+
+[[symbol]]
+name = "n60_bullet_update"
+address = 0x0035B390
+kind = "function"
+confidence = "medium"
+note = "An N60 bullet: moves, line-tests its step, damages a 0.6 u (1.0 on a target) ball where it hits; from V2 it reflects off non-targets and lives 46 frames instead of 30."
+
+[[symbol]]
+name = "nitro_update"
+address = 0x0036E360
+kind = "function"
+confidence = "medium"
+note = "The Nitro Launcher's moby update: target (lock-on within 12 u, else aim assist 11.1 u), the arc (nitro_arc) and a charge every 1 / row +0x50 s."
+
+[[symbol]]
+name = "nitro_arc"
+address = 0x0036EA80
+kind = "function"
+confidence = "medium"
+note = "(min, max distance, speed per frame, gravity per frame^2, out velocity, muzzle, target, 0): the launch velocity reaching the aim point at a fixed ground speed (12.5 u/s) under 16 u/s^2."
+
+[[symbol]]
+name = "nitro_charge_spawn"
+address = 0x00361880
+kind = "function"
+confidence = "medium"
+note = "Spawns a Nitro charge (class 0x185A) with its velocity and a 50-frame timer."
+
+[[symbol]]
+name = "nitro_charge_update"
+address = 0x00361218
+kind = "function"
+confidence = "medium"
+note = "A Nitro charge: falls at 12 u/s^2, bounces off the world and blows 10 frames later, blows on an enemy within 1.5 u, or on the ground after 40 frames; then spawns the blast."
+
+[[symbol]]
+name = "nitro_blast_spawn"
+address = 0x0035E5D8
+kind = "function"
+confidence = "medium"
+note = "Spawns the Nitro blast (class 0x1858); sets the acid mod (item_flags bit 3) from V2."
+
+[[symbol]]
+name = "nitro_blast_update"
+address = 0x0035E718
+kind = "function"
+confidence = "medium"
+note = "The Nitro blast: 12 frames of flash, then 20 frames of a damage ball growing from 2 u to 6 u (7 from V4), with the acid check on each target."
+
+[[symbol]]
+name = "lava_gun_update"
+address = 0x00303F88
+kind = "function"
+confidence = "medium"
+note = "The Lava Gun's moby update: the stream strength springs to 10 while Circle is held, a round every 10 frames, a 0.5 u damage ball at the nozzle, and a stream point each frame."
+
+[[symbol]]
+name = "lava_stream_add"
+address = 0x00305540
+kind = "function"
+confidence = "medium"
+note = "Adds a point to the Lava Gun's ring of 35 stream points (position, velocity, 40-frame life)."
+
+[[symbol]]
+name = "lava_stream_update"
+address = 0x00304A18
+kind = "function"
+confidence = "medium"
+note = "Moves the Lava Gun's stream points (21.6 u/s^2), stops them on what they hit, damages an enemy hit (+0x6C) and those within 1.5 u (+0x70); V5's freeze."
+
+[[symbol]]
+name = "annihilator_update"
+address = 0x0036D5A0
+kind = "function"
+confidence = "medium"
+note = "The Annihilator's moby update: a target held after 5 frames as the aim assist's best (30 u), a missile every 1 / row +0x50 s; shock from V3, lock-on from V4."
+
+[[symbol]]
+name = "annihilator_fire"
+address = 0x0036E150
+kind = "function"
+confidence = "medium"
+note = "Aims and spawns one Annihilator missile."
+
+[[symbol]]
+name = "annihilator_missile_spawn"
+address = 0x003965B0
+kind = "function"
+confidence = "medium"
+note = "Spawns an Annihilator missile (class 0x1894) at row +0x4C u/s, living 75 u."
+
+[[symbol]]
+name = "annihilator_missile_update"
+address = 0x00396A20
+kind = "function"
+confidence = "medium"
+note = "An Annihilator missile: homes on its target for up to 294 frames, line-tests its step with the row's damage, explodes; from V5 scatters seven bomblets."
+
+[[symbol]]
+name = "flux_rifle_shot"
+address = 0x00345350
+kind = "function"
+confidence = "medium"
+note = "Fires a Flux Rifle shot at row +0x4C u/s (400) along the aim, with a 1.5 u muzzle ball and, scoped, a hitscan from the camera (0x37C818)."
+
+[[symbol]]
+name = "flux_shot_spawn"
+address = 0x003463A0
+kind = "function"
+confidence = "medium"
+note = "Spawns a Flux Rifle shot (class 0xCF7) living 128 u."
+
+[[symbol]]
+name = "flux_shot_hit"
+address = 0x00346D90
+kind = "function"
+confidence = "medium"
+note = "A Flux Rifle shot's line test with the row's damage; 0x4435E8 decides whether it stops."
+
+[[symbol]]
+name = "gun_target"
+address = 0x0044D930
+kind = "function"
+confidence = "high"
+note = "The gun's target: the live lock-on target, else none with the lock-strafe camera, else gun_aim_target."
+
+[[symbol]]
+name = "gun_aim_target"
+address = 0x0044CF68
+kind = "function"
+confidence = "medium"
+note = "(far yaw, far pitch, range, near pitch, near yaw, from, aim, ...): the guns' aim assist; enemies with health inside a cone that eases from near to far by 1 - (1 - d/range)^3, scored by yaw x 3 + pitch x 0.2 x d + d x 0.1, best one in sight."
+
+[[symbol]]
+name = "timer_tick"
+address = 0x0040BA90
+kind = "function"
+confidence = "high"
+note = "(int *): counts a frame timer down; 1 if it was already 0, 2 when it reaches 0, else 0."
+
+[[symbol]]
+name = "timer_tick_short"
+address = 0x0040BAC0
+kind = "function"
+confidence = "high"
+note = "timer_tick for a short."
+
+[[symbol]]
+name = "timer_tick_seconds"
+address = 0x0040BB20
+kind = "function"
+confidence = "high"
+note = "(float *): takes the frame time (0x1D5324) off a timer in seconds, stopping at 0."
+
+[[symbol]]
+name = "vec_set_length"
+address = 0x0040C0F0
+kind = "function"
+confidence = "high"
+note = "(length, out, in): out = in normalised to the length (0 for a zero vector)."
+
+[[symbol]]
+name = "vec_scale"
+address = 0x0040BE90
+kind = "function"
+confidence = "high"
+note = "(s, out, in): out = in x s."
+
+[[symbol]]
+name = "rand_range"
+address = 0x004408C0
+kind = "function"
+confidence = "high"
+note = "(a, b): a uniform float in [a, b)."
+
+[[symbol]]
+name = "rand_range_signed"
+address = 0x00440918
+kind = "function"
+confidence = "high"
+note = "(a, b): a uniform float in [a, b) with a random sign."
+
+[[symbol]]
+name = "rand_int"
+address = 0x00440878
+kind = "function"
+confidence = "high"
+note = "(a, b): a uniform integer in [a, b]."
+
+[[symbol]]
+name = "rand_angle"
+address = 0x00440978
+kind = "function"
+confidence = "high"
+note = "A uniform angle in [-pi, pi)."
+
+[[symbol]]
+name = "gravity_up"
+address = 0x004C41E8
+kind = "function"
+confidence = "medium"
+note = "(point, out): the level's up at a point: +z, or towards a centre in the levels with their own gravity, or the hero's up on gravity boots."
+
+[[symbol]]
+name = "projectile_gravity"
+address = 0x004C4190
+kind = "function"
+confidence = "medium"
+note = "(g, point, velocity): takes g along gravity_up off the velocity; projectiles call it each frame."
+
+[[symbol]]
+name = "moby_set_state"
+address = 0x00441FB8
+kind = "function"
+confidence = "medium"
+note = "(moby, state, sub): sets +0x20, keeping the previous at +0x94."
+
+[[symbol]]
+name = "damage_queue"
+address = 0x00443840
+kind = "function"
+confidence = "medium"
+note = "(moby, record): queues a damage record for a moby in the ring at 0x1EED00; a moby keeps one pending record (+0xA8), which a hit at least as strong replaces and a weaker one only adds its flags to. Guns and the shock mod call it."
