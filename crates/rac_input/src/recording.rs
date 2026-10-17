@@ -7,14 +7,17 @@ use thiserror::Error;
 use crate::{MAX_PLAYERS, PlayerInput};
 
 const MAGIC: [u8; 4] = *b"ORIN";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const HEADER_LEN: usize = 12;
+/// Version 1 inputs lack the look stick: their `look` held the stick's turning too.
+const V1_INPUT_LEN: usize = 10;
 
 /// A recorded session's inputs, tick by tick.
 ///
-/// File layout, little-endian: the magic `ORIN`, a `u16` version (1), a `u8` player count,
-/// a reserved byte, a `u32` tick count, then for each tick each player's 10-byte
-/// [`PlayerInput`].
+/// File layout, little-endian: the magic `ORIN`, a `u16` version (2), a `u8` player count,
+/// a reserved byte, a `u32` tick count, then for each tick each player's 12-byte
+/// [`PlayerInput`]. Version 1 files, whose inputs are the first 10 of those bytes, load
+/// with the look stick centred.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputRecording {
     players: usize,
@@ -25,7 +28,7 @@ pub struct InputRecording {
 pub enum RecordingError {
     #[error("not an input recording (bad magic)")]
     BadMagic,
-    #[error("input recording version {0} is not supported (expected {VERSION})")]
+    #[error("input recording version {0} is not supported (expected 1 or {VERSION})")]
     UnsupportedVersion(u16),
     #[error("input recording has {0} players; 1 to {MAX_PLAYERS} are supported")]
     BadPlayerCount(usize),
@@ -88,24 +91,32 @@ impl InputRecording {
             return Err(RecordingError::BadMagic);
         }
         let version = u16::from_le_bytes([header[4], header[5]]);
-        if version != VERSION {
-            return Err(RecordingError::UnsupportedVersion(version));
-        }
+        let input_len = match version {
+            1 => V1_INPUT_LEN,
+            VERSION => PlayerInput::ENCODED_LEN,
+            _ => return Err(RecordingError::UnsupportedVersion(version)),
+        };
         let players = usize::from(header[6]);
         if !(1..=MAX_PLAYERS).contains(&players) {
             return Err(RecordingError::BadPlayerCount(players));
         }
         let ticks = u32::from_le_bytes([header[8], header[9], header[10], header[11]]) as usize;
-        // u32 ticks × at most 4 players × 10 bytes fits in usize on every 64-bit target, but
+        // u32 ticks × at most 4 players × 12 bytes fits in usize on every 64-bit target, but
         // stay safe on 32-bit ones.
         let body_len = ticks
-            .checked_mul(players * PlayerInput::ENCODED_LEN)
+            .checked_mul(players * input_len)
             .ok_or(truncated(usize::MAX))?;
         let expected = HEADER_LEN.saturating_add(body_len);
         let body = bytes.get(HEADER_LEN..expected).ok_or(truncated(expected))?;
         // `body` is a whole number of inputs long, so nothing is left over.
-        let (encoded, _) = body.as_chunks::<{ PlayerInput::ENCODED_LEN }>();
-        let inputs = encoded.iter().map(PlayerInput::from_bytes).collect();
+        let inputs = body
+            .chunks_exact(input_len)
+            .map(|chunk| {
+                let mut encoded = [0; PlayerInput::ENCODED_LEN];
+                encoded[..input_len].copy_from_slice(chunk);
+                PlayerInput::from_bytes(&encoded)
+            })
+            .collect();
         Ok(Self { players, inputs })
     }
 }
@@ -173,6 +184,7 @@ mod tests {
             },
             PlayerInput {
                 look: [tick as i16 * 100, 0],
+                look_stick: [-(tick as i8), 1],
                 ..default()
             },
         ]
@@ -189,6 +201,32 @@ mod tests {
         assert_eq!(back.ticks(), 50);
         assert_eq!(back.tick(7), Some(&sample(7)[..]));
         assert_eq!(back.tick(50), None);
+    }
+
+    #[test]
+    fn version_1_files_load_with_the_look_stick_centred() {
+        let mut held = Buttons::NONE;
+        held.insert(Action::Jump);
+        let mut bytes = MAGIC.to_vec();
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&[1, 0]);
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        // Two ticks: the stick forward with a turn, then Jump held.
+        bytes.extend_from_slice(&[0, 127, 0x10, 0x00, 0xFF, 0xFF, 0, 0, 0, 0]);
+        bytes.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0x01, 0x00, 0, 0]);
+        let recording = InputRecording::from_bytes(&bytes).unwrap();
+        assert_eq!(recording.ticks(), 2);
+        assert_eq!(
+            recording.tick(0),
+            Some(
+                &[PlayerInput {
+                    move_stick: [0, 127],
+                    look: [16, -1],
+                    ..default()
+                }][..]
+            )
+        );
+        assert_eq!(recording.tick(1).unwrap()[0].held, held);
     }
 
     #[test]

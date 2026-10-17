@@ -12,7 +12,8 @@ mod spectator;
 use bevy::prelude::*;
 use rac_combat::{CombatPlugin, Destroyed, HitReaction, Hitpoints, Pushable, target_bundle};
 use rac_hero::{
-    Checkpoint, Collider, FollowCamera, HeroBody, HeroPlugin, HeroTuning, LockOn, hero_bundle,
+    CameraSetting, Checkpoint, Collider, FollowCamera, Hero, HeroBody, HeroPlugin, HeroTuning,
+    LockOn, hero_bundle,
 };
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
@@ -55,6 +56,9 @@ pub struct DemoPlugin;
 pub struct DemoSettings {
     /// Fly a free camera instead of playing the hero.
     pub spectator: bool,
+    /// The hero camera's setting; `None` takes the movement profile's default (third
+    /// person for UYA, lock-strafe for Deadlocked). Changing it changes the camera.
+    pub camera: Option<CameraSetting>,
 }
 
 /// Where the hero starts, on the floor facing down the level.
@@ -80,7 +84,15 @@ impl Plugin for DemoPlugin {
                 (break_targets, show_clanks).in_set(SimSet::Particles),
             )
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera))
-            .add_systems(Update, (flash_targets, show_lock_on));
+            .add_systems(
+                Update,
+                (
+                    flash_targets,
+                    show_lock_on,
+                    choose_camera.run_if(resource_changed::<DemoSettings>),
+                    hide_hero_in_first_person,
+                ),
+            );
     }
 }
 
@@ -294,7 +306,8 @@ pub fn spawn_demo(
         Transform::default(),
         Visibility::Hidden,
     ));
-    let camera = FollowCamera::for_player(0, 0.0);
+    let mut camera = FollowCamera::for_player(0, 0.0);
+    camera.setting = settings.camera;
     let (translation, rotation) = camera.placement(HERO_SPAWN, &tuning.0.camera);
     commands.spawn((
         Name::new("hero camera"),
@@ -407,6 +420,32 @@ fn show_lock_on(
         let facing = Quat::from_rotation_arc(Vec3::Y, towards);
         *transform = Transform::from_translation(at)
             .with_rotation(facing * Quat::from_rotation_y(time.elapsed_secs() * 3.0));
+    }
+}
+
+/// Gives the hero's camera the chosen setting.
+fn choose_camera(settings: Res<DemoSettings>, mut cameras: Query<&mut FollowCamera>) {
+    for mut camera in &mut cameras {
+        if camera.setting != settings.camera {
+            camera.setting = settings.camera;
+        }
+    }
+}
+
+/// Hides the hero while his camera looks out of his eyes.
+fn hide_hero_in_first_person(
+    cameras: Query<&FollowCamera>,
+    mut heroes: Query<(&Hero, &mut Visibility)>,
+) {
+    for (hero, mut visibility) in &mut heroes {
+        let first_person = cameras
+            .iter()
+            .any(|camera| camera.player == hero.player && camera.is_first_person());
+        visibility.set_if_neq(if first_person {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
     }
 }
 

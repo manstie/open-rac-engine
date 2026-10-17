@@ -2,8 +2,8 @@
 //!
 //! A menu is a column of buttons with one focused. The mouse focuses by hovering and
 //! clicks to choose; keys and the pad move the focus with the menu actions and choose with
-//! Accept. On the Model and Moves buttons, left and right step back and forth through the
-//! hero's models and the games he can move like.
+//! Accept. On the Model, Moves and Camera buttons, left and right step back and forth
+//! through the hero's models, the games he can move like and the camera settings.
 //! Settings screens and full UI navigation come with P1.12.
 
 use bevy::{
@@ -16,6 +16,7 @@ use rac_hero::HeroTuning;
 use rac_input::{Action, ActionState};
 use rac_rig::RigModels;
 
+use crate::camera;
 use crate::flow::{AppState, Pause};
 use crate::moves::{self, ChosenMoves};
 use crate::settings::{self, Paths};
@@ -31,6 +32,10 @@ enum MenuCommand {
     NextMoves,
     /// Makes the hero move like the previous game, and remembers it.
     PreviousMoves,
+    /// Gives the hero's camera the next setting, and remembers it.
+    NextCamera,
+    /// Gives the hero's camera the previous setting, and remembers it.
+    PreviousCamera,
     Resume,
     MainMenu,
     Quit,
@@ -43,6 +48,10 @@ struct ModelLabel;
 /// The text of the button that changes the game the hero moves like.
 #[derive(Component, Debug)]
 struct MovesLabel;
+
+/// The text of the button that changes the camera's setting.
+#[derive(Component, Debug)]
+struct CameraLabel;
 
 #[derive(Component, Debug, Clone, Copy)]
 struct MenuItem {
@@ -84,6 +93,10 @@ impl Plugin for MenuPlugin {
                     label_new_model_buttons,
                     label_moves.run_if(resource_changed::<HeroTuning>),
                     label_new_moves_buttons,
+                    label_camera.run_if(
+                        resource_changed::<HeroTuning>.or_else(resource_changed::<DemoSettings>),
+                    ),
+                    label_new_camera_buttons,
                 )
                     .chain(),
             );
@@ -111,7 +124,8 @@ fn spawn_main_menu(
             button(0, "Play the demo", MenuCommand::PlayDemo),
             model_button(1),
             moves_button(2),
-            button(3, "Quit", MenuCommand::Quit),
+            camera_button(3),
+            button(4, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -126,8 +140,9 @@ fn spawn_pause_menu(mut commands: Commands, mut focus: ResMut<Focus>) {
             button(0, "Resume", MenuCommand::Resume),
             model_button(1),
             moves_button(2),
-            button(3, "Main menu", MenuCommand::MainMenu),
-            button(4, "Quit", MenuCommand::Quit),
+            camera_button(3),
+            button(4, "Main menu", MenuCommand::MainMenu),
+            button(5, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -137,8 +152,9 @@ const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick.
     Crouch: Ctrl / R1. Then jump: heli jump, or a long jump while running.\n\
     Crouch, then push sideways or back as you jump: flip.\n\
     Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.\n\
+    Look round: V / L1 (first person in lock-strafe). Camera setting: in the menus.\n\
     Wrench: F / Square, again in time for the combo. Crouch first: throw it.\n\
-    Lock on (gamepad): L2 and R2 together.";
+    Lock on (gamepad, not in lock-strafe): L2 and R2 together.";
 
 const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
     Up: Space / Cross. Down: Ctrl / R1. Faster: right mouse / L2 or R2.\n\
@@ -224,6 +240,11 @@ fn moves_button(index: usize) -> impl Bundle {
     button_with(index, "Moves", MenuCommand::NextMoves, MovesLabel)
 }
 
+/// Its label is filled in by [`label_camera`].
+fn camera_button(index: usize) -> impl Bundle {
+    button_with(index, "Camera", MenuCommand::NextCamera, CameraLabel)
+}
+
 fn button_with(
     index: usize,
     label: &str,
@@ -293,6 +314,28 @@ fn label_new_moves_buttons(
     }
 }
 
+fn label_camera(
+    tuning: Res<HeroTuning>,
+    demo: Res<DemoSettings>,
+    mut labels: Query<&mut Text, With<CameraLabel>>,
+) {
+    for mut text in &mut labels {
+        text.0 = camera::label(demo.camera, &tuning.0);
+    }
+}
+
+/// Labels a menu's camera button as soon as it appears.
+fn label_new_camera_buttons(
+    tuning: Res<HeroTuning>,
+    demo: Res<DemoSettings>,
+    labels: Query<(), Added<CameraLabel>>,
+    texts: Query<&mut Text, With<CameraLabel>>,
+) {
+    if !labels.is_empty() {
+        label_camera(tuning, demo, texts);
+    }
+}
+
 fn navigate(actions: Res<ActionState>, items: Query<&MenuItem>, mut focus: ResMut<Focus>) {
     let count = items.iter().count();
     if count == 0 {
@@ -327,6 +370,7 @@ fn accept(
     let previous = match item.command {
         MenuCommand::NextModel => Some(MenuCommand::PreviousModel),
         MenuCommand::NextMoves => Some(MenuCommand::PreviousMoves),
+        MenuCommand::NextCamera => Some(MenuCommand::PreviousCamera),
         _ => None,
     };
     if actions.just_pressed(Action::UiAccept) {
@@ -347,6 +391,7 @@ fn run_chosen(
     mut models: ResMut<RigModels>,
     mut tuning: ResMut<HeroTuning>,
     mut chosen_moves: ResMut<ChosenMoves>,
+    mut demo: ResMut<DemoSettings>,
     paths: Option<Res<Paths>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -388,6 +433,18 @@ fn run_chosen(
                 saved.hero_moves = Some(name.to_owned());
                 if let Err(error) = settings::save(&paths.settings_file, &saved) {
                     warn!("could not save the game the hero moves like: {error:#}");
+                }
+            }
+        }
+        Some(command @ (MenuCommand::NextCamera | MenuCommand::PreviousCamera)) => {
+            let choice = camera::step(demo.camera, command == MenuCommand::NextCamera);
+            info!("the hero's camera: {}", camera::label(choice, &tuning.0));
+            demo.camera = choice;
+            if let Some(paths) = paths {
+                let mut saved = settings::load_or_create(&paths.settings_file);
+                saved.hero_camera = choice.map(|setting| camera::name(setting).to_owned());
+                if let Err(error) = settings::save(&paths.settings_file, &saved) {
+                    warn!("could not save the camera setting: {error:#}");
                 }
             }
         }

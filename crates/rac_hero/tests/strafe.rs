@@ -24,6 +24,7 @@ fn input(stick: Option<[i8; 2]>, held: &[Action], pressed: &[Action]) -> PlayerI
     PlayerInput {
         move_stick: stick.unwrap_or([0, 0]),
         look: [0, 0],
+        look_stick: [0, 0],
         held: buttons(held) | buttons(pressed),
         pressed: buttons(pressed),
     }
@@ -248,6 +249,52 @@ fn a_strafe_brakes_in_the_walk_until_he_faces_the_camera() {
     );
     // Longer than the plain walk's two ticks of braking.
     assert!(walked > 3, "{walked}");
+}
+
+#[test]
+fn standing_he_steps_round_to_the_camera_only_past_10_degrees() {
+    // camera.md, "The hero in these modes" [verified on UYA NTSC]: he turns once the camera
+    // is more than 10° off, and steps round until within 2°.
+    let mut rig = Rig::new(0.0);
+    rig.ticks(5, &strafe(None));
+    rig.camera_yaw = 9f32.to_radians();
+    rig.ticks(30, &strafe(None));
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    assert_eq!(rig.hero.yaw, 0.0);
+    rig.camera_yaw = 11f32.to_radians();
+    rig.tick(&strafe(None));
+    assert_eq!(rig.hero.state, HeroState::Walk);
+    rig.ticks(60, &strafe(None));
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    let off = (rig.camera_yaw - rig.hero.yaw).abs();
+    assert!(off < 2f32.to_radians(), "{off}");
+}
+
+#[test]
+fn the_look_stands_him_still_facing_the_camera() {
+    // camera.md, "The hero in these modes": the look shares the idle's movement and sets
+    // his facing to the camera's yaw every tick.
+    let mut rig = Rig::new(0.0);
+    rig.ticks(10, &input(Some(FORWARD), &[], &[]));
+    assert!(rig.hero.speed > 1.0);
+    rig.camera_yaw = 1.0;
+    let look = input(Some(RIGHT), &[Action::FirstPerson], &[Action::Jump]);
+    rig.tick(&look);
+    assert_eq!(rig.hero.state, HeroState::Look);
+    assert_eq!(rig.hero.state.game_number(), 1);
+    assert_eq!(rig.hero.yaw, 1.0);
+    rig.ticks(30, &look);
+    assert_eq!(rig.hero.state, HeroState::Look);
+    assert_eq!(rig.hero.speed, 0.0);
+    // While the look's camera blends in, he keeps his facing.
+    rig.hero.look_ready = false;
+    rig.camera_yaw = 2.0;
+    rig.tick(&look);
+    assert_eq!(rig.hero.yaw, 1.0);
+    // Letting go goes back to standing, once the jump presses are too old to count.
+    rig.ticks(10, &input(None, &[Action::FirstPerson], &[]));
+    rig.tick(&input(None, &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Idle);
 }
 
 #[test]

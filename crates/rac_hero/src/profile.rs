@@ -323,6 +323,9 @@ pub struct StrafeProfile {
     /// With the stick let go a strafe keeps walking, braking, until he faces within this
     /// of the camera.
     pub idle_within_degrees: f32,
+    /// Standing, he only steps round to the camera once it is more than this off his
+    /// facing.
+    pub turn_after_degrees: f32,
 }
 
 /// Locking on to a target, UYA's L2 and R2 held together (`hero-controller.md`,
@@ -1080,9 +1083,32 @@ pub struct Spring {
     pub damping: f32,
 }
 
-/// The third-person follow camera (`camera.md`, "How the follow camera works").
+/// Which camera the player watches the hero through: the games' camera setting
+/// (`camera.md`, "The setting and the hero's camera mode").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CameraSetting {
+    /// The follow camera.
+    ThirdPerson,
+    /// The free-look camera behind the hero's eye, turned only by the player.
+    LockStrafe,
+    /// The free-look camera at the hero's eye.
+    FirstPerson,
+}
+
+impl CameraSetting {
+    pub const ALL: [CameraSetting; 3] = [
+        CameraSetting::ThirdPerson,
+        CameraSetting::LockStrafe,
+        CameraSetting::FirstPerson,
+    ];
+}
+
+/// The hero's cameras (`camera.md`): the third-person follow camera, the free-look camera
+/// behind the lock-strafe and first-person views, and the blends between them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CameraProfile {
+    /// The camera a player starts with.
+    pub default_setting: CameraSetting,
     /// The follow distance and height at rest, and the height of the aim point above the
     /// hero's feet.
     pub distance: f32,
@@ -1090,6 +1116,7 @@ pub struct CameraProfile {
     pub look_height: f32,
     pub distance_spring: Spring,
     pub height_spring: Spring,
+    pub look_height_spring: Spring,
     /// How the look point trails the hero, horizontally and vertically.
     pub look_spring: Spring,
     pub look_spring_vertical: Spring,
@@ -1109,15 +1136,221 @@ pub struct CameraProfile {
     /// The arm tilts up or down at most this far, moving at most `pitch_step` rad a tick.
     pub pitch_limit_degrees: f32,
     pub pitch_step: f32,
-    /// After a jump ends at another height, the followed height catches up this fast, u/s.
-    pub landing_catch_up: f32,
-    /// The camera stays this far from geometry.
+    /// The look stick turns the arm at `stick_turn + stick_turn_per_speed × speed / 100`
+    /// rad a tick at full tilt, for the player's camera-speed option (0 to 100).
+    pub stick_turn: f32,
+    pub stick_turn_per_speed: f32,
+    /// Past `stick_tilt_dead_zone` the stick tilts the arm, up to the pitch limit at full
+    /// tilt, and lets it come back when released. The tilt follows the stick by at most
+    /// `stick_tilt_out` of the range a tick going out and `stick_tilt_back` coming back.
+    /// (The games' spring for it, gain 2 and damping 4, always gets there within those.)
+    pub stick_tilt_dead_zone: f32,
+    pub stick_tilt_out: f32,
+    pub stick_tilt_back: f32,
+    /// Strafing with the strafe buttons held, the arm isn't dragged, the camera aims at the
+    /// look point, and the look point follows on this horizontal spring.
+    pub strafe_look_spring: Spring,
+    pub vertical: VerticalProfile,
+    pub clearance: ClearanceProfile,
+    pub obstacles: ObstacleProfile,
+    /// The camera ends up at least this far from geometry.
     pub collision_radius: f32,
     /// Locked on, the camera turns to look past the hero at the target as the right stick
     /// would, at up to `lock_turn` rad a tick, a share that grows from 0 to all of it
     /// over `lock_ramp_ticks` (`camera.md`, "Lock-on").
     pub lock_turn: f32,
     pub lock_ramp_ticks: u32,
+    /// A camera volume's distance and height spring at this gain. It stays after the
+    /// volume, until running at the camera sets the usual gain again.
+    pub volume_gain: f32,
+    pub free_look: FreeLookProfile,
+    pub blends: CameraBlends,
+}
+
+/// The follow point's height per hero state (`camera.md`, "The follow point's height").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VerticalProfile {
+    /// Timed rises: the heli jump's and the double jump's to above the ground below him,
+    /// the flip's to above where he starts it, and back down after it.
+    pub heli_rise: Rise,
+    pub double_jump_rise: Rise,
+    pub flip_rise: Rise,
+    /// A sphere this big at the camera stops a rise where it touches anything.
+    pub rise_stop_radius: f32,
+    /// Past the apex with fewer ticks than this to land, ground at or above the held height
+    /// lifts it.
+    pub land_ticks: f32,
+    /// Past the apex and more than `follow_down_above` u above the ground, the held height
+    /// follows him down once his head drops `follow_down_angle` rad under the view.
+    pub follow_down_above: f32,
+    pub follow_down_angle: f32,
+    /// The jump attack's halfway height ends when he falls or has been off the ground
+    /// `attack_air_ticks`, and lasts `attack_after_ticks` after the attack.
+    pub attack_air_ticks: u32,
+    pub attack_after_ticks: u32,
+    /// In the air and for `air_after_land_ticks` after landing, the look point's vertical
+    /// gain is `air_gain + air_gain_gap × min(gap, air_gap) / air_gap`, where gap is how
+    /// far it is from the follow point's height.
+    pub air_gain: f32,
+    pub air_gain_gap: f32,
+    pub air_gap: f32,
+    pub air_after_land_ticks: u32,
+}
+
+/// A rise of the follow point by `height` over `ticks`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Rise {
+    pub height: f32,
+    pub ticks: u32,
+}
+
+/// The clearance point, which keeps the camera's pivot between floor and ceiling
+/// (`camera.md`, "Obstacles and collision").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClearanceProfile {
+    /// Rays this long go up and down from this far above his feet.
+    pub ray_from: f32,
+    pub ray_length: f32,
+    /// How much room the pivot wants above and below it.
+    pub radius: f32,
+    /// Under a low ceiling the height springs to the clearance point at this gain.
+    pub height_gain: f32,
+}
+
+/// How the follow camera gets round obstacles (`camera.md`, "Obstacles and collision").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObstacleProfile {
+    /// Spheres swept along the arm as (distance from the pivot, radius) at the rest
+    /// distance, scaled with the arm. One that hits pushes the arm sideways until its
+    /// line passes the contact by `sweep_clear_scale × (sweep_clear + sweep_clear_along ×
+    /// t)`, t being how far along the arm the contact is.
+    pub sweep: Vec<(f32, f32)>,
+    pub sweep_clear: f32,
+    pub sweep_clear_along: f32,
+    pub sweep_clear_scale: f32,
+    /// The camera's end stops this far short of a wall it would pass through.
+    pub end_skin: f32,
+    /// Turning the camera into a wall (the stick past `wall_stick`) pulls it in by
+    /// `wall_pull` a tick.
+    pub wall_stick: f32,
+    pub wall_pull: f32,
+    /// The arm is never shorter than `min_arm`; a wall alone can push it to `min_arm_wall`.
+    pub min_arm: f32,
+    pub min_arm_wall: f32,
+    /// The pull-in's timer rests at `pull_in_rest` ticks, and a wall pull sets it to
+    /// `pull_in_wall`. Clear of obstacles, it counts down and the pull-in eases out by
+    /// `(1 − cos(π × timer / pull_in_rest)) / 2` a tick.
+    pub pull_in_rest: u32,
+    pub pull_in_wall: u32,
+    /// The stick counts as resting under this on both axes.
+    pub idle_stick: f32,
+    /// A view blocked for this many ticks running, or a camera this far from where it
+    /// should be, starts again behind the hero, stopping `reset_skin` short of anything in
+    /// the way.
+    pub reset_blocked_ticks: u32,
+    pub reset_distance: f32,
+    pub reset_skin: f32,
+}
+
+/// The free-look camera behind the lock-strafe and first-person views and the look
+/// (`camera.md`, "The free-look camera"). Angles in radians and per tick unless named in
+/// degrees.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FreeLookProfile {
+    /// The stick is squared, keeping its sign (UYA), or taken as it is (Deadlocked).
+    pub squared: bool,
+    /// Turning speeds at full tilt, reached at these rates a tick per tick, all times
+    /// `0.25 + speed / 64` for the camera-speed option.
+    pub yaw_speed: f32,
+    pub yaw_accel: f32,
+    pub pitch_speed: f32,
+    pub pitch_accel: f32,
+    /// The quick turn: once the stick's x is past `quick_stick` for `quick_after_ticks`
+    /// ticks running.
+    pub quick_stick: f32,
+    pub quick_after_ticks: u32,
+    pub quick_speed: f32,
+    pub quick_accel: f32,
+    /// In the look, each axis is the further pushed of the two sticks', and a stick under
+    /// this turns nothing.
+    pub look_stick_threshold: f32,
+    /// How far down and up the view goes in lock-strafe and in first person. While either
+    /// is shown, the up limit eases towards `up_limit_rest_degrees` at
+    /// `up_limit_ease_degrees` a tick.
+    pub lock_strafe_limits: PitchLimits,
+    pub first_person_limits: PitchLimits,
+    pub up_limit_rest_degrees: f32,
+    pub up_limit_ease_degrees: f32,
+    /// The look button's first person in lock-strafe sets the first-person limits again
+    /// every tick it is held, so the up limit only ever takes one step (UYA).
+    pub hold_resets_limits: bool,
+    /// The look button must be held this long for first person in lock-strafe.
+    pub first_person_lead_ticks: u32,
+    /// The eye's height above his feet in lock-strafe and first person (`eye_crouch` in a
+    /// crouch). Switching the camera sets it to `eye_on_switch` if there is one, otherwise
+    /// to the new target; it then moves at up to `eye_speed`, speeding up and braking by
+    /// `eye_accel`, u a tick.
+    pub eye_lock_strafe: f32,
+    pub eye_first_person: f32,
+    pub eye_crouch: f32,
+    pub eye_on_switch: Option<f32>,
+    pub eye_accel: f32,
+    pub eye_speed: f32,
+    /// Jumping in lock-strafe holds the eye `eye_lock_strafe` above the ground below him,
+    /// until he is `jump_hold_until` above it. `jump_hold_ledge` holds it in a ledge jump
+    /// too.
+    pub jump_hold_until: f32,
+    pub jump_hold_ledge: bool,
+    /// Looking straight down moves the eye this far forward.
+    pub look_down_forward: f32,
+    /// A sphere of `eye_guard_radius` swept from `eye_guard_from` above his feet to the eye
+    /// keeps the eye out of walls.
+    pub eye_guard_from: f32,
+    pub eye_guard_radius: f32,
+    /// The lock-strafe camera sits `offset` behind the eye along the view. A ray
+    /// `offset_ray_extra` longer that hits something cuts it to the hit less that much at
+    /// once; it eases back out at up to `offset_speed`, speeding up and braking by
+    /// `offset_accel`, u a tick.
+    pub offset: f32,
+    pub offset_ray_extra: f32,
+    pub offset_accel: f32,
+    pub offset_speed: f32,
+    /// A sphere this big swept over the offset's last unit stops the camera at walls
+    /// (UYA).
+    pub end_sphere_radius: Option<f32>,
+}
+
+/// Degrees.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PitchLimits {
+    pub down_degrees: f32,
+    pub up_degrees: f32,
+}
+
+/// How the shown camera blends from one camera to another (`camera.md`, "Blending between
+/// cameras").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CameraBlends {
+    /// The look starts once the button has been held this long; meanwhile the follow
+    /// camera turns to his facing as lock-on turns it, at up to `look_steer` rad a tick.
+    pub look_lead_ticks: u32,
+    pub look_steer: f32,
+    /// Leaving the look with the follow camera this far off his facing starts it again
+    /// behind him.
+    pub look_reset_degrees: f32,
+    pub into_look: Blend,
+    pub out_of_look: Blend,
+    pub into_lock_strafe: Blend,
+    pub out_of_lock_strafe: Blend,
+    pub out_of_first_person: Blend,
+}
+
+/// A blend that starts `start` of the way and moves `rate` of the way a tick, eased by
+/// `(1 − cos πt) / 2`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Blend {
+    pub start: f32,
+    pub rate: f32,
 }
 
 #[derive(Debug, Error)]
@@ -1163,6 +1396,11 @@ mod tests {
         }
         assert_eq!(HeroProfile::bundled("dl"), Some(HeroProfile::dl()));
         assert_eq!(HeroProfile::bundled("gc"), None);
+        assert_eq!(profile.camera.default_setting, CameraSetting::ThirdPerson);
+        assert_eq!(
+            HeroProfile::dl().camera.default_setting,
+            CameraSetting::LockStrafe
+        );
     }
 
     /// The dotted paths of the fields whose values differ.
@@ -1209,8 +1447,29 @@ mod tests {
     fn deadlocked_differs_from_uya_only_where_the_games_do() {
         assert_eq!(
             differences(&HeroProfile::uya(), &HeroProfile::dl()),
-            // In the order of the field names, as RON's maps keep them.
+            // In the order of the field names, as RON's maps keep them. (The default
+            // camera setting differs too, but RON reads both names as the same value.)
             [
+                "camera.distance",
+                "camera.free_look.end_sphere_radius",
+                "camera.free_look.eye_accel",
+                "camera.free_look.eye_first_person",
+                "camera.free_look.eye_on_switch",
+                "camera.free_look.eye_speed",
+                "camera.free_look.first_person_lead_ticks",
+                "camera.free_look.first_person_limits.up_degrees",
+                "camera.free_look.hold_resets_limits",
+                "camera.free_look.jump_hold_ledge",
+                "camera.free_look.jump_hold_until",
+                "camera.free_look.lock_strafe_limits.up_degrees",
+                "camera.free_look.pitch_accel",
+                "camera.free_look.pitch_speed",
+                "camera.free_look.quick_accel",
+                "camera.free_look.quick_after_ticks",
+                "camera.free_look.squared",
+                "camera.free_look.up_limit_rest_degrees",
+                "camera.free_look.yaw_accel",
+                "camera.free_look.yaw_speed",
                 "double_jump.after_tick",
                 "double_jump.cap",
                 "fall.air_speed",

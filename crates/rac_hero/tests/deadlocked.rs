@@ -107,6 +107,7 @@ fn input(stick: Option<[i8; 2]>, held: &[Action], pressed: &[Action]) -> PlayerI
     PlayerInput {
         move_stick: stick.unwrap_or([0, 0]),
         look: [0, 0],
+        look_stick: [0, 0],
         held: buttons(held) | buttons(pressed),
         pressed: buttons(pressed),
     }

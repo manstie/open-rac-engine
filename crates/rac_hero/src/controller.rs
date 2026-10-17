@@ -73,6 +73,8 @@ pub enum Side {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HeroState {
     Idle,
+    /// Standing to look round with the first-person button, turning with the camera.
+    Look,
     /// Walking, including the walk's own skid after a sharp turn.
     Walk,
     /// Braking to a stop, with no turning: after a long jump's landing or a charge.
@@ -120,6 +122,7 @@ impl HeroState {
     pub fn game_number(self) -> u32 {
         match self {
             HeroState::Idle => 0,
+            HeroState::Look => 1,
             HeroState::Walk => 2,
             HeroState::Skid => 3,
             HeroState::Crouch => 4,
@@ -391,6 +394,10 @@ pub struct HeroMotion {
     pub strafing_back: bool,
     /// The camera's yaw this tick, which strafing turns him to.
     camera_yaw: f32,
+    /// The camera looks where he does in [`HeroState::Look`], so the look turns him with
+    /// it. The look's camera sets it false while it blends in (`camera.md`, "Which camera
+    /// mode shows it").
+    pub look_ready: bool,
     /// The strafe's own turning rate, kept apart from the walk's, radians per tick.
     strafe_yaw_rate: f32,
     /// The way he strafes: the stick's direction on the ground, kept when it is let go.
@@ -528,6 +535,7 @@ impl HeroMotion {
             thrown: None,
             strikes: Vec::new(),
             clank: None,
+            look_ready: true,
             strafing: false,
             strafe_side: StrafeSide::Forward,
             flip_side: StrafeSide::Forward,
@@ -627,6 +635,38 @@ impl HeroMotion {
     /// Keeps him from being hurt again for `ticks`.
     pub fn stay_safe_for(&mut self, ticks: u32) {
         self.safe_ticks = ticks;
+    }
+
+    /// Coming down: past a jump's apex, or falling in any other airborne state.
+    pub fn past_apex(&self) -> bool {
+        match self.state {
+            HeroState::Jump(_) => self.jump.past_apex,
+            _ => self.velocity.y <= 0.0,
+        }
+    }
+
+    /// Marks a jump as past its apex, for tests of what follows it.
+    #[cfg(test)]
+    pub(crate) fn pass_apex(&mut self) {
+        self.jump.past_apex = true;
+    }
+
+    /// About how many ticks until he lands on the ground below, at his vertical speed and
+    /// the jump's gravity (`fall_gravity` outside jumps).
+    pub fn ticks_to_land(&self, fall_gravity: f32) -> f32 {
+        let gravity = match self.state {
+            HeroState::Jump(_) | HeroState::DoubleJump if self.jump.gravity > 0.0 => {
+                self.jump.gravity
+            }
+            _ => fall_gravity,
+        };
+        if gravity <= 0.0 {
+            return f32::INFINITY;
+        }
+        let up = self.velocity.y;
+        let seconds =
+            (up + ops::sqrt(up * up + 2.0 * gravity * self.height_above_ground)) / gravity;
+        seconds / TICK
     }
 
     fn set_state(&mut self, state: HeroState) {
@@ -1191,6 +1231,27 @@ fn ground_tick(
         }
     }
 
+    // The first-person button stands him still to look round, and the look turns him to
+    // the camera once it looks where he does (UYA's state 1; `camera.md`, "The hero in
+    // these modes"). Letting go goes back to idle, or to a crouch with crouch held.
+    if input.held(Action::FirstPerson)
+        && matches!(
+            hero.state,
+            HeroState::Idle | HeroState::Walk | HeroState::Look
+        )
+    {
+        hero.set_state(HeroState::Look);
+        hero.speed = approach(hero.speed, 0.0, walk.stop_brake * TICK);
+        if hero.look_ready {
+            hero.yaw = hero.camera_yaw;
+            hero.yaw_rate = 0.0;
+        }
+        let facing = hero.facing();
+        hero.set_horizontal_velocity(facing * hero.speed);
+        hero.velocity.y = 0.0;
+        return;
+    }
+
     let jump_buffer = if hero.state == HeroState::Walk {
         walk.jump_buffer_walk
     } else {
@@ -1370,6 +1431,14 @@ fn ground_tick(
     } else {
         hero.skidding = false;
         hero.sliding = false;
+        let off_camera = wrap(hero.camera_yaw - hero.yaw).abs();
+        if hero.state == HeroState::Idle
+            && hero.strafing
+            && off_camera > profile.strafe.turn_after_degrees.to_radians()
+        {
+            // Standing, he steps round to the camera once it is well off his facing.
+            hero.set_state(HeroState::Walk);
+        }
         match hero.state {
             HeroState::Walk if hero.strafing => {
                 // A strafe brakes at the skid rate, turning to the camera, and only idles

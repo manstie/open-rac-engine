@@ -13,7 +13,7 @@ pub const MAX_PLAYERS: usize = 4;
 /// exactly the same amount.
 pub const ANGLE_UNITS_PER_TURN: f32 = 65_536.0;
 
-/// Everything the simulation learns from one player in one tick: 10 bytes, which replays
+/// Everything the simulation learns from one player in one tick: 12 bytes, which replays
 /// store and the netcode sends.
 ///
 /// All of it is integers, so a replay or a remote peer reproduces it exactly.
@@ -24,10 +24,15 @@ pub struct PlayerInput {
     /// (`docs/research/hero-controller.md`, "Input"). The range is square, as on a PS2
     /// stick: keys and a pad pushed fully diagonally give 127 on both axes.
     pub move_stick: [i8; 2],
-    /// How far to turn the view this tick, in binary angle units ([`ANGLE_UNITS_PER_TURN`]
-    /// per turn): x turns right, y looks up. The player's sensitivity and invert settings
-    /// are already applied.
+    /// How far the mouse turns the view this tick, in binary angle units
+    /// ([`ANGLE_UNITS_PER_TURN`] per turn): x turns right, y looks up. The player's
+    /// sensitivity and invert settings are already applied.
     pub look: [i16; 2],
+    /// The look stick, in PS2 stick counts like `move_stick`: x to the right, y up (looking
+    /// up, once the player's invert settings are applied). The camera turns it into a turn
+    /// rate with the game's own response, which differs between its cameras
+    /// (`docs/research/camera.md`).
+    pub look_stick: [i8; 2],
     /// Gameplay buttons held at the tick.
     pub held: Buttons,
     /// Gameplay buttons pressed since the previous tick, including taps too short to be
@@ -36,7 +41,7 @@ pub struct PlayerInput {
 }
 
 impl PlayerInput {
-    pub const ENCODED_LEN: usize = 10;
+    pub const ENCODED_LEN: usize = 12;
 
     /// The movement stick as a vector with each axis in −1..=1.
     pub fn move_vector(&self) -> Vec2 {
@@ -46,7 +51,15 @@ impl PlayerInput {
         )
     }
 
-    /// The look delta in radians: x turns right, y looks up.
+    /// The look stick as a vector with each axis in −1..=1: x right, y up.
+    pub fn look_vector(&self) -> Vec2 {
+        Vec2::new(
+            f32::from(self.look_stick[0]) / 127.0,
+            f32::from(self.look_stick[1]) / 127.0,
+        )
+    }
+
+    /// The mouse's look delta in radians: x turns right, y looks up.
     pub fn look_radians(&self) -> Vec2 {
         Vec2::new(
             f32::from(self.look[0]) * (TAU / ANGLE_UNITS_PER_TURN),
@@ -71,6 +84,8 @@ impl PlayerInput {
         bytes[4..6].copy_from_slice(&self.look[1].to_le_bytes());
         bytes[6..8].copy_from_slice(&self.held.0.to_le_bytes());
         bytes[8..10].copy_from_slice(&self.pressed.0.to_le_bytes());
+        bytes[10] = self.look_stick[0] as u8;
+        bytes[11] = self.look_stick[1] as u8;
         bytes
     }
 
@@ -83,6 +98,7 @@ impl PlayerInput {
             ],
             held: Buttons(u16::from_le_bytes([bytes[6], bytes[7]])),
             pressed: Buttons(u16::from_le_bytes([bytes[8], bytes[9]])),
+            look_stick: [bytes[10] as i8, bytes[11] as i8],
         }
     }
 }
@@ -116,6 +132,7 @@ mod tests {
         let input = PlayerInput {
             move_stick: [-127, 64],
             look: [i16::MIN, 1234],
+            look_stick: [127, -100],
             held,
             pressed,
         };
@@ -128,12 +145,15 @@ mod tests {
         let input = PlayerInput {
             move_stick: [-1, 2],
             look: [0x0304, -2],
+            look_stick: [-3, 4],
             held: Buttons(0x0506),
             pressed: Buttons(0x0708),
         };
         assert_eq!(
             input.to_bytes(),
-            [0xFF, 0x02, 0x04, 0x03, 0xFE, 0xFF, 0x06, 0x05, 0x08, 0x07]
+            [
+                0xFF, 0x02, 0x04, 0x03, 0xFE, 0xFF, 0x06, 0x05, 0x08, 0x07, 0xFD, 0x04
+            ]
         );
     }
 
@@ -142,10 +162,12 @@ mod tests {
         let input = PlayerInput {
             move_stick: [127, -127],
             look: [16_384, 0],
+            look_stick: [-127, 127],
             ..default()
         };
         assert_eq!(input.move_vector(), Vec2::new(1.0, -1.0));
         assert_eq!(input.look_radians().x, TAU / 4.0);
+        assert_eq!(input.look_vector(), Vec2::new(-1.0, 1.0));
     }
 
     #[test]

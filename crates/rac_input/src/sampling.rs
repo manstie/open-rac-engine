@@ -52,7 +52,8 @@ pub struct LocalSampler {
     held: Buttons,
     pressed: Buttons,
     move_stick: [i8; 2],
-    /// View turning not yet sent, in radians. Only whole angle units are sent each tick,
+    look_stick: [i8; 2],
+    /// Mouse turning not yet sent, in radians. Only whole angle units are sent each tick,
     /// and the remainder carries over, so slow mouse movement isn't rounded away.
     look: Vec2,
 }
@@ -203,16 +204,20 @@ pub(crate) fn sample_devices(
     };
     sampler.move_stick = [to_stick_counts(movement.x), to_stick_counts(movement.y)];
 
-    let pad_look = apply_dead_zone(pad_look, settings.look_dead_zone, true);
-    let mut look = Vec2::new(mouse_motion.delta.x, -mouse_motion.delta.y)
-        * settings.mouse_sensitivity
-        + pad_look * settings.stick_look_speed * time.delta_secs();
+    // The look stick goes to the simulation as it is, like the movement stick: each
+    // camera reads it with its game's own dead zone and response.
+    let mut pad_look = circle_to_square(apply_dead_zone(pad_look, settings.look_dead_zone, false));
+    let mut look =
+        Vec2::new(mouse_motion.delta.x, -mouse_motion.delta.y) * settings.mouse_sensitivity;
     if settings.invert_look_x {
         look.x = -look.x;
+        pad_look.x = -pad_look.x;
     }
     if settings.invert_look_y {
         look.y = -look.y;
+        pad_look.y = -pad_look.y;
     }
+    sampler.look_stick = [to_stick_counts(pad_look.x), to_stick_counts(pad_look.y)];
     sampler.look += look;
 }
 
@@ -260,6 +265,7 @@ pub(crate) fn latch_tick_inputs(
                 *slot = PlayerInput {
                     move_stick: sampler.move_stick,
                     look: [look_x, look_y],
+                    look_stick: sampler.look_stick,
                     held: sampler.held,
                     pressed: sampler.pressed,
                 };

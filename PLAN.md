@@ -30,14 +30,15 @@ session is working on the task now; notes on problems met stay with their task (
 - **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus). He has the follow camera with
-  lock-on (P1.7) and melee for both games (P1.8). He wears the open blocky model or, from the user's
+  lock-on, the lock-strafe and first-person cameras and their blends (P1.7), and melee
+  for both games (P1.8). He wears the open blocky model or, from the user's
   discs, any of 15 UYA suits or 12 DL skins, and plays Ratchet's real animations with a
   UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed.
-- **Reverse engineering:** the hero's movement and camera are read in UYA's and DL's code
-  and checked against traces (RE.3, RE.4), the camera's look, lock-strafe and first-person
-  views, height modes, obstacles and level cameras included; RE.8 is answered (NTSC-U is
-  the native tuning).
+- **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
+  against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
+  collision rule the kit needs is read and traced in both games; RE.8 is answered
+  (NTSC-U is the native tuning).
   UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
   level, ammo, XP, mods, aim assist, and the guns behind P1.9's five archetypes.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
@@ -49,18 +50,15 @@ session is working on the task now; notes on problems met stay with their task (
 **Next actions, in order:**
 1. **Owner:** push `re/hero-movement` so CI runs (it needs the owner's credentials). Then
    fix anything Windows-specific it finds (P0.7).
-2. P1.7: put RE.4's 2026-10-16 findings into the kit's camera (`camera.md`, "Next steps"
-   item 5): the free-look camera behind lock-strafe and first person, with DL's
-   lock-strafe as its default; the follow point's height modes; the pull-in and
-   collision; DL's 6 u follow distance; camera volumes.
-3. RE.3 and P1.5 for DL: where its flips come from, its crouch moves (a savestate past the
+2. RE.3 and P1.5 for DL: where its flips come from, its crouch moves (a savestate past the
    tutorial), and the `dl.ron` sections marked "not read in DL".
-4. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
-   rules are read), with RE.7's next steps alongside.
-5. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
+3. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
+   rules are read), with RE.7's next steps alongside; with them, the free look's aim
+   assist and the strafing a gun forces (P1.7).
+4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
-**Wanted from the owner, when convenient:** a half-tilt stick recording on an NTSC disc
-(`docs/re-setup.md`, "Still wanted").
+**Wanted from the owner, when convenient:** savestates by moves that need a particular
+place (`docs/re-setup.md`, "Still wanted").
 
 ---
 
@@ -296,6 +294,7 @@ None at the moment.
 | 2026-10-15 | **The rig's skeleton is UYA's hero's whole skeleton** (111 joints in his order, then Clank's and the wrench's), replacing the 44-joint one, so clips drive the face and fingers joint for joint. Poses carry a scale per joint, which its children take on as in the games; a model bound to joints turned at rest says so (`ModelData::turns`). A rig joint a source skeleton lacks may sit between two it has. Which clip plays, and how fast, follows the game's own rules (`rac_rig/src/play.rs`); a game hands the rig its rules for fidgets with its clips. |
 | 2026-10-15 | **The repository is GPL-3.0-or-later, replacing MIT**, the hero kit included, so projects reusing the kit must be GPL-compatible. Code under licences GPLv3 can absorb (permissive, GPL-3.0, GPL-2.0-or-later, LGPL; so Wrench and PCSX2) may be reused with its notices kept and listed in `prior-art.md`; GPL-2.0-only and unlicensed code stay reference only, and decompiled game code is never committed. GPLv2 was ruled out because several dependencies (parry3d, winit, cpal) are Apache-2.0 only. Copies of the MIT commits that were already pushed stay MIT. |
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
+| 2026-10-17 | **The look stick reaches the simulation as stick counts** (`PlayerInput::look_stick`, making the encoding 12 bytes and `.orin` version 2; version 1 files still load), so each camera applies its game's own response: the follow camera's linear turn and springing tilt, the free look's squared (UYA) or linear (DL) speeds and quick turn. The mouse stays a direct turn in every camera (G5), and the follow camera keeps the tilt the mouse sets. The camera setting (third person, lock-strafe, first person) is a player option on `FollowCamera` whose default is the movement profile's. |
 
 ## 6. Roadmap
 
@@ -324,6 +323,8 @@ every phase. Every task follows CLAUDE.md's definition of done.
 - [x] **P0.12** Data-hygiene guard: `tools/check-data-hygiene.sh`, the `data-hygiene` CI
   job and `.githooks/pre-commit`. It rejects disc-derived file types, savestates, memory
   cards, recordings, traces and dumps, and any binary over 1 MB not on its allowlist.
+  - It failed on a tracked file deleted or moved in the working tree (it measured every
+    tracked path); it now skips paths that are gone.
 - [x] **P0.13** Relicense the repository from MIT to GPL-3.0-or-later (section 5):
   `LICENSE`, the workspace's `license`, the README's notice, and the licence rules in
   CLAUDE.md, CONTRIBUTING.md and `prior-art.md`.
@@ -370,37 +371,38 @@ committed (names, addresses, layouts, derived constants).
     moves, which item gives DL's glide, the `dl.ron` sections
     marked "not read in DL" (the crouch flip among them: DL's R1 didn't crouch where it was
     traced), wading (state 117), how the games carry the hero on moving platforms, and a
-    half-tilt stick on NTSC.
-- [~] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
-  - Done, UYA NTSC: the follow camera, read in code and checked against
-    `uyantsc-veldin-cam-1`; lock-on's steering; the follow point's height modes, verified
-    on `uyantsc-veldin-camvert-{1..5}`; obstacles and collision in code, the pull-in
-    verified on `uyantsc-phoenix-camwall-1`; the camera manager, the level's cameras,
-    camera volumes, the fixed-point and path cameras in code, their data checked in five
-    savestates; the look (L1), lock-strafe and first person in code, the look verified on
-    `uyantsc-veldin-camlock-1`. They are the hero's own free-look camera, which two camera
-    modes copy.
+    diagonal part-tilted stick on NTSC (the dead zone, the 0.25 cut-off and the speed's
+    scaling are verified with `AXIS_SCALE` keys).
+- [x] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
+  - Done, UYA NTSC: the follow camera with its height modes, obstacles and collision
+    (clearance point, sweep, pull-in, the 30-frame and 30 u resets, the collision masks);
+    lock-on's steering; the camera manager, level cameras, blends between cameras,
+    camera volumes, the fixed-point, path and 0x11 cameras; the look, lock-strafe, first
+    person and the strafing a gun forces; the right stick at part tilt. Each is read in
+    code, and all but lock-on, the orbit blend and 0x11 are checked against traces
+    (`camera.md`, "Traces").
   - Done, DL NTSC: the follow camera (UYA's, 6 u back, no push-back), lock-strafe and
-    first person, read in code and verified on `dlntsc-dreadzone-cam-{1,2,3}`.
-  - To do (each section of `camera.md` ends with its own list): traces of UYA's
-    lock-strafe and first-person settings, a gun in hand, a camera volume and a
-    flythrough activating, a low ceiling, a 30-frame blocked view, and a half-tilted
-    right stick; the blend code between camera modes (0x3F2090 on, 0x4421E8); the
-    collision masks' bits.
-  - Next step: UYA's lock-strafe take, `uyantsc-veldin-camlock.sh 2` on the `uya-camA`
-    boot (`camera.md`, "Lock-strafe and first person", "Not read yet / next steps").
-  - Our layouts' "camera" block at 0x1E2A40 is a copy 0x80 before libuya's `GameCamera`
-    (0x1E2AC0 on UYA NTSC, Veldin's build), so their offsets are libuya's + 0x80, and two
-    of their field names were wrong. Corrected in `camera.md`, "Where the camera lives";
-    the old traces stay readable.
-  - The camera blocks move with each level's build (0x580 lower on the Phoenix), like the
-    rest of the level overlay's data: find them per level before capturing.
-  - Captures slow the game to about 19 frames a real second, and some samples come out
-    torn (a value repeats, then skips a frame); simulations must skip those frames.
+    first person, read in code and traced, the stick at part tilt included (DL doesn't
+    square it).
+  - Open, at lower priority (`camera.md`, "Next steps" item 6): a 1° unexplained in the
+    follow camera's tilt, the vertical invert's default, the first-person gun placement,
+    the camera-only collision groups, the camera classes only other builds hold, DL's aim
+    assist and special follow branches, and the untraced vertical modes.
+  - Keys tilt the sticks part-way on a `boot.sh` started with `AXIS_SCALE` (PCSX2's
+    `AxisScale`; `docs/re-setup.md`), so stick-response checks no longer need the owner.
+  - The camera blocks move with each level's build (0x580 lower on the Phoenix, 0x1740 on
+    Florana, whose core globals sit 0x1680 lower), like the rest of the level overlay's
+    data: find them per level before capturing.
+  - Captures slow the game to about 19 to 55 frames a real second, and some samples come
+    out torn (a value repeats, then skips a frame); simulations must skip those frames.
+  - A take that writes the camera setting must also clear the free look's flag bit 0, as
+    `hero_camera_set` does: left set, the left stick turns the view too (the first take
+    2 had to be redone).
 - [~] **RE.5** **`tools/pine-probe`**: per-frame capture driven by a layout, savestate
   and recording readers, CSV export, `replay.sh` (a recording on Xvfb), `boot.sh` (a
-  disc with the keyboard as controller 1, driven by xdotool), `warp.sh` (any level),
-  `peek`, `poke`, `load-state` and `save-state`. Extend it as moves need.
+  disc with the keyboard as controller 1, driven by xdotool, its sticks part-tilted with
+  `AXIS_SCALE`), `warp.sh` (any level), `peek`, `poke`, `load-state` and `save-state`.
+  Extend it as moves need.
 - [~] **RE.6** **Feel-matching harness:** `rac_hero/tests/feel.rs`, `moves.rs`,
   `strafe.rs` and `deadlocked.rs` check the controller against figures from our traces.
   - To do: replay whole traces through the kit and compare them frame by frame (apex
@@ -472,7 +474,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   P1.19.
 - [~] **P1.3** Input layer (`rac_input`, G3): actions with UYA's pad layout and KB+M
   defaults (WASD plus mouse look and aim), dead zones, sensitivity, invert and swapped
-  sticks, `InputSettings` saved in the settings file, the 10-byte `PlayerInput`,
+  sticks, `InputSettings` saved in the settings file, the 12-byte `PlayerInput` (the
+  look stick as stick counts, so each camera applies its game's response; section 5),
   `ActionState` for menus, the `.orin` codec, `Binding::PadBoth` for two-button chords,
   and gamepad-only lock-on (section 5). Saved settings that predate an action get its
   defaults.
@@ -513,22 +516,31 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     brakes once more. A crouch flip from a run carries one crouch tick's braking more
     speed than the game's for the same reason.
 - [-] **P1.6** Movement feel reference. Moved to RE.3, RE.5 and RE.6.
-- [~] **P1.7** Third-person camera (`rac_hero/src/camera.rs`, the profile's `camera`
-  section), from RE.4: UYA's drag camera with a lagging look point, the distance and
-  height springs, the push-back when the hero runs at it, the vertical hold in jumps, and
-  lock-on turning it to look past the hero at the target. The look stick's default speed
-  is UYA's, 3.01 rad/s.
-  - Simplified: collision is a 0.25 u sphere cast from the aim point; the landing
-    catch-up rate is a placeholder; the pitch the player sets stays put (mouse-first, G5),
-    where the game's springs back.
-  - To do, all now read under RE.4 (`camera.md`, "Next steps" item 5): the follow point's
-    height modes and the look point's air gain, in place of the hold-then-catch-up; the
-    cosine pull-in, its stick bump and the 1.5 u minimum arm; the free-look camera for
-    the look, lock-strafe and first person, chosen by a camera setting whose default is
-    the profile's (UYA third person, DL lock-strafe), with its own stick response
-    (squared, 90°/s in UYA and 180°/s in DL, a 360°/s quick turn), which `rac_input`'s
-    linear look doesn't give yet; DL's follow distance of 6.0 with no push-back; camera
-    volumes as a kit component. Path cameras wait for level scripting.
+- [x] **P1.7** The hero's camera (`rac_hero/src/camera/`, the profile's `camera` section),
+  from RE.4 (`camera.md`):
+  - **The follow camera** (third person): UYA's drag camera with the follow point's
+    height modes (the jump hold, the heli, double-jump and flip rises, the jump attack's
+    halfway height), the look point's air gain, the distance and height springs, the
+    push-back, the stick's linear turn and springing tilt, lock-on's turn, strafing's
+    drag-free arm, the clearance point, the arm sweep, the camera-end sphere, the
+    cosine pull-in with its stick bump and 1.5 u minimum, and the 30-tick and 30 u
+    resets. DL's is the same 6 u back, so it has no push-back.
+  - **The free-look camera** for the lock-strafe and first-person settings and the
+    third-person look (`Action::FirstPerson`, `HeroState::Look`): UYA's squared and DL's
+    linear stick, the quick turn, the limits and their ease, the eye's spring and jump
+    hold, the 6 u offset with its ray cut and ease-out, from last tick's eye. The
+    setting is `FollowCamera::setting` (UYA third person, DL lock-strafe by default),
+    chosen in the menus or with `--camera`; lock-strafe doesn't lock on.
+  - **Blends** between the cameras (the cosine lerp at the games' rates), and
+    **`CameraVolume`**, a box with a priority and optional overrides.
+  - Standing while strafing, he steps round to the camera once it is 10° off.
+  - **Simplified or left out:** the kit also sweeps the camera from the pivot so it never
+    ends behind a wall; the free look's aim assist and the strafing a gun forces wait for
+    P1.9; the platform carry, the swim and critter rules, volume steering and fields of
+    view, and the modes for states the kit lacks (jets, rocket jumps, jump pads, the
+    bounce's mode 11) aren't modelled; the camera setting isn't in input recordings.
+  - **Not traced against the kit:** a replay of RE.4's traces through the kit camera
+    would check it end to end (camera.md, "Next steps").
 - [x] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
   and the crate `rac_combat`): the wrench combo, jump attack, throw, grind attack and the
   clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with

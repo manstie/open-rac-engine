@@ -13,7 +13,9 @@
 //!   controller.
 //! - The wrench's attacks turn to [`AimTarget`]s, and what they can hit each tick is in
 //!   [`HeroMotion::strikes`] for the game's combat code (`rac_combat`) to test.
-//! - [`FollowCamera`] is a basic third-person camera (P1.7).
+//! - [`FollowCamera`] is the hero's camera (P1.7): UYA's third-person follow camera, or
+//!   the free-look camera behind the lock-strafe and first-person settings
+//!   ([`CameraSetting`]), with [`CameraVolume`]s that retune it.
 //! - Strafing faces the camera; with a gamepad, [`LockOn`] holds a target that the camera
 //!   turns to.
 
@@ -31,7 +33,7 @@ use bevy::prelude::*;
 use rac_input::PlayerInputs;
 use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
 
-pub use camera::FollowCamera;
+pub use camera::{CameraSetting, CameraVolume, FollowCamera};
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
 pub use controller::{
     Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
@@ -265,10 +267,9 @@ fn move_heroes(
     }
 
     for (hero, mut body, mut health, mut transform, mut previous) in heroes {
-        let camera_yaw = cameras
-            .iter()
-            .find(|camera| camera.player == hero.player)
-            .map_or(0.0, |camera| camera.yaw);
+        let camera = cameras.iter().find(|camera| camera.player == hero.player);
+        let camera_yaw = camera.map_or(0.0, |camera| camera.yaw);
+        body.0.look_ready = camera.is_none_or(FollowCamera::look_ready);
         let events = controller::step(
             &mut body.0,
             &inputs.get(hero.player),
@@ -330,10 +331,15 @@ fn lock_on_targets(
         .collect();
     target_list.sort_by_key(|(entity, _)| *entity);
     for (hero, body, mut lock) in &mut heroes {
-        let camera_yaw = cameras
-            .iter()
-            .find(|camera| camera.player == hero.player)
-            .map_or(body.0.yaw, |camera| camera.yaw);
+        let camera = cameras.iter().find(|camera| camera.player == hero.player);
+        // The lock-strafe camera doesn't lock on (`hero-controller.md`, "Lock-on").
+        if camera.is_some_and(|camera| {
+            camera.setting_with(&tuning.0.camera) == CameraSetting::LockStrafe
+        }) {
+            lock.target = None;
+            continue;
+        }
+        let camera_yaw = camera.map_or(body.0.yaw, |camera| camera.yaw);
         lock_on::update(
             &mut lock,
             &body.0,
@@ -465,6 +471,31 @@ mod tests {
         assert_eq!(body(&app, hero).state, HeroState::Idle);
         assert_eq!(body(&app, hero).position, Vec3::ZERO);
         assert_eq!(app.world().get::<Health>(hero).unwrap().current, 10);
+    }
+
+    #[test]
+    fn the_lock_strafe_camera_does_not_lock_on() {
+        for (setting, locks) in [
+            (CameraSetting::ThirdPerson, true),
+            (CameraSetting::LockStrafe, false),
+        ] {
+            let (mut app, hero) = app();
+            app.world_mut().spawn((
+                FollowCamera::for_player(0, 0.0).with_setting(setting),
+                SimTransform::default(),
+            ));
+            app.world_mut().spawn((
+                AimTarget { height: 0.5 },
+                Transform::from_xyz(0.0, 0.0, -5.0),
+            ));
+            let mut input = rac_input::PlayerInput::default();
+            input.held.insert(rac_input::Action::LockOn);
+            input.pressed.insert(rac_input::Action::LockOn);
+            app.world_mut().resource_mut::<PlayerInputs>().0[0] = input;
+            ticks(&mut app, 1);
+            let lock = app.world().get::<LockOn>(hero).unwrap();
+            assert_eq!(lock.target.is_some(), locks, "{setting:?}");
+        }
     }
 
     #[test]

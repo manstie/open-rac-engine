@@ -15,6 +15,7 @@
 #   PCSX2     PCSX2 launcher (default: ~/.local/bin/pcsx2)
 #   SPEED     emulation speed (default 1)
 #   DISPLAY_NUM, PINE_SLOT   virtual display and PINE slot (defaults 98 and 28013)
+#   AXIS_SCALE   scale both sticks (PCSX2's AxisScale), so keys give part tilt: 0.5 is half
 #   PCSX2_CONFIG   the owner's PCSX2 config folder (default ~/.config/PCSX2)
 set -euo pipefail
 
@@ -62,7 +63,7 @@ fi
 
 "$PROBE" headless-config --from "$OWNER/inis/PCSX2.ini" \
   --out "$WORK/xdg/PCSX2/inis/PCSX2.ini" --bios-dir "$OWNER/bios" \
-  --slot "$SLOT" --speed "$SPEED" --keyboard-pad
+  --slot "$SLOT" --speed "$SPEED" --keyboard-pad ${AXIS_SCALE:+--axis-scale "$AXIS_SCALE"}
 cp "$OWNER/memcards/Mcd001.ps2" "$OWNER/memcards/Mcd002.ps2" "$WORK/xdg/PCSX2/memcards/"
 
 XDG_CONFIG_HOME="$WORK/xdg" nice -n 10 "$PCSX2" -- "$ISO" >"$WORK/pcsx2.log" 2>&1 &

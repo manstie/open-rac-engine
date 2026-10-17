@@ -18,6 +18,8 @@ pub struct Settings {
     pub hero_model: Option<String>,
     /// Which game the hero moves like (`crate::moves`); UYA if unset.
     pub hero_moves: Option<String>,
+    /// The hero camera's setting (`crate::camera`); the game's own if unset.
+    pub hero_camera: Option<String>,
 }
 
 /// Where the app keeps its files.
@@ -131,6 +133,7 @@ mod tests {
         settings.input.invert_look_y = true;
         settings.hero_model = Some("uya".into());
         settings.hero_moves = Some("dl".into());
+        settings.hero_camera = Some("lock-strafe".into());
         save(&path, &settings).unwrap();
         assert_eq!(load_or_create(&path), settings);
     }

@@ -5,6 +5,7 @@
 //! the menus, as can the game he moves like. The roadmap lives in `PLAN.md` at the
 //! repository root.
 
+mod camera;
 mod discs;
 mod flow;
 mod hero_anims;
@@ -67,6 +68,16 @@ struct Args {
     /// RON file. Overrides the one saved in the settings, which the menus change.
     #[arg(long, value_name = "GAME|FILE")]
     moves: Option<String>,
+    /// The hero's camera: `third-person`, `lock-strafe` or `first-person`. Without it, the
+    /// one saved in the settings, which the menus change, or else the game's own (third
+    /// person for UYA, lock-strafe for DL).
+    #[arg(long, value_name = "SETTING", value_parser = parse_camera)]
+    camera: Option<rac_hero::CameraSetting>,
+}
+
+fn parse_camera(name: &str) -> Result<rac_hero::CameraSetting, String> {
+    camera::parse(name)
+        .ok_or_else(|| format!("{name:?} is not third-person, lock-strafe or first-person"))
 }
 
 // Bevy's GPU buffers lay out mesh data with `size_of`, which matches the shaders only while
@@ -137,6 +148,14 @@ fn main() -> Result<AppExit> {
     ))
     .insert_resource(rac_demo::DemoSettings {
         spectator: args.spectator,
+        camera: args.camera.or_else(|| {
+            let saved = settings.hero_camera.as_deref()?;
+            let setting = camera::parse(saved);
+            if setting.is_none() {
+                warn!("the saved camera setting {saved:?} isn't one, so the game's applies");
+            }
+            setting
+        }),
     })
     .insert_resource(rac_hero::HeroTuning(moves.1))
     .insert_resource(moves::ChosenMoves(moves.0))

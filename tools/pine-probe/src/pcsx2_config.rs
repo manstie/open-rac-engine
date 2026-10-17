@@ -19,6 +19,10 @@ pub struct HeadlessSettings {
     pub speed: f32,
     /// Bind controller 1 to the keyboard ([`KEYBOARD_PAD`]) instead of the owner's pads.
     pub keyboard_pad: bool,
+    /// With `keyboard_pad`, PCSX2's analog sensitivity for both sticks (`AxisScale`), so a
+    /// held key tilts a stick only part-way: keys alone give full tilt, and stick-response
+    /// tests need less.
+    pub axis_scale: Option<f32>,
 }
 
 /// Controller 1's keyboard bindings with `keyboard_pad`, as (pad button, key). Return is
@@ -78,6 +82,9 @@ fn overrides(s: &HeadlessSettings) -> Vec<(&'static str, &'static str, String)> 
         list.push(("InputSources", "Keyboard", t("true")));
         list.push(("Pad1", "Type", t("DualShock2")));
         list.extend(KEYBOARD_PAD.iter().map(|&(b, k)| ("Pad1", b, t(k))));
+        if let Some(scale) = s.axis_scale {
+            list.push(("Pad1", "AxisScale", scale.to_string()));
+        }
     }
     list
 }
@@ -164,6 +171,7 @@ mod tests {
             pine_slot: 28012,
             speed: 0.5,
             keyboard_pad: false,
+            axis_scale: Some(0.5),
         };
         let ini = headless_ini(source, &settings);
         assert!(ini.contains("ConfirmShutdown = false\n"));
@@ -182,7 +190,7 @@ mod tests {
         assert!(ini.contains("[SPU2/Output]\nBackend = Null\nOutputMuted = true\n"));
         assert_eq!(ini.matches("PINESlot").count(), 1);
         assert!(
-            !ini.contains("Keyboard/"),
+            !ini.contains("Keyboard/") && !ini.contains("AxisScale"),
             "the owner's pads are left alone"
         );
     }
@@ -195,6 +203,7 @@ mod tests {
             pine_slot: 28013,
             speed: 1.0,
             keyboard_pad: true,
+            axis_scale: None,
         };
         let ini = headless_ini(source, &settings);
         assert!(ini.contains("[InputSources]\nKeyboard = true\nSDL = false\n"));
@@ -206,5 +215,21 @@ mod tests {
             ini.contains("R3 = SDL-0/RightStick\n"),
             "unbound buttons keep their (disabled) SDL binding"
         );
+        assert!(!ini.contains("AxisScale"));
+    }
+
+    #[test]
+    fn scales_the_keyboard_sticks() {
+        let source = "[Pad1]\nType = DualShock2\nAxisScale = 1.33\n";
+        let settings = HeadlessSettings {
+            bios_dir: "/bios".into(),
+            pine_slot: 28013,
+            speed: 1.0,
+            keyboard_pad: true,
+            axis_scale: Some(0.5),
+        };
+        let ini = headless_ini(source, &settings);
+        assert!(ini.contains("AxisScale = 0.5\n"));
+        assert_eq!(ini.matches("AxisScale").count(), 1);
     }
 }

@@ -34,6 +34,8 @@ while IFS= read -r f; do
   if [ "${1:-}" = "--staged" ]; then
     size=$(git cat-file -s ":$f")
   else
+    # A tracked file deleted or moved in the working tree has nothing left to check.
+    [ -e "$f" ] || continue
     size=$(wc -c <"$f")
   fi
   if [ "$size" -gt "$max_bytes" ] && ! { [ -f "$allowlist" ] && grep -Fxq "$f" "$allowlist"; }; then

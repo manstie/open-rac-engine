@@ -2502,14 +2502,14 @@ name = "camera_blend_start"
 address = 0x003F2090
 kind = "function"
 confidence = "medium"
-note = "Starts a blend between cameras: rotation and position progress from 0x1E2D7C and 0x1E2D8C at the rates 0x1E2D78 and 0x1E2D88."
+note = "Run by camera_manager_update while the blend state (GameCamera +0x2A0) is 1 or 2: takes the old camera's position and rotation as the start, then copies the staged progress (0x1E2D7C, 0x1E2D8C) and rates (0x1E2D78, 0x1E2D88) in for the lerp, or counts the orbit's frames; sets the state to 3."
 
 [[symbol]]
 name = "camera_blend_lerp"
 address = 0x003F22B0
 kind = "function"
-confidence = "medium"
-note = "One frame of the plain blend: eased position lerp and rotation slerp from the old camera to the new mode's, each progress adding its rate up to 1."
+confidence = "high"
+note = "One frame of the plain blend: eased position lerp and rotation slerp from the old camera to the new mode's, each progress adding its rate up to 1; returns 1 once both are 1. The start moves with the hero's platform. Verified on uyantsc-veldin-camlock-2 (0.075 a frame, 14 frames; from 0.25, 10 frames)."
 
 [[symbol]]
 name = "camera_reset_follow"
@@ -3169,3 +3169,62 @@ address = 0x001DF890
 kind = "data"
 confidence = "medium"
 note = "Camera 0's collision mask for the clearance rays and the blocked-line test: 0x94, 0xB4 while swimming (set by camera_follow_params)."
+
+# Added 2026-10-17 while finishing the camera (RE.4): the blends, the level's collision
+# sections and the fade. docs/research/camera.md.
+
+[[symbol]]
+name = "camera_blend_step"
+address = 0x003F29F0
+kind = "function"
+confidence = "high"
+note = "Each frame while the blend state is 3: camera_blend_lerp (kind 0) or camera_blend_orbit (kind 2); when it reports done, copies the new camera's matrix and position into GameCamera and clears the state."
+
+[[symbol]]
+name = "camera_blend_orbit"
+address = 0x003F2480
+kind = "function"
+confidence = "medium"
+note = "One frame of the orbit blend (record blend type 5): yaw, pitch and length about the hero each move by 1 / cosine_ease(1, N, k / N) of what is left towards the new camera's, k frames of N left. No UYA level record uses it."
+
+[[symbol]]
+name = "camera_blend_orbit_setup"
+address = 0x003F1D30
+kind = "function"
+confidence = "medium"
+note = "(out, point, centre, forward, left, up): the point's yaw from forward in the forward-left plane, its pitch, and its distance from the centre; the orbit blend's coordinates."
+
+[[symbol]]
+name = "coll_sphere_camera_groups"
+address = 0x003FC030
+kind = "function"
+confidence = "medium"
+note = "(radius, position, mask): a sphere against the groups of the collision file's third section (collision_camera_groups), writing the contact globals as coll_sphere_push; called by camera_end_sphere and 0x443D00."
+
+[[symbol]]
+name = "collision_load"
+address = 0x004250B0
+kind = "function"
+confidence = "medium"
+note = "Takes the level's collision file: its three header offsets give the terrain (0x1EAA80, coll_line's), collision_hero_groups and collision_camera_groups, whose groups' data offsets it relocates."
+
+[[symbol]]
+name = "collision_hero_groups"
+address = 0x001DFC80
+kind = "data"
+confidence = "medium"
+note = "Pointer to the collision file's second section: a count, then 16-byte groups (bounding sphere in 1/64 u, triangle and vertex counts, data offset); Wrench's hero_groups. 51 on Veldin."
+
+[[symbol]]
+name = "collision_camera_groups"
+address = 0x001DFC84
+kind = "data"
+confidence = "low"
+note = "Pointer to the collision file's third section, groups as collision_hero_groups that only the camera's sphere query reads, so probably camera-only collision. Veldin has one (16 triangles round 389.3, 155.9, 78.3); Florana none (0x1DE604 there)."
+
+[[symbol]]
+name = "screen_fade"
+address = 0x001DF9D0
+kind = "data"
+confidence = "high"
+note = "The fade to black, 0 clear to 1 black: path cameras raise and lower it by 0.05 a frame and cut while it is 1. Verified on Florana (0x1DE350 there, uyantsc-florana-camvol-2)."

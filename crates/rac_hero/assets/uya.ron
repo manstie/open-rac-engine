@@ -211,6 +211,7 @@
         flip_stick: 0.9,
         back_stick: 0.15,
         idle_within_degrees: 2.0,
+        turn_after_degrees: 10.0, // camera.md, "The hero in these modes" [verified on UYA NTSC]
     ),
     // L2 and R2 together: "Lock-on" [code, UYA NTSC, 2026-10-15; untraced, as no
     // savestate holds a weapon that allows it]. The search is 0x503428's.
@@ -933,14 +934,17 @@
     death: (
         ticks: 120, // [placeholder]: the death state's timing isn't read yet
     ),
-    // camera.md, "How the follow camera works" [verified on UYA NTSC against
-    // uyantsc-veldin-cam-1 where noted, otherwise code].
+    // camera.md [UYA NTSC]: "How the follow camera works", "The follow point's height",
+    // "Obstacles and collision", "Lock-strafe and first person" and "Blending between
+    // cameras". [verified] against the traces named there, otherwise [code].
     camera: (
+        default_setting: ThirdPerson, // a new game's setting (0x1439F4)
         distance: 4.64, // [verified]
         height: 2.0,
         look_height: 1.5,
         distance_spring: (gain: 0.003, damping: 0.2), // [verified]
         height_spring: (gain: 0.003, damping: 0.2),
+        look_height_spring: (gain: 0.005, damping: 0.2),
         look_spring: (gain: 0.015, damping: 0.2), // [verified]
         look_spring_vertical: (gain: 0.0125, damping: 0.2),
         drag: 0.85, // [verified]
@@ -952,15 +956,105 @@
         approach_facing: -0.3,
         pitch_limit_degrees: 40.0, // 0.6981 rad
         pitch_step: 0.030543,
-        // The game blends heights through a state machine not read yet; 0.1 u per frame
-        // is its fastest blend rate [placeholder].
-        landing_catch_up: 6.0,
-        // The game pushes the camera out of geometry with a 0.25 u sphere; the kit casts
-        // that sphere from the aim point instead [simplified].
+        // 0.0502 rad a frame at the default speed of 50, linear in the stick [verified].
+        stick_turn: 0.0218,
+        stick_turn_per_speed: 0.0567,
+        stick_tilt_dead_zone: 0.3, // [verified]
+        stick_tilt_out: 0.02, // [verified]
+        stick_tilt_back: 0.01,
+        strafe_look_spring: (gain: 0.04, damping: 0.2),
+        vertical: (
+            heli_rise: (height: 3.0, ticks: 85), // [verified]
+            double_jump_rise: (height: 3.5, ticks: 45),
+            flip_rise: (height: 1.0, ticks: 35), // [verified]
+            rise_stop_radius: 0.2,
+            land_ticks: 16.0,
+            follow_down_above: 0.2,
+            follow_down_angle: -0.01, // [verified]
+            attack_air_ticks: 54,
+            attack_after_ticks: 30,
+            air_gain: 0.002, // [verified]
+            air_gain_gap: 0.0105,
+            air_gap: 2.0,
+            air_after_land_ticks: 15,
+        ),
+        clearance: (
+            ray_from: 0.5,
+            ray_length: 20.0,
+            // 0.35 + 0.1 × 7 at rest [verified under a low ceiling]
+            radius: 1.05,
+            height_gain: 0.006, // [verified]
+        ),
+        obstacles: (
+            sweep: [(0.45, 0.45), (1.0, 0.55), (1.65, 0.65), (2.4, 0.75), (3.25, 0.85), (4.2, 0.95)],
+            sweep_clear: 0.35,
+            sweep_clear_along: 0.7,
+            sweep_clear_scale: 0.75,
+            end_skin: 0.005,
+            wall_stick: 0.05,
+            wall_pull: 0.075, // [verified]
+            min_arm: 1.5,
+            min_arm_wall: 0.2,
+            pull_in_rest: 2000, // the cosine ease [verified]
+            pull_in_wall: 2180,
+            idle_stick: 0.3,
+            reset_blocked_ticks: 30, // [verified]
+            reset_distance: 30.0,
+            reset_skin: 0.5,
+        ),
+        // The last push-out's sphere. The kit also sweeps it from the clearance point to
+        // the camera, so the camera never ends up behind a wall [simplified].
         collision_radius: 0.25,
         // Locked on, the target steers the camera like the right stick, at up to
         // (ticks / 400) × π/2 rad a frame (0x3E42C0) [code, untraced].
         lock_turn: 1.5707964,
         lock_ramp_ticks: 400,
+        volume_gain: 0.001, // [verified on Florana]
+        // "The free-look camera" and "The eye point" [verified in uyantsc-veldin-camlock-*
+        // and -camhalf-* where noted].
+        free_look: (
+            squared: true, // [verified at half tilt]
+            yaw_speed: 0.02618, // 90°/s [verified]
+            yaw_accel: 0.001939,
+            pitch_speed: 0.0349, // 120°/s [verified]
+            pitch_accel: 0.001454,
+            quick_stick: 0.99,
+            quick_after_ticks: 1, // at once [verified]
+            quick_speed: 0.10472, // 360°/s [verified]
+            quick_accel: 0.005818,
+            look_stick_threshold: 0.5, // [verified]
+            lock_strafe_limits: (down_degrees: 70.0, up_degrees: 60.0), // [verified]
+            first_person_limits: (down_degrees: 89.0, up_degrees: 89.0),
+            up_limit_rest_degrees: 60.0, // [verified]
+            up_limit_ease_degrees: 2.0,
+            hold_resets_limits: true, // so 87° up [verified]
+            first_person_lead_ticks: 0, // [verified]
+            eye_lock_strafe: 2.0, // [verified]
+            eye_first_person: 1.75,
+            eye_crouch: 1.0,
+            eye_on_switch: Some(1.75), // [verified]
+            eye_accel: 0.0044444, // [verified]
+            eye_speed: 0.5333333,
+            jump_hold_until: 3.0, // [verified]
+            jump_hold_ledge: true,
+            look_down_forward: 0.45,
+            eye_guard_from: 0.7,
+            eye_guard_radius: 0.4,
+            offset: 6.0, // [verified]
+            offset_ray_extra: 0.5, // [verified]
+            offset_accel: 0.0055556,
+            offset_speed: 0.3333333,
+            end_sphere_radius: Some(0.2), // [verified]
+        ),
+        blends: (
+            look_lead_ticks: 7, // [verified]
+            look_steer: 0.0698,
+            look_reset_degrees: 80.0,
+            into_look: (start: 0.0, rate: 0.075), // [verified]
+            out_of_look: (start: 0.25, rate: 0.018), // [verified]
+            into_lock_strafe: (start: 0.0, rate: 0.075), // [verified]
+            out_of_lock_strafe: (start: 0.0, rate: 0.075),
+            out_of_first_person: (start: 0.25, rate: 0.075), // [verified]
+        ),
     ),
 )

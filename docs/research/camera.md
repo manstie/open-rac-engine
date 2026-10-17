@@ -5,7 +5,11 @@ for the hero kit's camera (P1.7). Started 2026-10-12. The same day the follow ca
 was read on UYA NTSC-U and checked against a trace we made for it ("How the follow camera
 works"). On 2026-10-16 the follow point's height, obstacles and collision, the camera
 volumes and level cameras, the look, lock-strafe and first-person views, and Deadlocked's
-camera followed, each in its own section below.
+camera followed, each in its own section below. On 2026-10-17 traces checked UYA's
+lock-strafe, first person and a gun, a camera volume and a flythrough, the clearance
+under a low ceiling, the arm sweep, the blocked-view reset, and both games' sticks at part
+tilt; the blends between cameras and the collision masks were read. The same day the kit's
+camera was built from all of it ("In the kit").
 
 ## Status and method
 
@@ -132,14 +136,26 @@ Each frame, in this order:
    - **There is no other automatic recentring.** A rule that stops the drag for 32 frames
      after a sharp turn, and eases it back over 45, exists in 0x3E42C0, but a global flag
      (0x1DF6C4, zero) switches it off. The trace's timers for it stayed at zero.
-4. **Manual control** (0x3E7478, 0x3E7668) **[code]**:
+4. **Manual control** (0x3E7478, 0x3E7668) **[code; the stick response verified on
+   `uyantsc-veldin-camhalf-0.5-1`]**:
    - **Yaw:** the right stick's x turns the arm at `0.0218 + 0.0567 × speed / 100` rad
      per frame, where speed is the camera-speed option (default 50): 0.0502 rad/frame,
-     3.01 rad/s.
+     3.01 rad/s. **The rate is linear in the stick:** at x = 0.2105 the arm turned
+     0.01056 rad a frame, and at −0.1974, −0.00991 (0.05015 × x).
    - **Pitch:** the stick's y, past a 0.3 dead zone and rescaled, isn't a rate. It sets a
      target tilt of the arm of up to ±40° (0.6981 rad). The target eases at 0.02 a frame
      when pushed further and 0.01 when returning, and comes back when the stick is
-     released.
+     released. A y of ±0.2 left the tilt alone, as the dead zone says.
+   - **The tilt in detail** (0x3E7668): the rescaled y, `(|y| − 0.3) / 0.7`, is the target
+     of a spring (gain 2, damping 4, never past its target) capped at 0.02 of the range a
+     frame going out and 0.01 coming back; times 0.6981 that is the arm's target
+     elevation, and the arm turns towards it by at most a per-frame cap. Coming back, the
+     target follows the arm if the arm is nearer level.
+   - **Seen at 0.632** (`uyantsc-veldin-camhalf-0.75-1`): the desired arm rose 0.81° a
+     frame (0.02 × 40° is 0.80°) and settled at 19.2° for y = −0.618, 1° more than the
+     formula's 18.2°, which isn't explained; pushed down at 0.632 it stopped at −11.8°,
+     where the camera's sphere met the floor (a floor contact stops the downward tilt).
+     Let go, it came back at about 0.45° a frame.
    - The tilt then moves towards its target by at most 0.0305 rad a frame.
    - Both axes have invert options.
 5. **The distance and height** **[verified for the distance]**:
@@ -283,6 +299,11 @@ Read in `camera_obstacles` (0x3E64E0) and its helpers, and in `camera_follow_mot
   - else the pivot is r under the ceiling;
   - in the first and third cases the height target becomes the pivot's height above the
     follow point, spring gain 0.006, for that frame.
+  - **Verified under a low ceiling** (`uyantsc-veldin-camceil-{1,2}`, a crate written over
+    the hero's head, since Veldin has no low ceiling): with its underside 2.6 u above his
+    feet the pivot sat 1.05 under it (1.546 above his feet), and with it 1.9 u up, exactly
+    halfway between floor and ceiling (0.948); each time the height sprang there at gain
+    0.006, damping 0.2 (to 0.0004 u over 297 frames). So the clearance rays see mobys.
 - **The clearance radius** r = 0.35 + growth × scale × (count − 1) = 0.35 + 0.1 × 1 × 7
   = **1.05 u** at rest (follow +0x254, +0x24C, +0x250, reset each frame by 0x3E4008;
   critter mode 1 makes the scale 0.6, critter 2 makes it 1.5 with growth 0.105).
@@ -302,10 +323,14 @@ Read in `camera_obstacles` (0x3E64E0) and its helpers, and in `camera_follow_mot
      moves the arm sideways until the arm's line clears the contact by
      `0.75 × (0.35 + 0.7 t)`, t the fraction along the arm, up to three tries. The arm
      keeps its length. The first sphere ignores contacts behind the pivot.
+     - **Seen** (`uyantsc-veldin-camceil-3`, a crate written 0.4 u beside the arm's
+       midpoint at its height): the desired arm swung 0.36 rad away from it within two
+       frames and kept its 4.64 u, and the actual arm followed on its spring. So crates
+       aren't among the mobys step 1 hides.
   3. **The camera end** (`camera_end_sphere`, 0x3E5930): if last frame's camera is more
      than r from the new desired spot (pivot + arm), a line between them (mask 0x14)
      stops it at the first wall, 0.005 u off it. Then up to three push-outs of a sphere
-     of radius r (the world, mask 0x14, then a second query). The first contact sorts
+     of radius r (the world, mask 0x14, then a second query, below). The first contact sorts
      it: ceiling (normal · up over 0.75), floor (under −0.5) or wall.
      - **A wall** (`camera_set_pull_in`, 0x3E5728): the arm becomes pushed spot − pivot.
        If that is shorter (or falling, or inside a camera-blocker sphere), the pull-in
@@ -328,16 +353,57 @@ Read in `camera_obstacles` (0x3E64E0) and its helpers, and in `camera_follow_mot
      twice as fast.
   7. **Arm length** = distance − pull-in. The drag (step 3 of the follow camera) also
      shrinks the pull-in when the dragged arm comes out longer.
-  8. **Reset when blocked** **[code; not seen]**: a line from the pivot to the camera
-     spot (mask 0x94 | 0x20, the hero ignored) that hits something not inside a
+  8. **Reset when blocked** **[code; verified]**: a line from the pivot to the
+     camera spot (mask 0x94 | 0x20, the hero ignored) that hits something not inside a
      camera-blocker sphere counts frames (+0x25C); at 30 the camera is re-made behind
      the hero (`camera_reset_follow`, 0x3F3918: 4.64 behind along his facing and 2.0 up, or 0.5
      short of whatever is in the way). It also resets at once when the current camera is
      more than 30 u from its spot, or, with the hero on good ground and the camera below
      the pivot, when a wall lies between them (under 20 u).
+     - **Seen on Florana** (`uyantsc-florana-camvol-{1,3,4}`): each time the hero was
+       written 45 to 180 u away, the next frame had the follow values at 4.64, 2.0 and
+       1.5 and the camera behind him.
+     - **The 30 frames, verified** (`uyantsc-veldin-camblock-1`, the hero written 1.5 u
+       under the floor, where he fell): the camera stayed above the floor, the floor's
+       underside blocked the line (and was the clearance rays' ceiling: mask bit 4 takes
+       back faces), and the count rose by one a frame from 1 to 29. On the 30th frame the
+       camera was re-made 4.64 u behind him along his facing and 2.0 u up, with the
+       distance and height back at 4.64 and 2.0 and the count at 0.
 - **The last push-out** (`camera_place`, 0x3E82F8) **[code]**: the camera (look point +
   height + actual arm) is pushed out of a 0.25 u sphere (mask 0x36) up to three times,
   and the same shift is added to the follow point, the look point and the rise target.
+- **The second sphere query** (0x3FC030) **[code; data]** tests the third section of the
+  level's collision file. Its header holds three offsets (`collision_load`, 0x4250B0):
+  the terrain that `coll_line` uses (0x1EAA80), a list at 0x1DFC80 and a list at
+  0x1DFC84. Wrench calls the first two `mesh` and `hero_groups` (groups of 16 bytes: a
+  bounding sphere in 1/64 u, triangle and vertex counts, and an offset); the third is a
+  list of the same groups that Wrench doesn't read, and only the camera's end sphere (and
+  0x443D00) queries it, so it is probably geometry only the camera collides with.
+  Veldin has one group (16 triangles in a 5.7 u sphere round (389.3, 155.9, 78.3));
+  Florana has none.
+- **The camera-blocker spheres** of steps 3 and 8 are the level's camera colliders
+  (`camera_collider_at`, 0x3F51A8, from gameplay +0x88), which no UYA level has.
+- **The collision masks** (2026-10-17). libdl's `CollisionFlags` (MIT) name the bits
+  **[reported]**; the tests marked [code] were found in UYA's `coll_line` (0x3F8448):
+  - bit 0 (1): skip the level's terrain and mobys that can't be damaged **[code: the
+    terrain pass runs only with it clear, and mobys are skipped unless their mode word
+    has 0x4000]**;
+  - bit 1 (2): skip the hero's colliders and mobys' primitive colliders **[code: a moby
+    primitive's flag is compared with it]**;
+  - bit 2 (4): use a moby's other primitive type **[code: picks which of two primitive
+    counts is read]**;
+  - bit 3 (8): skip mobys that can't be damaged **[code, as bit 0]**;
+  - bit 4 (0x10): libdl says "include surfaces with bit 0x10"; in UYA's triangle test a
+    set bit 4 also accepts triangles facing away from the line **[code]**;
+  - bit 5 (0x20): skip the one collision material whose number is in bits 8–12 **[code]**;
+  - bit 7 (0x80): skip triangles whose material byte has 0x80 set **[code]**.
+  - So the camera's masks are: 0x94 (the clearance rays, the sweep and the blocked line)
+    = bits 2, 4 and 7, and 0xB4 under water adds bit 5 with material 0, which libdl calls
+    swimmable water, so under water the rays pass through the surface; 0x14 (the camera
+    end) = bits 2 and 4; 0x12 (the rise-stopping sphere) = bits 1 and 4; 0x36 (the last
+    push-out) = bits 1, 2, 4 and 5 (water skipped again); the blocked line adds 0x20. None sets bit 0 or 3, so the camera
+    collides with the terrain and with every moby that has collision, except the ones
+    `camera_obstacles` hides each frame.
 
 **Per-state parameters** (`camera_follow_params`, 0x3E42C0) **[code]**, applied each frame
 before the motion and cleared at its end; lock-on and camera volumes are elsewhere:
@@ -393,8 +459,13 @@ addresses (Veldin's build) are in `re/SCUS-97353/symbols.toml`. Two separate mec
   one of 32 override slots that retune the follow camera.
 
 **Checked:** the camera records, their pvars, the cuboids and the volumes read from the
-disc match what the game loaded in five savestates (`gameplay-format.md`). No volume or
-path camera was caught running yet, so what follows is from the code.
+disc match what the game loaded in five savestates (`gameplay-format.md`). A volume and
+Florana's flythrough were traced on 2026-10-17 (`uyantsc-florana-camvol-{1..4}`, "Traces");
+each subsection says what that checked.
+- **Florana's build** keeps the camera data 0x1740 lower than Veldin's (`GameCamera`
+  0x1E1380, follow block 0x1E3E50, volume slots 0x1E45D0) and the core's globals 0x1680
+  lower (the active volume at 0x1DE300, the camera list pointer at 0x1DE204). Its follow
+  camera is the fourth level camera, so its update object is 0x1E1B20.
 
 ### Which of the level's cameras runs [code]
 
@@ -430,11 +501,48 @@ path camera was caught running yet, so what follows is from the code.
   - **5:** a timed blend over object +0x78 frames if positive, otherwise 40;
   - **3, 6:** no blend, but the new camera starts where the old one was;
   - **0, 2, 4:** a cut.
-  - It keeps a copy of the follow block for the old camera to blend from. The blend code
-    (0x3F2090, 0x3F29F0, 0x3F22B0, 0x3F2480) isn't read.
+  - It keeps a copy of the follow block for the old camera to blend from. The blend is
+    below.
 - **Object +0x78** is −1 from the loader; something else (scripts, probably) sets it.
+- **Blend types in the data:** the follow camera, 0x13, mode 5 and 0x21 have 0 (a cut);
+  0x20 and 0x1E have 1; 0x3, 0x4, 0x7, 0x11, 0x17, 0x18 and 0x1D have 3. No UYA level
+  has a 5, so the orbit blend below is only reachable from code.
 
-### Camera volumes: the follow camera's override slots [code; data checked idle]
+### Blending between cameras [code; the lerp verified on UYA NTSC, 2026-10-17]
+
+Read in `camera_blend_start` (0x3F2090), `camera_blend_step` (0x3F29F0),
+`camera_blend_lerp` (0x3F22B0) and `camera_blend_orbit` (0x3F2480), which
+`camera_manager_update` runs after the winning camera's update. The state is in
+`GameCamera` from +0x2A0 (0x1E2D60 in Veldin's build).
+- **State** (+0x2A0): 0 none, 1 started by a switch, 2 restarted while one ran, 3
+  running. **Kind** (+0x2A3): 0 the lerp, 2 the orbit (record type 5); the running kind
+  is kept at +0x2A2. A forced cut (`camera_switch`'s second argument, or the reset timer
+  +0x458) clears the state.
+- **Who starts which:** `camera_switch` starts the lerp for record type 1 (rate object
+  +0x78, else 0.018 a frame) and the orbit for type 5 (+0x78 frames, else 40). The look
+  and the lock-strafe camera start their own lerp at 0.075 a frame; leaving the look
+  starts it at t = 0.25 with 0.018. Those rates and starting t are staged at +0x2B8 and
+  +0x2BC (rotation), +0x2C8 and +0x2CC (position), and copied in when the blend begins.
+- **The lerp** (kind 0), each frame: the camera's position is `lerp(start, new camera's
+  position, ease(tp))` and its rotation `slerp(start, new camera's rotation, ease(tr))`,
+  with ease the cosine ease `(1 − cos πt) / 2` (`cosine_ease`). Then tp and tr each add
+  their rate, capped at 1, and on the frame after both reach 1 the blend ends and the new
+  camera shows as it is. The start is the old camera's position and rotation at the
+  switch; the start position also moves with the hero's platform (CameraHeroData +0x70).
+  - **Verified** (`uyantsc-veldin-camlock-2`): into lock-strafe, t went from 0 to 1 at
+    0.075 a frame and the camera reached the lock-strafe spot on the 14th frame; out of
+    L2's first person, t began at 0.25 (0.325 on the first frame read) and took 10
+    frames.
+- **The orbit** (kind 2) works round the hero, in his frame at the start
+  (`camera_blend_orbit_setup`, 0x3F1D30: the yaw of the camera's offset in his horizontal
+  plane from his forward, its pitch, and its length). Each frame the yaw, pitch and
+  length each move by a fraction f of what is left towards the new camera's (angles
+  wrapped), with `f = 1 / ease(1, N, k / N)` for a blend of N frames with k left: 1/N on
+  the first frame, rising to nearly 1 on the last. The camera goes at the hero plus that
+  offset, turned to keep looking the way the new camera does. A restart lengthens N by
+  one.
+
+### Camera volumes: the follow camera's override slots [code; verified on Florana]
 
 - **The slots:** 32 per player, 0x40 bytes each, at 0x1E5D10 in Veldin's build (0x1E45D0
   on Florana, 0x1E5790 on the Phoenix: they move with the level's build). The active
@@ -482,6 +590,14 @@ path camera was caught running yet, so what follows is from the code.
 - **In the data** only distance and height are ever set: Veldin's one volume (distance 4,
   height 5, round the area at x 375, y 203) and Florana's two (distance 8, height 5).
   The kit can treat a volume as a cuboid with optional overrides and a priority.
+- **Verified** (`uyantsc-florana-camvol-4`, the hero dropped into Florana's cuboid 21 and
+  then walked out of it): slot 0 filled on the first frame inside (distance 8, height 5,
+  priority 5) and the active index went to 0; the distance and height then sprang at gain
+  0.001, damping 0.2, matching a simulation to 3 × 10⁻⁵ u over 213 frames. The slot freed
+  on the first frame outside (y 453.06, the cuboid ending at 452.88). Afterwards both
+  gains stayed 0.001 and the distance and height sprang back to 4.64 and 2.0 with them
+  (to 4 × 10⁻⁶ u over 477 frames). During the flythrough the slot was claimed but not
+  applied, since only the follow camera runs `camera_volumes_update`.
 
 ### The fixed-point camera, class 0x17 [code; data]
 
@@ -522,26 +638,58 @@ The only camera that follows a spline: a fly-by along one of the level's paths
     look moby's position plus the offset, with the hero's up.
   - Fields of view keyed at path points (a positive fourth float) are blended by distance
     between keys. No UYA camera path has one.
-- **The ramps:** a global (0x1DF9D0) rises by 0.05 a frame to 1 before the flight moves,
-  and falls the same way at the end, unless pvar +0x54 (start) or +0x55 (end) is set.
-  What it drives isn't checked (bars or a fade).
+- **The ramps:** a global (0x1DF9D0; 0x1DE350 on Florana) rises by 0.05 a frame to 1
+  before the flight moves, and falls the same way at the end, unless pvar +0x54 (start)
+  or +0x55 (end) is set. It is a fade to black: the view cuts while it is at 1.
 - **The hero** is held in state 116 for the flight unless pvar +0x41 is set.
 - **The end:** when the path runs out, the frames run out, or +0x39 is set: it marks
   itself finished, sets +0x7E = 4 so the follow camera cuts back in, releases the hero,
   and starts the camera at +0x4C if there is one.
+- **Verified on Florana** (`uyantsc-florana-camvol-2`, the hero dropped into cuboid 77):
+  1. On the first frame in the cuboid the hero went to state 116 and the path camera
+     took over with a cut; for 20 frames the view stayed where the follow camera had
+     been while the fade rose by 0.05 a frame.
+  2. At full fade the camera jumped to the path's first point, and the fade cleared by
+     0.05 a frame while the camera moved along path 6 at exactly 5.00 u/s (the record's
+     speed), straight between points, reaching its end (6.47 u) after 78 frames.
+  3. Then the fade rose again over 20 frames; on the frame it reached 1 the hero was
+     released (state 0) and +0x7E read 4. The next frame the follow camera cut back in,
+     re-made behind the hero (4.64 back, 2.0 up), and the fade fell by 1/15 a frame. (A
+     respawn's fade falls by 1/8.)
+
+### Class 0x11, a follow-camera zone [code, Florana's build]
+
+Only Florana and Metropolis have one. Its mode table entry (in Florana's build, at
+0x2F4E80 + 4 × 20) has empty init, update and check functions; like the 0x17 camera, its
+condition (0x3C38C8) never takes over but works the follow camera from 0x3C2F90 while
+the hero is in its shape.
+- **The shape test** (0x3C2DD0) tries, in turn, the cuboids at pvars +0x0C and +0x4C, the
+  cylinder at +0x10, the sphere at +0x08 and the camera collider at +0x14.
+- **It claims the follow camera** as the 0x17 camera does (follow block +0x260, the higher
+  priority, +0x1C, wins) and gives it back when the hero leaves.
+- **What it sets, each frame:** a heading steer towards the record's yaw (as lock-on
+  steers, `camera_steer_to`) at up to pvar +0x00 degrees a frame, ramped in over 200
+  frames (its frame count is +0x2E); the distance target (+0x24), height (+0x28) and look
+  height (+0x30), at gains 0.003, 0.003 and 0.005 (0.002 each for subtypes 6 and 8); the
+  tilt (+0x50, degrees); and the look point's horizontal and vertical spring gains
+  (+0x38, +0x3C; follow +0x15C, +0x160), eased in from their old values over 120 frames.
+  A zero leaves that field alone.
+- **Subtypes** (+0x2C) change the details: in 1, 7, 9 and 10 a push of the right stick
+  jumps the count to 200, which stops the steer until the count passes 400 and starts
+  again from 1; 2 and 4 hold the count at 200 and turn the push-back off; 10 and 11 set
+  bits of the follow block's +0x1F0 and a value at +0x270, which 6 and 8 test before
+  acting.
+- **Florana's** (camera 1, cuboid 81) is subtype 0 with distance 3 and height 4.
+- Not traced, and the subtypes aren't read in full.
 
 ### Not read yet / next steps
 
-- **Trace a volume activating:** load `uyantsc-florana-play.p2s`, place the hero in
-  cuboid 21 (centre 489.3, 427.9, 317.3; `pine-probe poke --f32 0x1A4C60 x y z`) and
-  capture the slots (0x1E45D0 in Florana's build) and the follow distance and height:
-  the distance should spring towards 8 at gain 0.001. The same walk crosses the path
-  camera's cuboid 77 (y 443), which should play its flythrough once. Not done: both
-  PCSX2 locks were held.
-- The switch's blend code (0x3F2090, 0x3F29F0, 0x3F22B0, 0x3F2480), the trigger fields
-  +0x00, +0x18 and +0x1E, and what sets object +0x78 and +0x7D.
-- The ramp global 0x1DF9D0, and the classes 0x3, 0x11, 0x18, 0x1D, 0x1E and 0x21, whose
-  code is only in other levels' builds.
+- Done 2026-10-17: a volume and the flythrough traced; the blend code; the fade global;
+  class 0x11's code in Florana's build.
+- The trigger fields +0x00, +0x18 and +0x1E, and what sets object +0x78 and +0x7D.
+- The classes 0x3, 0x18, 0x1D, 0x1E and 0x21, whose code is only in other levels'
+  builds (Crash Site, Obani Gemini, Aridia and others, the vid-comics, multiplayer), and
+  0x11's subtypes in full.
 - The Phoenix build's other volume-slot caller (0x32C790 there).
 
 ## Lock-strafe and first person [UYA NTSC, 2026-10-16]
@@ -591,8 +739,14 @@ Per-frame values are at 60 Hz.
   | 2, first person | 1.75 | none | 89° / 89° (70° / 70° while the flag 0x1D673C is set) |
 
   - While the mode isn't 0, the up limit then eases each frame towards 60° (45° in state
-    types 3, the ledges, and 0x14) at 2° a frame, so first person ends up at 89° down
-    and 60° up too.
+    types 3, the ledges, and 0x14) at 2° a frame, so the first-person setting ends up at
+    89° down and 60° up too **[verified: 14 frames, take 3]**. But in lock-strafe, while
+    L2 is held in look or targeting, `hero_camera_update` calls `hero_camera_set(2)`
+    every frame, so the ease only ever takes one step and that first person keeps 89°
+    down and 87° up **[verified, take 2]**. Letting go calls `hero_camera_set(1)` and
+    keeps the offset at 2 u or more.
+  - `hero_camera_set(1)` and `(2)` also clear the free look's flag bit 0, copy the camera's
+    forward into 0x1A6110, and set the eye's height target (0x1A62AC) to 1.75 (Clank 1.1).
   - Clank's eye is 1.1 with an offset of 3 u; a third character type 2 (probably Giant
     Clank) has 5.0 and 9 u.
 
@@ -661,6 +815,15 @@ hero's yaw, pitch 0. **Positive pitch looks down.**
    right; with the vertical option at 1, as all three are in our image, pushing up
    tilts the view down. Each input is then squared, keeping its sign (x·|x|), so half
    tilt gives a quarter.
+   - **With flag bit 0 set (the look in the third-person setting),** each axis first
+     takes the larger of the right and left sticks, and if that vector is shorter than
+     0.5 the d-pad replaces it (pad +0x1B0, the real d-pad only). So a right stick under
+     0.5 turns nothing in the look **[verified: 0.2105 for 1.5 s, no turn]**, while the
+     lock-strafe and first-person settings, which clear the flag, use any stick past the
+     pad's dead zone **[verified: at 0.2105 the yaw speed grew 0.0000886 a frame to
+     0.001197, `0.001939 × 0.2105² × k` and `0.02618 × 0.2105² × k`; the pitch at 0.1974
+     likewise]**. At 0.632 the look turns too, with the same squared response (0.000798 a
+     frame to 0.010769) **[verified, `uyantsc-veldin-camhalf-0.75-1`]**.
 4. **Yaw speed target:**
    - Normally `0.02618 × x` rad a frame (1.5°, **90°/s** at full tilt), reached at
      `0.001939 × |x|` rad a frame per frame (7.0 rad/s² at full tilt).
@@ -717,12 +880,15 @@ hero's yaw, pitch 0. **Positive pitch looks down.**
   2 frames) triples that turn's gain and cap and keeps his jumps standing jumps.
 - **With the wrench in hand nothing forces strafing**, so he runs and turns as in the
   follow camera, relative to the view, and the view doesn't follow him.
+- **Standing, he turns to the camera only once it is more than 10° off** his facing, and
+  steps round (state 2) until within 2°, as in DL (`hero_transitions` tests 10°
+  (0.17453) and 2°).
 - **In look and targeting** (setting 0, or L2 in lock-strafe), once 0x1A71C5 is set, his
   facing is set to the camera's yaw every frame (`hero_turn_to_move_angle` with gain 1:
   it snaps). The look state shares the idle's movement, so the left stick doesn't move
   him; letting go of L1 goes back to idle, or to a crouch with R1 held.
 
-### Checked in a trace [verified on UYA NTSC, 2026-10-16]
+### Checked in traces [verified on UYA NTSC, 2026-10-16 and 17]
 
 `uyantsc-veldin-camlock-1` (setting 0, the look; 494 frames, `docs/re-setup.md`):
 - **Entering the look:** L1 pressed, state 1 and request 4 the next frame; mode 4 took over
@@ -745,6 +911,36 @@ hero's yaw, pitch 0. **Positive pitch looks down.**
   and first-person modes) stays set, so in code the look also takes the left stick when
   it is pushed further than the right, and the d-pad below a 0.5 stick.
 
+`uyantsc-veldin-camlock-{2,3,4}` (2026-10-17; settings 1, 2, and 1 with a gun; written
+as `hero_camera_set` would, flag bit 0 included):
+- **Lock-strafe:** on the frame the setting changed, the hero camera mode went to 1 and
+  the 0x20 camera blended in over 14 frames. The eye height sprang from 1.75 to 2.0 in
+  13 frames, speeding up by 0.00444 u a frame per frame and braking to arrive. **The
+  camera sits at last frame's eye − forward × 6** (its residual is under 0.001 u on 1,267
+  of 1,535 frames; the others are collision). Pitch reached exactly 70° down and 60° up.
+- **Turns:** the quick turn waited while a target was in the cone and began on the
+  frame it left, growing 0.0060 a frame to 0.10799 (`0.10472 × k`), and grew only 0.0020
+  while another target crossed the view; pitch grew 0.0015 a frame to 0.0360.
+- **Collision:** looking up, the ray from the eye hit the ground and cut the offset at
+  once (6 → 4.39), which then grew back; walking back towards a crate, the camera stopped
+  5.67 u from the eye with the offset still 6, held by the sphere over the last unit.
+- **Jumps:** through a standing jump (1.48 u high) the eye stayed within 0.0002 u. In a
+  double jump it held until the hero was 3.07 u above the ground, then latched and
+  sprang back to 2.0 above him, dipping to 1.67 at the landing and recovering in about
+  12 frames.
+- **The wrench** forced nothing: the view stayed still while he walked forward, right
+  and back, turning to each direction relative to it.
+- **L2:** first person cut in on the next frame (state 1, request 4, the eye at 1.75 at
+  once, the camera exactly at the eye); his facing snapped to the view's yaw. Let go,
+  the lerp blend took 10 frames from 0.25.
+- **The first-person setting:** the eye stayed 1.75 above his feet through jumps (no
+  hold), and the camera was exactly at last frame's eye on every frame.
+- **A gun** (the Shock Blaster, take 4): from the frame it was in his hand `strafing` read
+  2 and his move angle followed the camera's yaw. Standing, he began to turn once the
+  camera was 12–15° off (10° in code, a frame or two late) and stopped 1.5° short;
+  his turn matched the strafe turn (gain 0.042, damping 0.25) towards last frame's
+  camera yaw.
+
 ### The other camera modes [code]
 
 | Mode | Functions (condition, init, update, check) | What it is |
@@ -763,16 +959,12 @@ hero's yaw, pitch 0. **Positive pitch looks down.**
 
 ### Not read yet / next steps
 
-1. **Trace lock-strafe and the first-person setting:** run takes 2 and 3 of
-   `uyantsc-veldin-camlock.sh` (they write the setting, offset and limits as
-   `hero_camera_set` would) to check the 6 u offset, the eye height of 2.0, the jump
-   rule, L2's first person and the hero running free with the wrench. Take 4 gives and
-   draws the Shock Blaster, to check that a gun forces strafing.
+1. Done 2026-10-17: lock-strafe, the first-person setting and a gun traced (above); the
+   blends' ease is `cosine_ease` ("Blending between cameras"); a part-tilted right stick.
 2. Whether the vertical invert option's 1 is the game's default or our memory card's.
-3. The eased curve of the blends (0x4421E8), the flythrough's update (0x3EB2F0) and the
-   first-person gun placement (0x50F410) aren't read.
-4. **In the kit:** a free-look camera with these numbers, the 6 u lock-strafe offset, the
-   eye spring, the look's mode-4 blends, and the strafing it forces.
+3. The first-person gun placement (0x50F410) isn't read.
+4. **In the kit (2026-10-17):** done, but for the strafing a gun forces, which waits for
+   the kit's guns ("In the kit").
 
 ## Deadlocked's camera [DL NTSC, 2026-10-16]
 
@@ -814,6 +1006,9 @@ the hero's look code is in the level overlay (0x68xxxx) plus resident helpers (0
     at 30 Hz; single player is UYA's.
 - **Verified in trace 3:** the actual arm's yaw spring (0.015 / 0.2) matches 442 of 493
   one-step checks; the misses are torn capture samples.
+- **At half tilt** (`dlntsc-dreadzone-camhalf-0.5-2`): the orbit is linear in the stick
+  (0.01056 rad a frame at 0.2105, −0.00991 at −0.1974), and ±0.2 doesn't tilt it (the 0.3
+  dead zone), both as UYA.
 - **Not read:** some special-mode branches of `camera_follow_params` (flags at
   0x2304FB–0x230503) use other numbers (distance 6.75, height 2.75).
 
@@ -843,7 +1038,11 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
      to −45° in state type 3 and +10° in type 0x14, at 120°/s **[code]**.
    - **View:** forward = (cos yaw cos pitch, sin yaw cos pitch, −sin pitch) **[verified
      exact]**.
-   - **No squaring of the stick seen** (UYA squares it); unchecked with a half tilt.
+   - **The stick isn't squared** (UYA's is) **[verified at half tilt,
+     `dlntsc-dreadzone-camhalf-0.5-1`: at x = 0.2105 the yaw speed grew 0.000421 a frame
+     to 0.011368, `0.0019393 × x × s` and `0.05236 × x × s`; the pitch at −0.1974 grew
+     0.000296 to 0.007105]**. Anything past the pad's dead zone turns it; there is no
+     further dead zone.
    - **Aim assist [code only, no targets in our traces]:** as UYA's, with a 35 u ray and a
      20° cone (0x19EC, × zoom) instead of 30 u and 15°; yaw cut by 0.5 b, pitch by
      0.6 b, the strafe pull 0.666 / 0.85, capped at 1.5° a frame; the 7-frame snap past
@@ -905,12 +1104,53 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
 
 ### Not read yet / next steps
 
-1. A half-tilted right stick (a recording or a pad): dead zone, and whether DL squares
-   the input as UYA does.
+1. Done 2026-10-17: a half-tilted right stick (no squaring, no extra dead zone).
 2. The aim assist with an enemy in view; the blends between third person and the other
    modes; the special follow branches.
 3. Where the blend's 0.25 start is set, and the L2 hold count's code.
-4. The kit: `rac_hero::camera` needs a lock-strafe mode built from this section.
+4. In the kit (2026-10-17): done, as `dl.ron`'s default camera, but for the aim assist
+   ("In the kit").
+
+## In the kit (P1.7) [2026-10-17]
+
+`rac_hero::camera`, with every number in the profiles' `camera` section (`uya.ron`,
+`dl.ron`, each value labelled with its source here):
+- **`FollowCamera`** shows one of three cameras: the follow camera (`follow.rs`, with
+  `vertical.rs` and `obstacles.rs`), the third-person look, or the hero camera for the
+  lock-strafe and first-person settings (`free_look.rs`), and blends between them with
+  the cosine lerp at the games' starts and rates. `FollowCamera::setting` is the
+  player's camera setting; `None` takes the profile's (UYA third person, DL lock-strafe).
+  The demo hides the hero while the camera is at his eye.
+- **The follow camera** has steps 1 to 9 of "How the follow camera works", the vertical
+  modes the kit's states reach, the look point's air gain, strafing's drag-free arm and
+  look-point aim, the clearance point, the sweep, the camera-end sphere, the pull-in with
+  its stick bump, timer and cosine, the 1.5 u minimum arm, and the 30-tick and 30 u
+  resets. The stick turns it linearly and its tilt springs back, as the games do; the
+  mouse turns it directly and its tilt stays.
+- **The free look** has items 1 to 9 of "The free-look camera" but the aim assist (item 2,
+  4's and 5's target cuts, and 6), with UYA's squared stick and quick turn at once, DL's
+  linear stick and quick turn from the second tick, the limits and the up limit's ease
+  (UYA's held look re-setting it each tick), the eye's speed-up-and-brake spring
+  (0x445300; 13 ticks from 1.75 to 2.0, as traced), the jump hold, the look-down shift,
+  the eye guard, and the lock-strafe offset with its ray cut, ease-out and (UYA) end
+  sphere. The camera uses last tick's eye.
+- **The third-person look** waits 7 ticks while the follow camera steers to his facing,
+  blends in at 0.075 and is ready at half way, takes the further pushed of the two sticks
+  with nothing under 0.5, and blends out from 0.25 at 0.018 (a cut if its own blend
+  hasn't finished), re-making the follow camera behind him if it is 80° off.
+- **`CameraVolume`**: a box with a priority and optional distance, height, look height,
+  tilt and drag; the distance and height gains stay at 0.001 after it, as on Florana.
+- **The hero:** `HeroState::Look` for the look button; the standing strafe turn past 10°;
+  lock-strafe doesn't lock on.
+- **Left out:** the platform carry (step "Platforms"), the swim and critter rules, the
+  modes for states the kit lacks (jets, rocket jumps, jump pads, state 12, the bounce's
+  mode 11), volume steering and fields of view, the orbit blend, the 8° turn-back after
+  a look that followed the lock-strafe camera, and the free look's aim assist and
+  gun-forced strafing (P1.9). The
+  kit also sweeps the camera from the pivot at the end, so it never ends behind a wall.
+- **Seen in the running demo** (Xvfb, 2026-10-17): DL's lock-strafe camera stays pointed
+  down the level while the hero runs sideways; UYA's third person doesn't turn while he
+  strafes, and swings round behind him when he runs.
 
 ## Partly seen
 
@@ -940,6 +1180,33 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   blocks sit 0x580 lower): from `uyantsc-phoenix-wall.p2s`, the right stick turning the
   camera into the corridor's walls and back, runs along and away from the wall. 1,278
   frames.
+- `source/Ratchet & Clank 3/uyantsc-veldin-camlock-{2,3,4}.trace` (2026-10-17, script
+  `uyantsc-veldin-camlock.sh <take>`, layout `uyantsc-veldin-camlock.toml`): the
+  lock-strafe setting (turns, tilts, walks with the wrench, jumps, L2), the first-person
+  setting, and lock-strafe with the Shock Blaster. 1,661, 1,569 and 605 frames. A first
+  run of take 2 left the free look's flag bit 0 set, so the left stick also turned the
+  view; it is kept as `-2-flag1` and not used.
+- `source/Ratchet & Clank 3/uyantsc-florana-camvol-{1..4}.trace` (2026-10-17, script
+  `uyantsc-florana-camvol.sh a|b`, layout `uyantsc-florana-camera.toml`, Florana's
+  bases): 1, the hero dropped into the volume (he landed in water and drowned); 2, into
+  the flythrough's cuboid; 3, out of the volume (water again); 4, into the volume and then
+  walked out of it. 339, 357, 356 and 799 frames.
+- `source/Ratchet & Clank 3/uyantsc-veldin-camceil-{1,2,3}.trace` and
+  `uyantsc-veldin-camblock-1.trace` (2026-10-17, scripts `uyantsc-veldin-camceil.sh [3]`
+  and `uyantsc-veldin-camblock.sh`, layout `uyantsc-camera-obstacles.toml`), from
+  `uyantsc-veldin-ledge.p2s`: a crate written 2.6 u and then 1.9 u over the hero's head,
+  then 0.4 u beside the arm; and the hero written 1.5 u under the floor. 400, 407, 269
+  and 244 frames.
+- `source/Ratchet & Clank 3/uyantsc-veldin-camhalf-0.5-{1,2}.trace` (2026-10-17, script
+  `uyantsc-veldin-camhalf.sh <take> 0.5`, layout `uyantsc-veldin-camlock.toml`), on a boot
+  with `AXIS_SCALE=0.5`, so every stick key gave half tilt (the byte 191 or 64, 0.2105 or
+  0.1974 after the pad's dead zone): 1, the follow camera's turns and tilts, the look, a
+  walk; 2, the same in lock-strafe. 769 and 699 frames. `-0.75-{1,2}` are the same takes
+  on a boot with `AXIS_SCALE=0.75` (the bytes 223 and 32, 0.6316 and 0.6184).
+- `source/Ratchet Gladiator/dlntsc-dreadzone-camhalf-0.5-{1,2}.trace` (2026-10-17, script
+  `dlntsc-dreadzone-camhalf.sh <take> 0.5`, layout `dlntsc-dreadzone-cam.toml`), on the
+  `dl-camB` boot with `AXIS_SCALE=0.5`: the right stick each way and a walk, in
+  lock-strafe (1) and third person (2).
 
 ## Next steps
 
@@ -954,27 +1221,28 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
    Not traced: rocket jumps, crouch flips (mode 8), gliding, swimming, jets, the bounce
    (mode 11) and the rise-stopping sphere.
 3. **Done 2026-10-16 in code, the pull-in verified:** obstacles and collision ("Obstacles
-   and collision"). Next: a trace under a low ceiling (the clearance point's ceiling and
-   midpoint cases) and one that blocks the pivot-to-camera line for 30 frames (the
-   reset); check the sweep's sideways push against a pillar beside the arm; name the
-   collision masks' bits (0x12, 0x14, 0x20, 0x36, 0x94, 0xB4) and the second sphere query
-   (0x3FC030) and the camera-blocker spheres (0x3F51A8). In the Phoenix take the right
-   stick held the arm still against something beside it (frames 74–157) with no contact
-   reported; not explained yet.
+   and collision"). **Done 2026-10-17:** the low ceiling's two cases, the sweep's push and
+   the 30-frame reset traced; the masks' bits, the second sphere query and the
+   camera-blocker spheres named. Still open: in the Phoenix take the right stick held the
+   arm still against something beside it (frames 74–157) with no contact reported.
 4. **Done 2026-10-16:** the look, lock-strafe and first person on UYA, read in code and
    the look traced ("Lock-strafe and first person"); Deadlocked's follow camera,
    lock-strafe and first person, read and traced ("Deadlocked's camera"); the level's
    cameras, camera volumes, the fixed-point and path cameras, read in code with their data
-   checked against five savestates ("Camera volumes and splines"). Each section ends with
-   its own "Not read yet / next steps". The most useful next traces:
-   - UYA's lock-strafe and first-person settings (takes 2 and 3 of
-     `uyantsc-veldin-camlock.sh`) and a gun in hand (the forced strafing);
-   - a camera volume and Florana's flythrough activating (the hero placed in Florana's
-     cuboid 21, then walked across y ≈ 443);
-   - a half-tilted right stick on DL, for its dead zone and whether it squares the stick.
-5. **In the kit (P1.7):** the follow point's height table and the look point's air gain
-   in place of the hold-then-catch-up; the cosine pull-in, its stick bump and the 1.5 u
-   minimum arm; the free-look camera for lock-strafe and first person (both games),
-   chosen by a camera setting whose default is the profile's (UYA third person, DL
-   lock-strafe); DL's follow distance of 6.0 with no push-back; and camera volumes as a
-   kit component (a cuboid, a priority and optional overrides).
+   checked against five savestates ("Camera volumes and splines").
+5. **Done 2026-10-17:** UYA's lock-strafe, first-person setting and gun traced; a volume
+   and Florana's flythrough traced; the blends between cameras read and the lerp
+   verified; class 0x11 read in Florana's build; part-tilted right sticks on both games
+   (UYA's free look squares the stick and its look ignores a stick under 0.5; DL's
+   doesn't square it; both follow cameras are linear).
+6. **Open, at lower priority** (details in each section's own list): the follow
+   camera's 1° extra tilt at 0.632; whether the vertical invert option's default is the
+   game's (the options menu, 0x49C368, only copies its widgets); the first-person gun
+   placement (0x50F410); the camera-only collision groups (a trace through Veldin's one);
+   the classes only other builds hold (0x3, 0x18, 0x1D, 0x1E, 0x21) and 0x11's subtypes;
+   what sets object +0x78 and +0x7D; DL's aim assist with a target, its special follow
+   branches, where its blend's 0.25 is set and its L2 hold count; untraced vertical modes
+   (rocket jumps, crouch flips, gliding, swimming, jets, the bounce).
+7. **Done 2026-10-17 in the kit (P1.7):** everything this list asked for ("In the
+   kit"). Next for the kit: replay RE.4's traces' hero data through `FollowCamera` and
+   compare the cameras frame by frame, and the parts "In the kit" leaves out.

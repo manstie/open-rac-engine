@@ -101,7 +101,7 @@ impl RigMove {
     pub fn of(hero: &HeroMotion) -> Option<Self> {
         let horizontal = Vec2::new(hero.velocity.x, hero.velocity.z).length();
         Some(match hero.state {
-            HeroState::Idle => RigMove::Idle,
+            HeroState::Idle | HeroState::Look => RigMove::Idle,
             HeroState::Walk if hero.strafing_back => RigMove::StrafeBack,
             // UYA's walk sets off below 2.35 u/s (`hero-controller.md`).
             HeroState::Walk if horizontal < SET_OFF_BELOW => RigMove::SetOff,

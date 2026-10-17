@@ -82,6 +82,9 @@ to the d-pad when the stick is near the centre.
    - Stick y is negated, so forward is positive.
    - This fits 3,150 of 3,183 frames across both R&C3 traces exactly, two frames after
      the recording frame. On UYA NTSC it is the pad update, 0x45D5C8 [code].
+   - **Verified on UYA NTSC** (2026-10-17, `uyantsc-veldin-camhalf-0.5-1`, keys at half
+     tilt through PCSX2's `AxisScale`): the bytes 191 and 64 gave 0.2105 and 0.1974, on
+     both sticks.
 2. **Cut-off, in the hero code [verified on R&C3 PAL, code on UYA NTSC]:**
    - If the vector's length is under 0.25, the stick is ignored and the d-pad is used
      instead, each direction giving ±1.
@@ -89,9 +92,15 @@ to the d-pad when the stick is near the centre.
      vectors zeroed, plus 9 frames in a scripted state.
    - Together with the dead zone, an axis has to be pushed about 67 counts from centre,
      half its travel, before Ratchet moves.
+   - **Verified on UYA NTSC** (the same trace): the left stick held at 0.1974 for 2 s left
+     the hero's stick at 0 and him standing. The fallback reads the real d-pad (pad
+     +0x1B0), not the direction bits the stick sets in +0x1A0.
 3. **Magnitude, in the hero code [verified on R&C3 PAL]:**
    - `m = clamp((max(|x|, |y|) + length) / 2, 0, 1)`.
    - A diagonal therefore counts as fuller than its Euclidean length.
+   - **On UYA NTSC** (2026-10-17, `uyantsc-veldin-camhalf-0.75-{1,2}`, keys at 0.6184
+     straight ahead): the walk's speed target was 0.06359 u a frame, `6.17 / 60 × 0.6184`.
+     A diagonal isn't checked on NTSC.
 4. **Direction:** the stick vector rotated by the camera yaw.
 5. **The stick as presses [code, UYA NTSC 0x45D5C8; seen in
    `uyantsc-veldin-crouchflip-1`]:** the pad update also turns the stick into button
@@ -300,6 +309,11 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
   - **Gamepad only (PLAN §5, 2026-10-15):** `Action::LockOn` is
     bound to both triggers, and `rac_input` ignores keyboard and mouse bindings for it,
     because with a mouse the player aims themselves.
+- Standing while strafing, he steps round to the camera only once it is more than
+  `strafe.turn_after_degrees` (10°) off his facing, then idles within 2° (`camera.md`,
+  "The hero in these modes"). `HeroState::Look` (state 1) is the first-person button's
+  look: he stands, and turns to the camera's yaw once its view is ready
+  (`HeroMotion::look_ready`, which the camera sets).
 - `rac_rig`: `RigMove::StrafeBack` plays sequence 20. Sideways, the rig turns the hips by
   the angle to the movement and the chest back by the same **[assumed: the slots' joints
   aren't read]**.
@@ -1945,7 +1959,11 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
   - the glide's springs, and the heights and frames past which a double jump (1.5 u,
     t > 30) or a heli jump (0.6 u) turns into it. DL's check also has 1.0 u for standing
     and run jumps, which UYA's can't glide from; whether DL's can isn't traced.
-- **Not read in DL yet:** the stick's dead zone, lock-on, the wall jump's probes, ledges,
+- **The stick in DL [verified on DL NTSC, 2026-10-17, `dlntsc-dreadzone-camhalf-0.5-{1,2}`]:**
+  the pad layer's dead zone is UYA's (the bytes 191 and 64 gave 0.2105 and 0.1974), and
+  a left stick held at 0.1974 left the hero standing in both camera settings, as UYA's
+  0.25 cut-off would; the cut-off itself isn't read in DL's code.
+- **Not read in DL yet:** lock-on, the wall jump's probes, ledges,
   grinding, zip lines, swimming and getting hit. The kit's DL profile keeps UYA's numbers
   for them, marked as such. Melee is read ("Deadlocked's melee"), and so are the strafe
   turn and the camera (2026-10-16, `camera.md`, "Deadlocked's camera"): UYA's strafe turn,
@@ -2069,7 +2087,7 @@ Also read in code but not seen in a trace:
    from, DL's crouch (a savestate past the tutorial), the parts of the kit's DL profile
    still marked "not read in DL", and the code behind the 0.43 u step limit. The
    lock-strafe camera is read and traced (2026-10-16, `camera.md`, "Deadlocked's
-   camera"); the kit doesn't have it yet (P1.7).
+   camera"), and the kit has it, as `dl.ron`'s default camera (P1.7).
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
    swimming. Swimming, ledges and the wall jump were traced on 2026-10-13, and zip lines
    on 2026-10-15. UYA has no rail to grind on (section "Grinding"), so grinding waits for
@@ -2081,8 +2099,10 @@ Also read in code but not seen in a trace:
      wall and a ledge (from the owner or a scripted play-through) would let us check the
      probe distances and the shimmy speed.
    - The Gladiator traces already hold ledge grabs to compare.
-3. **Half-tilt stick on NTSC:** keyboard input only gives full tilt, so the pad layer's
-   dead zone is verified on PAL only.
+3. **Part-tilted stick on NTSC:** the dead zone, the 0.25 cut-off and the speed's scaling
+   with the magnitude are verified with keys at part tilt (`AXIS_SCALE`,
+   `docs/re-setup.md`). Still to check: a diagonal (two keys at once), for the
+   `(max + length) / 2` rule.
 4. **Camera (RE.4):** started in [camera.md](camera.md).
 5. **Constants for the kit:** write the tables above into the hero kit's RON profiles
    (P1.5) and use them as the RE.6 tolerance tests' expected values.

@@ -33,6 +33,8 @@ impl Default for SpectatorCamera {
 /// Keeps the camera from flipping over the top.
 const PITCH_LIMIT: f32 = 1.5;
 const FAST_FACTOR: f32 = 3.0;
+/// Radians per second the look stick turns it at full tilt: UYA's follow camera's rate.
+const STICK_TURN: f32 = 3.01;
 
 pub(crate) fn fly(
     inputs: Res<PlayerInputs>,
@@ -41,7 +43,7 @@ pub(crate) fn fly(
     let dt = (1.0 / TICK_HZ) as f32;
     for (mut camera, mut transform) in &mut cameras {
         let input = inputs.get(camera.player);
-        let look = input.look_radians();
+        let look = input.look_radians() + input.look_vector() * STICK_TURN * dt;
         // Turning right is a negative turn about +y.
         camera.yaw -= look.x;
         camera.pitch = (camera.pitch + look.y).clamp(-PITCH_LIMIT, PITCH_LIMIT);

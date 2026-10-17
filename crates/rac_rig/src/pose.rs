@@ -251,7 +251,7 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
     clank(&mut b, run, time);
 
     match hero.state {
-        HeroState::Idle | HeroState::SurfaceIdle | HeroState::UnderwaterIdle => {}
+        HeroState::Idle | HeroState::Look | HeroState::SurfaceIdle | HeroState::UnderwaterIdle => {}
         HeroState::Walk | HeroState::Charge => {
             let charge = matches!(hero.state, HeroState::Charge);
             let stride = phase.sin();
