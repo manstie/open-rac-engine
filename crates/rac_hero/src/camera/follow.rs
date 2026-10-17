@@ -16,8 +16,9 @@
 //!    distance growing while the hero runs at the camera.
 //! 5. The camera's actual arm chases that arm on springs.
 //! 6. The camera sits at the look point, raised by the follow height, plus the actual arm,
-//!    and aims a little above the follow point. A view blocked too long, or a camera far
-//!    from where it should be, starts again behind the hero.
+//!    and aims a little above the follow point; while he strafes or is locked on, the aim
+//!    moves over to the look point, and back once he stops. A view blocked too long, or a
+//!    camera far from where it should be, starts again behind the hero.
 
 use super::{
     angle_spring, approach, arm, lerp_spring, lock_turn, obstacles, spring, steer_turn,
@@ -102,6 +103,9 @@ pub(super) struct Rig {
     pub blocked_ticks: u32,
     /// Ticks locked on to a target, up to the profile's ramp.
     lock_ticks: u32,
+    /// How far the aim has moved from the follow point to the look point, in ticks of the
+    /// profile's `aim_blend_ticks`.
+    aim_blend: u32,
     /// Where the camera was and aimed last tick.
     pub camera: Vec3,
     pub aim: Vec3,
@@ -144,6 +148,7 @@ impl Rig {
             pull_in_timer: profile.obstacles.pull_in_rest,
             blocked_ticks: 0,
             lock_ticks: 0,
+            aim_blend: 0,
             camera: follow + Vec3::Y * profile.height + arm(yaw, 0.0, profile.distance),
             aim: follow + Vec3::Y * profile.look_height,
             on_floor: false,
@@ -190,17 +195,28 @@ pub(super) fn step(
     }
 
     // This tick's settings (`camera_follow_params`): strafing with the buttons held stops
-    // the drag; a camera volume retunes the rest.
+    // the drag; strafing and lock-on stiffen the look point and move the aim to it; a
+    // camera volume retunes the rest.
     let volume = &input.volume;
     if let Some(drag) = volume.drag {
         rig.drag = drag;
     }
     let strafing = hero.strafing;
+    let locked = input.lock.is_some();
     let drag = if strafing { 0.0 } else { rig.drag };
     let look_spring = if strafing {
         camera.strafe_look_spring
+    } else if locked {
+        camera.lock_look_spring
     } else {
         camera.look_spring
+    };
+    // The aim moves a tick at a time, so toggling strafe doesn't jerk the view between
+    // the two points.
+    rig.aim_blend = if strafing || locked {
+        (rig.aim_blend + 1).min(camera.aim_blend_ticks)
+    } else {
+        rig.aim_blend.saturating_sub(1)
     };
     let mut distance = camera.distance;
     let mut push_back = true;
@@ -391,8 +407,12 @@ pub(super) fn step(
         let length = reach.length();
         position = pivot + reach / length * (hit.fraction * length - SKIN).max(0.0);
     }
-    let aim_from = if strafing { rig.look } else { rig.follow };
-    let aim = aim_from + Vec3::Y * rig.look_height;
+    let blend = match camera.aim_blend_ticks {
+        0 if strafing || locked => 1.0,
+        0 => 0.0,
+        ticks => rig.aim_blend as f32 / ticks as f32,
+    };
+    let aim = rig.follow.lerp(rig.look, blend) + Vec3::Y * rig.look_height;
 
     // 9. A view blocked for long, or a camera far from its spot, starts again.
     let spot = pivot + arm(rig.arm_yaw, rig.arm_tilt, rig.arm_length());

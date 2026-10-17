@@ -186,8 +186,18 @@ Each frame, in this order:
 8. **Placing and aiming the camera** **[code; positions consistent in the trace]**:
    - The camera goes at the look point + 2.0 u up (the height) + the actual arm.
    - It is pushed out of geometry with a 0.25 u sphere, up to three times.
-   - It aims at the follow point + 1.5 u up, not at the lagging look point. A blend
-     towards the look point exists, but only special modes turn it on.
+   - It aims at the follow point + 1.5 u up, not at the lagging look point, unless
+     something turns on the blend towards the look point.
+   - **The blend** (in `camera_follow_motion`, 0x3E39E0) **[code; the 90 read from
+     memory in UYA NTSC and DL NTSC]**: the aim (+0xA0) is `lerp(follow point, look point,
+     n / 90)` + the look height. Each frame, n (+0x158) rises by 1 up to 90 if the flag
+     (+0x159) is set, and otherwise falls by 1 down to 0. `camera_end_of_frame` clears
+     the flag and sets the 90 (+0x16C) from 0x1DF6B0 (DL: 0x222810), and the camera's
+     init (0x3E52D0) clears n. So the aim takes 1.5 s to move over and as long to come
+     back, and tapping strafe barely moves it.
+   - Strafing, lock-on and a boss turn the blend on (`camera_follow_params`,
+     "Per-state parameters" below), as do the jump pad and a camera volume's flags +0x18
+     and +0x19. Deadlocked's code (0x51A660) is the same.
 9. **Obstacles** (0x3E64E0): a sweep of growing spheres along the arm swings it round
    things beside it, a sphere at the camera end pulls it in, and the pull-in eases back
    by a cosine. See "Obstacles and collision" below **[code; the pull-in verified]**.
@@ -416,13 +426,13 @@ before the motion and cleared at its end; lock-on and camera volumes are elsewhe
 | Swimming under water (type 17) | 0.25 (set) | | 0.5 (0.003) | ray mask 0xB4 |
 | Gliding (type 5) | 0.25 (set) | | 2.5 (1.5 for critter 1) (0.003) | |
 | Sliding (type 16) | 0.25 (set) | | | |
-| Jump pad (134) | | | | look point = follow point (spring 1.0 / 1.0), vertical 0.06; aim at the look point; no push |
+| Jump pad (134) | | | | look point = follow point (spring 1.0 / 1.0), vertical 0.06; aim blended to the look point; no push |
 | Rocket hover (128) | | 3.0 (0.003) | | look spring 0.04; steered to his facing; growth 0.18; no push |
-| Strafing, 131 or 135 with L2/R2 held | | | | no drag; aim at the look point; look spring 0.04 |
+| Strafing, 131 or 135 with L2/R2 held | | | | no drag; aim blended to the look point; look spring 0.04 (after lock-on's, so it wins) |
 | Skydive (type 37) | | | | no drag; look spring 0.005 / 0.1 |
 | Desired camera 13 with a heading | | | | steered to it at 0.2094 rad a frame |
 | States 80, 125–127, 129 | | | | no sweep and no blocked count |
-| A boss set | | | | steered to it as lock-on; the right stick suspends it for 240 frames |
+| A boss set | | | | steered to it as lock-on, with lock-on's look spring and aim; the right stick suspends it for 240 frames |
 
 ## Lock-on [code, UYA NTSC, 2026-10-15]
 
@@ -445,8 +455,11 @@ weapon that allows lock-on.
   option. The stick spring between them (+0x1E0: gain 2, damping 4, never past its
   target) settles in one frame, so the kit leaves it out.
 - The camera ends the frame by clearing the virtual stick (`camera_end_of_frame`).
-- **In the kit:** `rac_hero::camera`, `lock_turn`; its profile's `lock_turn` and
-  `lock_ramp_ticks`.
+- **The look point and the aim:** with a target, each frame also sets the look point's
+  horizontal spring to 0.03 / 0.2 and turns on the aim's blend towards the look point
+  (step 8). Deadlocked's (0x51A660) does the same.
+- **In the kit:** `rac_hero::camera`, `lock_turn`; its profile's `lock_turn`,
+  `lock_ramp_ticks` and `lock_look_spring`.
 
 ## Camera volumes and splines [UYA NTSC, 2026-10-16]
 
@@ -1122,8 +1135,8 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   player's camera setting; `None` takes the profile's (UYA third person, DL lock-strafe).
   The demo hides the hero while the camera is at his eye.
 - **The follow camera** has steps 1 to 9 of "How the follow camera works", the vertical
-  modes the kit's states reach, the look point's air gain, strafing's drag-free arm and
-  look-point aim, the clearance point, the sweep, the camera-end sphere, the pull-in with
+  modes the kit's states reach, the look point's air gain, strafing's drag-free arm,
+  the aim's 90-tick blend to the look point while strafing or locked on, the clearance point, the sweep, the camera-end sphere, the pull-in with
   its stick bump, timer and cosine, the 1.5 u minimum arm, and the 30-tick and 30 u
   resets. The stick turns it linearly and its tilt springs back, as the games do; the
   mouse turns it directly and its tilt stays.

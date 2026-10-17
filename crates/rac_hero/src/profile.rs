@@ -1147,9 +1147,12 @@ pub struct CameraProfile {
     pub stick_tilt_dead_zone: f32,
     pub stick_tilt_out: f32,
     pub stick_tilt_back: f32,
-    /// Strafing with the strafe buttons held, the arm isn't dragged, the camera aims at the
+    /// Strafing with the strafe buttons held, the arm isn't dragged, the aim moves to the
     /// look point, and the look point follows on this horizontal spring.
     pub strafe_look_spring: Spring,
+    /// Strafing or locked on, the aim moves from the follow point to the lagging look
+    /// point over this many ticks, and back over as many once neither holds it there.
+    pub aim_blend_ticks: u32,
     pub vertical: VerticalProfile,
     pub clearance: ClearanceProfile,
     pub obstacles: ObstacleProfile,
@@ -1160,6 +1163,8 @@ pub struct CameraProfile {
     /// over `lock_ramp_ticks` (`camera.md`, "Lock-on").
     pub lock_turn: f32,
     pub lock_ramp_ticks: u32,
+    /// Locked on but not strafing, the look point follows on this horizontal spring.
+    pub lock_look_spring: Spring,
     /// A camera volume's distance and height spring at this gain. It stays after the
     /// volume, until running at the camera sets the usual gain again.
     pub volume_gain: f32,

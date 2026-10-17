@@ -521,8 +521,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - **The follow camera** (third person): UYA's drag camera with the follow point's
     height modes (the jump hold, the heli, double-jump and flip rises, the jump attack's
     halfway height), the look point's air gain, the distance and height springs, the
-    push-back, the stick's linear turn and springing tilt, lock-on's turn, strafing's
-    drag-free arm, the clearance point, the arm sweep, the camera-end sphere, the
+    push-back, the stick's linear turn and springing tilt, lock-on's turn and look
+    spring, strafing's drag-free arm, the aim's 90-tick blend to the look point while
+    strafing or locked on, the clearance point, the arm sweep, the camera-end sphere, the
     cosine pull-in with its stick bump and 1.5 u minimum, and the 30-tick and 30 u
     resets. DL's is the same 6 u back, so it has no push-back.
   - **The free-look camera** for the lock-strafe and first-person settings and the
@@ -541,6 +542,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     bounce's mode 11) aren't modelled; the camera setting isn't in input recordings.
   - **Not traced against the kit:** a replay of RE.4's traces through the kit camera
     would check it end to end (camera.md, "Next steps").
+  - Tapping strafe while moving sideways jerked the view: the kit snapped the aim between
+    the follow and look points. The games blend it over 90 frames (`camera.md`, step 8;
+    read in code, not traced); fixed.
 - [x] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
   and the crate `rac_combat`): the wrench combo, jump attack, throw, grind attack and the
   clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with

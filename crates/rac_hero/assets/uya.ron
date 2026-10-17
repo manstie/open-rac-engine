@@ -963,6 +963,7 @@
         stick_tilt_out: 0.02, // [verified]
         stick_tilt_back: 0.01,
         strafe_look_spring: (gain: 0.04, damping: 0.2),
+        aim_blend_ticks: 90, // the value at 0x1DF6B0
         vertical: (
             heli_rise: (height: 3.0, ticks: 85), // [verified]
             double_jump_rise: (height: 3.5, ticks: 45),
@@ -1009,6 +1010,7 @@
         // (ticks / 400) × π/2 rad a frame (0x3E42C0) [code, untraced].
         lock_turn: 1.5707964,
         lock_ramp_ticks: 400,
+        lock_look_spring: (gain: 0.03, damping: 0.2),
         volume_gain: 0.001, // [verified on Florana]
         // "The free-look camera" and "The eye point" [verified in uyantsc-veldin-camlock-*
         // and -camhalf-* where noted].

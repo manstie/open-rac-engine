@@ -130,15 +130,96 @@ fn strafing_stops_the_drag() {
     hero.velocity = Vec3::X * 6.17;
     hero.state = HeroState::Walk;
     hero.strafing = true;
-    for _ in 0..120 {
+    for tick in 1..=120 {
         hero.position += hero.velocity * TICK;
         let (position, aim) = step(&mut rig, &hero, &still(), &empty());
         assert!(rig.arm_yaw.abs() < 1e-6, "{}", rig.arm_yaw);
-        // It aims at the lagging look point.
-        assert_eq!(aim, rig.look + Vec3::Y * 1.5);
-        let facing = (aim - position).normalize();
-        assert!(facing.x.abs() < 1e-3, "{facing}");
+        // Once the aim has moved over, it is on the lagging look point.
+        if tick >= 90 {
+            assert_eq!(aim, rig.look + Vec3::Y * 1.5);
+            let facing = (aim - position).normalize();
+            assert!(facing.x.abs() < 1e-3, "{facing}");
+        }
     }
+}
+
+#[test]
+fn strafing_moves_the_aim_to_the_look_point_over_90_ticks() {
+    // `camera_follow_motion` (0x3E39E0) aims between the follow point and the look point
+    // by a count that rises a tick at a time to 90 while he strafes and falls the same way
+    // once he stops (`camera.md`, step 8).
+    let profile = uya();
+    let (mut rig, mut hero) = rest(&profile);
+    hero.velocity = Vec3::X * 6.17;
+    hero.state = HeroState::Walk;
+    let mut count = 0;
+    for tick in 0..200 {
+        // Held for 30, let go for 10, then held.
+        hero.strafing = !(30..40).contains(&tick);
+        count = if hero.strafing {
+            (count + 1).min(90)
+        } else {
+            count - 1
+        };
+        hero.position += hero.velocity * TICK;
+        let (_, aim) = step(&mut rig, &hero, &still(), &empty());
+        let wanted = rig.follow.lerp(rig.look, count as f32 / 90.0) + Vec3::Y * 1.5;
+        assert!(
+            (aim - wanted).length() < 1e-5,
+            "tick {tick}: {aim} {wanted}"
+        );
+    }
+    assert_eq!(count, 90);
+}
+
+#[test]
+fn toggling_strafe_doesnt_jerk_the_view() {
+    // Strafing sideways, then tapping strafe, the view used to jump between the look point
+    // and the follow point beside it, 0.14 rad in a tick. Now it turns 0.011 at most.
+    let profile = uya();
+    let (mut rig, mut hero) = rest(&profile);
+    hero.velocity = Vec3::X * 6.17;
+    hero.state = HeroState::Walk;
+    let mut last = None;
+    for tick in 0..300 {
+        hero.strafing = tick < 200 || tick % 8 < 4;
+        hero.position += hero.velocity * TICK;
+        let (position, aim) = step(&mut rig, &hero, &still(), &empty());
+        let view = (aim - position).normalize();
+        if let Some(last) = last
+            && tick >= 200
+        {
+            let turned = view.angle_between(last);
+            assert!(turned < 0.02, "tick {tick}: {turned}");
+        }
+        last = Some(view);
+    }
+}
+
+#[test]
+fn locked_on_the_look_point_stiffens_and_the_aim_moves_to_it() {
+    // Lock-on sets the look point's spring to 0.03 and moves the aim as strafing does
+    // (`camera_follow_params`, 0x3E42C0). Running away from the camera at a target ahead,
+    // the look point trails by (0.2 / 0.03 − 1) × v per tick.
+    let profile = uya();
+    let (mut rig, mut hero) = rest(&profile);
+    hero.velocity = Vec3::NEG_Z * 6.17;
+    hero.state = HeroState::Walk;
+    let input = FollowInput {
+        lock: Some(Vec3::new(0.0, 1.0, -1000.0)),
+        ..still()
+    };
+    let mut aim = Vec3::ZERO;
+    for _ in 0..300 {
+        hero.position += hero.velocity * TICK;
+        (_, aim) = step(&mut rig, &hero, &input, &empty());
+    }
+    let lag = rig.follow.z - rig.look.z;
+    assert!(
+        (lag + (0.2 / 0.03 - 1.0) * 6.17 * TICK).abs() < 0.01,
+        "{lag}"
+    );
+    assert_eq!(aim, rig.look + Vec3::Y * 1.5);
 }
 
 #[test]
