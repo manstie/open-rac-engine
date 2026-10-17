@@ -56,7 +56,10 @@ impl Pose {
 /// What the animation keeps between frames.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Animator {
+    /// The eased pose, without the strafe's twist.
     pub pose: Pose,
+    /// The strafe's twist ([`strafe_twist`]), eased as an angle apart from the pose.
+    pub twist: f32,
     /// The stride's phase, in radians.
     pub phase: f32,
     /// Seconds since the rig appeared, for idle motion.
@@ -70,10 +73,32 @@ impl Animator {
     pub fn new(seed: u32) -> Self {
         Self {
             pose: Pose::rest(),
+            twist: 0.0,
             phase: 0.0,
             time: 0.0,
             director: crate::play::Director::new(seed),
         }
+    }
+
+    /// Moves `rate` (0 to 1) of the way to `target`, and the twist as far to `twist`.
+    ///
+    /// Eased into each joint's rotation, changing sides asked the hips and the chest for
+    /// half a turn each, which each joint's slerp took whichever way rounding chose: when
+    /// both went the same way, the body above the hips spun a full turn. As one angle,
+    /// the chest always turns back as far as the hips turn, and they swing through his
+    /// front. Only a twist that wraps past half a turn is followed the short way.
+    pub fn ease(&mut self, target: &Pose, twist: f32, rate: f32) {
+        self.pose.ease(target, rate);
+        let mut gap = twist - self.twist;
+        if gap.abs() > 1.5 * PI {
+            gap = wrap_angle(gap);
+        }
+        self.twist = wrap_angle(self.twist + gap * rate);
+    }
+
+    /// Joint `index`'s rotation as shown: the pose's, with the twist.
+    pub fn rotation(&self, index: usize) -> Quat {
+        twisted(index, self.pose.rotations[index], self.twist)
     }
 }
 
@@ -418,20 +443,29 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
 }
 
 /// Strafing sideways UYA runs with the hips turned to the way he moves and the body turned
-/// back to the camera (0x4EF060). Not backwards, which has its own walk.
-pub fn twist_for_strafe(pose: &mut Pose, hero: &HeroMotion) {
+/// back to the camera (0x4EF060). Not backwards, which has its own walk. The twist is the
+/// angle from his facing to the way he moves, or 0.
+pub fn strafe_twist(hero: &HeroMotion) -> f32 {
     let moving = Vec2::new(hero.velocity.x, hero.velocity.z);
     if !hero.strafing
         || hero.strafing_back
         || hero.state != HeroState::Walk
         || moving.length() < 0.1
     {
-        return;
+        return 0.0;
     }
     // The movement's yaw against his, as the controller measures yaw.
-    let twist = wrap_angle(ops::atan2(-moving.x, -moving.y) - hero.yaw);
-    pose.rotations[joint::HIPS] = ry(twist) * pose.rotations[joint::HIPS];
-    pose.rotations[joint::CHEST] = ry(-twist) * pose.rotations[joint::CHEST];
+    wrap_angle(ops::atan2(-moving.x, -moving.y) - hero.yaw)
+}
+
+/// Joint `index`'s `rotation` with the hips turned by `twist` and the chest turned back by
+/// as much.
+fn twisted(index: usize, rotation: Quat, twist: f32) -> Quat {
+    match index {
+        joint::HIPS => ry(twist) * rotation,
+        joint::CHEST => ry(-twist) * rotation,
+        _ => rotation,
+    }
 }
 
 fn wrap_angle(angle: f32) -> f32 {
@@ -527,16 +561,41 @@ mod tests {
         assert!((phase - 3.0 * TAU / 4.0).abs() < 1e-4);
     }
 
-    #[test]
-    fn strafing_sideways_turns_the_hips_to_the_movement_and_the_chest_back() {
-        let model = hero();
+    /// The pose an animator shows, its twist included.
+    fn shown(animator: &Animator) -> Pose {
+        Pose {
+            rotations: (0..joint::COUNT).map(|i| animator.rotation(i)).collect(),
+            ..animator.pose.clone()
+        }
+    }
+
+    /// The yaw a joint's −z faces, as the controller measures yaw.
+    fn facing_yaw(joints: &[JointDef], pose: &Pose, index: usize) -> f32 {
+        let forward = world_rotation(joints, pose, index) * Vec3::NEG_Z;
+        ops::atan2(-forward.x, -forward.z)
+    }
+
+    /// A hero facing −z, strafing at 6 u/s to his right or left.
+    fn strafing(right: bool) -> HeroMotion {
         let mut motion = HeroMotion::new(Vec3::ZERO, 0.0);
         motion.state = HeroState::Walk;
         motion.strafing = true;
+        motion.velocity = Vec3::new(if right { 6.0 } else { -6.0 }, 0.0, 0.0);
+        motion
+    }
+
+    #[test]
+    fn strafing_sideways_turns_the_hips_to_the_movement_and_the_chest_back() {
+        let model = hero();
         // Facing −z, moving +x: the legs turn a right angle to the right.
-        motion.velocity = Vec3::new(6.0, 0.0, 0.0);
-        let mut pose = target(&model.joints, &motion, 0.0, 0.0);
-        twist_for_strafe(&mut pose, &motion);
+        let motion = strafing(true);
+        let mut animator = Animator::new(0);
+        animator.ease(
+            &target(&model.joints, &motion, 0.0, 0.0),
+            strafe_twist(&motion),
+            1.0,
+        );
+        let pose = shown(&animator);
         let hips = world_rotation(&model.joints, &pose, joint::HIPS);
         assert!(
             (hips * Vec3::NEG_Z - Vec3::X).length() < 1e-3,
@@ -546,5 +605,42 @@ mod tests {
         // The chest still faces the camera's way, give or take the run's own lean.
         let chest = world_rotation(&model.joints, &pose, joint::CHEST) * Vec3::NEG_Z;
         assert!(chest.dot(Vec3::NEG_Z) > 0.95, "{chest}");
+    }
+
+    #[test]
+    fn changing_strafe_sides_swings_the_hips_through_his_front_and_keeps_the_chest() {
+        // Each switch asks the hips for half a turn. Eased joint by joint, right to left
+        // spun the chest a full turn the same way as the hips.
+        let model = hero();
+        let joints = &model.joints;
+        let mut animator = Animator::new(0);
+        let rate = 1.0 - ops::exp(-14.0 / 60.0);
+        let mut phase = 0.0;
+        for tick in 0..240 {
+            let motion = strafing((tick / 60) % 2 == 0);
+            phase = advance_phase(phase, &motion, 1.0 / 60.0);
+            let goal = target(joints, &motion, phase, tick as f32 / 60.0);
+            let chest_before = facing_yaw(joints, &shown(&animator), joint::CHEST);
+            animator.ease(&goal, strafe_twist(&motion), rate);
+            let pose = shown(&animator);
+            let chest = facing_yaw(joints, &pose, joint::CHEST);
+            assert!(
+                wrap_angle(chest - chest_before).abs() < 0.1,
+                "tick {tick}: the chest turned from {chest_before} to {chest}"
+            );
+            // The hips never face backwards on the way over.
+            let hips = world_rotation(joints, &pose, joint::HIPS) * Vec3::NEG_Z;
+            assert!(hips.z < 0.05, "tick {tick}: the hips face {hips}");
+        }
+    }
+
+    #[test]
+    fn a_twist_wrapping_past_half_a_turn_is_followed_the_short_way() {
+        // Moving the opposite way to his facing, as he turns to the camera the twist goes
+        // from just under half a turn to just over, which wraps.
+        let mut animator = Animator::new(0);
+        animator.twist = 3.1;
+        animator.ease(&Pose::rest(), -3.1, 0.5);
+        assert!(animator.twist.abs() > 3.1, "{}", animator.twist);
     }
 }

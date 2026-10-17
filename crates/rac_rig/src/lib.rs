@@ -321,7 +321,6 @@ fn animate(
             seconds,
             &mut target,
         );
-        pose::twist_for_strafe(&mut target, hero);
         // Attacks and clips track closely; procedural poses ease in.
         let speed = if hero.state.is_attacking() {
             40.0
@@ -330,7 +329,11 @@ fn animate(
         } else {
             14.0
         };
-        animator.pose.ease(&target, 1.0 - (-speed * seconds).exp());
+        animator.ease(
+            &target,
+            pose::strafe_twist(hero),
+            1.0 - (-speed * seconds).exp(),
+        );
 
         for (index, &entity) in rig.joints.iter().enumerate() {
             let Ok(mut transform) = transforms.get_mut(entity) else {
@@ -341,7 +344,7 @@ fn animate(
                 &rig.skeleton,
                 &rig.turns,
                 index,
-                pose.rotations[index],
+                animator.rotation(index),
                 pose.offsets[index],
                 pose.scales[index],
             );

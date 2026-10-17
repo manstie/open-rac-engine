@@ -634,6 +634,11 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - `wrench_points` had been measured on a bake that ignored the wrench's rest turn (P3.7).
     It is now (0.47, −0.12, −0.87), forward from the fist, which matches the game's
     screenshot. Every model's wrench and the procedural poses follow it.
+  - Changing sides in a sideways strafe sometimes spun the body above the hips a full turn:
+    the strafe's twist was slerped joint by joint towards a target half a turn away, and
+    hips and chest could take the same way round. It is now one angle eased beside the pose
+    (`pose::Animator::ease`); UYA's own two twist springs (`hero-controller.md`,
+    "Strafing") aren't used yet.
 - [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
   - Host and join by `IP:port`, or by swapping join codes, over UDP.
   - Port mapping (UPnP IGD, NAT-PMP, PCP) and hole punching (D8).
