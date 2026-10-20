@@ -44,6 +44,18 @@ without warning, so PLAN.md has to show what is under way and what went wrong on
   catalogue in `docs/re-setup.md`. `source/` is gitignored; `cache/` and the scratchpad
   may be wiped.
 
+**Delegating.** Hand easy, repetitive, well-specified work to Haiku agents at high effort
+(`model: "haiku"`, `effort: "high"`) rather than Opus ones. Examples: PCSX2 captures ("Reverse-engineering
+workflow"), pulling named numbers out of traces or CSVs, sweeping files for a pattern,
+running commands and summarising their output, and mechanical edits that follow a set
+pattern.
+- **Brief them fully.** Say which rules here apply (legal, private emulator instances,
+  stopping by PID, build limits), give the inputs and exact steps, say what to return and
+  which files they may create or edit, and say what they must leave alone.
+- **Keep the judgement in the main session.** That means design, reading results against
+  the code, and anything written to `docs/research/`, the kit or PLAN.md.
+- **Check before trusting.** Spot-check a sample of the work before building on it.
+
 **At the end:** tick or update the tasks you touched in PLAN.md and §0's next actions,
 replace your `In progress` notes, record new decisions in §5 with the date, and leave the
 tree green ("Definition of done").
@@ -252,6 +264,14 @@ Setup, launchers, menu paths, gotchas and the catalogue of savestates and traces
   from a layout; `pine-probe export` writes CSV. Where the hero lives per release is in
   `re/<serial>/hero.toml`. Raw traces stay in `cache/pcsx2/traces/` (copied to
   `source/<game>/` if they can't be regenerated); only derived constants are committed.
+- **Captures suit Haiku agents** ("Delegating", under "Every session"): finding a spot in
+  a level, scripting and capturing takes, and saving and cataloguing the files.
+  - Give each agent its own `DISPLAY_NUM` and `PINE_SLOT`, plus the savestate, keys and
+    layout, what each take does and what to measure, and the file names.
+  - It edits only its own files in `source/<game>/` and its catalogue rows in
+    `docs/re-setup.md`.
+  - Spot-check a trace or two (timings, positions, states) before writing findings from
+    them.
 - **Recording results:** findings in `docs/research/*.md`, labelled verified or reported;
   addresses and names in `re/<serial>/symbols.toml` (PLAN RE.2), seeded from libuya and
   libdl (MIT) with attribution.
