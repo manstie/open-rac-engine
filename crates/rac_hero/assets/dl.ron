@@ -35,7 +35,8 @@
         dead_zone: 48.0,
         live_range: 76.0,
         cut_off: 0.25,
-        // As UYA [not read in DL]: "Flips", the pad layer's flick.
+        // As UYA [not read in DL]: "Flips", the pad layer's flick. Only the crouch flip
+        // reads it, and DL has none (walk.crouches).
         flick: (from: 0.25, to: 0.9, within_ticks: 3, swing_degrees: 55.0, swing_ticks: 4),
     ),
     walk: (
@@ -84,8 +85,11 @@
         turn_slow_per_radian: 0.4,
         turn_stall_stick: 0.9,
         turn_stall_degrees: 45.0,
-        crouch_brake: 27.0, // [verified on UYA NTSC]
-        // As UYA [not read in DL]: turning in a crouch.
+        // DL: no code enters the crouch (state 4); R1's pad bit is worked out and ignored
+        // where UYA crouches ("Deadlocked's moves") [code; R1 traced]. The crouch's numbers
+        // below are UYA's, unused.
+        crouches: false,
+        crouch_brake: 27.0,
         crouch_turn: (gain: 0.002, damping: 0.07, cap: 0.165806),
         crouch_turn_stick: 0.2,
         // "Long jump", run or standing jump: picked by the stick, not the speed [code].
@@ -113,7 +117,8 @@
         // Facing in the air: R&C3 PAL's gain 0.0576 and damping 0.288 ÷ 1.44 [code], and
         // the jump block's 0.25016 rad per frame cap [code].
         turn: (gain: 0.04, damping: 0.2, cap: 0.25016),
-        // As UYA [not read in DL]: "Flips", the landing with the stick released.
+        // "Flips", the landing with the stick released: 0.2 and 0.041666668 u per frame in
+        // DL's jump states' landing too (0x6A413C) [code].
         land_release_stick: 0.2,
         land_release_speed: 2.5,
     ),
@@ -146,9 +151,9 @@
         apex_gravity_factor: 1.0,
         air_speed: 7.25, // DL
     ),
-    // State 10, "Long jump": DL's state entry sets UYA's numbers [code]. No air control:
-    // air_speed is unused. Where the moves were traced, DL's crouch didn't respond, so
-    // the entry rules below are as UYA [not read in DL].
+    // State 10, "Long jump": DL's state entry sets UYA's numbers [code], but nothing enters
+    // it: it starts from a crouch, which DL hasn't (walk.crouches), and the R1 check in a
+    // jump's first frames is ignored (0x6A3D88). The entry rules below are UYA's, unused.
     long_jump: (
         params: (
             height_min: 1.9,
@@ -170,8 +175,8 @@
         crouch_window: 2,
     ),
     // State 11, "Flips": DL's state entry sets UYA's numbers [code; the speed verified on
-    // Gladiator PAL]. DL's walk never flips (strafe.flips); where its flips come from
-    // isn't found yet.
+    // Gladiator PAL]. DL's walk never flips (strafe.flips): its only flip is the landing
+    // flip (strafe.landing_window) [verified on DL NTSC].
     flip: (
         params: (
             height_min: 3.2,
@@ -186,8 +191,9 @@
         min_speed: 2.0,
         start_speed: 5.0,
         accel: 47.0,
-        // As UYA [not read in DL]: the strafe flip's stick, and the crouch flip. DL's
-        // R1 didn't crouch where it was traced, so the crouch flip couldn't be tried.
+        // As UYA [not read in DL]: the strafe flip's stick. The crouch flip is UYA's,
+        // unused: DL has no crouch, and the flip from a jump still on the ground ignores
+        // R1 (0x6A3D28) [code].
         strafe_stick: 0.3,
         crouch: (
             press_gap: 12,
@@ -218,7 +224,12 @@
         // DL: 0x687430 works out the flip, then always jumps (state 7). Strafing sideways
         // and back with X gave standing jumps (dlntsc-dreadzone-moves-2) [verified].
         flips: false,
-        flip_stick: 0.9,
+        flip_stick: 0.9, // the landing flip's 0x3F666666 (0x6A4600) [code]
+        // "The landing flip" (0x6A45F0): DL's only flip. X within 8 frames, on the frame a
+        // jump lands and the next [code; verified on DL NTSC, dlntsc-dreadzone-flip-1:
+        // presses 2, 6 and 7 frames old flipped, one 9 frames old didn't].
+        landing_window: 8,
+        landing_ticks: 2,
         back_stick: 0.15,
         idle_within_degrees: 2.0,
         turn_after_degrees: 10.0, // camera.md, "Lock-strafe, DL's default" [verified on DL NTSC]
@@ -231,7 +242,7 @@
         keep_range: 30.0,
     ),
     // State 15, "Heli jump thrust": DL's state entry and its thrust table (0x2207D0, 49
-    // u/s² from frame 35 to 70) are UYA's [code]. DL's crouch didn't respond where traced.
+    // u/s² from frame 35 to 70) are UYA's [code], but nothing enters it: DL has no crouch.
     heli_jump: (
         params: (
             height_min: 1.65,
@@ -268,9 +279,11 @@
         past_apex_min_height: 0.7,
         past_apex_max_speed: 5.8, // 0.09667 u per frame
     ),
-    // State 8, "Glide": DL's update (in 0x690F18) [code]. DL's hero didn't glide with X
-    // held through a double jump 3 u up, so it needs an item or a mode not found yet. The
-    // double and heli jumps' limits for it read the same in DL (0x6A4A44) [code].
+    // State 8, "Glide": DL's update (in 0x690F18) [code]. DL never glides: where UYA checks
+    // the heli-pack, DL checks hero+0x2E2C, which the hero is created with set and nothing
+    // clears ("Deadlocked's moves") [code; traced]. In the kit that is Abilities::heli_pack
+    // off, which a DL game sets and the demo doesn't. The double and heli jumps' limits for
+    // it read the same in DL (0x6A4A44) [code].
     glide: (
         // Entered by holding X: in a double jump after its 30th tick and 1.5 u up, or in a
         // heli jump after its 85th and 0.6 u up [code; the moves-1 glide began on the
@@ -285,11 +298,12 @@
         accel: 15.0,
         brake: 7.0,
     ),
-    // State 17, "Wall jump": the turn and the 4.9 u/s away from the wall read the same in
-    // DL's air control (0x680A88) [code]; the rest as UYA [not read in DL]. Ticks stand
-    // for the game's frame counts, compared the way its transitions compare them ("t > 8"
-    // is from_tick 9).
+    // State 17, "Wall jump": DL has none. Its state entry, and the turn and 4.9 u/s away
+    // from the wall in its air control (0x680A88), are UYA's, but nothing enters the
+    // state and no wall detector runs ("Deadlocked's moves") [code]. The numbers below are
+    // UYA's, unused.
     wall_jump: (
+        enabled: false, // DL
         params: (
             height_min: 1.8,
             height_max: 1.85,
@@ -322,19 +336,24 @@
         ordinary_chain: 2,
         ledge_lookahead_ticks: 20,
     ),
-    // States 23-27, "Ledges": as UYA [not read in DL], apart from the climb (state 27),
-    // read in DL's state entry and air control [code]. Rules the game times by animation
+    // States 23-27, "Ledges": DL's detector (0x672960), the states' motion (0x690F18) and
+    // transitions (0x69EA40), and the climb's state entry and air control, read
+    // ("Deadlocked's ledges") [code; untraced in DL]. Rules the game times by animation
     // frame assume one frame per tick.
     ledge: (
         probe_above: 1.65, // 1.5 + 0.15
         probe_below: 1.15,
-        probe_step: 0.075, // 0.3 × 0.25
-        probe_tries: 4,
+        // DL: one cast, 0.3 + 0.3 past the capsule's front, for the local player (IsLocal,
+        // hero+0x266D); other players' heroes try four times 0.3 apart, from 2.4 above to
+        // 1.9 below, while not jumping.
+        probe_ahead: 0.3,
+        probe_step: 0.3,
+        probe_tries: 1,
         max_top_slope_degrees: 20.0, // 0.34906584 rad
         min_rise: 0.5,
         max_rise: 1.5,
         min_drop: 1.8,
-        clear_back: 1.0,
+        clear_back: 0.0, // DL: no clear-lip check
         face_below: 0.7,
         face_tries: 5,
         face_step: 0.14, // 0.7 / 5
@@ -343,26 +362,29 @@
         lip_search: 2.4,
         hang_out: 0.5,
         hang_below: 1.43,
-        grab_rising_below: 3.5, // 0.058333 u per frame
-        double_jump_after_tick: 37, // animation frame 37
+        grab_rising_below: 0.5, // DL: 0.5 × frame_dt, against UYA's 3.5 u/s
+        double_jump_after_tick: 24, // DL: animation frame 24, against UYA's 37
         grab_speed: 4.0, // 0.066667 u per frame
         grab_turn: (gain: 0.04, damping: 0.2, cap: 0.10472),
         grab_ticks: 13, // hangs once the grab animation passes frame 12
         no_grab_ticks: 10,
         no_grab_ticks_shimmy: 40,
+        no_grab_ticks_lost: 30, // DL: 30, against UYA's 10
         climb_press_window: 17,
         shimmy_climb_press_window: 9,
         let_go_degrees: 135.0,
         shimmy_stick: 0.5,
         shimmy_degrees: 45.0,
         shimmy_probe: 0.3,
-        // The shimmy steps by its animation's table [verified on UYA NTSC, 2026-10-13]:
-        // towards the ledge 0.1 u to the side (0.2 × the hang's 0.5 u offset), 0.5 × the
-        // frame's entry long. The animation sits at frame 0 for 6 ticks, then runs half a
-        // frame a tick; a cycle ends on frame 14, before its last entry, so covers 0.623 u.
+        // The shimmy steps by its animation's table, as UYA's [code; verified on UYA NTSC]:
+        // towards the ledge 0.1 u to the side (0.2 × the hang's 0.5 u offset), a scale ×
+        // the frame's entry long. In UYA the animation sits at frame 0 for 6 ticks, then runs
+        // half a frame a tick; a cycle ends on frame 14, before its last entry.
         shimmy_look: 0.1,
         shimmy_steps: [0.0, 0.0, 0.025, 0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037, 0.037, -0.017, -0.017, -0.035, -0.035],
-        shimmy_step_scale: 0.5,
+        // DL: 1.5 × the same table (0x3B0BA0), against UYA's 0.5 [code]; the
+        // animation's rate below is UYA's [not read in DL].
+        shimmy_step_scale: 1.5,
         shimmy_blend_ticks: 6,
         shimmy_frames_per_tick: 0.5,
         shimmy_cycle_frames: 14.0,
@@ -475,9 +497,11 @@
         switch_step: 0.75,
         switch_ticks: 48,
     ),
-    // As UYA [not read in DL]: "Zip lines" [code, then verified on UYA NTSC]. Per-frame
-    // values are given as UYA's code has them.
+    // "Zip lines": DL has none ("Deadlocked's moves") [code]. Its state 118 is the death
+    // fall, and no code holds the catch's 1.34 u hands. The numbers below are UYA's,
+    // unused.
     zip_line: (
+        enabled: false, // DL
         hands_up: 1.34,
         reach: 0.9,
         reach_vertical: 1.5,
@@ -496,9 +520,12 @@
         end_ticks: 6,
         end_gravity: 22.0, // 0.0061111115 u per frame per frame
     ),
-    // States 50-54 and 18, "Swimming": as UYA [not read in DL], apart from the water jump
-    // (18), read in DL's state entry [code].
+    // States 50-54 and 18, "Swimming": DL's water entry (0x6A60A8), surface and underwater
+    // motion (0x690F18, 0x699060), surface transitions and the water jump's state entry
+    // read as UYA's, with per-second literals ("Deadlocked's swimming") [code; untraced in
+    // DL]. The surface float (UYA 0x501458) isn't read in DL.
     swim: (
+        dives: false, // DL: no dive from the surface, and no underwater transitions
         entry_below: 0.45,
         entry_slack: 0.2,
         entry_slack_extra: 0.07,
@@ -939,14 +966,20 @@
             ground_below: 0.9,
         ),
     ),
-    // As UYA [not read in DL]: state 22, "Getting hit and dying" [code, UYA NTSC].
+    // State 22, "Getting hit and dying": DL's entry (0x69DAAC), motion and transitions
+    // are UYA's apart from the marked values ("Deadlocked's hits") [code]. The hazard
+    // floor and death are as UYA [not read in DL].
     hit: (
         max_speed: 7.0, // 0.11667 u per frame
         brake: 4.0,
         brake_later: 10.0,
         brake_later_from_tick: 11,
         ticks: 28,
-        safe_ticks: 77,
+        fall_after_tick: 16, // DL: the animation's frame 16, against UYA's 12.5
+        fall_above: 1.0,
+        // DL: hero+0x39C, 47 frames in lock-strafe and first person (the default), 70 in
+        // third person, against UYA's 77. The kit doesn't vary it with the camera.
+        safe_ticks: 47,
         hazard_safe_ticks: 90,
         // The game's hazard damage is a per-level global, and its push comes from the
         // attacker; health is UYA's starting nanotech as remembered [placeholder].

@@ -1,5 +1,6 @@
 //! The controller with Deadlocked's profile against our own DL NTSC-U traces
-//! `dlntsc-dreadzone-moves-{1..5}` and `dlntsc-dreadzone-melee-{1..5}` (PLAN.md RE.6;
+//! `dlntsc-dreadzone-moves-{1..5}`, `dlntsc-dreadzone-melee-{1..5}` and
+//! `dlntsc-dreadzone-flip-{1,2}` (PLAN.md RE.6;
 //! `docs/research/hero-controller.md`, "Differences between the games" and "Deadlocked's
 //! melee"), and beside UYA's where the games differ.
 //!
@@ -198,6 +199,85 @@ fn strafing_sideways_jumps_instead_of_flipping_in_deadlocked() {
     // UYA flips.
     let mut rig = Rig::new(HeroProfile::uya());
     rig.tick(&input(Some([-127, 0]), &[Action::Strafe], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Flip));
+}
+
+/// A fully held standing jump while strafing with `stick` held, then a second jump press
+/// `early` ticks before the first tick on the ground; the state that tick leaves him in.
+/// Held fully, the jump comes down too fast for a late press to double jump.
+fn jump_again_on_landing(profile: HeroProfile, stick: [i8; 2], early: usize) -> HeroState {
+    let jump = input(Some(stick), &[Action::Strafe], &[Action::Jump]);
+    let hold = input(Some(stick), &[Action::Strafe, Action::Jump], &[]);
+    let strafe = input(Some(stick), &[Action::Strafe], &[]);
+    let between = |tick: usize| if tick < 17 { &hold } else { &strafe };
+    let mut rig = Rig::new(profile.clone());
+    rig.tick(&jump);
+    let landing = (1..)
+        .find(|&tick| {
+            rig.tick(between(tick));
+            !rig.hero.state.is_airborne()
+        })
+        .expect("a landing");
+    // The first ground tick follows the tick that lands.
+    let first_ground = landing + 1;
+    let mut rig = Rig::new(profile);
+    rig.tick(&jump);
+    for tick in 1..=first_ground {
+        rig.tick(if tick == first_ground - early {
+            &jump
+        } else {
+            between(tick)
+        });
+    }
+    rig.hero.state
+}
+
+#[test]
+fn deadlocked_flips_only_as_a_strafing_jump_lands() {
+    // flip-1: strafing double jumps landed into flips on presses up to 7 frames old; one 9
+    // frames old walked, and the next press jumped. The walk's own jump never flips.
+    for early in [0, 3, 7] {
+        assert_eq!(
+            jump_again_on_landing(HeroProfile::dl(), [-127, 0], early),
+            HeroState::Jump(JumpKind::Flip),
+            "{early} ticks early"
+        );
+    }
+    assert_eq!(
+        jump_again_on_landing(HeroProfile::dl(), [-127, 0], 8),
+        HeroState::Jump(JumpKind::Standing)
+    );
+    // UYA's walk flips anyway.
+    assert_eq!(
+        jump_again_on_landing(HeroProfile::uya(), [-127, 0], 8),
+        HeroState::Jump(JumpKind::Flip)
+    );
+    // flip-2: strafing forward lands into a jump.
+    assert_eq!(
+        jump_again_on_landing(HeroProfile::dl(), [0, 127], 3),
+        HeroState::Jump(JumpKind::Standing)
+    );
+}
+
+#[test]
+fn deadlocked_has_no_crouch() {
+    // Its code never enters the crouch: crouch held stands, and crouch, the stick and a
+    // jump together are a run jump, where UYA flips straight from idle (crouchflip-1,
+    // take 7).
+    let crouch = input(None, &[Action::Crouch], &[]);
+    let crouch_flip = input(Some([-127, 0]), &[Action::Crouch], &[Action::Jump]);
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.ticks(20, &crouch);
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.tick(&crouch_flip);
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Run));
+
+    let mut rig = Rig::new(HeroProfile::uya());
+    rig.ticks(20, &crouch);
+    assert_eq!(rig.hero.state, HeroState::Crouch);
+    let mut rig = Rig::new(HeroProfile::uya());
+    rig.tick(&crouch_flip);
     assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Flip));
 }
 

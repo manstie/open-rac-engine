@@ -112,6 +112,24 @@ fn shaft(material: Material) -> Rig {
 }
 
 #[test]
+fn deadlocked_never_wall_jumps() {
+    // "Deadlocked's moves": DL's code never enters state 17, even off wall-jump surfaces.
+    for material in [Material::Solid, Material::WallJump] {
+        let mut rig = shaft(material);
+        rig.profile = HeroProfile::dl();
+        let press = input(None, &[], &[Action::Jump]);
+        for _ in 0..90 {
+            rig.tick(&press);
+            assert_ne!(
+                rig.hero.state,
+                HeroState::Jump(JumpKind::Wall),
+                "{material:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_wall_jump_clings_then_leaves_along_the_wall_normal() {
     // "Wall jump": 9 push-off ticks on the wall, pressed down at the push-off rate, then
     // 4.9 u/s along the wall's normal; the target height off an ordinary wall is 1.8 u.
@@ -325,6 +343,21 @@ fn ledges_too_low_to_hang_from_are_not_found() {
     assert!(!found(Vec3::new(0.0, 2.6, -1.5), 2.6), "too little rise");
     // From the floor, the top is 3 u up: out of reach.
     assert!(!found(Vec3::new(0.0, 0.0, -1.5), 0.0));
+}
+
+#[test]
+fn deadlocked_finds_ledges_further_out() {
+    // "Deadlocked's ledges": DL casts for the top once, 1.05 u ahead of the feet, where
+    // UYA steps from 0.525 to 0.75 u. With the face 1 u ahead only DL's cast is over the
+    // top; with it 0.5 u ahead both are.
+    let rig = ledge_rig();
+    let found = |profile: &HeroProfile, z: f32| {
+        controller::detect_ledge(&rig.world, profile, Vec3::new(0.0, 1.6, z), 0.0, 1.6).is_some()
+    };
+    let (uya, dl) = (HeroProfile::uya(), HeroProfile::dl());
+    assert!(found(&dl, -1.0));
+    assert!(!found(&uya, -1.0));
+    assert!(found(&dl, -1.5) && found(&uya, -1.5));
 }
 
 // --- Hits, hazards and death -----------------------------------------------------------
@@ -867,6 +900,21 @@ fn catch(rig: &mut Rig) {
 }
 
 #[test]
+fn deadlocked_has_no_zip_lines() {
+    // "Deadlocked's moves": DL's code has no catch, and its state 118 is the death fall.
+    let mut rig = zip_lines(vec![cable(
+        Vec3::new(0.0, 2.2, 0.0),
+        Vec3::new(0.0, 2.2, -90.0),
+    )]);
+    rig.profile = HeroProfile::dl();
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    for _ in 0..90 {
+        rig.tick(&input(None, &[Action::Jump], &[]));
+        assert_ne!(rig.hero.state, HeroState::ZipLine);
+    }
+}
+
+#[test]
 fn a_jump_under_a_zip_line_catches_it_and_hangs_the_feet_below() {
     let mut rig = zip_lines(vec![cable(
         Vec3::new(0.0, 2.2, 0.0),
@@ -1075,6 +1123,18 @@ fn the_surface_swim_averages_a_little_over_3_u_s() {
     // Let go and he finishes his stroke, slows at 5 u/s², and floats again.
     let stopped = rig.until(120, &idle(), |hero| hero.state == HeroState::SurfaceIdle);
     assert!(stopped > 30, "{stopped}");
+}
+
+#[test]
+fn deadlocked_swims_on_the_surface_without_diving() {
+    // "Deadlocked's swimming": DL's surface states have no dive.
+    let mut rig = floating();
+    rig.profile = HeroProfile::dl();
+    for buttons in [&[Action::Melee][..], &[Action::Crouch], &[Action::Strafe]] {
+        rig.tick(&input(None, &[], buttons));
+        rig.ticks(5, &idle());
+        assert_eq!(rig.hero.state, HeroState::SurfaceIdle, "{buttons:?}");
+    }
 }
 
 #[test]

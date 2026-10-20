@@ -419,6 +419,9 @@ pub struct HeroMotion {
     stick_newest: usize,
     /// Ticks of braking done since the stick was released.
     stop_ticks: u32,
+    /// Ground ticks since a jump-type move last landed, in which a jump can still flip
+    /// (`strafe.landing_window`).
+    landed_ticks: u32,
     jump: JumpBlock,
     take_off_height: f32,
     double_jumped: bool,
@@ -552,6 +555,7 @@ impl HeroMotion {
             stick_angles: [0.0; STICK_HISTORY],
             stick_newest: 0,
             stop_ticks: 0,
+            landed_ticks: u32::MAX,
             jump: JumpBlock::default(),
             take_off_height: position.y,
             double_jumped: false,
@@ -837,7 +841,7 @@ pub fn detect_ledge(
 ) -> Option<Ledge> {
     let ledge = &profile.ledge;
     let forward = facing(yaw);
-    let front = feet + forward * profile.body.radius;
+    let front = feet + forward * (profile.body.radius + ledge.probe_ahead);
     let flattest = ops::cos(ledge.max_top_slope_degrees.to_radians());
 
     // 1. A flat top, cast down in front of the capsule, a little further out each try.
@@ -860,12 +864,14 @@ pub fn detect_ledge(
         return None;
     }
 
-    // 3. Nothing in the way just above the lip, back towards the hero.
+    // 3. Nothing in the way just above the lip, back towards the hero (not in DL).
     let above_lip = top + Vec3::Y * 0.005;
-    if let Some(hit) = world.cast_ray(
-        above_lip - forward * ledge.clear_back,
-        forward * ledge.clear_back,
-    ) && hit.body != body
+    if ledge.clear_back > 0.0
+        && let Some(hit) = world.cast_ray(
+            above_lip - forward * ledge.clear_back,
+            forward * ledge.clear_back,
+        )
+        && hit.body != body
     {
         return None;
     }
@@ -1028,6 +1034,8 @@ pub fn step(
         }
         _ => ground_tick(hero, input, &stick, wish, profile),
     }
+    // Counted before the move, so a landing this tick leaves 0 for the next.
+    hero.landed_ticks = hero.landed_ticks.saturating_add(1);
 
     follow_rail_in_air(hero, &stick, wish, profile, world);
     move_hero(hero, &stick, profile, world);
@@ -1154,10 +1162,13 @@ fn move_hero(
     hero.ground = None;
     hero.height_above_ground = height_above_ground(world, hero.position);
 
-    if matches!(
-        state,
-        HeroState::Jump(JumpKind::Standing | JumpKind::Run | JumpKind::Wall)
-    ) && let Some(wall) = detect_wall(hero, profile, world)
+    // DL looks for no walls (`wall_jump.enabled`).
+    if profile.wall_jump.enabled
+        && matches!(
+            state,
+            HeroState::Jump(JumpKind::Standing | JumpKind::Run | JumpKind::Wall)
+        )
+        && let Some(wall) = detect_wall(hero, profile, world)
     {
         hero.wall = Some(wall);
         hero.wall_ticks =
@@ -1169,6 +1180,11 @@ fn move_hero(
 fn land(hero: &mut HeroMotion, ground: Ground, stick: &Stick, profile: &HeroProfile) {
     let horizontal = hero.horizontal_velocity();
     let landing_from_long_jump = hero.state == HeroState::Jump(JumpKind::Long);
+    // A jump pressed now can still flip (`strafe.landing_window`); the long jump skids
+    // instead.
+    if matches!(hero.state, HeroState::Jump(_) | HeroState::DoubleJump) && !landing_from_long_jump {
+        hero.landed_ticks = 0;
+    }
     hero.ground = Some(ground);
     hero.velocity.y = 0.0;
     hero.speed = match hero.state {
@@ -1211,7 +1227,8 @@ fn ground_tick(
 
     if hero.state == HeroState::Skid {
         // The skid state brakes to a stop without turning. Once the controls are back, a
-        // jump press jumps and holding crouch crouches (UYA's and DL's state 3).
+        // jump press jumps and holding crouch crouches (UYA's and DL's state 3; DL doesn't
+        // crouch).
         let free = hero.input_lock == 0;
         if free && hero.jump_press.within(1) {
             hero.jump_press.used = true;
@@ -1219,7 +1236,7 @@ fn ground_tick(
             air_tick(hero, input, stick, wish, profile);
             return;
         }
-        if free && input.held(Action::Crouch) {
+        if free && crouch_held(input, profile) {
             hero.set_state(HeroState::Crouch);
         } else {
             if hero.charge_skid && free {
@@ -1260,15 +1277,19 @@ fn ground_tick(
     if hero.state != HeroState::Crouch && hero.jump_press.within(jump_buffer) {
         // With crouch held and the stick just pushed to a side or back, a jump is a flip;
         // so is one while strafing with the stick well over to a side or back; otherwise
-        // it is a jump (UYA 0x502368). DL's walk doesn't flip while strafing.
+        // it is a jump (UYA 0x502368). DL's walk doesn't flip while strafing, but a jump
+        // pressed as one lands still does, in both games (UYA 0x503B68, DL 0x6A45F0).
         let side = flip_side(hero, wish_direction);
         let window = jump_buffer + profile.flip.crouch.press_gap;
         let crouch_flip = crouch_flip_due(hero, input, side, window, profile);
+        let strafe = &profile.strafe;
+        let landing = hero.landed_ticks < strafe.landing_ticks
+            && hero.jump_press.within(strafe.landing_window);
         hero.jump_press.used = true;
         if crouch_flip
             || (hero.strafing
-                && profile.strafe.flips
-                && stick.magnitude > profile.strafe.flip_stick
+                && (strafe.flips || landing)
+                && stick.magnitude > strafe.flip_stick
                 && side != StrafeSide::Forward)
         {
             start_flip(hero, wish_direction, stick, side, profile);
@@ -1285,7 +1306,7 @@ fn ground_tick(
         return;
     }
 
-    if input.held(Action::Crouch) || hero.state == HeroState::Crouch {
+    if crouch_held(input, profile) || hero.state == HeroState::Crouch {
         let long = &profile.long_jump;
         // A flip from a crouch doesn't wait for it to be old enough (UYA 0x502ED8).
         if hero.state == HeroState::Crouch {
@@ -1320,7 +1341,7 @@ fn ground_tick(
             air_tick(hero, input, stick, wish, profile);
             return;
         }
-        if input.held(Action::Crouch) {
+        if crouch_held(input, profile) {
             hero.set_state(HeroState::Crouch);
             hero.speed = approach(hero.speed, 0.0, walk.crouch_brake * TICK);
             // A slow turn of its own, so a stick pushed to a side stays there for a flip.
@@ -1575,6 +1596,12 @@ fn flip_side(hero: &HeroMotion, wish_direction: Vec3) -> StrafeSide {
     ))
 }
 
+/// Crouch held, in a game whose hero crouches. DL's doesn't: its code reads the button
+/// where UYA's crouches, then ignores it (`walk.crouches`).
+fn crouch_held(input: &PlayerInput, profile: &HeroProfile) -> bool {
+    profile.walk.crouches && input.held(Action::Crouch)
+}
+
 /// UYA's flip from a crouch (0x502ED8, 0x502368): crouch held, the stick to a side or
 /// back, and a jump press and a stick press both within `window` ticks, fewer than
 /// `press_gap` ticks apart. So the stick has to be pushed at about the time of the jump;
@@ -1586,7 +1613,7 @@ fn crouch_flip_due(
     window: u32,
     profile: &HeroProfile,
 ) -> bool {
-    input.held(Action::Crouch)
+    crouch_held(input, profile)
         && side != StrafeSide::Forward
         && hero.jump_press.within(window)
         && hero.stick_press.within(window)
@@ -1869,7 +1896,7 @@ fn ledge_tick(
                 )
                 .is_none()
                 {
-                    hero.let_go(ledge.no_grab_ticks);
+                    hero.let_go(ledge.no_grab_ticks_lost);
                     return;
                 }
                 let let_go_press = hero.jump_press.within(ledge.shimmy_climb_press_window);
@@ -1950,14 +1977,14 @@ fn climb(hero: &mut HeroMotion, profile: &HeroProfile) {
 fn hit_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
     let hit = &profile.hit;
     let on_ground = hero.ground.is_some();
-    if !on_ground && hero.ticks > 12 && hero.height_above_ground > 1.0 {
+    if !on_ground && hero.ticks > hit.fall_after_tick && hero.height_above_ground > hit.fall_above {
         // Thrown off something high: an ordinary fall from here.
         hero.take_off_height = hero.position.y;
         hero.double_jumped = true;
         hero.set_state(HeroState::Fall);
         return;
     }
-    if hero.ticks >= hit.ticks && (on_ground || hero.height_above_ground <= 1.0) {
+    if hero.ticks >= hit.ticks && (on_ground || hero.height_above_ground <= hit.fall_above) {
         if hero.hit_fatal {
             hero.set_state(HeroState::Dead);
         } else {
@@ -2391,10 +2418,10 @@ fn try_catch_zip_line(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn 
             hero.state,
             HeroState::Fall | HeroState::Jump(_) | HeroState::DoubleJump
         );
-    if !may || hero.no_zip_ticks > 0 {
+    let zip = &profile.zip_line;
+    if !zip.enabled || !may || hero.no_zip_ticks > 0 {
         return;
     }
-    let zip = &profile.zip_line;
     let hands = hero.position + Vec3::Y * zip.hands_up;
     for (index, rail) in world.rails().iter().enumerate() {
         if rail.kind != RailKind::ZipLine {
@@ -2641,9 +2668,10 @@ fn surface_tick(
         air_tick(hero, input, stick, wish, profile);
         return;
     }
+    // DL's surface states have no dive (`swim.dives`).
     let window = swim.dive_press_window;
     let fast_pressed = hero.crouch_press.within(window) || hero.strafe_press.within(window);
-    if hero.melee_press.within(window) || (idle && fast_pressed) {
+    if swim.dives && (hero.melee_press.within(window) || (idle && fast_pressed)) {
         hero.melee_press.used = true;
         hero.crouch_press.used = true;
         hero.strafe_press.used = true;
@@ -3106,14 +3134,14 @@ fn jump_transition(
 ) -> Option<Transition> {
     let t = hero.ticks;
     // A jump still on the ground turns into a flip with crouch held and the stick just
-    // pushed to a side or back (UYA 0x503B68).
+    // pushed to a side or back (UYA 0x503B68; DL ignores the crouch here, 0x6A3D28).
     let crouch = &profile.flip.crouch;
     if matches!(
         kind,
         JumpKind::Standing | JumpKind::Run | JumpKind::Long | JumpKind::Heli
     ) && t < crouch.early_before_tick
         && hero.ground.is_some()
-        && input.held(Action::Crouch)
+        && crouch_held(input, profile)
         && hero.stick_press.within(crouch.early_window)
     {
         let side = flip_side(hero, wish.normalize_or_zero());
@@ -3121,9 +3149,11 @@ fn jump_transition(
             return Some(Transition::Flip(side));
         }
     }
+    // A crouch early in a jump makes it a long jump (UYA; DL ignores it, 0x6A3D88).
     let long = &profile.long_jump;
     if matches!(kind, JumpKind::Standing | JumpKind::Run)
         && hero.abilities.heli_pack
+        && profile.walk.crouches
         && t < long.from_jump_before_tick
         && hero.crouch_press.within(long.crouch_window)
         && hero.horizontal_velocity().length() > long.min_speed

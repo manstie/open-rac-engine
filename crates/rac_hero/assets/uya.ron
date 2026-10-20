@@ -78,6 +78,7 @@
         turn_slow_per_radian: 0.4,
         turn_stall_stick: 0.9,
         turn_stall_degrees: 45.0,
+        crouches: true, // R1 [verified on UYA NTSC]
         crouch_brake: 27.0, // [verified on UYA NTSC]
         // Turning in a crouch (0x4F2090, state 4) [code; verified on UYA NTSC, all 34
         // frames of uyantsc-veldin-crouchflip-1's take 5].
@@ -209,6 +210,10 @@
         reverse_ticks: 3,
         flips: true,
         flip_stick: 0.9,
+        // "The landing flip": X within 8 frames, on the frame a jump lands and the next
+        // (0x503B68) [code; the walk's flip covers it in UYA].
+        landing_window: 8,
+        landing_ticks: 2,
         back_stick: 0.15,
         idle_within_degrees: 2.0,
         turn_after_degrees: 10.0, // camera.md, "The hero in these modes" [verified on UYA NTSC]
@@ -276,6 +281,7 @@
     // State 17, "Wall jump" [code, UYA NTSC; untraced]. Ticks stand for the game's frame
     // counts, compared the way its transitions compare them ("t > 8" is from_tick 9).
     wall_jump: (
+        enabled: true,
         params: (
             height_min: 1.8,
             height_max: 1.85,
@@ -313,6 +319,7 @@
     ledge: (
         probe_above: 1.65, // 1.5 + 0.15
         probe_below: 1.15,
+        probe_ahead: 0.0, // from the capsule's front
         probe_step: 0.075, // 0.3 × 0.25
         probe_tries: 4,
         max_top_slope_degrees: 20.0, // 0.34906584 rad
@@ -335,6 +342,7 @@
         grab_ticks: 13, // hangs once the grab animation passes frame 12
         no_grab_ticks: 10,
         no_grab_ticks_shimmy: 40,
+        no_grab_ticks_lost: 10, // the ledge lost from under him: as letting go
         climb_press_window: 17,
         shimmy_climb_press_window: 9,
         let_go_degrees: 135.0,
@@ -463,6 +471,7 @@
     // State 118, "Zip lines" [code, then verified on UYA NTSC's Florana, 2026-10-15].
     // Per-frame values are given as the code has them.
     zip_line: (
+        enabled: true,
         hands_up: 1.34,
         reach: 0.9,
         reach_vertical: 1.5,
@@ -483,6 +492,7 @@
     ),
     // States 50-54 and 18, "Swimming" [code, UYA NTSC, 2026-10-13; untraced].
     swim: (
+        dives: true, // Square, from the surface
         entry_below: 0.45,
         entry_slack: 0.2,
         entry_slack_extra: 0.07,
@@ -922,6 +932,9 @@
         brake_later: 10.0,
         brake_later_from_tick: 11,
         ticks: 28,
+        // More than 1 u up past the animation's frame 12.5, a fall.
+        fall_after_tick: 12,
+        fall_above: 1.0,
         safe_ticks: 77,
         hazard_safe_ticks: 90,
         // The game's hazard damage is a per-level global, and its push comes from the

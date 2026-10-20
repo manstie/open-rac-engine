@@ -29,7 +29,8 @@ session is working on the task now; notes on problems met stay with their task (
 - **Phase 0** is done apart from CI's first run (P0.7).
 - **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
-  per game (`uya.ron`, `dl.ron`; `--moves` or the menus). He has the follow camera with
+  per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
+  DL's code lacks (crouch, wall jump, zip lines, dive) and give it its own flips. He has the follow camera with
   lock-on, the lock-strafe and first-person cameras and their blends (P1.7), and melee
   for both games (P1.8). He wears the open blocky model or, from the user's
   discs, any of 15 UYA suits or 12 DL skins, and plays Ratchet's real animations with a
@@ -50,8 +51,9 @@ session is working on the task now; notes on problems met stay with their task (
 **Next actions, in order:**
 1. **Owner:** push `re/hero-movement` so CI runs (it needs the owner's credentials). Then
    fix anything Windows-specific it finds (P0.7).
-2. RE.3 and P1.5 for DL: where its flips come from, its crouch moves (a savestate past the
-   tutorial), and the `dl.ron` sections marked "not read in DL".
+2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
+   first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
+   done), and DL traces at a tall wall and a ledge.
 3. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
    rules are read), with RE.7's next steps alongside; with them, the free look's aim
    assist and the strafing a gun forces (P1.7).
@@ -358,21 +360,32 @@ committed (names, addresses, layouts, derived constants).
   (`hero-controller.md`; addresses in `re/<serial>/symbols.toml`). Feeds P1.5.
   - Read in code and checked against traces: the stick pipeline, walking and the
     sharp-turn skid, every jump type with its entry rules and parameters, air control, the
-    double jump, glide, heli jump, long jump, flips (strafe and crouch), the crouch turn,
-    falling, the wall jump, ledges, the slope limit, getting hit and dying, melee (UYA's
-    and DL's), swimming, zip lines, strafing, DL's charge boots, the animation each state
-    plays, the moves that need items, and DL's differences from UYA.
+    double jump, glide, heli jump, long jump, flips (strafe, landing and crouch), the
+    crouch turn, falling, the wall jump, ledges, the slope limit, getting hit and dying,
+    melee (UYA's and DL's), swimming, zip lines, strafing, DL's charge boots, the
+    animation each state plays, the moves that need items, and DL's differences from UYA:
+    among them, DL flips only as a strafing jump lands, and has no crouch (nor the long
+    jump, heli jump or crouch flips) and no glide (`hero-controller.md`, "Deadlocked's
+    moves").
   - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
     rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
-    clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides.
+    clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides;
+    and in DL, the missing wall jump, zip lines and dive, ledges (a longer reach, no
+    clear-lip check, triple shimmy steps), hits (a 47- or 70-frame safe time by camera)
+    and swimming (UYA's otherwise): "Deadlocked's moves", "Deadlocked's ledges",
+    "Deadlocked's hits", "Deadlocked's swimming".
   - DL's lock-strafe camera is read and traced under RE.4 (`camera.md`, "Deadlocked's
     camera").
-  - To do (`hero-controller.md`, "Next steps"): the source of DL's flips, DL's crouch
-    moves, which item gives DL's glide, the `dl.ron` sections
-    marked "not read in DL" (the crouch flip among them: DL's R1 didn't crouch where it was
-    traced), wading (state 117), how the games carry the hero on moving platforms, and a
-    diagonal part-tilted stick on NTSC (the dead zone, the 0.25 cut-off and the speed's
-    scaling are verified with `AXIS_SCALE` keys).
+  - `hero-controller.md` had DL's skid crouch on R1 "as UYA"; DL's code works out R1's
+    pad bit there and ignores it, as everywhere else it would crouch. Corrected.
+  - To do (`hero-controller.md`, "Next steps"): the `dl.ron` sections still marked "not
+    read in DL" (lock-on, grinding, the hazard floor, death, the surface float, the
+    stick's cut-off), lock-on first: find DL's counterpart of UYA's `hero_lock_on` from
+    `hero_common_transitions` (0x6A5248); traces in DL against a
+    clean tall wall (its missing wall jump) and at a ledge (its shimmy); wading (state
+    117); how the games carry the hero on moving platforms; and a diagonal part-tilted
+    stick on NTSC (the dead zone, the 0.25 cut-off and the speed's scaling are verified
+    with `AXIS_SCALE` keys).
 - [x] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
   - Done, UYA NTSC: the follow camera with its height modes, obstacles and collision
     (clearance point, sweep, pull-in, the 30-frame and 30 u resets, the collision masks);
@@ -495,11 +508,14 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     `assets/uya.ron` (the default) and `assets/dl.ron` (section 5, 2026-10-15). R&C1 and
     GC will get profiles of their own, read from their code (D7, P5.7).
   - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), crouch and its
-    turn; standing, run, long and heli jumps, flips (strafe and crouch), the double jump,
-    glide, fall and air control; moving platforms; the wall jump; ledges (grab, hang,
-    shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge boots; the
-    ability flags; grinding, side on; swimming; zip lines; strafing and lock-on
-    (`lock_on.rs`); melee (P1.8). Tests: `rac_hero/tests/` and
+    turn; standing, run, long and heli jumps, flips (strafe, landing and crouch), the
+    double jump, glide, fall and air control; moving platforms; the wall jump; ledges
+    (grab, hang, shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge
+    boots; the ability flags; grinding, side on; swimming; zip lines; strafing and lock-on
+    (`lock_on.rs`); melee (P1.8); DL's own flips, ledges and hits, and its missing
+    crouch, wall jump, zip lines and dive (`strafe.landing_window`, `walk.crouches`,
+    `wall_jump.enabled`, `zip_line.enabled`, `swim.dives`, `dl.ron`'s `ledge` and
+    `hit`). Tests: `rac_hero/tests/` and
     `rac_demo/tests/greybox_moves.rs`.
   - **To do:** auto-jumping rails, wading, and DL's open items under RE.3.
   - The grind faced along the rail; UYA's code turns him 90° to its right (a stance

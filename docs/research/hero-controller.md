@@ -2,10 +2,12 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-15 (the grind attack, the wrench's clank and the grind's side-on
-stance, read in UYA NTSC's code; Deadlocked's melee, read in code and traced on DL NTSC; the
-crouch flip and the crouch turn, traced on UYA NTSC; Deadlocked's movement against UYA's;
-strafing and lock-on; zip lines).
+(RE.6). Last updated 2026-10-20 (Deadlocked's flips, its missing crouch and its barred
+glide, read in DL NTSC's code and traced; the landing flip both games share). Before that,
+2026-10-15: the grind attack, the wrench's clank and the grind's side-on stance, read in UYA
+NTSC's code; Deadlocked's melee, read in code and traced on DL NTSC; the crouch flip and the
+crouch turn, traced on UYA NTSC; Deadlocked's movement against UYA's; strafing and lock-on;
+zip lines.
 
 ## Status and method
 
@@ -177,8 +179,9 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
     at **27 u/s²** (0.0075 per frame on UYA, `27 × frame_dt²` on DL), scaled down on
     slippery ground, and doesn't turn. Read in UYA's and DL's idle-type update, which
     states 0, 1, 3 and 4 share.
-  - **Ways out of state 3, the same in UYA and DL:**
-    - X pressed this frame: a standing jump (7). R1 held: a crouch (4). Both only while
+  - **Ways out of state 3, the same in UYA and DL but for the crouch:**
+    - X pressed this frame: a standing jump (7). R1 held: a crouch (4) in UYA; DL works
+      out R1's pad bit and ignores it (0x6A1770; "Deadlocked's moves"). Both only while
       input isn't locked.
     - Off the ground for 9 frames and more than 0.3 u up: a fall.
     - The animation ending: idle. Otherwise it brakes until the speed is 0, then idles.
@@ -466,11 +469,12 @@ Most jump-type states steer the same way after push-off:
 
 ### Flips (state 11) [verified on UYA NTSC and Gladiator PAL]
 
-There are two ways in: the strafe flip, and the crouch flip, which the controls call the
-"backflip / sideflip" ("R1 + stick + X: flip in the air from a crouching position in the
-intended direction"). Both enter state 11 through the jump entry (0x4FC518). Every flip
-records its side (left 0, right 1, forward 2, back 3; `hero_strafe_side`, 0x4FB758), and the
-animation is sequence 28 plus that side ("Animations per state").
+There are three ways in: the strafe flip, from a walk or as a jump lands, and the crouch
+flip, which the controls call the "backflip / sideflip" ("R1 + stick + X: flip in the air
+from a crouching position in the intended direction"). All enter state 11 through the jump
+entry (0x4FC518). Every flip records its side (left 0, right 1, forward 2, back 3;
+`hero_strafe_side`, 0x4FB758), and the animation is sequence 28 plus that side ("Animations
+per state"). Deadlocked keeps only the landing flip ("Deadlocked's flips", below).
 
 - **The side:** while strafing, where the stick points; otherwise the stick (the move
   angle, or the facing with the stick released) against the hero's yaw, in the same
@@ -491,6 +495,38 @@ animation is sequence 28 plus that side ("Animations per state").
     the first frame.
 - Gladiator's traced flip was a strafe side flip at the same 5.5 u/s, so Gladiator's
   default controls strafe there.
+
+#### The landing flip [code in UYA NTSC and DL NTSC; verified on DL NTSC, 2026-10-20]
+
+A jump pressed as a jump-type move lands is a jump again, and while strafing it can be the
+strafe flip. Read in the jump states' case of `hero_transitions` (UYA 0x503B68, DL 0x6A45F0;
+the states 7, 9–18, 27 and a few scripted ones, the double jump among them).
+- **When:** on the frame the move lands (the jump block's landed byte, UYA 0x1A504C,
+  DL hero+0x1D0C, becomes 1) and the next (it becomes 2, and the move then walks or
+  idles). The long jump goes to the skid instead.
+- **What:** X pressed within the last 8 frames, input not locked, and off the ground fewer
+  than 8 frames (UYA 0x1A4F4E) or 4 (DL hero+0x2FE). Then:
+  - **a flip (11)** when strafing (UYA 0x1A6014, DL hero+0x5F4) or in the lock-strafe
+    camera with R1 or Circle pressed in the last 2 frames (raw pad bits 0x28), with the
+    stick past 0.9 and `hero_strafe_side` not forward;
+  - otherwise a run jump (9) when moving faster than a threshold (UYA 0x1DBE4C) within
+    60° of the facing and faster than 0.85 of the walk speed, else a standing jump (7).
+- **Deadlocked's extra conditions:** the lock-strafe path also needs the gadget in hand to
+  be neither the wrench (1) nor the flail (15, libdl's `WEAPON_ID_FLAIL`), and not in state
+  16; and in first person (the camera byte 2) a back strafe doesn't flip.
+- **[verified on DL NTSC]** (`dlntsc-dreadzone-flip-1`, third person, L2 held, X tapped
+  every 0.15 s): double jumps strafing left, right and back landed straight into flips on
+  presses 2, 6 and 7 frames old. A landing whose press was 9 frames old walked, and the
+  next press jumped (7). Strafing forward, or sideways without L2 (take 2), gave only
+  standing and run jumps.
+- UYA's walk flips anyway while strafing, so there the landing flip only adds a second
+  frame to press in; in Deadlocked it is the only flip.
+- **In the kit:** `strafe.landing_window` and `landing_ticks` (8 and 2 in both profiles):
+  the first two ground ticks after a jump-type move lands (`HeroMotion`'s `landed_ticks`)
+  stand for the game's landed jump state. Tested in `rac_hero/tests/deadlocked.rs`.
+  **[simplified]** The re-jump that doesn't flip is the walk's (run jump by the stick, not
+  by the speed and its angle to the facing), and Deadlocked's lock-strafe and first-person
+  conditions are left out: they need a gun in hand, which the kit doesn't have yet.
 
 #### The crouch flip [code, verified on UYA NTSC, 2026-10-15]
 
@@ -1272,6 +1308,38 @@ climb's forward speed starts on tick 5 and holds from tick 35 (`uya.ron`). **[si
 - the kit's capsule keeps a skin's width from the lip, so the climb rubs it for a few
   ticks where the game's hero passes clear.
 
+### Deadlocked's ledges [code, DL NTSC, 2026-10-20; untraced in DL]
+
+Read in DL's detector (0x672960, run every frame by the per-frame driver 0x6A65E8 into the
+ledge block at hero+0x1DA0, whose found flag is hero+0x1DC8), the states' motion in
+`hero_update_state` (0x690F18) and their transitions in `hero_transitions`. Everything not
+listed here reads as UYA's: the top's slope, materials and moving objects, the 0.5–1.5 u
+rise and 1.8 u drop, the wall face's five probes 0.14 u apart, the lip's 0.03 u climb to
+2.4 u, the hang point (0.5 out, 1.43 down), the same 65° angle test (0x3F91361E) before the
+lip search, the grab's 4 u/s and turn,
+the hang's and shimmy's buttons, windows and angles, the shimmy's side look and turn, and
+the 40-frame timer after letting go mid-shimmy.
+- **When it looks:** a jump grabs once past its apex or rising slower than 0.5 u/s (UYA
+  3.5), and a double jump from its animation's frame 24 (UYA 37).
+- **The top's probe:** one vertical cast 0.3 + 0.3 u past the capsule's front, 1.05 u
+  ahead of the feet, from 1.65 u above them to 1.15 below. UYA casts four times, 0.525 to
+  0.75 u ahead. That is for the local player's hero (`IsLocal`, hero+0x266D, 1 in the
+  savestates); any other hero, while not jumping, casts four times 0.3 u apart, from
+  2.4 u above to 1.9 below, and has its found flag set only if a vtable check (+0x54)
+  agrees. Online co-op's remote heroes would be such heroes (RE.10).
+- **No clear lip:** DL doesn't check for anything just above the lip, back towards the
+  hero.
+- **Losing the ledge** from under his hands drops him with a 30-frame no-grab timer (UYA
+  10); letting go with R1 (its mapped button) or X pulled away still gives 10, and sets
+  libdl's `HideWeapon` byte (hero+0x2663).
+- **The shimmy's step** is 1.5 × the same per-frame table (0x3B0BA0) where UYA's is 0.5 ×.
+  The shimmy animation's rate isn't read in DL, so whether a cycle covers three times
+  UYA's 0.623 u isn't known.
+- **In the kit:** `dl.ron`'s `ledge` section (`probe_ahead`, `probe_step`,
+  `probe_tries`, `clear_back: 0` for no clear-lip check, `grab_rising_below`,
+  `double_jump_after_tick`, `no_grab_ticks_lost`, `shimmy_step_scale`). Tested in
+  `rac_hero/tests/moves.rs` (`deadlocked_finds_ledges_further_out`).
+
 ## Getting hit and dying [code, UYA NTSC, 2026-10-12]
 
 - **Get hit (state 22):**
@@ -1293,6 +1361,23 @@ climb's forward speed starts on tick 5 and holds from tick 35 (`uya.ron`). **[si
   - Material 4 gives the slide (48).
 - **Death (57):** the hero brakes like a landing while the death animation plays. The
   respawn timing is in the death code, which has not been read yet.
+
+### Deadlocked's hits [code, DL NTSC, 2026-10-20]
+
+Read in DL's entry for state 22 (0x69DAAC, through the enter table at 0x3B0BE0), its
+motion (case 22 of `hero_update_state`) and its transitions (`hero_transitions`). As UYA's:
+the knockback capped at 0.11667 u a frame (7 u/s), braking at 4 u/s², or 10 on the ground
+from frame 11, and the return after 28 frames, or death with no health.
+- **The fall:** more than 1 u over the ground past the animation's frame 16 (UYA 12.5).
+- **Can't be hurt again** (hero+0x39C, which the damage code at 0x67916C tests): 47
+  frames with DL's camera byte non-zero (lock-strafe or first person, the default) and
+  70 in third person, while the global at 0x21E824 is 0 as in single player (0 there in
+  the savestates); 47 otherwise. UYA's is 77.
+- **Also on entry:** the pad rumbles (0x533730), and a 45-frame timer at hero+0x3D2 runs
+  that `hero_back_moby_update` fades by.
+- **Not read:** the hazard floor's damage, and death and the respawn.
+- **In the kit:** `dl.ron`'s `hit` (`fall_after_tick` 16, `safe_ticks` 47 for the
+  default camera). **[simplified]** The kit doesn't vary the timer with the camera.
 
 ## Slope limit [code, UYA NTSC, 2026-10-12]
 
@@ -1791,6 +1876,34 @@ match the code:
     target height isn't the apex (see "Jump heights"), and the push-off presses him
     0.07 u into the water first.
 
+### Deadlocked's swimming [code, DL NTSC, 2026-10-20; untraced in DL]
+
+Read in DL's water entry (0x6A60A8 and 0x6A64D0, which `hero_transitions` runs first in
+single player), the surface motion (states 53 and 54 in `hero_update_state`), the
+underwater motion (0x699060, which DL's update calls for 50–52) and the surface
+transitions, side by side with UYA's.
+- **The same, with DL's per-second literals:** getting in (feet 0.45 u under, give or take
+  max(0.2, 0.07 + the fall), in water over 0.8 u deep; or 0.8 u under; a water jump back
+  in at 0.7 u), surfacing (rising, feet within 0.4 u, not in the dive), popping out above
+  0.4 u into a fall, the every-16-frames probe for water above (4 u, or 16 every 63rd
+  frame), the surface swim (3 u/s with a 1.5 u/s floor for digital sticks, 4 and
+  5 u/s², 5.5 × the stroke, the 45° stop, the 4.2 u/s² drift brake, the 0.007, 0.08,
+  300°/s turn), the water jump on X within 8 frames (from idle after 10), 53 ↔ 54, and
+  standing up in shallow water. Under water: the pitch spring (0.015, 0.2, 0.698 +
+  0.524 × the pressure rad/s, ±78°), the speeds (3, 6 in the dive, 7 or 7 × 0.4), the 7/4
+  and 13/8 u/s² rates, the stroke with its 4.5 u/s floor after a fast swim, the bank
+  spring and the joint numbers.
+- **No dive:** DL's surface states lack UYA's Square (or idle R1/R2) dive, and no code
+  checks Square within 7 frames. `hero_transitions` has no cases for 50–52 either, so
+  under water, reached only through the every-16-frames probe, the hero has no way to
+  swim on or surface but rising.
+- **Entering with no health** goes to state 106 (UYA 108), with a 70-frame timer.
+- **Not read in DL:** the surface float and bob (UYA 0x501458), wading (117) and
+  drowning.
+- **In the kit:** `dl.ron`'s `swim` keeps UYA's numbers, which DL's code matches, with
+  `dives: false`. Tested in `rac_hero/tests/moves.rs`
+  (`deadlocked_swims_on_the_surface_without_diving`).
+
 ## Animations per state [code and trace, UYA NTSC, 2026-10-13]
 
 Which of the hero's sequences (`moby-format.md`) each state plays, read in
@@ -1915,7 +2028,8 @@ The kit gates these with per-hero ability flags (PLAN.md section 5, 2026-10-12).
   - **with neither: a standing jump (7).**
   - The long jump from a jump's first frames (crouch pressed within 2 frames) needs the
     same items.
-- **The glide** needs the same global flag, and no item 4 in the back slot.
+- **The glide** needs the same global flag, and no item 4 in the back slot. Deadlocked
+  never glides: its own flag is set for good ("Deadlocked's moves").
 - **Grinding** needs the grind boots: `hero_find_rail` checks a global flag
   (0x142CAE) before looking for a rail. **Zip lines need no item.**
 - **The charge boots** are DL's gadget 0x11, above. The jumps, double jump, wall jump,
@@ -1939,6 +2053,14 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
 | Glide (state 8): forward speed, sink | 3 u/s (5 in one gadget mode), 2.16 u/s | 5 u/s, 3.6 u/s (5 × 0.72) [code] |
 | Ledge jump push-off | 4 frames NTSC, 3 on R&C3 PAL | 2 frames on DL NTSC [code] and on Gladiator PAL |
 | A jump from a strafing walk | flips to the side or back | always a standing jump **[verified on DL NTSC]** |
+| Flips | from a walk, as a jump lands, and from a crouch | only as a jump lands **[verified on DL NTSC]** |
+| Crouch (state 4), and with it the crouch flip, the long jump and the heli jump | R1 | none: nothing enters states 4, 10 or 15 **[code; R1 traced]** |
+| What bars the glide | no heli-pack in the back slot | hero+0x2E2C, set when the hero is created and never cleared **[code; traced]** |
+| `hero_strafe_side` for back; flip animation | 3; sequence 28 + side | −1; sequence 17 + side [code; −1 traced] |
+| The landing flip: off the ground fewer than | 8 frames | 4 frames [code] |
+| Wall jump (state 17) | from standing and run jumps, glides and wall jumps | none: nothing enters it, and no wall detector runs [code] |
+| Zip lines (UYA's state 118) | yes, on the level's rails | none; 118 is the death fall [code] |
+| Diving | Square from the surface | none: DL's surface states don't dive [code] |
 | Default camera | follow (third person) | lock-strafe |
 | Standing jump animation frames (peak, land, game land) | 18, 30, 12 | 18, 27, 19 |
 | Charge boots | no charge state in Veldin's code | state 125, read in DL's code |
@@ -1958,16 +2080,18 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
   - the fall: 22 u/s², braking at 7 with the stick released, capped at 50 u/s;
   - the glide's springs, and the heights and frames past which a double jump (1.5 u,
     t > 30) or a heli jump (0.6 u) turns into it. DL's check also has 1.0 u for standing
-    and run jumps, which UYA's can't glide from; whether DL's can isn't traced.
+    and run jumps. All of it is unreachable: DL never glides ("Deadlocked's moves").
 - **The stick in DL [verified on DL NTSC, 2026-10-17, `dlntsc-dreadzone-camhalf-0.5-{1,2}`]:**
   the pad layer's dead zone is UYA's (the bytes 191 and 64 gave 0.2105 and 0.1974), and
   a left stick held at 0.1974 left the hero standing in both camera settings, as UYA's
   0.25 cut-off would; the cut-off itself isn't read in DL's code.
-- **Not read in DL yet:** lock-on, the wall jump's probes, ledges,
-  grinding, zip lines, swimming and getting hit. The kit's DL profile keeps UYA's numbers
+- **Not read in DL yet:** lock-on and grinding (DL has no wall jump and no zip lines:
+  "Deadlocked's moves"; its ledges, hits and swimming: "Deadlocked's ledges",
+  "Deadlocked's hits", "Deadlocked's swimming"). The kit's DL profile keeps UYA's numbers
   for them, marked as such. Melee is read ("Deadlocked's melee"), and so are the strafe
   turn and the camera (2026-10-16, `camera.md`, "Deadlocked's camera"): UYA's strafe turn,
-  and a follow camera 6 u back.
+  and a follow camera 6 u back. The flips, the crouch and the glide are read (2026-10-20,
+  "Deadlocked's moves").
 - **Releasing the stick in the air, both games:** the game brakes instead of steering
   when the speed the stick asks for (the move's air speed × the stick) is under 20% of
   the walk speed, not when the stick is under 20% (UYA 0x4EDE80, DL 0x680A88) [code].
@@ -1988,18 +2112,61 @@ in UYA; takes 3 and 6 with DL's default lock-strafe camera.
   the 13th double jumped at once. Past the apex, a press while falling at 4.8 u/s double
   jumped, and at 5.2 u/s didn't: the game compares the 5.8 u/s limit with the speed after
   that frame's gravity, which had reached 5.8 u/s.
-- **No glide:** X held through a double jump that rose 3 u gave no glide. DL's glide code
-  is there; it needs an item or a mode not found yet.
+- **No glide:** X held through a double jump that rose 3 u gave no glide. Explained in
+  code (2026-10-20, below): the glide is barred for good.
 - **Strafing:** in third person L2 strafes (the strafe flag at hero+0x5F4 is 1), at the
   walk's speeds. Sideways or back with X it jumps (state 7) and keeps moving the stick's
   way at 7.25 u/s: DL's walk-jump function (0x687430) works out a flip and then always
   starts a standing jump.
-- **Flips:** none came from L2 or R1 held with a direction and X, in either camera. The
-  Gladiator PAL recording has one (state 11), so DL flips some other way, not found yet.
-- **No crouch here:** R1 (third person) and L2 (lock-strafe) don't crouch on DreadZone
-  Station after the tutorial's jump step, so the long jump and the jump from a crouch
-  couldn't be traced. In lock-strafe, L2 is first-person aiming (state 29, camera type 2),
-  and L1 jumps as X does.
+- **Flips:** none came from L2 or R1 held with a direction and X, in either camera. They
+  come only as a strafing jump lands (below).
+- **No crouch:** R1 (third person) and L2 (lock-strafe) don't crouch on DreadZone
+  Station. In lock-strafe, L2 is first-person aiming (state 29, camera type 2), and L1
+  jumps as X does.
+
+Read in DL's code on 2026-10-20 (`re/SCUS-97465/symbols.toml`), and traced in
+`dlntsc-dreadzone-flip-{1,2}`:
+- **Deadlocked's flips [code, verified on DL NTSC]:** the only code that enters state 11 is
+  the landing flip ("Flips"): a jump pressed as a jump lands, strafing, the stick past 0.9
+  and not forward. The take's double jumps strafing left, right and back landed into flips
+  with sides 0, 1 and −1.
+- **Deadlocked has no crouch [code]:** no code in the level's build enters the crouch (4),
+  the long jump (10) or the heli jump (15). DL's hero code is UYA's with the crouch cut out:
+  where UYA crouches or flips on R1, DL still works out R1's pad bit and ignores the
+  result: in the skid (0x6A1770), in a jump's first frames, where UYA turns it into a long
+  jump (0x6A3D88), and in a jump still on the ground, where UYA turns it into the crouch
+  flip (0x6A3D28). The crouch's own case in `hero_transitions` is still there, unreached.
+  So the long jump, the heli jump and the crouch flips are unreachable too, and the
+  stick's flick (UYA's pad bits 0x1F000) has no use left.
+- **The glide is barred [code, traced]:** DL's glide checks only a halfword at hero+0x2E2C
+  where UYA checks the heli-pack. The hero is created with it set to 1 (0x669008), and no
+  other store anywhere in EE memory reaches it by offset (a scan of every store
+  instruction; a write through a computed pointer would escape it). It also skips the
+  update of the moby
+  at hero+0x23E4 (0x669D30) and, in `hero_set_animation`, a call to 0x688A60: probably
+  Clank's place on his back, which DL doesn't use. The flip takes held it at 1
+  throughout.
+- **Deadlocked has no wall jump [code; a trace attempt inconclusive]:** nothing in the
+  level's code enters state 17 (every `li a1, 0x11` near a state change was checked; two
+  pass gadget 0x11, the charge boots, to the gadget code at 0x688858). The jump states'
+  motion (`hero_update_jump`, 0x696620) ends with `hero_jump_vertical` where UYA's goes on
+  to `hero_detect_wall`, and no other code probes for walls with UYA's 75°, 50° and 170°
+  limits. The jump states' transitions lack UYA's wall-jump check between the thruster
+  dash's fall and the long jump's attack window. State 17's entry and its motion in the
+  air control are still there, unreached, like the crouch's. `dlntsc-dreadzone-wall-2`
+  jumped against the steps beside the start and a wall above them with X tapped: double
+  jumps and no state 17, but the wall there wasn't a clean, tall one.
+- **Deadlocked has no zip lines [code]:** its state 118 is the death fall (libdl's
+  `DEATH_FALL`), not UYA's zip line: `hero_transitions` enters it when the hero is below
+  the level's kill height (0x222BFC) and more than 2 u over the ground, its motion keeps
+  0.9 of the horizontal speed each frame and falls at up to 50 u/s, and after 120 frames
+  it empties his health (hero+0x2E20). No code in the level's build holds the zip line's
+  1.34 u hand height (0x3FAB851F), which UYA's catch tests.
+- **Buttons per camera (`pad_action_mask`, 0x5BE808):** the hero asks for a button by
+  UYA's pad bit, and with
+  DL's camera byte (0x171DE0 + player) not 0, R1 and L1 become L2, Triangle becomes
+  Triangle or R2, and X becomes X or L1. While the global at 0x21E824 isn't 1 (not
+  identified), L2 becomes L2 or R2.
 - **Letting go of the walk with a gun in hand:** one frame braking at 30 u/s², then idle
   at 1.5 u/s less one frame of 17.7 u/s². UYA's trace (the wrench in hand) skids two frames
   at 17 first. The release skid depends on the held item (`hero_update_walk` reads the
@@ -2016,11 +2183,17 @@ in UYA; takes 3 and 6 with DL's default lock-strafe camera.
 
 The controller is shared; each game is a RON profile of numbers
 (`crates/rac_hero/assets/uya.ron` and `dl.ron`, `HeroProfile::dl()`), plus switches where
-the games' rules differ (`strafe.flips`). `dl.ron` holds DL's values from the table
+the games' rules differ (`strafe.flips`, `walk.crouches`, `wall_jump.enabled`,
+`zip_line.enabled`, `swim.dives`). With
+`walk.crouches` off, the
+crouch button still throws the wrench and taps the charge boots, as DL's R1 does, but never
+crouches, so the crouch flips and the long and heli jumps can't start. DL's barred glide is
+`Abilities::heli_pack` off, which a DL game sets; the demo turns every ability on (PLAN.md
+section 5, 2026-10-12). `dl.ron` holds DL's values from the table
 above, and UYA's where DL's code isn't read yet, marked in its comments. A test
 (`deadlocked_differs_from_uya_only_where_the_games_do`) lists the fields that differ, and
-`crates/rac_hero/tests/deadlocked.rs` checks the DL traces' walk, jumps, double jump and
-strafe jump. The app chooses with `--moves uya|dl|FILE` or the menus' Moves button.
+`crates/rac_hero/tests/deadlocked.rs` checks the DL traces' walk, jumps, double jump,
+strafe jump, landing flip and missing crouch. The app chooses with `--moves uya|dl|FILE` or the menus' Moves button.
 
 - **`HeroPlayerConstants`** is a block of per-second constants, pointed to by
   hero+0x2EEC, that Gladiator and DL carry. Its values are identical in both:
@@ -2069,6 +2242,8 @@ Also read in code but not seen in a trace:
   swimming on the surface (type 18).
 - UYA's code uses 117 for wading, where libuya's names say "get hit under water", so
   libuya's numbering above about 100 may not hold for UYA's single-player code.
+- UYA's single player uses 118 for the zip line; DL's uses it for the death fall, as
+  libuya's and libdl's `DEATH_FALL` name it ("Deadlocked's moves").
 
 ## Timing [measured]
 
@@ -2082,12 +2257,15 @@ Also read in code but not seen in a trace:
 
 ## Next steps
 
-1. **More on Deadlocked NTSC.** The charge (2026-10-12) and the walk, jumps and double
-   jump (2026-10-15, "Deadlocked's moves") are verified. Next: where DL's flips come
-   from, DL's crouch (a savestate past the tutorial), the parts of the kit's DL profile
-   still marked "not read in DL", and the code behind the 0.43 u step limit. The
-   lock-strafe camera is read and traced (2026-10-16, `camera.md`, "Deadlocked's
-   camera"), and the kit has it, as `dl.ron`'s default camera (P1.7).
+1. **More on Deadlocked NTSC.** The charge (2026-10-12), the walk, jumps and double jump
+   (2026-10-15), and the flips, the missing crouch and the barred glide (2026-10-20) are
+   verified ("Deadlocked's moves"), and DL has no wall jump [code]. Next: the parts of the
+   kit's DL profile still marked "not read in DL" (lock-on, grinding, the hazard floor,
+   death, the surface float, the stick's cut-off), a DL savestate by a ledge to trace "Deadlocked's ledges" (the shimmy's
+   reach above all), a clean tall wall on some DL level to trace the missing wall jump
+   against, and the code behind the 0.43 u step limit. The lock-strafe camera is read
+   and traced (2026-10-16, `camera.md`, "Deadlocked's camera"), and the kit has it, as
+   `dl.ron`'s default camera (P1.7).
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
    swimming. Swimming, ledges and the wall jump were traced on 2026-10-13, and zip lines
    on 2026-10-15. UYA has no rail to grind on (section "Grinding"), so grinding waits for

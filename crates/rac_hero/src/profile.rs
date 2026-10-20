@@ -178,6 +178,10 @@ pub struct WalkProfile {
     pub turn_slow_per_radian: f32,
     pub turn_stall_stick: f32,
     pub turn_stall_degrees: f32,
+    /// Whether holding crouch crouches. UYA's does; DL's code never enters the crouch, so
+    /// there the button only throws the wrench and taps the charge boots, and the moves
+    /// that start from a crouch (the crouch flip, the long and heli jumps) never happen.
+    pub crouches: bool,
     pub crouch_brake: f32,
     /// Crouching with the stick past `crouch_turn_stick` turns him on a spring of its own.
     pub crouch_turn: TurnSpring,
@@ -313,11 +317,16 @@ pub struct StrafeProfile {
     /// stops him, and after strafing left, strafing right scales his speed by 1/3, then
     /// 2/3 (with 3).
     pub reverse_ticks: u32,
-    /// Whether a jump while strafing can flip. UYA's walk flips; DL's computes the flip and
-    /// then always jumps, so there a strafing jump is a standing jump.
+    /// Whether a jump from a strafing walk can flip. UYA's walk flips; DL's computes the
+    /// flip and then always jumps, so there a strafing jump is a standing jump.
     pub flips: bool,
     /// A jump is a flip only with the stick past this and not pushed forward.
     pub flip_stick: f32,
+    /// A jump pressed within `landing_window` ticks, on one of the first `landing_ticks`
+    /// ground ticks after a jump-type move lands, flips while strafing whatever `flips`
+    /// says: both games check it as a jump lands, and it is DL's only flip.
+    pub landing_window: u32,
+    pub landing_ticks: u32,
     /// Strafing backwards, which walks backwards, needs the stick past this.
     pub back_stick: f32,
     /// With the stick let go a strafe keeps walking, braking, until he faces within this
@@ -399,6 +408,9 @@ pub struct GlideProfile {
 /// The wall jump and how walls are found (`hero-controller.md`, "Wall jump").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WallJumpProfile {
+    /// Whether the hero wall jumps at all. UYA's does; DL's code keeps the state but never
+    /// enters it, and looks for no walls.
+    pub enabled: bool,
     pub params: JumpParams,
     /// The target heights off a wall-jump surface.
     pub surface_height_min: f32,
@@ -448,7 +460,9 @@ pub struct LedgeProfile {
     /// The downward probe for the top: from this far above the feet to this far below.
     pub probe_above: f32,
     pub probe_below: f32,
-    /// It starts at the front of the capsule and steps this far out each try.
+    /// It starts `probe_ahead` past the front of the capsule and steps this far out each
+    /// try, the first included.
+    pub probe_ahead: f32,
     pub probe_step: f32,
     pub probe_tries: u32,
     /// The top must be flatter than this, in degrees.
@@ -458,7 +472,8 @@ pub struct LedgeProfile {
     pub max_rise: f32,
     /// ...and this far above the ground under the hero.
     pub min_drop: f32,
-    /// The lip must be clear of anything for this far back towards the hero.
+    /// The lip must be clear of anything for this far back towards the hero; 0 skips the
+    /// check, as DL's detector has none.
     pub clear_back: f32,
     /// The wall face is probed this far below the top, retried lower `face_tries` times by
     /// `face_step`, reaching this far past the top's hit.
@@ -481,9 +496,11 @@ pub struct LedgeProfile {
     pub grab_turn: TurnSpring,
     /// The grab settles into hanging after this many ticks.
     pub grab_ticks: u32,
-    /// After letting go, ledges are ignored this long; after letting go mid-shimmy, longer.
+    /// After letting go, ledges are ignored this long; after letting go mid-shimmy, longer;
+    /// and after the ledge is lost from under his hands, `no_grab_ticks_lost`.
     pub no_grab_ticks: u32,
     pub no_grab_ticks_shimmy: u32,
+    pub no_grab_ticks_lost: u32,
     /// Jump presses this recent climb, from hanging and from a shimmy.
     pub climb_press_window: u32,
     pub shimmy_climb_press_window: u32,
@@ -619,6 +636,9 @@ pub struct GrindProfile {
 /// works per tick, as in the game.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ZipLineProfile {
+    /// Whether the hero catches cables at all. UYA's does; DL's has no zip lines (its
+    /// state 118 is the death fall).
+    pub enabled: bool,
     /// The hands, `hands_up` above the feet, catch a cable whose nearest point is within
     /// `reach` of them horizontally and `reach_vertical` vertically, with the hands at
     /// most `below` under it and less than `above` over it.
@@ -651,6 +671,9 @@ pub struct ZipLineProfile {
 /// tick, as in the game; speeds are u/s.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwimProfile {
+    /// Whether the surface states dive. UYA's do; DL's code has no dive, so its hero stays
+    /// on the surface.
+    pub dives: bool,
     /// A falling hero gets in with his feet `entry_below` under the surface, give or take
     /// `entry_slack` or `entry_slack_extra` plus a tick of his fall if more, in water more
     /// than `entry_depth` deep. Any hero gets in with his feet `deep_below` under, and a
@@ -1059,6 +1082,10 @@ pub struct HitProfile {
     pub brake_later_from_tick: u32,
     /// Back on the ground after this many ticks, the hit is over.
     pub ticks: u32,
+    /// Past this tick (the game's animation frame), more than `fall_above` over the ground,
+    /// the hit becomes a fall.
+    pub fall_after_tick: u32,
+    pub fall_above: f32,
     /// After a hit, and after a hazard's, the hero can't be hurt again for this long.
     pub safe_ticks: u32,
     pub hazard_safe_ticks: u32,
@@ -1480,9 +1507,21 @@ mod tests {
                 "fall.air_speed",
                 "glide.sink",
                 "glide.speed",
+                // "Deadlocked's hits".
+                "hit.fall_after_tick",
+                "hit.safe_ticks",
                 "jump.air_speed",
+                // "Deadlocked's ledges".
+                "ledge.clear_back",
                 "ledge.climb.air_speed",
                 "ledge.climb.pushoff_ticks",
+                "ledge.double_jump_after_tick",
+                "ledge.grab_rising_below",
+                "ledge.no_grab_ticks_lost",
+                "ledge.probe_ahead",
+                "ledge.probe_step",
+                "ledge.probe_tries",
+                "ledge.shimmy_step_scale",
                 // "Deadlocked's melee".
                 "melee.blend_creeps",
                 "melee.chain_throw",
@@ -1520,8 +1559,13 @@ mod tests {
                 "name",
                 "run_jump.air_speed",
                 "strafe.flips",
+                "swim.dives",
                 "swim.jump.air_speed",
+                // "Deadlocked's moves": no crouch and no wall jump.
+                "walk.crouches",
                 "walk.speed",
+                "wall_jump.enabled",
+                "zip_line.enabled",
             ]
         );
     }

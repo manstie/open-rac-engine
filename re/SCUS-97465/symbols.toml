@@ -96,7 +96,7 @@ name = "hero_transitions"
 address = 0x0069EA40
 kind = "function"
 confidence = "medium"
-note = "Per-state transitions. Calls hero_common_transitions first."
+note = "Per-state transitions. Calls hero_common_transitions first. The jump states' landing at 0x6A45F0 is DL's only way into the flip (11): X within 8 frames, off the ground under 4 frames, strafing (or lock-strafe with R1 or Circle in 2 frames and a gadget other than 1 or 15), not state 16, the stick past 0.9 and hero_strafe_side not forward. Nothing here enters the crouch (4), long jump (10) or heli jump (15): R1's pad bit is worked out and ignored. Verified 2026-10-20 (dlntsc-dreadzone-flip-1)."
 
 [[symbol]]
 name = "hero_common_transitions"
@@ -1843,3 +1843,42 @@ address = 0x00171EF0
 kind = "data"
 confidence = "medium"
 note = "Camera speed per control scheme (stride 0x28) and player (stride 4); 50 in all. Invert options: x at 0x171E78, y at 0x171E00, same layout."
+
+# 2026-10-20, Deadlocked's flips, crouch and glide (PLAN.md RE.3; docs/research/hero-controller.md,
+# "Flips" and "Deadlocked's moves"). Read in code on DreadZone Station, checked against
+# dlntsc-dreadzone-flip-{1,2}.
+
+[[symbol]]
+name = "hero_strafe_side"
+address = 0x00686728
+kind = "function"
+confidence = "high"
+note = "UYA 0x4FB758's counterpart: 0 left, 1 right, 2 forward, and -1 back where UYA's returns 3. Stored at hero+0x1D44 by the flip's entry; the flip's animation is sequence 17 + side. Verified: -1 for the back flip."
+
+[[symbol]]
+name = "hero_held_gadget"
+address = 0x006739B0
+kind = "function"
+confidence = "medium"
+note = "The gadget in hand (hero+0x2318) while hero+0x2314 is 2, else -1. The traces' third-person state holds 2 (libdl's Dual Vipers)."
+
+[[symbol]]
+name = "hero_init"
+address = 0x00668070
+kind = "function"
+confidence = "medium"
+note = "Sets up the hero, among much else hero+0x2E2C = 1, which bars the glide (where UYA checks the heli-pack) and the back moby's update; no other store reaches that field by offset."
+
+[[symbol]]
+name = "hero_back_moby_update"
+address = 0x00669D30
+kind = "function"
+confidence = "low"
+note = "Returns at once while hero+0x2E2C is set; otherwise flags the moby at hero+0x23E4 and pulses its colour every 110 frames. Probably Clank on the hero's back, unused in DL."
+
+[[symbol]]
+name = "level_kill_height"
+address = 0x00222BFC
+kind = "data"
+confidence = "medium"
+note = "Below this height, more than 2 u over the ground, hero_transitions starts the death fall (state 118, libdl's DEATH_FALL), which empties the hero's health after 120 frames. DL has no zip lines; UYA's single player uses 118 for them."
