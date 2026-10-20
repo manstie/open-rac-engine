@@ -4,7 +4,8 @@
 //! The rig never reads a disc. A game that has animations (`openrac` reads the hero's from
 //! the user's own UYA disc) converts them to the rig's joints and inserts
 //! [`RigAnimations`]. Moves with a clip play it; the rest keep their procedural poses, and
-//! so do the joints the clips don't drive (Clank's, the wrench's).
+//! so do the joints the clips don't drive (the open model's Clank, the wrench). Parts a
+//! model carries on the hero's back play clips of their own ([`BackAnimations`]).
 
 use std::collections::BTreeMap;
 
@@ -231,6 +232,80 @@ pub struct RigAnimations {
     /// Keyframes the walk moves on by when it changes from setting off to running, and
     /// from running to setting off, past the one at the same point of the stride.
     pub walk_phase: [usize; 2],
+    /// The clips of the parts models carry on the hero's back, and their rules.
+    pub back: Option<BackAnimations>,
+    /// How each jump's air animation is timed to its arc.
+    pub jumps: BTreeMap<RigMove, JumpTiming>,
+}
+
+/// How a jump's clip is timed to its arc, as UYA times its jumps (`hero-controller.md`,
+/// "Landings"): sped up or slowed to show its peak frame at the apex and its landing
+/// frame as he lands.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JumpTiming {
+    /// Ticks of the jump's push-off: on the tick after, the clip is timed to the apex.
+    pub pushoff: u32,
+    /// The animation frames it shows at the apex and on landing.
+    pub peak: f32,
+    pub landing: f32,
+    /// The keyframe it stops being timed at. Its landing plays from two keyframes on.
+    pub landing_keyframe: usize,
+    /// The frames the game counts to a keyframe when it times the clip: 2, or 1 for UYA's
+    /// ledge jump.
+    pub keyframe_frames: f32,
+}
+
+/// Clips for the parts a model carries on the hero's back ([`crate::AttachmentData`]),
+/// and the game's rules for choosing them from the hero's move: UYA's heli-pack and Clank
+/// (`moby-format.md`, "Clank and the heli-pack on the hero's back"). Every list of
+/// sequences has one for each part, in the order of `parts`.
+///
+/// A part's clip gives each of its joints' whole transform from its parent: its
+/// `rotations` and `scales` as they are, and its `offsets` as the translation from the
+/// parent, not from rest.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BackAnimations {
+    /// The attachments it animates, by name. The first leads: a row it plays already
+    /// isn't started again, and a fidget it plays runs on into the idle.
+    pub parts: Vec<String>,
+    /// Each part's clips, by the game's sequence number.
+    pub clips: Vec<BTreeMap<u8, RigClip>>,
+    /// The sequences they rest in.
+    pub rest: Vec<u8>,
+    /// The sequences some of the hero's moves start them in.
+    pub follow: Vec<BackRow>,
+    /// The fidgets they play now and then while the hero stands idle.
+    pub fidgets: Vec<Vec<u8>>,
+    /// Moves during which one part holds a sequence of its own.
+    pub holds: Vec<BackHold>,
+}
+
+/// The sequences the hero's move starts the back's parts in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackRow {
+    pub movement: RigMove,
+    pub sequences: Vec<u8>,
+    /// Ticks they blend in over: the move's own clip's.
+    pub blend: f32,
+}
+
+/// A sequence one part of the back holds while the hero's move lasts: UYA's heli-pack
+/// spins its rotors while he glides.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BackHold {
+    pub movement: RigMove,
+    pub part: usize,
+    pub sequence: u8,
+    /// Ticks it blends in over.
+    pub blend: f32,
+}
+
+/// `t` of the way from pose `a` to pose `b`.
+pub(crate) fn mix(a: &Sample, b: &Sample, t: f32) -> Sample {
+    let rotations = a.0.iter().zip(&b.0).map(|(x, y)| x.slerp(*y, t)).collect();
+    let offsets = a.1.iter().zip(&b.1).map(|(x, y)| x.lerp(*y, t)).collect();
+    let scales = a.2.iter().zip(&b.2).map(|(x, y)| x.lerp(*y, t)).collect();
+    (rotations, offsets, scales)
 }
 
 /// When one of the idle's fidgets plays. Standing idle, each fidget whose cooldown is over

@@ -60,8 +60,9 @@ struct Args {
     #[arg(long, value_name = "DIR", default_value = "source")]
     discs: PathBuf,
     /// The hero's model: `open`, or one imported from a disc (`uya` for UYA's first armor,
-    /// `uya-snowman` and others for its other suits, `dl-ratchet`, `dl-jak` and others for
-    /// DL's skins). Overrides the one saved in the settings, which the menus change.
+    /// `uya-snowman` and others for its other suits, `uya-mp-robo` and others for its
+    /// multiplayer skins, `dl-ratchet`, `dl-jak` and others for DL's skins). Overrides the
+    /// one saved in the settings, which the menus change.
     #[arg(long, value_name = "NAME")]
     model: Option<String>,
     /// Which game the hero moves like: `uya` (the default) or `dl`, or a movement profile's
@@ -193,7 +194,7 @@ fn main() -> Result<AppExit> {
 }
 
 /// The hero's animations and models from the user's discs in `folder`: from UYA his
-/// animations and suits, from DL its skins.
+/// animations, suits and multiplayer skins, from DL its skins.
 fn from_disc(
     folder: &std::path::Path,
 ) -> (Option<rac_rig::RigAnimations>, Vec<hero_model::Imported>) {
@@ -202,7 +203,8 @@ fn from_disc(
     (animations, models)
 }
 
-/// The hero's animations and suits from a UYA NTSC-U disc, if one is in `folder`.
+/// The hero's animations, suits and multiplayer skins from a UYA NTSC-U disc, if one is
+/// in `folder`.
 fn from_uya(
     folder: &std::path::Path,
 ) -> (Option<rac_rig::RigAnimations>, Vec<hero_model::Imported>) {
@@ -223,12 +225,16 @@ fn from_uya(
         }
     };
     let animations = match hero_anims::rig_animations(&hero) {
-        Ok(animations) => {
+        Ok(mut animations) => {
             info!(
                 "the hero's animations: {} moves from {}",
                 animations.clips.len(),
                 path.display()
             );
+            match hero_anims::back_animations(&core) {
+                Ok(back) => animations.back = Some(back),
+                Err(error) => warn!("Clank and the heli-pack in {}: {error}", path.display()),
+            }
             Some(animations)
         }
         Err(error) => {
@@ -236,8 +242,9 @@ fn from_uya(
             None
         }
     };
-    let suits = hero_model::import(&mut disc, &core, &hero, hero_model::SUITS);
-    (animations, imported(hero_model::SUITS, suits, &path))
+    let suits = [hero_model::SUITS, hero_model::MP_SKINS].concat();
+    let read = hero_model::import(&mut disc, &core, &hero, &suits);
+    (animations, imported(&suits, read, &path))
 }
 
 /// The skins from a DL NTSC-U or Gladiator PAL disc, if one is in `folder`. Both hold the

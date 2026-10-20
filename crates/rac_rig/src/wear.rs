@@ -7,6 +7,10 @@
 //! model shares the skeleton, the same procedural poses and clips drive any of them.
 //! [`RigModels`] holds the registered models and the one heroes wear; changing it
 //! re-dresses them.
+//!
+//! A model may also carry attachments ([`AttachmentData`]): parts with skeletons of their
+//! own on one of the rig's joints, as a game puts mobys of their own on the hero's joints.
+//! UYA's Clank and heli-pack ride on his back this way.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
@@ -115,6 +119,68 @@ pub struct ModelData {
     pub surfaces: Vec<Surface>,
     /// Where the thrown wrench spins, in the hero's space at rest.
     pub wrench_spin: Vec3,
+    pub attachments: Vec<AttachmentData>,
+}
+
+/// A part of a model with a skeleton of its own, carried on a rig joint with that joint's
+/// place and turn but not its scale, as the games carry a moby on the hero's joint. Its
+/// joints are posed by its own clips ([`crate::BackAnimations`]); without one they stand
+/// at rest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttachmentData {
+    /// What a game's clips call it ([`crate::BackAnimations::parts`]).
+    pub name: String,
+    /// The rig joint it rides on.
+    pub on: usize,
+    /// Each joint's parent, which comes before it; the first joint has none.
+    pub parents: Vec<Option<usize>>,
+    /// Each joint's place, turn and scale at rest from the attachment's origin: what its
+    /// inverse bind undoes.
+    pub binds: Vec<Mat4>,
+    /// Its meshes in its own space at rest, skinned to its own joints.
+    pub surfaces: Vec<Surface>,
+}
+
+impl AttachmentData {
+    /// Each joint's transform from its parent at rest.
+    pub fn rest(&self) -> Vec<Transform> {
+        self.binds
+            .iter()
+            .zip(&self.parents)
+            .map(|(bind, parent)| {
+                let local = match parent.and_then(|p| self.binds.get(p)) {
+                    Some(parent) => parent.inverse() * *bind,
+                    None => *bind,
+                };
+                Transform::from_matrix(local)
+            })
+            .collect()
+    }
+
+    fn check(&self, model: &str) -> Result<(), ModelError> {
+        if self.on >= joint::COUNT {
+            return Err(ModelError::Mount {
+                model: model.into(),
+                attachment: self.name.clone(),
+                on: self.on,
+                count: joint::COUNT,
+            });
+        }
+        let count = self.binds.len();
+        let ordered = self.parents.len() == count
+            && self
+                .parents
+                .iter()
+                .enumerate()
+                .all(|(index, parent)| parent.is_none_or(|p| p < index));
+        if !ordered {
+            return Err(ModelError::Parents {
+                model: model.into(),
+                attachment: self.name.clone(),
+            });
+        }
+        check_surfaces(&format!("{model} ({})", self.name), &self.surfaces, count)
+    }
 }
 
 /// Why a model can't be worn.
@@ -157,6 +223,15 @@ pub enum ModelError {
     Triangles { model: String, surface: usize },
     #[error("{model}: {error}")]
     Bounds { model: String, error: String },
+    #[error("{model}: attachment {attachment} rides on joint {on}, but the rig has {count}")]
+    Mount {
+        model: String,
+        attachment: String,
+        on: usize,
+        count: usize,
+    },
+    #[error("{model}: attachment {attachment}'s joints don't each come after their parent")]
+    Parents { model: String, attachment: String },
 }
 
 impl ModelData {
@@ -178,53 +253,9 @@ impl ModelData {
                 expected: joint::COUNT,
             });
         }
-        for (index, surface) in self.surfaces.iter().enumerate() {
-            let vertices = surface.positions.len();
-            let lengths = [
-                ("normals", surface.normals.len()),
-                ("joint sets", surface.joints.len()),
-                ("weight sets", surface.weights.len()),
-                ("UVs", surface.uvs.as_ref().map_or(vertices, Vec::len)),
-            ];
-            for (what, found) in lengths {
-                if found != vertices {
-                    return Err(ModelError::Attribute {
-                        model: model(),
-                        surface: index,
-                        what,
-                        found,
-                        vertices,
-                    });
-                }
-            }
-            for (joints, weights) in surface.joints.iter().zip(&surface.weights) {
-                for (&joint, &weight) in joints.iter().zip(weights) {
-                    if weight != 0.0 && joint as usize >= model::joint::COUNT {
-                        return Err(ModelError::Joint {
-                            model: model(),
-                            surface: index,
-                            joint,
-                            count: joint::COUNT,
-                        });
-                    }
-                }
-                let sum: f32 = weights.iter().sum();
-                if (sum - 1.0).abs() > 1e-3 || weights.iter().any(|w| *w < 0.0) {
-                    return Err(ModelError::Weights {
-                        model: model(),
-                        surface: index,
-                        sum,
-                    });
-                }
-            }
-            if !surface.indices.len().is_multiple_of(3)
-                || surface.indices.iter().any(|&i| i as usize >= vertices)
-            {
-                return Err(ModelError::Triangles {
-                    model: model(),
-                    surface: index,
-                });
-            }
+        check_surfaces(&self.name, &self.surfaces, joint::COUNT)?;
+        for attachment in &self.attachments {
+            attachment.check(&self.name)?;
         }
         Ok(())
     }
@@ -250,6 +281,61 @@ impl ModelData {
             self.turns.iter().map(|turn| turn.normalize()).collect()
         }
     }
+}
+
+/// Checks that `surfaces` of `model` are whole, with weights on `count` joints that add
+/// up to one.
+fn check_surfaces(model: &str, surfaces: &[Surface], count: usize) -> Result<(), ModelError> {
+    let model = || model.to_string();
+    for (index, surface) in surfaces.iter().enumerate() {
+        let vertices = surface.positions.len();
+        let lengths = [
+            ("normals", surface.normals.len()),
+            ("joint sets", surface.joints.len()),
+            ("weight sets", surface.weights.len()),
+            ("UVs", surface.uvs.as_ref().map_or(vertices, Vec::len)),
+        ];
+        for (what, found) in lengths {
+            if found != vertices {
+                return Err(ModelError::Attribute {
+                    model: model(),
+                    surface: index,
+                    what,
+                    found,
+                    vertices,
+                });
+            }
+        }
+        for (joints, weights) in surface.joints.iter().zip(&surface.weights) {
+            for (&joint, &weight) in joints.iter().zip(weights) {
+                if weight != 0.0 && joint as usize >= count {
+                    return Err(ModelError::Joint {
+                        model: model(),
+                        surface: index,
+                        joint,
+                        count,
+                    });
+                }
+            }
+            let sum: f32 = weights.iter().sum();
+            if (sum - 1.0).abs() > 1e-3 || weights.iter().any(|w| *w < 0.0) {
+                return Err(ModelError::Weights {
+                    model: model(),
+                    surface: index,
+                    sum,
+                });
+            }
+        }
+        if !surface.indices.len().is_multiple_of(3)
+            || surface.indices.iter().any(|&i| i as usize >= vertices)
+        {
+            return Err(ModelError::Triangles {
+                model: model(),
+                surface: index,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The open model: the blocky gold Ratchet, Clank and wrench of [`crate::model`], every
@@ -278,6 +364,7 @@ pub fn open_model() -> ModelData {
         surfaces,
         // 0.2 m up the shaft from the grip.
         wrench_spin: def.joints[joint::WRENCH].rest + model::wrench_turn() * at(0.2, -0.06, 0.0),
+        attachments: Vec::new(),
     }
 }
 
@@ -301,6 +388,19 @@ pub struct RigModel {
     /// The wrench's surfaces without skinning, centred where it spins.
     pub(crate) thrown: Vec<RigSurface>,
     pub(crate) inverse_bindposes: Handle<SkinnedMeshInverseBindposes>,
+    pub(crate) attachments: Vec<RigAttachment>,
+}
+
+/// A registered attachment ([`AttachmentData`]).
+#[derive(Debug, Clone)]
+pub(crate) struct RigAttachment {
+    pub name: String,
+    pub on: usize,
+    pub parents: Vec<Option<usize>>,
+    /// Each joint's transform from its parent at rest.
+    pub rest: Vec<Transform>,
+    pub surfaces: Vec<RigSurface>,
+    pub inverse_bindposes: Handle<SkinnedMeshInverseBindposes>,
 }
 
 /// Every model the rig can wear, and which one heroes wear.
@@ -323,18 +423,44 @@ impl RigModels {
             model: data.name.clone(),
             error: error.to_string(),
         };
-        let mut surfaces = Vec::new();
-        let mut thrown = Vec::new();
-        for surface in &data.surfaces {
+        let mut skinned = |surface: &Surface| -> Result<RigSurface, ModelError> {
             let mesh = surface
                 .mesh(true, Vec3::ZERO)
                 .with_generated_skinned_mesh_bounds()
                 .map_err(|error| bounds(&error))?;
-            surfaces.push(RigSurface {
+            Ok(RigSurface {
                 mesh: meshes.add(mesh),
                 paint: surface.paint.clone(),
                 wrench: surface.wrench,
+            })
+        };
+        let mut surfaces = Vec::new();
+        for surface in &data.surfaces {
+            surfaces.push(skinned(surface)?);
+        }
+        let mut attachments = Vec::new();
+        for attachment in &data.attachments {
+            attachments.push(RigAttachment {
+                name: attachment.name.clone(),
+                on: attachment.on,
+                parents: attachment.parents.clone(),
+                rest: attachment.rest(),
+                surfaces: attachment
+                    .surfaces
+                    .iter()
+                    .map(&mut skinned)
+                    .collect::<Result<_, _>>()?,
+                inverse_bindposes: bindposes.add(
+                    attachment
+                        .binds
+                        .iter()
+                        .map(Mat4::inverse)
+                        .collect::<Vec<_>>(),
+                ),
             });
+        }
+        let mut thrown = Vec::new();
+        for surface in &data.surfaces {
             if surface.wrench {
                 thrown.push(RigSurface {
                     mesh: meshes.add(surface.mesh(false, data.wrench_spin)),
@@ -359,6 +485,7 @@ impl RigModels {
             surfaces,
             thrown,
             inverse_bindposes: bindposes.add(inverse),
+            attachments,
         };
         match self.models.iter_mut().find(|m| m.name == model.name) {
             Some(existing) => *existing = model,
@@ -424,7 +551,7 @@ pub(crate) fn register_open_model(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -478,6 +605,69 @@ mod tests {
         let mut model = open_model();
         model.surfaces[0].indices.push(u32::MAX);
         assert!(matches!(model.check(), Err(ModelError::Triangles { .. })));
+    }
+
+    /// A two-joint attachment on the chest: a root a quarter turn about up, 1 m above its
+    /// origin, and a joint 0.5 m along the root's own x, with one triangle on each.
+    pub(crate) fn attachment() -> AttachmentData {
+        let turn = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let root = Mat4::from_rotation_translation(turn, Vec3::Y);
+        let tip = root * Mat4::from_translation(Vec3::X * 0.5);
+        let mut surface = Surface::new(Paint::Look(Look::Main), false);
+        let triangle = [Vec3::ZERO, Vec3::X, Vec3::Y];
+        surface.push_rigid(&[triangle], 0);
+        surface.push_rigid(&[triangle.map(|p| p + Vec3::Y)], 1);
+        AttachmentData {
+            name: "pack".into(),
+            on: joint::CHEST,
+            parents: vec![None, Some(0)],
+            binds: vec![root, tip],
+            surfaces: vec![surface],
+        }
+    }
+
+    #[test]
+    fn attachments_stand_at_rest_where_their_binds_put_them() {
+        let attachment = attachment();
+        let rest = attachment.rest();
+        assert!(rest[0].translation.distance(Vec3::Y) < 1e-5);
+        assert!(
+            rest[1].translation.distance(Vec3::X * 0.5) < 1e-5,
+            "along its parent"
+        );
+        assert!(rest[1].rotation.angle_between(Quat::IDENTITY) < 1e-4);
+        let mut model = open_model();
+        model.attachments.push(attachment);
+        model.check().unwrap();
+    }
+
+    #[test]
+    fn attachments_that_dont_fit_are_refused() {
+        let with = |change: fn(&mut AttachmentData)| {
+            let mut model = open_model();
+            let mut attachment = attachment();
+            change(&mut attachment);
+            model.attachments.push(attachment);
+            model.check()
+        };
+        assert!(matches!(
+            with(|a| a.on = joint::COUNT),
+            Err(ModelError::Mount { .. })
+        ));
+        assert!(matches!(
+            with(|a| a.parents = vec![Some(1), None]),
+            Err(ModelError::Parents { .. })
+        ));
+        assert!(matches!(
+            with(|a| {
+                a.parents.pop();
+            }),
+            Err(ModelError::Parents { .. })
+        ));
+        assert!(matches!(
+            with(|a| a.surfaces[0].joints[0] = [2, 0, 0, 0]),
+            Err(ModelError::Joint { count: 2, .. })
+        ));
     }
 
     #[test]

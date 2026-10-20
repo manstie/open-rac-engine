@@ -256,23 +256,23 @@ pub struct DataHeader {
     pub core_header: (u32, u32),
     /// The core itself, a WAD that the game unpacks whole.
     pub core: u32,
-    /// DL: the GS RAM image, stored as is: (offset, size). The game sends it to the GS
-    /// as the level loads: palettes, small mipmaps, and the textures the GS keeps for the
-    /// whole level. Not read on UYA yet.
-    pub gs_ram: Option<(u32, u32)>,
+    /// The GS RAM image, stored as is: (offset, size). The game sends it to the GS as the
+    /// level loads: palettes, small mipmaps, and the textures the GS keeps for the whole
+    /// level.
+    pub gs_ram: (u32, u32),
 }
 
 impl DataHeader {
     /// Bytes to read for [`DataHeader::read`] and [`DataHeader::read_dl`].
     pub const SIZE: usize = 0x80;
 
-    /// UYA's: the core header at +0x08, the core at +0x48.
+    /// UYA's: the core header at +0x08, the GS RAM image at +0x10 and the core at +0x48.
     pub fn read(bytes: &[u8]) -> Result<Self, FormatError> {
         let image = Image::new(bytes, 0);
         Ok(Self {
             core_header: (image.u32(0x08)?, image.u32(0x0C)?),
             core: image.u32(0x48)?,
-            gs_ram: None,
+            gs_ram: (image.u32(0x10)?, image.u32(0x14)?),
         })
     }
 
@@ -284,7 +284,7 @@ impl DataHeader {
         Ok(Self {
             core_header: (image.u32(0x10)?, image.u32(0x14)?),
             core: image.u32(0x50)?,
-            gs_ram: Some((image.u32(0x18)?, image.u32(0x1C)?)),
+            gs_ram: (image.u32(0x18)?, image.u32(0x1C)?),
         })
     }
 }
@@ -295,10 +295,10 @@ pub struct ClassEntry {
     /// Bytes from the core's start.
     pub offset: u32,
     pub class: u32,
-    /// DL: 0 when the class's textures are the level's own ([`ClassEntry::textures`]);
-    /// 1, 2 or 3 when the game gives it the textures of the skin WAD's first, second or
-    /// third texture group instead (`dl_level_load_core`). 0 for every class we've seen
-    /// on UYA, where it isn't read in code.
+    /// 0 when the class's textures are the level's own ([`ClassEntry::textures`]). DL: 1,
+    /// 2 or 3 when the game gives it the textures of the skin WAD's first, second or
+    /// third texture group instead (`dl_level_load_core`). UYA: 1 for the ship's paint
+    /// and 2 for Clank's texture (`level_load_core`; `moby-format.md`, "The third slot").
     pub texture_group: u32,
     /// The class's textures, by the numbers its mesh uses: indices into the level's moby
     /// texture table ([`CoreHeader::moby_textures`]), 0xFF after the last.
@@ -343,7 +343,7 @@ impl CoreHeader {
         self.moby_classes.iter().copied().find(|c| c.class == class)
     }
 
-    /// DL: the level's moby texture table (+0x38 count, +0x3C offset), 16 bytes each.
+    /// The level's moby texture table (+0x38 count, +0x3C offset), 16 bytes each.
     pub fn moby_textures(&self) -> Result<Vec<TextureEntry>, FormatError> {
         let image = Image::new(&self.bytes, 0);
         let count = image.u32(0x38)?;
@@ -360,12 +360,12 @@ impl CoreHeader {
             .collect()
     }
 
-    /// DL: where in the core the pixels of the textures kept in EE memory start (+0x60).
+    /// Where in the core the pixels of the textures kept in EE memory start (+0x60).
     pub fn texture_base(&self) -> Result<u32, FormatError> {
         Image::new(&self.bytes, 0).u32(0x60)
     }
 
-    /// DL: where in the GS RAM image the textures the GS keeps start. The GS RAM table
+    /// Where in the GS RAM image the textures the GS keeps start. The GS RAM table
     /// (+0x00 count, +0x04 offset; 16 bytes an entry, its address at +0x8) lists the
     /// palettes and mipmaps the game sends first, then +0x84 entries for those textures,
     /// the first of which starts them (`dl_level_load_core`, `dl_gs_ram_send`).
@@ -436,25 +436,18 @@ pub struct Core {
     pub header: CoreHeader,
     /// The core as the game unpacks it; class and sequence offsets count from its start.
     pub bytes: Vec<u8>,
-    /// DL: the level's GS RAM image ([`DataHeader::gs_ram`]). Empty from
-    /// [`Core::read_uya`].
+    /// The level's GS RAM image ([`DataHeader::gs_ram`]).
     pub gs_ram: Vec<u8>,
 }
 
 impl Core {
-    /// Reads and unpacks the core of UYA level `level` from the disc.
+    /// Reads and unpacks the core of UYA level `level` from the disc, with its GS RAM
+    /// image.
     pub fn read_uya(disc: &mut impl DiscReader, level: usize) -> Result<Self, FormatError> {
         let header = LevelHeader::read_uya_disc(disc, level)?;
         let data = (header.sector as u64 + header.data.sector as u64) * SECTOR;
         let parts = DataHeader::read(&disc.read(data, DataHeader::SIZE)?)?;
-        let (offset, size) = parts.core_header;
-        let core_header = CoreHeader::read(&disc.read(data + offset as u64, size as usize)?)?;
-        let bytes = read_wad(disc, data + parts.core as u64, "level core")?;
-        Ok(Self {
-            header: core_header,
-            bytes,
-            gs_ram: Vec::new(),
-        })
+        Self::read_parts(disc, data, parts)
     }
 
     /// Reads and unpacks the core of DL (or Gladiator) level `level` from the disc, with
@@ -464,12 +457,19 @@ impl Core {
         let header = LevelHeader::read_dl_disc(disc, level)?;
         let data = (header.sector as u64 + header.data.sector as u64) * SECTOR;
         let parts = DataHeader::read_dl(&disc.read(data, DataHeader::SIZE)?)?;
+        Self::read_parts(disc, data, parts)
+    }
+
+    /// The core, its header and the GS RAM image of a level whose data starts at `data`.
+    fn read_parts(
+        disc: &mut impl DiscReader,
+        data: u64,
+        parts: DataHeader,
+    ) -> Result<Self, FormatError> {
         let (offset, size) = parts.core_header;
         let core_header = CoreHeader::read(&disc.read(data + offset as u64, size as usize)?)?;
-        let gs_ram = match parts.gs_ram {
-            Some((offset, size)) => disc.read(data + offset as u64, size as usize)?,
-            None => Vec::new(),
-        };
+        let (offset, size) = parts.gs_ram;
+        let gs_ram = disc.read(data + offset as u64, size as usize)?;
         let bytes = read_wad(disc, data + parts.core as u64, "level core")?;
         Ok(Self {
             header: core_header,
@@ -501,7 +501,7 @@ impl Core {
         MobyClass::read_bangles(&Image::new(&self.bytes, 0), offset, Placement::Packed)
     }
 
-    /// DL: the textures of moby class `class` whose textures are the level's own, by
+    /// The textures of moby class `class` whose textures are the level's own, by
     /// the numbers its mesh uses. Each texture's pixels are where its table entry says
     /// ([`TextureEntry::data`]); its palette is in the GS RAM image.
     pub fn moby_textures(&self, class: u32) -> Result<Vec<Texture>, FormatError> {
@@ -783,6 +783,31 @@ pub(crate) mod disc_tests {
             let hero = core.dl_moby_class(DL_HERO).unwrap();
             assert_eq!(hero.joints.len(), 107);
             assert!(hero.packets.is_empty());
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn uyas_heli_pack_wears_textures_from_the_levels_gs_ram_image() {
+        // On Veldin the heli-pack wears the level's moby textures 9 and 10, which the GS
+        // keeps; Clank wears his own (the class table's group 2).
+        let mut disc = disc(rac_iso::Release::UyaNtsc);
+        let core = Core::read_uya(&mut disc, 1).unwrap();
+        assert_eq!(core.gs_ram.len(), 0x79800);
+        assert_eq!(core.header.moby_class(0x259).unwrap().texture_group, 2);
+        let entry = core.header.moby_class(0x25F).unwrap();
+        assert_eq!(entry.texture_group, 0);
+        assert_eq!(entry.textures[..3], [9, 10, 0xFF]);
+        let textures = core.moby_textures(0x25F).unwrap();
+        let sizes: Vec<(u32, u32)> = textures.iter().map(|t| (t.width, t.height)).collect();
+        assert_eq!(sizes, [(128, 128), (32, 32)]);
+        for texture in &textures {
+            let colours: std::collections::BTreeSet<[u8; 4]> = texture
+                .pixels
+                .iter()
+                .map(|&i| texture.palette[i as usize])
+                .collect();
+            assert!(colours.len() > 32, "{} colours", colours.len());
         }
     }
 

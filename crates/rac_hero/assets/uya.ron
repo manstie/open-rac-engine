@@ -119,6 +119,22 @@
         gravity: 22.0,
         air_speed: 6.17,
         release_brake: 7.0,
+        // Coming down [code, UYA 0x503B68, state 6]: past its 17th tick or from over
+        // 1.75 u up, a fall lands standing and the controls wait 7 ticks, 18 after more
+        // than 50 ticks of falling and 22 after 90 (a lockout at 0x1A4DC0, while a flag at
+        // 0x1A4F3C, not read, is clear); a shorter one walks on with the stick past 0.5,
+        // skids above 3 u/s (0.05 u a frame) or stands.
+        landing: (
+            far_after_ticks: 17,
+            far_above: 1.75,
+            walk_stick: 0.5,
+            skid_above: 3.0,
+            lock_ticks: 7,
+            long_after_ticks: 50,
+            long_lock_ticks: 18,
+            longer_after_ticks: 90,
+            longer_lock_ticks: 22,
+        ),
     ),
     // "Jump parameters by state", state 7 [verified on UYA NTSC].
     jump: (

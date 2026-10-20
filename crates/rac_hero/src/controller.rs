@@ -370,8 +370,10 @@ pub struct HeroMotion {
     pub safe_ticks: u32,
     /// The moves he has the items for.
     pub abilities: Abilities,
-    /// Ticks left of ignoring the stick and buttons, as after a charge.
+    /// Ticks left of ignoring the stick and buttons, as after a charge or a far fall.
     pub input_lock: u32,
+    /// The fall under way has lasted or dropped far enough to land heavily.
+    pub fell_far: bool,
     /// The rail ridden, or followed by a jump off it, or the zip line hung from.
     pub rail: Option<RailPoint>,
     /// How far his nose points down from level, in radians: swimming under water.
@@ -533,6 +535,7 @@ impl HeroMotion {
             safe_ticks: 0,
             abilities: Abilities::ALL,
             input_lock: 0,
+            fell_far: false,
             rail: None,
             pitch: 0.0,
             thrown: None,
@@ -673,6 +676,17 @@ impl HeroMotion {
         seconds / TICK
     }
 
+    /// The whole ticks until a jump's apex at its vertical speed and gravity, or 0 outside
+    /// a jump or coming down (UYA's `hero_ticks_to_apex`, which times its animation).
+    pub fn ticks_to_apex(&self) -> f32 {
+        let gravity = self.jump.gravity;
+        let jumping = matches!(self.state, HeroState::Jump(_) | HeroState::DoubleJump);
+        if !jumping || gravity <= 0.0 || self.velocity.y <= 0.0 {
+            return 0.0;
+        }
+        (self.velocity.y / gravity / TICK).floor()
+    }
+
     fn set_state(&mut self, state: HeroState) {
         if self.state != state {
             self.restart_state(state);
@@ -688,6 +702,7 @@ impl HeroMotion {
         self.sliding = false;
         self.charge_skid = false;
         self.dive_left = 0;
+        self.fell_far = false;
     }
 
     fn record_stick(&mut self, stick: &Stick) {
@@ -1183,6 +1198,7 @@ fn move_hero(
 fn land(hero: &mut HeroMotion, ground: Ground, stick: &Stick, profile: &HeroProfile) {
     let horizontal = hero.horizontal_velocity();
     let landing_from_long_jump = hero.state == HeroState::Jump(JumpKind::Long);
+    let landing_from_fall = hero.state == HeroState::Fall;
     // A jump pressed now can still flip (`strafe.landing_window`); the long jump skids
     // instead.
     if matches!(hero.state, HeroState::Jump(_) | HeroState::DoubleJump) && !landing_from_long_jump {
@@ -1211,10 +1227,30 @@ fn land(hero: &mut HeroMotion, ground: Ground, stick: &Stick, profile: &HeroProf
     hero.wall = None;
     if landing_from_long_jump {
         hero.set_state(HeroState::Skid);
+    } else if landing_from_fall {
+        land_from_fall(hero, stick, profile);
     } else {
         // A landing walks on at once, without the setting-off phase.
         hero.setting_off = !stick.is_active();
         hero.set_state(HeroState::Walk);
+    }
+}
+
+/// A fall comes down standing and stays still a moment if it fell far; a shorter one walks
+/// on with the stick well over, skids if it's moving fast, or stands (UYA's state 6,
+/// `hero-controller.md`, "Landings").
+fn land_from_fall(hero: &mut HeroMotion, stick: &Stick, profile: &HeroProfile) {
+    let landing = &profile.fall.landing;
+    if hero.fell_far {
+        hero.input_lock = hero.input_lock.max(landing.lock_after(hero.ticks));
+        hero.set_state(HeroState::Idle);
+    } else if stick.magnitude > landing.walk_stick {
+        hero.setting_off = false;
+        hero.set_state(HeroState::Walk);
+    } else if hero.speed > landing.skid_above {
+        hero.set_state(HeroState::Skid);
+    } else {
+        hero.set_state(HeroState::Idle);
     }
 }
 
@@ -1249,6 +1285,16 @@ fn ground_tick(
             skid_to_a_stop(hero, profile);
             return;
         }
+    }
+
+    // Standing with the controls held back (after a far fall), he stays still until they
+    // come back, as UYA's idle skips its transitions during its lockout (0x1A4DC0).
+    if hero.state == HeroState::Idle && hero.input_lock > 0 {
+        hero.speed = approach(hero.speed, 0.0, walk.stop_brake * TICK);
+        let facing = hero.facing();
+        hero.set_horizontal_velocity(facing * hero.speed);
+        hero.velocity.y = 0.0;
+        return;
     }
 
     // The first-person button stands him still to look round, and the look turns him to
@@ -3106,6 +3152,9 @@ fn air_tick(
         HeroState::Fall => {
             let fall = &profile.fall;
             hero.velocity.y = (hero.velocity.y - fall.gravity * TICK).max(-air.fall_speed_cap);
+            let landing = &fall.landing;
+            hero.fell_far |= hero.ticks > landing.far_after_ticks
+                || hero.height_above_ground > landing.far_above;
             air_control(
                 hero,
                 stick,

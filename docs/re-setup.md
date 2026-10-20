@@ -216,7 +216,7 @@ cargo run -p rac_tool -- moby --ee cache/ghidra/ee/uyantsc-veldin.ee.bin \
   repository. Regenerate it from the savestate whenever it's needed.
 - `--moby` takes a moby's address and reads its class; `--class` takes a class directly.
   On the Veldin image, UYA's hero is 0x1D36D00, the wrench 0x1D63E00, Clank on his back
-  0x1D66100 and Clank's pack form 0x1D66000.
+  0x1D66100 and the heli-pack (Clank's arms and rotors) 0x1D66000.
 - The mesh is complete, with its own skin weights (`moby-format.md`, "Mesh"), since
   2026-10-13. The game itself shows the wrench's mesh from the armor WAD, which the
   image's wrench class carries once loaded.

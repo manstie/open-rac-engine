@@ -3229,6 +3229,101 @@ kind = "data"
 confidence = "high"
 note = "The fade to black, 0 clear to 1 black: path cameras raise and lower it by 0.05 a frame and cut while it is 1. Verified on Florana (0x1DE350 there, uyantsc-florana-camvol-2)."
 
+# 2026-10-20, Clank and the heli-pack on the hero's back (PLAN.md P1.17): two mobys on
+# hero joint 5, each with its own sequences, chosen by the hero's sequence through a table
+# per back item. The same scheme as R&C1's (ReRAC, ISC), checked in UYA's own code.
+
+[[symbol]]
+name = "hero_back_pack"
+address = 0x001A5ED0
+kind = "data"
+confidence = "high"
+note = "The back slot's pack moby: the heli-pack (class 0x25F) for back item 2, the thruster-pack for 3. 0x1D66000 in the Veldin image."
+
+[[symbol]]
+name = "hero_back_clank"
+address = 0x001A5ED4
+kind = "data"
+confidence = "high"
+note = "Clank's moby on the hero's back (class 0x259, item 1's class). 0x1D66100 in the Veldin image."
+
+[[symbol]]
+name = "hero_back_state"
+address = 0x001A5EF4
+kind = "data"
+confidence = "medium"
+note = "The back slot's state: 2 once its mobys exist (ready); the back rules only run then."
+
+[[symbol]]
+name = "hero_back_item"
+address = 0x001A5EF8
+kind = "data"
+confidence = "medium"
+note = "The back slot's item when its pack moby was made: the saved one, else 2 (the heli-pack), or 3 when 0x142691 is set."
+
+[[symbol]]
+name = "hero_back_tables"
+address = 0x001DBE00
+kind = "data"
+confidence = "high"
+note = "Rows of {hero sequence (s16), pack sequence (u8), Clank sequence (u8)}, ending at -1, per back item: 0x1DBE00 the thruster-pack's, 0x1DBE18 the heli-pack's, 0x1DBE30 item 4's. Heli-pack: (0, 4, 10), (0, 3, 9), (0, 7, 13), (21, 5, 11), (18, 8, 14)."
+
+[[symbol]]
+name = "hero_back_pick"
+address = 0x0050B678
+kind = "function"
+confidence = "high"
+note = "(hero sequence, out pack, out Clank): the back item's table (hero_back_tables), and a random row for the sequence (rand_int(0, n - 1)); false, and pack 1, when it has none."
+
+[[symbol]]
+name = "hero_back_owner"
+address = 0x0050B448
+kind = "function"
+confidence = "high"
+note = "(pack sequence, out): the hero sequence of the first row whose pack sequence it is."
+
+[[symbol]]
+name = "hero_back_follow_anim"
+address = 0x0050B518
+kind = "function"
+confidence = "high"
+note = "From hero_anim_set (blend, sequence, frame), with the back ready: a row for the new sequence (not 0) blends pack and Clank to it at the same frame and blend, unless the pack plays it already; otherwise both blend to sequence 1 over 7 ticks (19 after the glide with the heli-pack), except back in group 0 to sequence 0 while the pack plays one of its rows (a fidget runs on)."
+
+[[symbol]]
+name = "hero_back_follow_speed"
+address = 0x0050B7B0
+kind = "function"
+confidence = "high"
+note = "From hero_anim_update: while the hero's sequence has rows, the pack's and Clank's animation speed (moby + 0x48) is the hero's (hero_anim_rate)."
+
+[[symbol]]
+name = "clank_fidget"
+address = 0x0050B3C0
+kind = "function"
+confidence = "high"
+note = "With the pack on sequence 1, a random row of hero sequence 0 for pack and Clank, blended over 7 ticks. hero_transitions calls it in the idle after 10 ticks, with Clank on sequence 1, the head look under 32 and 20 degrees and clank_fidget_timer run out, which it then sets to rand_int(110, 270)."
+
+[[symbol]]
+name = "clank_fidget_timer"
+address = 0x001A7450
+kind = "data"
+confidence = "high"
+note = "Ticks to Clank's next fidget, counted down (timer_tick) only while he could fidget."
+
+[[symbol]]
+name = "heli_pack_update"
+address = 0x00300608
+kind = "function"
+confidence = "high"
+note = "The heli-pack moby's update (moby + 0x64): while the hero state is 8 (the glide), its rotor sequence 6, blended over 10 ticks."
+
+[[symbol]]
+name = "moby_anim_blend"
+address = 0x00441C78
+kind = "function"
+confidence = "high"
+note = "(moby, sequence, keyframe, ticks): blends a moby from its current pose to the sequence's keyframe (clamped to the last) over the ticks, and resets its speed (+0x48) to 1; with no ticks it cuts."
+
 # Added 2026-10-20 while reading the hero's side of firing (RE.7). Found from the readers
 # and writers of the firing flags and the fire direction (tools/ghidra/RefsTo.java). Those
 # marked high were checked in the uyantsc-veldin-fire traces (docs/re-setup.md).
@@ -3365,3 +3460,41 @@ address = 0x00142670
 kind = "data"
 confidence = "medium"
 note = "Eight items, most recently chosen first; Triangle's tap cycles the first three."
+
+# 2026-10-20, the jumps' air animation, timed to their peak and landing frames
+# (hero-controller.md, "Landings").
+
+[[symbol]]
+name = "hero_anim_rate_to_frame"
+address = 0x004E1268
+kind = "function"
+confidence = "high"
+note = "(frame, ticks, factor, step): the hero's animation rate that reaches the frame in that many ticks, factor x frames left / (ticks x the keyframe's rate); a frame passed counts round the sequence's end. With a step other than -1 the rate approaches it by that much a tick."
+
+[[symbol]]
+name = "hero_ticks_to_apex"
+address = 0x0050D770
+kind = "function"
+confidence = "high"
+note = "(gravity, position, velocity, out ticks): the apex height of his arc, and the whole ticks until it, vertical speed / gravity."
+
+[[symbol]]
+name = "jump_pushoff_ticks"
+address = 0x001A505C
+kind = "data"
+confidence = "high"
+note = "Set per jump state by hero_change_state: the ticks of its push-off, the profile's pushoff_ticks. The jump's transitions wait for it, and its animation rate is set on the tick after."
+
+[[symbol]]
+name = "jump_anim_factor"
+address = 0x001A50C4
+kind = "data"
+confidence = "high"
+note = "hero_anim_rate_to_frame's factor in the jump states: 0.5, a keyframe being two frames; 1 in the ledge jump (27)."
+
+[[symbol]]
+name = "jump_gravity"
+address = 0x001A50D0
+kind = "data"
+confidence = "medium"
+note = "Set per jump state by hero_change_state: the gravity in u a frame squared that hero_ticks_to_apex and hero_ticks_to_land take."

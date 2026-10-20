@@ -215,6 +215,34 @@ fn a_long_jump_peaks_where_the_game_does() {
 }
 
 #[test]
+fn the_ticks_to_a_jumps_apex_count_down_to_it() {
+    // UYA times a jump's peak frame by them once its push-off is over.
+    let mut rig = Rig::new();
+    rig.run_up();
+    rig.crouch(Some([0, 127]));
+    let forward = Some([0, 127]);
+    rig.tick(&input(
+        forward,
+        &[Action::Crouch, Action::Jump],
+        &[Action::Jump],
+    ));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Long));
+    rig.ticks(6, &input(forward, &[], &[]));
+    let ticks = rig.hero.ticks_to_apex();
+    let rising = rig.hero.velocity.y;
+    assert!(ticks > 10.0 && ticks == ticks.floor(), "{ticks}");
+    rig.ticks(ticks as usize, &input(forward, &[], &[]));
+    // Within a tick's worth of gravity of standing still at the top.
+    let tick_of_gravity = rising / ticks;
+    assert!(
+        rig.hero.velocity.y.abs() <= tick_of_gravity,
+        "{} u/s after {ticks} ticks",
+        rig.hero.velocity.y
+    );
+    assert_eq!(rig.hero.ticks_to_apex(), 0.0);
+}
+
+#[test]
 fn landing_returns_to_the_ground() {
     let mut rig = Rig::new();
     rig.tick(&input(None, &[], &[Action::Jump]));

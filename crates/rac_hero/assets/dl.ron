@@ -128,6 +128,18 @@
         gravity: 22.0,
         air_speed: 7.25, // DL: it steers to the walk's speed target (0x67CAF8) [code]
         release_brake: 7.0,
+        // Coming down: UYA's [not read in DL].
+        landing: (
+            far_after_ticks: 17,
+            far_above: 1.75,
+            walk_stick: 0.5,
+            skid_above: 3.0,
+            lock_ticks: 7,
+            long_after_ticks: 50,
+            long_lock_ticks: 18,
+            longer_after_ticks: 90,
+            longer_lock_ticks: 22,
+        ),
     ),
     // "Jump parameters by state", state 7 [verified on DL NTSC: held fully, a jump peaks
     // 1.8865 u up].

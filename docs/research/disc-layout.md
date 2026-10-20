@@ -292,6 +292,9 @@ as the Veldin memory image has them.
   - +0x08/+0x0C: the **core header**, stored as is (0x8990 bytes on Veldin);
   - +0x48: the **core**, a WAD that unpacks whole (11.6 MB to 20 MB on Veldin) to a fixed
     address (0x91E000 on Veldin).
+  - +0x10/+0x14: the **GS RAM image**, stored as is (0x79800 bytes on Veldin), as DL's
+    at +0x18: DL's table has one more pair before it [verified 2026-10-20: the
+    heli-pack's level textures decode from it with DL's rules, "Level textures" below].
   - The other pairs are 3.4 MB stored as is at +0x80, three more blocks, and three WADs
     of 16 bytes (empty). Not identified yet.
 - **The core header:**

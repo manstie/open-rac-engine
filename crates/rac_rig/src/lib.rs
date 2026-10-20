@@ -15,10 +15,14 @@
 //!   already on the rig's joints, and its rules for fidgets. Those moves play their clip,
 //!   chosen and timed as the game does (fidgets, landings, the walk's speed bands); the
 //!   rest stay procedural.
+//! - A model's attachments ([`AttachmentData`]) ride on their joints without the joints'
+//!   scale, and play the clips [`BackAnimations`] gives them by the game's rules, as UYA's
+//!   Clank and heli-pack do on the hero's back.
 //!
 //! The rig only reads the controller ([`rac_hero::HeroBody`]), so models and animations
 //! change without touching the simulation.
 
+mod back;
 mod clips;
 mod hull;
 pub mod model;
@@ -29,20 +33,22 @@ mod shapes;
 mod wear;
 
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
+use bevy::math::Affine3A;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use rac_hero::{Health, HeroBody};
 
 pub use clips::{
-    FidgetRule, FlipSide, Landing, RUN_BELOW, RigAnimations, RigClip, RigKeyframe, RigMove,
-    SET_OFF_BELOW, Sample,
+    BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, JumpTiming, Landing, RUN_BELOW,
+    RigAnimations, RigClip, RigKeyframe, RigMove, SET_OFF_BELOW, Sample,
 };
 pub use hull::convex_hull;
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
 pub use retarget::{LineUpError, SkeletonMap, SourceJoint};
 pub use wear::{
-    ModelData, ModelError, OPEN_MODEL, Paint, RigModel, RigModels, Surface, open_model,
+    AttachmentData, ModelData, ModelError, OPEN_MODEL, Paint, RigModel, RigModels, Surface,
+    open_model,
 };
 
 /// Dresses heroes in the chosen model and poses every [`HeroRig`] from its hero each
@@ -112,7 +118,19 @@ pub struct HeroRig {
     turns: Vec<Quat>,
     /// The surfaces of the wrench in his hand, hidden while it is thrown.
     wrench: Vec<Entity>,
+    attachments: Vec<Attached>,
     animator: pose::Animator,
+    back: back::BackDirector,
+}
+
+/// An attachment a rig carries: the entity placed on its joint, and its own joints.
+#[derive(Debug)]
+struct Attached {
+    name: String,
+    on: usize,
+    root: Entity,
+    joints: Vec<Entity>,
+    rest: Vec<Transform>,
 }
 
 /// On a hero entity: the model it wears.
@@ -125,6 +143,11 @@ pub struct Worn {
 /// One joint of a [`HeroRig`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RigJoint(pub usize);
+
+/// An attachment's place on its joint, or one of its own joints: posed each frame with the
+/// rig's joints.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttachmentJoint;
 
 /// The copy of the wrench that flies while it is thrown.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +230,55 @@ pub fn spawn_rig(
         }
     }
 
+    let mut attachments = Vec::new();
+    for attachment in &model.attachments {
+        let place = commands
+            .spawn((
+                Name::new(format!("attachment ({})", attachment.name)),
+                AttachmentJoint,
+                Transform::default(),
+                Visibility::default(),
+            ))
+            .id();
+        commands.entity(root).add_child(place);
+        let mut own: Vec<Entity> = Vec::with_capacity(attachment.rest.len());
+        for (index, rest) in attachment.rest.iter().enumerate() {
+            let entity = commands
+                .spawn((
+                    Name::new(format!("{} joint {index}", attachment.name)),
+                    AttachmentJoint,
+                    *rest,
+                    Visibility::default(),
+                ))
+                .id();
+            let parent = attachment.parents[index].map_or(place, |p| own[p]);
+            commands.entity(parent).add_child(entity);
+            own.push(entity);
+        }
+        for surface in &attachment.surfaces {
+            let entity = commands
+                .spawn((
+                    Mesh3d(surface.mesh.clone()),
+                    MeshMaterial3d(material(&surface.paint)),
+                    SkinnedMesh {
+                        inverse_bindposes: attachment.inverse_bindposes.clone(),
+                        joints: own.clone(),
+                    },
+                    DynamicSkinnedMeshBounds,
+                    Transform::default(),
+                ))
+                .id();
+            commands.entity(place).add_child(entity);
+        }
+        attachments.push(Attached {
+            name: attachment.name.clone(),
+            on: attachment.on,
+            root: place,
+            joints: own,
+            rest: attachment.rest.clone(),
+        });
+    }
+
     let thrown = commands
         .spawn((
             Name::new("thrown wrench"),
@@ -233,7 +305,9 @@ pub fn spawn_rig(
         skeleton: model.skeleton.clone(),
         turns: model.turns.clone(),
         wrench,
+        attachments,
         animator: pose::Animator::new(hero.to_bits() as u32),
+        back: back::BackDirector::new(hero.to_bits() as u32 ^ 0x9E37_79B9),
     });
     (root, thrown)
 }
@@ -298,7 +372,7 @@ fn animate(
     animations: Option<Res<RigAnimations>>,
     heroes: Query<(&HeroBody, Option<&Health>)>,
     mut rigs: Query<&mut HeroRig>,
-    mut transforms: Query<&mut Transform, With<RigJoint>>,
+    mut transforms: Query<&mut Transform, Or<(With<RigJoint>, With<AttachmentJoint>)>>,
     mut visibilities: Query<&mut Visibility, Without<RigJoint>>,
 ) {
     let seconds = time.delta_secs();
@@ -335,19 +409,55 @@ fn animate(
             1.0 - (-speed * seconds).exp(),
         );
 
-        for (index, &entity) in rig.joints.iter().enumerate() {
-            let Ok(mut transform) = transforms.get_mut(entity) else {
-                continue;
-            };
-            let pose = &animator.pose;
-            *transform = joint_transform(
-                &rig.skeleton,
-                &rig.turns,
-                index,
-                animator.rotation(index),
-                pose.offsets[index],
-                pose.scales[index],
-            );
+        let locals: Vec<Transform> = (0..rig.joints.len())
+            .map(|index| {
+                joint_transform(
+                    &rig.skeleton,
+                    &rig.turns,
+                    index,
+                    animator.rotation(index),
+                    animator.pose.offsets[index],
+                    animator.pose.scales[index],
+                )
+            })
+            .collect();
+        for (&entity, local) in rig.joints.iter().zip(&locals) {
+            if let Ok(mut transform) = transforms.get_mut(entity) {
+                *transform = *local;
+            }
+        }
+
+        if !rig.attachments.is_empty() {
+            let back = animations.as_deref().and_then(|a| a.back.as_ref());
+            let director = &animator.director;
+            let poses = back.map_or_else(Vec::new, |back| {
+                rig.back
+                    .step(back, director.current, director.rate, seconds)
+            });
+            for attached in &rig.attachments {
+                if let Ok(mut transform) = transforms.get_mut(attached.root) {
+                    *transform = placed_on(&rig.skeleton, &locals, attached.on);
+                }
+                let pose = back
+                    .and_then(|b| b.parts.iter().position(|p| *p == attached.name))
+                    .and_then(|part| poses.get(part))
+                    .and_then(Option::as_ref);
+                for (index, &entity) in attached.joints.iter().enumerate() {
+                    let Ok(mut transform) = transforms.get_mut(entity) else {
+                        continue;
+                    };
+                    *transform = match pose {
+                        Some((rotations, translations, scales)) if index < rotations.len() => {
+                            Transform {
+                                translation: translations[index],
+                                rotation: rotations[index],
+                                scale: scales[index],
+                            }
+                        }
+                        _ => attached.rest[index],
+                    };
+                }
+            }
         }
         let wanted = if hero.thrown.is_some() {
             Visibility::Hidden
@@ -360,6 +470,20 @@ fn animate(
             }
         }
     }
+}
+
+/// Where an attachment sits on rig joint `on`, in the model's space: the joint's place
+/// and turn, from each joint's transform from its parent, but not its scale, as the games
+/// normalise the joint's axes before putting a moby on it.
+fn placed_on(skeleton: &[JointDef], locals: &[Transform], on: usize) -> Transform {
+    let mut placed = Affine3A::IDENTITY;
+    let mut joint = Some(on);
+    while let Some(index) = joint {
+        placed = locals[index].compute_affine() * placed;
+        joint = skeleton[index].parent;
+    }
+    let (_, rotation, translation) = placed.to_scale_rotation_translation();
+    Transform::from_translation(translation).with_rotation(rotation)
 }
 
 /// Puts the clip for the hero's move, if the game gave one, over the procedural `target`.
@@ -448,6 +572,89 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn an_attachment_takes_its_joints_place_and_turn_but_not_its_scale() {
+        let skeleton = model::hero().joints;
+        let mut locals = vec![Transform::IDENTITY; skeleton.len()];
+        locals[joint::ROOT] = Transform::from_scale(Vec3::splat(2.0));
+        use joint::*;
+        for joint in [HIPS, WAIST, SPINE, SPINE_UPPER, CHEST] {
+            locals[joint] = Transform::from_translation(Vec3::Y * 0.1);
+        }
+        locals[CHEST].rotation = Quat::from_rotation_y(1.0);
+        let placed = placed_on(&skeleton, &locals, CHEST);
+        assert_eq!(placed.scale, Vec3::ONE);
+        assert!(
+            placed.translation.distance(Vec3::Y) < 1e-5,
+            "5 × 0.1 m, doubled"
+        );
+        assert!(placed.rotation.angle_between(Quat::from_rotation_y(1.0)) < 1e-5);
+    }
+
+    #[test]
+    fn attachments_are_dressed_and_play_the_backs_clips() {
+        let mut app = app();
+        let mut model = open_model();
+        model.name = "packed".into();
+        model.attachments.push(wear::tests::attachment());
+        app.world_mut()
+            .resource_scope(|world, mut models: Mut<RigModels>| {
+                world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                    let mut bindposes = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
+                    models.add(model, &mut meshes, &mut bindposes).unwrap();
+                });
+                models.choose("packed");
+            });
+        // The pack's rest sequence lifts its root 2 m and triples it.
+        let keyframe = RigKeyframe {
+            ticks: 10.0,
+            frame: 0.0,
+            rotations: vec![Quat::IDENTITY; 2],
+            offsets: vec![Vec3::Y * 2.0, Vec3::X * 0.5],
+            scales: vec![Vec3::splat(3.0), Vec3::ONE],
+        };
+        let clip = RigClip {
+            keyframes: vec![keyframe.clone(), keyframe],
+            looping: true,
+            start: 0,
+        };
+        app.insert_resource(RigAnimations {
+            back: Some(BackAnimations {
+                parts: vec!["pack".into()],
+                clips: vec![[(1, clip)].into()],
+                rest: vec![1],
+                ..default()
+            }),
+            ..default()
+        });
+        app.world_mut().spawn((
+            HeroBody(HeroMotion::new(Vec3::ZERO, 0.0)),
+            RigLook::for_player(0),
+        ));
+        for _ in 0..3 {
+            app.update();
+        }
+        let mut skinned = app.world_mut().query::<&SkinnedMesh>();
+        let own: Vec<usize> = skinned
+            .iter(app.world())
+            .map(|s| s.joints.len())
+            .filter(|&n| n != joint::COUNT)
+            .collect();
+        assert_eq!(own, [2], "the pack's surface on its own two joints");
+        let mut named = app.world_mut().query::<(&Name, &Transform)>();
+        let mut transform = |name: &str| {
+            named
+                .iter(app.world())
+                .find(|(n, _)| n.as_str() == name)
+                .map(|(_, t)| *t)
+                .unwrap()
+        };
+        let root = transform("pack joint 0");
+        assert!(root.translation.distance(Vec3::Y * 2.0) < 1e-5);
+        assert!(root.scale.distance(Vec3::splat(3.0)) < 1e-5);
+        assert_eq!(transform("attachment (pack)").scale, Vec3::ONE);
     }
 
     #[test]

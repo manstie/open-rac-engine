@@ -5,6 +5,8 @@
 //!   place in the stride, each at a rate that follows his speed;
 //! - standing idle, fidgets play now and then by the game's rules; at low health a hurt
 //!   idle stands in, with a fidget of its own;
+//! - a jump's air animation is timed to its arc, to show its peak frame at the apex and
+//!   its landing frame as he lands (`hero-controller.md`, "Landings");
 //! - coming down on his feet, a jump finishes its own animation and a fall has its landing,
 //!   deeper after a long fall, until he moves off;
 //! - a skid straight out of a run, or out of a long jump, has the run's own skid.
@@ -12,7 +14,9 @@
 use bevy::math::Vec2;
 use rac_hero::HeroMotion;
 
-use crate::clips::{Landing, RUN_BELOW, RigAnimations, RigClip, RigMove, SET_OFF_BELOW};
+use crate::clips::{
+    JumpTiming, Landing, RUN_BELOW, RigAnimations, RigClip, RigMove, SET_OFF_BELOW,
+};
 
 /// At or under this share of his full health the hero stands hurt (UYA 0x4DC080).
 pub(crate) const HURT_AT: f32 = 0.2;
@@ -35,6 +39,21 @@ const WALK_SETTLE_TICKS: u32 = 4;
 const LANDING_UP_TO: f32 = 2.5;
 /// A skid out of a run whose cycle is between these frames takes the run's skid.
 const RUN_SKID_FRAMES: (f32, f32) = (3.0, 16.0);
+/// UYA's timing of a jump's clip (`hero_transitions`): the fastest it plays to reach its
+/// peak frame; past the apex, how much its rate moves a tick towards the landing frame,
+/// the range it's kept to, and the rate above which it skips to its landing; the ticks
+/// to land it reckons with when he's over no ground; and the double jump's settling
+/// towards its own pace before frame 37.
+const APEX_RATE_MAX: f32 = 1.5;
+const LANDING_STEP: f32 = 0.2;
+const LANDING_RATES: (f32, f32) = (0.2, 2.7);
+const SKIP_ABOVE: f32 = 1.8;
+const LAND_TICKS_CAP: f32 = 60.0;
+const DOUBLE_JUMP_SETTLES_BEFORE: f32 = 37.0;
+const DOUBLE_JUMP_STEP: f32 = 0.15;
+/// A jump that lands more than this many frames short of its landing frame starts its
+/// landing afresh; otherwise its own animation plays on.
+const LANDING_SHORT: f32 = 1.5;
 
 /// What the rig remembers to choose and time its clips.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +61,8 @@ pub(crate) struct Director {
     /// The move whose clip plays, and how far into it (ticks).
     pub current: Option<RigMove>,
     pub ticks: f32,
+    /// How fast its clip plays: 1 is a keyframe's own ticks.
+    pub rate: f32,
     /// Ticks left before each fidget may play again, and before any may.
     cooldowns: Vec<u32>,
     gap: u32,
@@ -53,6 +74,8 @@ pub(crate) struct Director {
     fell_far: bool,
     /// His speed when the landing began; speeding up ends it.
     landing_speed: f32,
+    /// The jump under way has been timed to its apex.
+    apex_timed: bool,
 }
 
 impl Director {
@@ -61,6 +84,7 @@ impl Director {
         Self {
             current: None,
             ticks: 0.0,
+            rate: 1.0,
             cooldowns: Vec::new(),
             gap: 0,
             pending: 0.0,
@@ -68,6 +92,7 @@ impl Director {
             fall_ticks: 0,
             fell_far: false,
             landing_speed: 0.0,
+            apex_timed: false,
         }
     }
 
@@ -158,7 +183,19 @@ impl Director {
         }
 
         if next == previous {
-            self.ticks += elapsed * rate(next, speed);
+            let timing = next.and_then(|m| animations.and_then(|a| a.jumps.get(&m)));
+            match (timing, next.and_then(clip)) {
+                // Timed from where this tick leaves it, for the ticks to come.
+                (Some(timing), Some(played)) => {
+                    self.ticks += elapsed * self.rate;
+                    let double = next == Some(RigMove::DoubleJump);
+                    self.rate = self.timed(hero, played, timing, double, whole);
+                }
+                _ => {
+                    self.rate = rate(next, speed);
+                    self.ticks += elapsed * self.rate;
+                }
+            }
         } else {
             self.ticks = match (previous, next, animations) {
                 (Some(from @ (RigMove::SetOff | RigMove::Run)), Some(to), Some(animations))
@@ -166,11 +203,68 @@ impl Director {
                 {
                     stride_kept(animations, from, to, self.ticks).unwrap_or(0.0)
                 }
+                (Some(air), Some(land @ RigMove::Land(_)), Some(animations)) => {
+                    played_on(animations, air, land, self.ticks).unwrap_or(0.0)
+                }
                 _ => 0.0,
             };
+            self.rate = rate(next, speed);
+            self.apex_timed = false;
             self.current = next;
         }
         self.current
+    }
+
+    /// The rate of a jump's clip this frame, `ticks` of it whole, timed to the jump's arc
+    /// as UYA's are: once the push-off is over, to show the peak frame at the apex; past
+    /// the apex, steered towards showing the landing frame as he lands, skipping to the
+    /// landing when that would take too fast a rate.
+    fn timed(
+        &mut self,
+        hero: &HeroMotion,
+        clip: &RigClip,
+        timing: &JumpTiming,
+        double: bool,
+        ticks: u32,
+    ) -> f32 {
+        let mut rate = self.rate;
+        let frame = clip.frame_at(self.ticks);
+        let keyframe = clip.keyframe_at(self.ticks);
+        let keyframe_ticks = clip.keyframes.get(keyframe).map_or(1.0, |k| k.ticks);
+        // The rate that shows `target` `within` ticks from now.
+        let reaching = |target: f32, within: f32| {
+            (target - frame).max(0.0) / timing.keyframe_frames * keyframe_ticks / within
+        };
+        if !double && !self.apex_timed && hero.ticks > timing.pushoff {
+            self.apex_timed = true;
+            let within = hero.ticks_to_apex();
+            if within > 0.0 {
+                rate = reaching(timing.peak, within).min(APEX_RATE_MAX);
+            }
+        }
+        if !hero.past_apex() || keyframe >= timing.landing_keyframe {
+            return rate;
+        }
+        for _ in 0..ticks {
+            if double && frame < DOUBLE_JUMP_SETTLES_BEFORE {
+                rate = approach(rate, 1.0, DOUBLE_JUMP_STEP);
+            } else {
+                let within = hero.ticks_to_land(0.0).floor();
+                let within = if within >= 1.0 {
+                    within.min(LAND_TICKS_CAP)
+                } else {
+                    LAND_TICKS_CAP
+                };
+                rate = approach(rate, reaching(timing.landing, within), LANDING_STEP);
+                if rate > SKIP_ABOVE {
+                    // On to the landing's own start, at the clip's own pace.
+                    self.ticks = clip.ticks_to(timing.landing_keyframe + 2);
+                    return 1.0;
+                }
+            }
+            rate = rate.clamp(LANDING_RATES.0, LANDING_RATES.1);
+        }
+        rate
     }
 
     /// Standing idle: the idle, the hurt idle, or a fidget.
@@ -270,6 +364,23 @@ impl Director {
         self.rng = x;
         (x >> 8) as f32 / (1u32 << 24) as f32
     }
+}
+
+/// `value` moved towards `target` by at most `step` (UYA's `approach`).
+fn approach(value: f32, target: f32, step: f32) -> f32 {
+    value + (target - value).clamp(-step, step)
+}
+
+/// Where the landing after `air` picks up, if not at its start: a jump that came down at
+/// or near its landing frame plays on from where it is, the landing being the rest of its
+/// own clip (UYA restarts it only when he lands short).
+fn played_on(animations: &RigAnimations, air: RigMove, land: RigMove, ticks: f32) -> Option<f32> {
+    let timing = animations.jumps.get(&air)?;
+    let (jump, landing) = (animations.clips.get(&air)?, animations.clips.get(&land)?);
+    if jump.frame_at(ticks) < timing.landing - LANDING_SHORT {
+        return None;
+    }
+    Some((ticks - jump.ticks_to(landing.start)).max(0.0))
 }
 
 /// How fast a move's clip plays. UYA times the walk by his speed in u per frame
@@ -516,6 +627,78 @@ mod tests {
             land_after(100, 3.0).1,
             Some(RigMove::Land(Landing::LongFall))
         );
+    }
+
+    #[test]
+    fn a_jumps_clip_shows_its_peak_frame_at_the_apex_and_its_landing_frame_as_he_lands() {
+        use crate::clips::JumpTiming;
+        use rac_hero::{BodyPlacement, Collider, HeroProfile, ParryWorld, controller};
+        use rac_input::{Action, Buttons, PlayerInput};
+
+        // UYA's standing jump: two frames a keyframe of two ticks, its peak frame 18 and
+        // its landing frame 30, the landing from keyframe 14.
+        let mut a = animations();
+        let mut jump = clip(40, 2.0, false);
+        for keyframe in &mut jump.keyframes {
+            keyframe.frame *= 2.0;
+        }
+        let landing = RigClip {
+            start: 14,
+            ..jump.clone()
+        };
+        a.clips.insert(RigMove::Jump, jump);
+        a.clips.insert(RigMove::Land(Landing::Jump), landing);
+        a.jumps.insert(
+            RigMove::Jump,
+            JumpTiming {
+                pushoff: 1,
+                peak: 18.0,
+                landing: 30.0,
+                landing_keyframe: 12,
+                keyframe_frames: 2.0,
+            },
+        );
+
+        let world = ParryWorld::new(&[BodyPlacement::fixed(
+            Collider::Cuboid {
+                half_extents: Vec3::new(50.0, 0.5, 50.0),
+            },
+            Vec3::new(0.0, -0.5, 0.0),
+            Quat::IDENTITY,
+        )]);
+        let profile = HeroProfile::uya();
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        let mut input = PlayerInput::default();
+        controller::step(&mut hero, &input, 0.0, &profile, &world);
+        input.held = Buttons::NONE;
+        input.held.insert(Action::Jump);
+        input.pressed = input.held;
+        let mut director = Director::new(1);
+        let frame = |director: &Director, a: &RigAnimations| {
+            a.clips[&director.current.unwrap()].frame_at(director.ticks)
+        };
+        // The frame on the last tick rising, and on the last in the air.
+        let (mut at_apex, mut before_landing) = (None, None);
+        for _ in 0..120 {
+            controller::step(&mut hero, &input, 0.0, &profile, &world);
+            input = PlayerInput::default();
+            director.step(&hero, Some(1.0), Some(&a), TICK);
+            if hero.state == HeroState::Jump(JumpKind::Standing) {
+                before_landing = Some(frame(&director, &a));
+                if hero.velocity.y > 0.0 {
+                    at_apex = before_landing;
+                }
+            } else if before_landing.is_some() {
+                break;
+            }
+        }
+        let (at_apex, landed) = (at_apex.unwrap(), before_landing.unwrap());
+        assert!((at_apex - 18.0).abs() < 1.0, "frame {at_apex} at the apex");
+        assert!((landed - 30.0).abs() < 1.0, "frame {landed} on landing");
+        // Landing at its landing frame, the jump's animation plays on into the landing.
+        assert_eq!(director.current, Some(RigMove::Land(Landing::Jump)));
+        let on = frame(&director, &a);
+        assert!(on >= landed && on < landed + 2.0, "{on} after {landed}");
     }
 
     #[test]

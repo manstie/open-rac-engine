@@ -1,19 +1,23 @@
 //! The hero's models from the user's own discs (PLAN.md §5, 2026-10-13), skinned to the
 //! rig's skeleton so the same poses drive them as drive the open model. Read at start-up;
 //! nothing is stored.
-//! - From UYA: Ratchet in each of his suits ([`SUITS`]) with its textures, and the wrench
-//!   and Clank from Veldin's core.
+//! - From UYA: Ratchet in each of his suits ([`SUITS`]) with its textures, and the wrench,
+//!   Clank and the heli-pack from Veldin's core; and the multiplayer skins ([`MP_SKINS`]),
+//!   each a class of its own on the hero's skeleton, holding the wrench.
 //! - From DL or Gladiator: its skins ([`DL_SUITS`]), each a class with a skeleton of its
 //!   own, lined up with the rig's by [`DL_SOURCES`]. They hold the open model's wrench
 //!   until DL's own is read.
 //!
 //! - Ratchet's vertices follow UYA's joints, folded onto the rig's by
 //!   [`hero_anims::skeleton_map`]: a finger follows the hand, an eyelid the head.
-//! - The wrench and Clank are mobys of their own, which the game puts on his joints 56
-//!   and 5 with those joints' orientation (`moby-format.md`, "Finding the hero"). They're
-//!   baked in the pose the game shows while he stands, then follow the rig's wrench and
-//!   Clank joints. The wrench's mesh and texture and Clank's texture come from the armor
-//!   WAD like Ratchet's; Clank's mesh and both skeletons from their classes in the core.
+//! - The wrench, Clank and the heli-pack are mobys of their own, which the game puts on
+//!   his joints 56 and 5 with those joints' orientation (`moby-format.md`, "Finding the
+//!   hero"). The wrench is baked in the pose the game shows while he stands, then follows
+//!   the rig's wrench joint. Clank and the heli-pack, which holds Clank's arms and the
+//!   rotors, are attachments on their own skeletons, which play their own sequences
+//!   (`hero_anims::back_animations`). The wrench's mesh and texture and Clank's texture
+//!   come from the armor WAD like Ratchet's; the rest from their classes in the core, the
+//!   heli-pack's textures from the level's.
 //! - The game draws both sides of every triangle and its strips don't keep a winding, so
 //!   each triangle is turned to face the way its vertex normals do.
 //! - Metal packets redraw some triangles with the level's chrome map
@@ -28,37 +32,30 @@ use bevy::math::{Vec2, Vec3};
 use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use rac_formats::armor::{self, Armor, ArmorTable, Skin as DlSkin, SkinTable};
+use rac_formats::armor::{self, Armor, ArmorTable, Skin as ClassSkin, SkinTable};
 use rac_formats::level::Core;
 use rac_formats::moby::{
     Mesh as MobyMesh, MeshTriangle, MeshVertex, MobyClass, PacketKind, Skin, normal,
 };
 use rac_formats::texture::Texture;
 use rac_formats::{DiscReader, FormatError};
-use rac_rig::{JointDef, ModelData, Paint, RigModels, SkeletonMap, Surface, joint, model};
+use rac_rig::{AttachmentData, ModelData, Paint, RigModels, SkeletonMap, Surface, joint, model};
 
-use crate::hero_anims::{joint_positions, skeleton_map, skinning, to_bevy};
+use crate::hero_anims::{
+    BACK_PARTS, binds, joint_positions, rest_orientation, skeleton_map, skinning, to_bevy,
+};
 
 const WRENCH_CLASS: u32 = 0x47;
-const CLANK_CLASS: u32 = 0x259;
-/// The hero joints the game puts them on.
+/// The hero joint the game puts the wrench on.
 const WRENCH_ON: usize = 56;
-const CLANK_ON: usize = 5;
-/// The sequence and keyframe each is shown in while Ratchet stands, as in our Veldin
-/// memory image.
+/// The rig joint Clank and the heli-pack ride on: UYA's hero joint 5, his upper back.
+const BACK_ON: usize = joint::CHEST;
+/// The sequence and keyframe the wrench is shown in while Ratchet stands, as in our
+/// Veldin memory image.
 const WRENCH_POSE: (usize, usize) = (1, 0);
-const CLANK_POSE: (usize, usize) = (13, 24);
-/// The joints of Clank's class that the rig's Clank joints stand for: his root, head,
-/// antenna and feet. His back form has no arm joints.
-const CLANK_SOURCES: [(usize, Option<usize>); 7] = [
-    (joint::CLANK, Some(0)),
-    (joint::CLANK_HEAD, Some(4)),
-    (joint::CLANK_ANTENNA, Some(6)),
-    (joint::CLANK_ARM_L, None),
-    (joint::CLANK_ARM_R, None),
-    (joint::CLANK_LEG_L, Some(28)),
-    (joint::CLANK_LEG_R, Some(27)),
-];
+/// The core's class table marks the class that wears Clank's texture with this
+/// (`level_load_core`): Clank's own. Other classes wear the level's textures.
+const CLANK_TEXTURE_GROUP: u32 = 2;
 /// What a triangle with no texture is drawn in (linear RGB).
 const UNTEXTURED: [f32; 3] = [0.6, 0.62, 0.66];
 
@@ -74,10 +71,12 @@ pub struct ImportPaint {
 /// A model read from the disc. Its surfaces' paints are placeholders until
 /// [`register_disc_models`] makes the materials `paints` describe, one per surface in
 /// order; surfaces after the last paint keep their own (a wrench lent by the open model).
+/// Each attachment's surfaces take theirs from `attachment_paints` the same way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Imported {
     pub data: ModelData,
     pub paints: Vec<ImportPaint>,
+    pub attachment_paints: Vec<Vec<ImportPaint>>,
 }
 
 /// Models read from the disc, waiting for their materials.
@@ -186,9 +185,121 @@ pub const SUITS: &[Suit] = &[
     },
 ];
 
-/// Ratchet in each of `suits`, with the wrench and Clank from `core` (Veldin's), on the
-/// rig's skeleton. The wrench and Clank are read once for all of them; a suit that can't
-/// be read is an error in its place.
+/// UYA's multiplayer skins offered as models, entries 35–55 of the armor WAD
+/// (`moby-format.md`, "Multiplayer skins"), with the game's multiplayer names. Several
+/// share a name with a single-player suit, so each title says it's the multiplayer one.
+pub const MP_SKINS: &[Suit] = &[
+    Suit {
+        entry: 35,
+        name: "uya-mp-robo",
+        title: "MP Robo",
+    },
+    Suit {
+        entry: 36,
+        name: "uya-mp-thug",
+        title: "MP Thug",
+    },
+    Suit {
+        entry: 37,
+        name: "uya-mp-tyhrranoid",
+        title: "MP Tyhrranoid",
+    },
+    Suit {
+        entry: 38,
+        name: "uya-mp-blarg",
+        title: "MP Blarg",
+    },
+    Suit {
+        entry: 39,
+        name: "uya-mp-ninja",
+        title: "MP Ninja",
+    },
+    Suit {
+        entry: 40,
+        name: "uya-mp-snow-man",
+        title: "MP Snow Man",
+    },
+    Suit {
+        entry: 41,
+        name: "uya-mp-bruiser",
+        title: "MP Bruiser",
+    },
+    Suit {
+        entry: 42,
+        name: "uya-mp-gray",
+        title: "MP Gray",
+    },
+    Suit {
+        entry: 43,
+        name: "uya-mp-hotbot",
+        title: "MP Hotbot",
+    },
+    Suit {
+        entry: 44,
+        name: "uya-mp-gladiola",
+        title: "MP Gladiola",
+    },
+    Suit {
+        entry: 45,
+        name: "uya-mp-evil-clown",
+        title: "MP Evil Clown",
+    },
+    Suit {
+        entry: 46,
+        name: "uya-mp-beach-bunny",
+        title: "MP Beach Bunny",
+    },
+    Suit {
+        entry: 47,
+        name: "uya-mp-robo-rooster",
+        title: "MP Robo Rooster",
+    },
+    Suit {
+        entry: 48,
+        name: "uya-mp-buginoid",
+        title: "MP Buginoid",
+    },
+    Suit {
+        entry: 49,
+        name: "uya-mp-brainius",
+        title: "MP Brainius",
+    },
+    Suit {
+        entry: 50,
+        name: "uya-mp-skrunch",
+        title: "MP Skrunch",
+    },
+    Suit {
+        entry: 51,
+        name: "uya-mp-bones",
+        title: "MP Bones",
+    },
+    Suit {
+        entry: 52,
+        name: "uya-mp-nefarious",
+        title: "MP Nefarious",
+    },
+    Suit {
+        entry: 53,
+        name: "uya-mp-trooper",
+        title: "MP Trooper",
+    },
+    Suit {
+        entry: 54,
+        name: "uya-mp-constructobot",
+        title: "MP Constructobot",
+    },
+    Suit {
+        entry: 55,
+        name: "uya-mp-dan",
+        title: "MP Dan",
+    },
+];
+
+/// Each of `suits` on the rig's skeleton, with the wrench from `core` (Veldin's): Ratchet
+/// in an armor ([`SUITS`]) with Clank and the heli-pack on his back, or a multiplayer skin
+/// ([`MP_SKINS`]) without them, as multiplayer has it. What they share is read once for
+/// all of them; a suit that can't be read is an error in its place.
 pub fn import(
     disc: &mut impl DiscReader,
     core: &Core,
@@ -201,26 +312,112 @@ pub fn import(
     Ok(suits
         .iter()
         .map(|suit| {
-            let armor = Armor::read_from(disc, &table, suit.entry)?;
-            let mut builder = Builder::default();
-            add_armor(&mut builder, &armor, hero, &map)?;
-            builder.surfaces.extend(kit.surfaces.iter().cloned());
-            builder.paints.extend(kit.paints.iter().cloned());
-            let (surfaces, paints) = builder.finish();
-            Ok(Imported {
-                data: ModelData {
-                    name: suit.name.into(),
-                    title: suit.title.into(),
-                    rest: kit.rest.clone(),
-                    // Bound as the hero's class is, with his eyes and brows turned at rest.
-                    turns: map.turns(),
-                    surfaces,
-                    wrench_spin: kit.wrench_spin,
-                },
-                paints,
-            })
+            if armor::UYA_SKINS.contains(&suit.entry) {
+                mp_skin(disc, &table, &kit, suit)
+            } else {
+                ratchet(disc, &table, &kit, hero, &map, suit)
+            }
         })
         .collect())
+}
+
+/// Ratchet in the armor `suit`, with the kit's wrench, Clank and heli-pack.
+fn ratchet(
+    disc: &mut impl DiscReader,
+    table: &ArmorTable,
+    kit: &Kit,
+    hero: &MobyClass,
+    map: &SkeletonMap,
+    suit: &Suit,
+) -> Result<Imported, ImportError> {
+    let armor = Armor::read_from(disc, table, suit.entry)?;
+    let mut builder = Builder::default();
+    add_armor(&mut builder, &armor, hero, map)?;
+    builder.surfaces.extend(kit.surfaces.iter().cloned());
+    builder.paints.extend(kit.paints.iter().cloned());
+    let (surfaces, paints) = builder.finish();
+    Ok(Imported {
+        data: ModelData {
+            name: suit.name.into(),
+            title: suit.title.into(),
+            rest: kit.rest.clone(),
+            // Bound as the hero's class is, with his eyes and brows turned at rest.
+            turns: map.turns(),
+            surfaces,
+            wrench_spin: kit.wrench_spin,
+            attachments: kit.attachments.iter().map(|(a, _)| a.clone()).collect(),
+        },
+        paints,
+        attachment_paints: kit.attachments.iter().map(|(_, p)| p.clone()).collect(),
+    })
+}
+
+/// The multiplayer skin `suit`: its class's own mesh on the hero's skeleton less 25 of
+/// his face's joints, holding the kit's wrench, moved from Ratchet's hand into its own.
+fn mp_skin(
+    disc: &mut impl DiscReader,
+    table: &ArmorTable,
+    kit: &Kit,
+    suit: &Suit,
+) -> Result<Imported, ImportError> {
+    let skin = ClassSkin::read_uya(disc, table, suit.entry)?;
+    let map = mp_skeleton_map(&skin.class)?;
+    let mut builder = Builder::default();
+    let mesh = skin.class.mesh(PacketKind::High)?;
+    let metal = skin.class.mesh(PacketKind::Metal)?;
+    add_skinned(
+        &mut builder,
+        &mesh,
+        &metal,
+        &skin.textures,
+        skin.class.unit(),
+        folded(&map),
+    );
+    let mut rest = map.rest();
+    let shift = rest[joint::HAND_R] - kit.rest[joint::HAND_R];
+    rest[joint::WRENCH] = kit.rest[joint::WRENCH] + shift;
+    for wrench in &kit.surfaces {
+        let mut wrench = wrench.clone();
+        wrench.positions.iter_mut().for_each(|p| *p += shift);
+        builder.surfaces.push(wrench);
+    }
+    builder.paints.extend(kit.paints.iter().cloned());
+    let (surfaces, paints) = builder.finish();
+    Ok(Imported {
+        data: ModelData {
+            name: suit.name.into(),
+            title: suit.title.into(),
+            rest,
+            turns: map.turns(),
+            surfaces,
+            wrench_spin: kit.wrench_spin + shift,
+            attachments: Vec::new(),
+        },
+        paints,
+        attachment_paints: Vec::new(),
+    })
+}
+
+/// How a multiplayer skin's skeleton lines up with the rig's: through the hero's joint
+/// each of its joints is (`armor::UYA_SKIN_JOINTS`), bound with its own turns at rest.
+fn mp_skeleton_map(class: &MobyClass) -> Result<SkeletonMap, rac_rig::LineUpError> {
+    let rig = model::hero().joints;
+    let sources: Vec<Option<usize>> = rig
+        .iter()
+        .map(|joint| {
+            let hero = joint.uya?;
+            armor::UYA_SKIN_JOINTS.iter().position(|&j| j == hero)
+        })
+        .collect();
+    let parents: Vec<Option<usize>> = class.joints.iter().map(|j| j.parent).collect();
+    let unit = class.unit();
+    let rest: Vec<Vec3> = class
+        .joints
+        .iter()
+        .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
+        .collect();
+    let turns: Vec<Quat> = class.joints.iter().map(rest_orientation).collect();
+    SkeletonMap::new(&rig, &sources, &parents, &rest, &turns)
 }
 
 /// Ratchet's own surfaces in `armor`: its mesh, skinned to UYA's hero joints, folded onto
@@ -233,22 +430,33 @@ fn add_armor(
 ) -> Result<(), ImportError> {
     let mesh = armor.mesh(PacketKind::High)?;
     let metal = armor.mesh(PacketKind::Metal)?;
-    add_skinned(builder, &mesh, &metal, &armor.textures, hero.unit(), map);
+    add_skinned(
+        builder,
+        &mesh,
+        &metal,
+        &armor.textures,
+        hero.unit(),
+        folded(map),
+    );
     Ok(())
 }
 
-/// A mesh skinned to the hero's skeleton that `map` lines up with the rig's, at rest in
-/// class units of `unit` metres, with its textures and the metal packets drawn over it.
+/// Moves a source joint to the rig joint `map` folds it onto.
+fn folded(map: &SkeletonMap) -> impl Fn(u8) -> usize + '_ {
+    |source| map.follows(source as usize).unwrap_or(joint::ROOT)
+}
+
+/// A mesh at rest in class units of `unit` metres, its joints moved to the ones it's worn
+/// on by `follow`, with its textures and the metal packets drawn over it.
 fn add_skinned(
     builder: &mut Builder,
     mesh: &MobyMesh,
     metal: &MobyMesh,
     textures: &[Texture],
     unit: f32,
-    map: &SkeletonMap,
+    follow: impl Fn(u8) -> usize,
 ) {
     let chrome = chromed(mesh, metal);
-    let follow = |source: u8| map.follows(source as usize).unwrap_or(joint::ROOT);
     let vertices: Vec<Placed> = mesh
         .vertices
         .iter()
@@ -256,7 +464,7 @@ fn add_skinned(
             position: to_bevy(position(v) * unit),
             normal: to_bevy(Vec3::from_array(normal(v.normal))),
             uv: Vec2::new(v.st[0] as f32, v.st[1] as f32) / 4096.0,
-            skin: fold(v.skin, follow),
+            skin: fold(v.skin, &follow),
         })
         .collect();
     builder.add(mesh, &vertices, &chrome, false, |t, c| {
@@ -274,13 +482,15 @@ fn textured(textures: &[Texture], texture: i32, chrome: bool) -> ImportPaint {
     }
 }
 
-/// What every suit shares: the wrench and Clank as surfaces on the rig's joints, and the
-/// rig's rest pose with Ratchet's joints and theirs.
+/// What every suit shares: the wrench as surfaces on the rig's joints, the rig's rest pose
+/// with Ratchet's joints and the wrench's, and Clank and the heli-pack as attachments
+/// with their paints.
 struct Kit {
     surfaces: Vec<Surface>,
     paints: Vec<ImportPaint>,
     rest: Vec<Vec3>,
     wrench_spin: Vec3,
+    attachments: Vec<(AttachmentData, Vec<ImportPaint>)>,
 }
 
 impl Kit {
@@ -315,27 +525,15 @@ impl Kit {
         let (low, high) = bounds(vertices.iter().map(|v| v.position));
         let wrench_spin = (low + high) / 2.0;
 
-        let clank = core.moby_class(CLANK_CLASS)?;
-        let clank_textures = [table.read_clank_texture(disc, 0)?];
-        let clank_map = clank_map(&clank)?;
-        let clank_follow = |source: u8| {
-            clank_map
-                .follows(source as usize)
-                .map_or(joint::CLANK, |sub| CLANK_SOURCES[sub].0)
-        };
-        let mesh = clank.mesh(PacketKind::High)?;
-        let chrome = chromed(&mesh, &clank.mesh(PacketKind::Metal)?);
-        let attach = hero_rest(CLANK_ON);
-        let (vertices, joints) = baked(&clank, &mesh, CLANK_POSE, "Clank", attach, clank_follow)?;
-        builder.add(&mesh, &vertices, &chrome, false, |t, c| {
-            textured(&clank_textures, t, c)
-        });
-        let rig = model::hero().joints;
-        for (rig_joint, source) in CLANK_SOURCES {
-            rest[rig_joint] = match source {
-                Some(source) => joints[source],
-                None => rest[joint::CLANK] + rig[rig_joint].rest - rig[joint::CLANK].rest,
+        let mut attachments = Vec::new();
+        for (name, class) in BACK_PARTS {
+            let textures = match core.header.moby_class(class) {
+                Some(entry) if entry.texture_group == CLANK_TEXTURE_GROUP => {
+                    vec![table.read_clank_texture(disc, 0)?]
+                }
+                _ => core.moby_textures(class)?,
             };
+            attachments.push(attachment(name, &core.moby_class(class)?, &textures)?);
         }
 
         let (surfaces, paints) = builder.finish();
@@ -344,19 +542,74 @@ impl Kit {
             paints,
             rest,
             wrench_spin,
+            attachments,
         })
     }
 }
 
+/// `class` worn on the hero's back as an attachment named `name`: its mesh at rest on its
+/// own skeleton, in `textures`, and the paint of each of its surfaces.
+fn attachment(
+    name: &str,
+    class: &MobyClass,
+    textures: &[Texture],
+) -> Result<(AttachmentData, Vec<ImportPaint>), ImportError> {
+    let mut builder = Builder::default();
+    let mesh = class.mesh(PacketKind::High)?;
+    let metal = class.mesh(PacketKind::Metal)?;
+    add_skinned(
+        &mut builder,
+        &mesh,
+        &metal,
+        textures,
+        class.unit(),
+        usize::from,
+    );
+    let (surfaces, paints) = builder.finish();
+    let data = AttachmentData {
+        name: name.into(),
+        on: BACK_ON,
+        parents: class.joints.iter().map(|j| j.parent).collect(),
+        binds: binds(class),
+        surfaces,
+    };
+    Ok((data, paints))
+}
+
 /// DL's skins offered as models (`moby-format.md`, "DL's skins"): Ratchet in DL's
-/// helmet and suit (entry 16, which the game's menu doesn't offer), then the eleven skins
-/// in the order the game's menu lists them, with its names. Entries 0–4 are Ratchet's
-/// armors without his head, which comes from elsewhere, so they aren't offered yet.
+/// helmet and suit (entry 16, which the game's menu doesn't offer), his five armors, then
+/// the eleven skins in the order the game's menu lists them, with its names. The armors
+/// wear their head as bangles ([`DL_ARMOR_BANGLES`]).
 pub const DL_SUITS: &[Suit] = &[
     Suit {
         entry: 16,
         name: "dl-ratchet",
         title: "DL Ratchet",
+    },
+    Suit {
+        entry: 0,
+        name: "dl-marauder",
+        title: "Marauder",
+    },
+    Suit {
+        entry: 1,
+        name: "dl-avenger",
+        title: "Avenger",
+    },
+    Suit {
+        entry: 2,
+        name: "dl-crusader",
+        title: "Crusader",
+    },
+    Suit {
+        entry: 3,
+        name: "dl-vindicator",
+        title: "Vindicator",
+    },
+    Suit {
+        entry: 4,
+        name: "dl-liberator",
+        title: "Liberator",
     },
     Suit {
         entry: 5,
@@ -486,6 +739,11 @@ const DL_SOURCES: &[(usize, usize)] = &[
     (joint::TOE_R, 106),
 ];
 
+/// The bangles of DL's armors that the game shows in play: collar 1 and the helmet, 12
+/// (the mask 0x1002 it sets every frame; `moby-format.md`, "DL's skins"). The other skins
+/// have none.
+const DL_ARMOR_BANGLES: [usize; 2] = [1, 12];
+
 /// How a DL skin's skeleton lines up with the rig's.
 fn dl_skeleton_map(class: &MobyClass) -> Result<SkeletonMap, rac_rig::LineUpError> {
     let rig = model::hero().joints;
@@ -517,19 +775,39 @@ pub fn import_dl(
     Ok(suits
         .iter()
         .map(|suit| {
-            let skin = DlSkin::read_from(disc, &table, suit.entry)?;
+            let skin = ClassSkin::read_from(disc, &table, suit.entry)?;
             let map = dl_skeleton_map(&skin.class)?;
             let mut builder = Builder::default();
             let mesh = skin.class.mesh(PacketKind::High)?;
             let metal = skin.class.mesh(PacketKind::Metal)?;
+            let unit = skin.class.unit();
             add_skinned(
                 &mut builder,
                 &mesh,
                 &metal,
                 &skin.textures,
-                skin.class.unit(),
-                &map,
+                unit,
+                folded(&map),
             );
+            let none = MobyMesh {
+                vertices: Vec::new(),
+                triangles: Vec::new(),
+            };
+            for bangle in skin
+                .bangles
+                .iter()
+                .filter(|b| DL_ARMOR_BANGLES.contains(&b.slot))
+            {
+                let mesh = bangle.mesh(PacketKind::High)?;
+                add_skinned(
+                    &mut builder,
+                    &mesh,
+                    &none,
+                    &skin.textures,
+                    unit,
+                    folded(&map),
+                );
+            }
             let (mut surfaces, paints) = builder.finish();
             let rest = map.rest();
             // The open wrench, moved from the open model's hand into this one's.
@@ -547,38 +825,13 @@ pub fn import_dl(
                     turns: Vec::new(),
                     surfaces,
                     wrench_spin: open.wrench_spin + shift,
+                    attachments: Vec::new(),
                 },
                 paints,
+                attachment_paints: Vec::new(),
             })
         })
         .collect())
-}
-
-/// How Clank's skeleton lines up with the rig's Clank joints, as a skeleton of its own
-/// rooted at the rig's Clank joint.
-fn clank_map(clank: &MobyClass) -> Result<SkeletonMap, rac_rig::LineUpError> {
-    let rig = model::hero().joints;
-    let local = |rig_joint: usize| {
-        CLANK_SOURCES
-            .iter()
-            .position(|(joint, _)| *joint == rig_joint)
-    };
-    let sub: Vec<JointDef> = CLANK_SOURCES
-        .iter()
-        .map(|&(rig_joint, _)| JointDef {
-            parent: rig[rig_joint].parent.and_then(local),
-            ..rig[rig_joint].clone()
-        })
-        .collect();
-    let sources: Vec<Option<usize>> = CLANK_SOURCES.iter().map(|(_, s)| *s).collect();
-    let parents: Vec<Option<usize>> = clank.joints.iter().map(|j| j.parent).collect();
-    let unit = clank.unit();
-    let rest: Vec<Vec3> = clank
-        .joints
-        .iter()
-        .map(|j| to_bevy(Vec3::from_array(j.rest) * unit))
-        .collect();
-    SkeletonMap::new(&sub, &sources, &parents, &rest, &[])
 }
 
 /// Which of `mesh`'s triangles the metal packets `metal` draw over: those with the same
@@ -783,8 +1036,14 @@ pub fn register_disc_models(
     let mut ready = Vec::new();
     for imported in pending.0.drain(..) {
         let mut data = imported.data;
-        for (surface, paint) in data.surfaces.iter_mut().zip(imported.paints) {
-            surface.paint = Paint::Own(materials.add(material(paint, &mut images)));
+        let mut paint = |surfaces: &mut Vec<Surface>, paints: Vec<ImportPaint>| {
+            for (surface, paint) in surfaces.iter_mut().zip(paints) {
+                surface.paint = Paint::Own(materials.add(material(paint, &mut images)));
+            }
+        };
+        paint(&mut data.surfaces, imported.paints);
+        for (attachment, paints) in data.attachments.iter_mut().zip(imported.attachment_paints) {
+            paint(&mut attachment.surfaces, paints);
         }
         let name = data.name.clone();
         match models.add(data, &mut meshes, &mut bindposes) {
@@ -876,7 +1135,7 @@ mod tests {
 
     #[test]
     fn suits_have_their_own_names_and_titles_that_fit_the_menu() {
-        for suits in [SUITS, DL_SUITS] {
+        for suits in [SUITS, MP_SKINS, DL_SUITS] {
             for (index, suit) in suits.iter().enumerate() {
                 assert!(
                     suit.title.len() <= 20,
@@ -889,9 +1148,19 @@ mod tests {
                 }
             }
         }
-        for suit in DL_SUITS {
+        for suit in MP_SKINS.iter().chain(DL_SUITS) {
             assert!(SUITS.iter().all(|other| other.name != suit.name));
+            assert!(SUITS.iter().all(|other| other.title != suit.title));
         }
+        for suit in DL_SUITS {
+            assert!(MP_SKINS.iter().all(|other| other.name != suit.name));
+        }
+        let entries: Vec<usize> = MP_SKINS.iter().map(|s| s.entry).collect();
+        assert_eq!(
+            entries,
+            armor::UYA_SKINS.collect::<Vec<_>>(),
+            "every skin, in order"
+        );
         assert_eq!(
             SUITS[0].entry, 0,
             "the armor a new game starts in comes first"
@@ -963,6 +1232,9 @@ mod disc_tests {
         Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap()
     }
 
+    const HELI_PACK_CLASS: u32 = BACK_PARTS[0].1;
+    const CLANK_CLASS: u32 = BACK_PARTS[1].1;
+
     #[test]
     #[ignore = "needs game discs"]
     fn joints_sit_along_their_parents_axes_at_rest() {
@@ -973,7 +1245,7 @@ mod disc_tests {
         for (what, class) in [
             ("the hero", core.hero().unwrap()),
             ("Clank", core.moby_class(CLANK_CLASS).unwrap()),
-            ("Clank's pack form", core.moby_class(0x25F).unwrap()),
+            ("the heli-pack", core.moby_class(HELI_PACK_CLASS).unwrap()),
             ("the wrench", core.moby_class(WRENCH_CLASS).unwrap()),
         ] {
             for (index, joint) in class.joints.iter().enumerate() {
@@ -990,12 +1262,14 @@ mod disc_tests {
 
     #[test]
     #[ignore = "needs game discs"]
-    fn clanks_eyes_stay_on_his_face_in_the_standing_pose() {
+    fn clanks_eyes_stay_on_his_face_in_a_fidget() {
+        // The keyframe of his fidget our Veldin image shows.
+        const FIDGET: (usize, usize) = (13, 24);
         let core = veldin();
         let clank = core.moby_class(CLANK_CLASS).unwrap();
         let mesh = clank.mesh(PacketKind::High).unwrap();
-        let (vertices, _) = baked(&clank, &mesh, CLANK_POSE, "Clank", Vec3::ZERO, |_| 0).unwrap();
-        let frame = &clank.sequences[CLANK_POSE.0].as_ref().unwrap().keyframes[CLANK_POSE.1];
+        let (vertices, _) = baked(&clank, &mesh, FIDGET, "Clank", Vec3::ZERO, |_| 0).unwrap();
+        let frame = &clank.sequences[FIDGET.0].as_ref().unwrap().keyframes[FIDGET.1];
         let skin = skinning(&clank, frame);
         // Where his head (joint 4) alone would carry a vertex from rest.
         const HEAD: usize = 4;
@@ -1040,7 +1314,68 @@ mod disc_tests {
 
     #[test]
     #[ignore = "needs game discs"]
-    fn the_uya_disc_gives_ratchet_the_wrench_and_clank_on_the_rig() {
+    fn the_backs_clips_pose_clank_and_the_heli_pack_as_the_game_skins_them() {
+        let core = veldin();
+        let back = crate::hero_anims::back_animations(&core).unwrap();
+        // Rest, the heli jump's, the glide's rotor and a fidget, for the pack; rest, the
+        // heli jump's and a fidget, for Clank.
+        let poses: [&[(u8, usize)]; 2] = [
+            &[(1, 0), (5, 17), (6, 8), (7, 24)],
+            &[(1, 0), (11, 7), (13, 24)],
+        ];
+        for (part, (name, class)) in BACK_PARTS.into_iter().enumerate() {
+            let class = core.moby_class(class).unwrap();
+            let mesh = class.mesh(PacketKind::High).unwrap();
+            let binds = crate::hero_anims::binds(&class);
+            let unit = class.unit();
+            for &(sequence, keyframe) in poses[part] {
+                let pose = &back.clips[part][&sequence].keyframes[keyframe];
+                let mut world: Vec<Mat4> = Vec::new();
+                for (index, joint) in class.joints.iter().enumerate() {
+                    let local = Mat4::from_scale_rotation_translation(
+                        pose.scales[index],
+                        pose.rotations[index],
+                        pose.offsets[index],
+                    );
+                    let parent = joint.parent.map_or(Mat4::IDENTITY, |p| world[p]);
+                    world.push(parent * local);
+                }
+                let skin: Vec<Mat4> = world
+                    .iter()
+                    .zip(&binds)
+                    .map(|(w, b)| *w * b.inverse())
+                    .collect();
+                let at = (sequence as usize, keyframe);
+                let (game, _) = baked(&class, &mesh, at, "a back part", Vec3::ZERO, |_| 0).unwrap();
+                let worst = mesh
+                    .vertices
+                    .iter()
+                    .zip(&game)
+                    .map(|(v, game)| {
+                        let rest = to_bevy(position(v) * unit);
+                        let ours: Vec3 = v
+                            .skin
+                            .joints
+                            .iter()
+                            .zip(v.skin.weights)
+                            .map(|(&j, w)| {
+                                w as f32 / 256.0 * skin[j as usize].transform_point3(rest)
+                            })
+                            .sum();
+                        ours.distance(game.position)
+                    })
+                    .fold(0.0, f32::max);
+                assert!(
+                    worst < 1e-4,
+                    "{name} in {sequence}, {keyframe}: {worst} m off"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn the_uya_disc_gives_ratchet_the_wrench_clank_and_the_heli_pack() {
         let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
         let (_, mut disc) =
             find(std::path::Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
@@ -1049,33 +1384,45 @@ mod disc_tests {
         let mut imported = import(&mut disc, &core, &hero, &SUITS[..1]).unwrap();
         let imported = imported.remove(0).unwrap();
         imported.data.check().unwrap();
-        let triangles: usize = imported
-            .data
-            .surfaces
-            .iter()
-            .map(|s| s.indices.len() / 3)
-            .sum();
-        assert!(triangles > 6000, "{triangles} triangles");
-        let mut textures: Vec<&Texture> = Vec::new();
-        for texture in imported.paints.iter().filter_map(|p| p.texture.as_ref()) {
-            if !textures.contains(&texture) {
-                textures.push(texture);
+        let triangles =
+            |surfaces: &[Surface]| -> usize { surfaces.iter().map(|s| s.indices.len() / 3).sum() };
+        assert!(triangles(&imported.data.surfaces) > 4000);
+        let textures = |paints: &[ImportPaint]| {
+            let mut textures: Vec<&Texture> = Vec::new();
+            for texture in paints.iter().filter_map(|p| p.texture.as_ref()) {
+                if !textures.contains(&texture) {
+                    textures.push(texture);
+                }
             }
-        }
+            textures.len()
+        };
         assert_eq!(
-            textures.len(),
-            4,
-            "the armor's two, the wrench's and Clank's"
+            textures(&imported.paints),
+            3,
+            "the armor's two and the wrench's"
         );
         assert!(
             imported.paints.iter().any(|p| p.chrome),
             "the wrench's head is chrome"
         );
+        // Clank and the heli-pack ride on his upper back, in Clank's texture and the
+        // level's two.
+        let attachments = &imported.data.attachments;
+        let names: Vec<&str> = attachments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["heli-pack", "clank"]);
+        assert_eq!(model::hero().joints[BACK_ON].uya, Some(5));
+        assert_eq!(attachments[0].binds.len(), 36);
+        assert_eq!(attachments[1].binds.len(), 33);
+        assert_eq!(triangles(&attachments[0].surfaces), 1562);
+        assert_eq!(triangles(&attachments[1].surfaces), 2116);
+        assert_eq!(textures(&imported.attachment_paints[0]), 2);
+        assert_eq!(textures(&imported.attachment_paints[1]), 1);
         // Clank's metal packets redraw his own triangles, like the armors' do.
         let clank = core.moby_class(CLANK_CLASS).unwrap();
         let metal = clank.mesh(PacketKind::Metal).unwrap();
         let chrome = chromed(&clank.mesh(PacketKind::High).unwrap(), &metal);
         assert_eq!(chrome.iter().filter(|c| **c).count(), metal.triangles.len());
+        assert!(imported.attachment_paints[1].iter().any(|p| p.chrome));
         assert!(imported.data.surfaces.iter().any(|s| s.wrench));
         // He stands about as tall as the open model.
         let top = imported
@@ -1107,6 +1454,64 @@ mod disc_tests {
 
     #[test]
     #[ignore = "needs game discs"]
+    fn every_multiplayer_skin_on_the_uya_disc_fits_the_rig_with_the_wrench() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) =
+            find(std::path::Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
+        let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+        let hero = core.hero().unwrap();
+        let skins = import(&mut disc, &core, &hero, MP_SKINS).unwrap();
+        assert_eq!(skins.len(), MP_SKINS.len());
+        let heads: Vec<f32> = MP_SKINS
+            .iter()
+            .zip(skins)
+            .map(|(suit, imported)| {
+                let imported = imported.unwrap_or_else(|e| panic!("{}: {e}", suit.name));
+                let data = &imported.data;
+                data.check().unwrap();
+                assert!(data.attachments.is_empty(), "{}: no Clank", suit.name);
+                assert!(data.surfaces.iter().any(|s| s.wrench), "{}", suit.name);
+                // The wrench sits in its own right hand.
+                let hand = data.rest[joint::HAND_R];
+                assert_eq!(data.rest[joint::WRENCH], hand, "{}", suit.name);
+                // Standing on the ground, about as tall as Ratchet.
+                let (low, high) = bounds(
+                    data.surfaces
+                        .iter()
+                        .filter(|s| !s.wrench)
+                        .flat_map(|s| s.positions.iter().copied()),
+                );
+                assert!(low.y.abs() < 0.05, "{}: feet at {}", suit.name, low.y);
+                assert!(
+                    (1.2..1.55).contains(&high.y),
+                    "{}: top at {}",
+                    suit.name,
+                    high.y
+                );
+                data.rest[joint::HEAD].y
+            })
+            .collect();
+        // Every skeleton is the hero's, but Bruiser's class is a tenth bigger.
+        let bruiser = MP_SKINS
+            .iter()
+            .position(|s| s.name == "uya-mp-bruiser")
+            .unwrap();
+        for (index, head) in heads.iter().enumerate() {
+            let expected = if index == bruiser {
+                heads[0] * 1.1
+            } else {
+                heads[0]
+            };
+            assert!(
+                (head - expected).abs() < 0.01,
+                "{}: head at {head}",
+                MP_SKINS[index].name
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
     fn every_skin_on_the_dl_disc_fits_the_rig() {
         let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
         let (_, mut disc) =
@@ -1129,7 +1534,8 @@ mod disc_tests {
                 imported.data.surfaces.iter().any(|s| s.wrench),
                 "the open wrench"
             );
-            // Standing on the ground, about as tall as Ratchet or a little taller.
+            // Standing on the ground, about as tall as Ratchet or a little taller: the
+            // armors with their helmets, which their own meshes stop short of at the neck.
             let (low, high) = bounds(
                 imported
                     .data

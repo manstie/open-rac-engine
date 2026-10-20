@@ -10,12 +10,19 @@
 //!   turn from rest relative to its parent's, its offset from where UYA has it at rest, so
 //!   every model the rig wears keeps its own proportions, and its scale: UYA squashes the
 //!   hero by scaling his root, and works his face by scaling as much as turning.
+//! - Clank and the heli-pack on his back play their own classes' sequences, joint for
+//!   joint, chosen by UYA's back table ([`back_animations`]); the models carry them as
+//!   attachments on their own skeletons (`hero_model.rs`).
 
-use bevy::math::{Affine3A, Mat3, Quat, Vec3};
+use std::collections::BTreeMap;
+
+use bevy::math::{Affine3A, Mat3, Mat4, Quat, Vec3};
+use rac_formats::FormatError;
+use rac_formats::level::Core;
 use rac_formats::moby::{Joint, Keyframe, MobyClass};
 use rac_rig::{
-    FidgetRule, FlipSide, Landing, LineUpError, RigAnimations, RigClip, RigKeyframe, RigMove,
-    SkeletonMap, SourceJoint, model,
+    BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, JumpTiming, Landing, LineUpError,
+    RigAnimations, RigClip, RigKeyframe, RigMove, SkeletonMap, SourceJoint, model,
 };
 
 /// Veldin: a new game starts here, and its core holds every one of the hero's sequences.
@@ -126,6 +133,46 @@ const FIDGETS: [FidgetRule; 4] = [
 /// 0x1DBE60).
 const WALK_PHASE: [usize; 2] = [1, 5];
 
+/// How UYA times each jump's air animation to its arc (`hero_change_state`;
+/// `hero-controller.md`, "Landings"): the push-off's ticks (the profile's
+/// `pushoff_ticks`), the frames shown at the apex and on landing, and the keyframe its
+/// landing plays from two keyframes on. The double jump isn't timed to its apex.
+const JUMPS: &[(RigMove, u32, f32, f32, usize)] = &[
+    (RigMove::Jump, 1, 18.0, 30.0, 12),
+    (RigMove::RunJump, 1, 18.0, 29.0, 11),
+    (RigMove::LongJump, 5, 18.0, 29.0, 10),
+    (RigMove::Flip(FlipSide::Left), 1, 18.0, 31.0, 24),
+    (RigMove::Flip(FlipSide::Right), 1, 18.0, 31.0, 24),
+    (RigMove::Flip(FlipSide::Forward), 1, 18.0, 31.0, 24),
+    (RigMove::Flip(FlipSide::Back), 1, 18.0, 31.0, 24),
+    (RigMove::DoubleJump, 0, 32.0, 43.0, 19),
+    (RigMove::HeliJump, 9, 50.0, 64.0, 30),
+    (RigMove::WallJump, 9, 12.0, 20.0, 10),
+    (RigMove::WaterJump, 5, 18.0, 28.0, 14),
+    (RigMove::LedgeJump, 4, 20.0, 29.0, 19),
+];
+/// UYA counts two frames to a keyframe when it times a jump, and one in the ledge jump
+/// (`jump_anim_factor`).
+const JUMP_KEYFRAME_FRAMES: f32 = 2.0;
+const LEDGE_JUMP_KEYFRAME_FRAMES: f32 = 1.0;
+
+/// The parts on the hero's back, by the names the models and clips give them, and their
+/// classes in the core: the heli-pack (Clank's arms and rotors) leads, then Clank
+/// (`moby-format.md`, "Clank and the heli-pack on the hero's back").
+pub const BACK_PARTS: [(&str, u32); 2] = [("heli-pack", 0x25F), ("clank", 0x259)];
+/// UYA's back table for the heli-pack (0x1DBE18): the hero's sequence, then the pack's and
+/// Clank's. The idle's rows are Clank's fidgets.
+const HELI_PACK_ROWS: [(usize, u8, u8); 5] =
+    [(0, 4, 10), (0, 3, 9), (0, 7, 13), (21, 5, 11), (18, 8, 14)];
+/// The sequence both rest in.
+const BACK_REST: u8 = 1;
+/// The heli and long jumps blend their clips in over 5 ticks (`hero_change_state`), and
+/// the back follows at the same pace.
+const JUMP_BLEND: f32 = 5.0;
+/// While he glides the heli-pack spins its rotors, blended in over 10 ticks
+/// (`heli_pack_update`).
+const GLIDE_ROTOR: (u8, f32) = (6, 10.0);
+
 /// UYA's class axes (x forward, y left, z up) to the hero's local space in Bevy (x right,
 /// y up, z back). It's a rotation, so quaternions' vector parts map the same way.
 pub fn to_bevy(v: Vec3) -> Vec3 {
@@ -197,26 +244,123 @@ fn world(class: &MobyClass, keyframe: &Keyframe) -> Vec<Affine3A> {
 /// axes): what takes a vertex bound at rest to where the pose puts it. It's the joint's
 /// transform times its inverse bind, as the game skins (`moby-format.md`, "Skeleton").
 pub(crate) fn skinning(class: &MobyClass, keyframe: &Keyframe) -> Vec<Affine3A> {
-    let unit = class.unit();
-    // Bevy's axes from UYA's, and metres from class units.
-    let axes = Mat3::from_cols(to_bevy(Vec3::X), to_bevy(Vec3::Y), to_bevy(Vec3::Z));
-    let into = Affine3A::from_mat3(axes) * Affine3A::from_scale(Vec3::splat(unit));
+    let into = into_bevy(class);
     world(class, keyframe)
         .into_iter()
         .zip(&class.joints)
-        .map(|(posed, joint)| {
-            let [r0, r1, r2] = joint.inverse_bind;
-            let bind = Affine3A::from_mat3_translation(
-                Mat3::from_cols(
-                    Vec3::new(r0[0], r1[0], r2[0]),
-                    Vec3::new(r0[1], r1[1], r2[1]),
-                    Vec3::new(r0[2], r1[2], r2[2]),
-                ),
-                Vec3::new(r0[3], r1[3], r2[3]),
-            );
-            into * posed * bind * into.inverse()
+        .map(|(posed, joint)| into * posed * inverse_bind(joint) * into.inverse())
+        .collect()
+}
+
+/// UYA's axes to Bevy's, and class units to metres: conjugating a class's transform by
+/// this gives it in the hero's space.
+fn into_bevy(class: &MobyClass) -> Affine3A {
+    let axes = Mat3::from_cols(to_bevy(Vec3::X), to_bevy(Vec3::Y), to_bevy(Vec3::Z));
+    Affine3A::from_mat3(axes) * Affine3A::from_scale(Vec3::splat(class.unit()))
+}
+
+/// A joint's inverse bind as the class stores it, rows of a 3×4 matrix.
+fn inverse_bind(joint: &Joint) -> Affine3A {
+    let [r0, r1, r2] = joint.inverse_bind;
+    Affine3A::from_mat3_translation(
+        Mat3::from_cols(
+            Vec3::new(r0[0], r1[0], r2[0]),
+            Vec3::new(r0[1], r1[1], r2[1]),
+            Vec3::new(r0[2], r1[2], r2[2]),
+        ),
+        Vec3::new(r0[3], r1[3], r2[3]),
+    )
+}
+
+/// Each joint's place, turn and scale at rest in the hero's space, for a class worn as an
+/// attachment ([`rac_rig::AttachmentData::binds`]).
+pub(crate) fn binds(class: &MobyClass) -> Vec<Mat4> {
+    let into = into_bevy(class);
+    class
+        .joints
+        .iter()
+        .map(|joint| Mat4::from(into * inverse_bind(joint).inverse() * into.inverse()))
+        .collect()
+}
+
+/// Every sequence of a class worn as an attachment, by number: each joint's whole
+/// transform from its parent in the hero's axes and metres, looping, as a moby's
+/// sequences do.
+fn part_clips(class: &MobyClass) -> BTreeMap<u8, RigClip> {
+    let unit = class.unit();
+    class
+        .sequences
+        .iter()
+        .enumerate()
+        .filter_map(|(number, sequence)| Some((u8::try_from(number).ok()?, sequence.as_ref()?)))
+        .map(|(number, sequence)| {
+            let keyframes = sequence
+                .keyframes
+                .iter()
+                .map(|keyframe| {
+                    let (rotations, offsets, scales) = locals(class, keyframe)
+                        .into_iter()
+                        .map(|(rotation, translation, scale)| {
+                            (
+                                quat_to_bevy(rotation),
+                                to_bevy(translation * unit),
+                                scale_to_bevy(scale.to_array()),
+                            )
+                        })
+                        .collect();
+                    RigKeyframe {
+                        ticks: keyframe.ticks(),
+                        frame: keyframe.stamp as f32 / 16.0,
+                        rotations,
+                        offsets,
+                        scales,
+                    }
+                })
+                .collect();
+            let clip = RigClip {
+                keyframes,
+                looping: true,
+                start: 0,
+            };
+            (number, clip)
         })
         .collect()
+}
+
+/// The clips of the parts on the hero's back ([`BACK_PARTS`], from Veldin's core) and UYA's
+/// rules for them: the heli-pack's rows of the back table, his fidgets, and the rotor
+/// while he glides.
+pub fn back_animations(core: &Core) -> Result<BackAnimations, FormatError> {
+    let mut back = BackAnimations {
+        rest: vec![BACK_REST; BACK_PARTS.len()],
+        ..Default::default()
+    };
+    for (name, class) in BACK_PARTS {
+        back.parts.push(name.into());
+        back.clips.push(part_clips(&core.moby_class(class)?));
+    }
+    for (hero, pack, clank) in HELI_PACK_ROWS {
+        if hero == 0 {
+            back.fidgets.push(vec![pack, clank]);
+            continue;
+        }
+        // Every move that plays the hero's sequence, a jump's landing included.
+        for &(movement, ..) in MOVES.iter().filter(|m| m.1 == hero) {
+            back.follow.push(BackRow {
+                movement,
+                sequences: vec![pack, clank],
+                blend: JUMP_BLEND,
+            });
+        }
+    }
+    let (sequence, blend) = GLIDE_ROTOR;
+    back.holds.push(BackHold {
+        movement: RigMove::Glide,
+        part: 0,
+        sequence,
+        blend,
+    });
+    Ok(back)
 }
 
 /// Where each joint sits in one keyframe, in the hero's space.
@@ -277,6 +421,21 @@ pub fn rig_animations(class: &MobyClass) -> Result<RigAnimations, LineUpError> {
         walk_phase: WALK_PHASE,
         ..Default::default()
     };
+    for &(movement, pushoff, peak, landing, landing_keyframe) in JUMPS {
+        let keyframe_frames = if movement == RigMove::LedgeJump {
+            LEDGE_JUMP_KEYFRAME_FRAMES
+        } else {
+            JUMP_KEYFRAME_FRAMES
+        };
+        let timing = JumpTiming {
+            pushoff,
+            peak,
+            landing,
+            landing_keyframe,
+            keyframe_frames,
+        };
+        animations.jumps.insert(movement, timing);
+    }
     let mut leaves = vec![true; class.joints.len()];
     for parent in class.joints.iter().filter_map(|j| j.parent) {
         leaves[parent] = false;
@@ -431,6 +590,65 @@ mod tests {
     }
 
     #[test]
+    fn a_class_worn_as_an_attachment_skins_as_the_game_does() {
+        // The hips turned a quarter turn at rest, and the root squashed in the keyframe.
+        let mut class = class();
+        class.joints[1].inverse_bind = [
+            [0.0, 1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, -1.0],
+        ];
+        let keyframe = &mut class.sequences[0].as_mut().unwrap().keyframes[0];
+        keyframe.scales = vec![rac_formats::moby::JointScale {
+            joint: 0,
+            scale: [1.0, 1.2, 0.9],
+        }];
+        let keyframe = &class.sequences[0].as_ref().unwrap().keyframes[0];
+        let clips = part_clips(&class);
+        let pose = &clips[&0].keyframes[0];
+        assert!(clips[&0].looping, "a moby's sequences loop");
+        let binds = binds(&class);
+        let mut world: Vec<Mat4> = Vec::new();
+        for (index, joint) in class.joints.iter().enumerate() {
+            let local = Mat4::from_scale_rotation_translation(
+                pose.scales[index],
+                pose.rotations[index],
+                pose.offsets[index],
+            );
+            let parent = joint.parent.map_or(Mat4::IDENTITY, |p| world[p]);
+            world.push(parent * local);
+        }
+        for (index, game) in skinning(&class, keyframe).into_iter().enumerate() {
+            let ours = world[index] * binds[index].inverse();
+            assert!(
+                Mat4::from(game).abs_diff_eq(ours, 1e-4),
+                "joint {index}: {game:?} against {ours:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_jumps_landing_plays_on_from_two_keyframes_past_its_landing_keyframe() {
+        let start = |movement: RigMove| MOVES.iter().find(|m| m.0 == movement).map(|m| m.3);
+        for &(movement, _, peak, landing, keyframe) in JUMPS {
+            assert!(peak < landing, "{movement:?}");
+            let sequence = MOVES.iter().find(|m| m.0 == movement).unwrap().1;
+            if let Some(land) = movement.landing() {
+                let landed = MOVES.iter().find(|m| m.0 == RigMove::Land(land)).unwrap();
+                assert_eq!(landed.1, sequence, "{movement:?} lands on its own sequence");
+                assert_eq!(
+                    start(RigMove::Land(land)),
+                    Some(keyframe + 2),
+                    "{movement:?}"
+                );
+            }
+        }
+        let animations = rig_animations(&class()).unwrap();
+        assert_eq!(animations.jumps.len(), JUMPS.len());
+        assert_eq!(animations.jumps[&RigMove::LedgeJump].keyframe_frames, 1.0);
+    }
+
+    #[test]
     fn idle_becomes_a_looping_clip_on_the_rig() {
         let animations = rig_animations(&class()).unwrap();
         let idle = &animations.clips[&RigMove::Idle];
@@ -519,5 +737,46 @@ mod disc_tests {
         // Swing 1 runs from its start frame, 16, as the melee code expects.
         let swing = &animations.clips[&RigMove::Combo(0)];
         assert_eq!(swing.keyframes[0].frame, 16.0);
+        // Each jump's clip runs as far as the frame it lands on.
+        for (movement, timing) in &animations.jumps {
+            let clip = &animations.clips[movement];
+            let last = clip.keyframes.last().unwrap().frame;
+            assert!(timing.landing <= last, "{movement:?}: {last}");
+            assert!(
+                timing.landing_keyframe + 2 < clip.keyframes.len(),
+                "{movement:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn the_uya_disc_gives_the_back_its_clips_and_rules() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) =
+            find(std::path::Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
+        let core = rac_formats::level::Core::read_uya(&mut disc, LEVEL).unwrap();
+        let back = back_animations(&core).unwrap();
+        assert_eq!(back.parts, ["heli-pack", "clank"]);
+        assert_eq!(back.clips[0].len(), 9);
+        assert_eq!(back.clips[1].len(), 17);
+        // Paired sequences are as long as each other, the rotor's 29 ticks among them; the
+        // heli jump's aren't (128 and 154 ticks over much the same frames).
+        for (pack, clank) in [(1, 1), (3, 9), (4, 10), (6, 12), (7, 13), (8, 14)] {
+            let ticks = |part: usize, sequence: u8| back.clips[part][&sequence].cycle();
+            assert_eq!(ticks(0, pack), ticks(1, clank), "{pack} and {clank}");
+        }
+        assert_eq!(back.clips[0][&6].cycle(), 29.0);
+        let follows: Vec<RigMove> = back.follow.iter().map(|r| r.movement).collect();
+        assert_eq!(
+            follows,
+            [
+                RigMove::Land(Landing::HeliJump),
+                RigMove::HeliJump,
+                RigMove::LongJump
+            ]
+        );
+        assert_eq!(back.fidgets, [[4, 10], [3, 9], [7, 13]]);
+        assert_eq!(back.holds[0].movement, RigMove::Glide);
     }
 }

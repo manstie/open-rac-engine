@@ -224,6 +224,40 @@ pub struct FallProfile {
     pub gravity: f32,
     pub air_speed: f32,
     pub release_brake: f32,
+    pub landing: FallLanding,
+}
+
+/// How a fall comes down (`hero-controller.md`, "Landings"). A fall that has lasted
+/// `far_after_ticks`, or has been `far_above` u over the ground, lands standing and holds
+/// him still a while; a shorter one walks on with the stick past `walk_stick`, else skids
+/// above `skid_above` u/s, else stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FallLanding {
+    pub far_after_ticks: u32,
+    pub far_above: f32,
+    pub walk_stick: f32,
+    pub skid_above: f32,
+    /// Ticks he stands still after a far fall: `lock_ticks`, or `long_lock_ticks` after a
+    /// fall of more than `long_after_ticks`, or `longer_lock_ticks` after one of
+    /// `longer_after_ticks` or more.
+    pub lock_ticks: u32,
+    pub long_after_ticks: u32,
+    pub long_lock_ticks: u32,
+    pub longer_after_ticks: u32,
+    pub longer_lock_ticks: u32,
+}
+
+impl FallLanding {
+    /// The ticks he stands still after a far fall that lasted `ticks`.
+    pub fn lock_after(&self, ticks: u32) -> u32 {
+        if ticks >= self.longer_after_ticks {
+            self.longer_lock_ticks
+        } else if ticks > self.long_after_ticks {
+            self.long_lock_ticks
+        } else {
+            self.lock_ticks
+        }
+    }
 }
 
 /// One jump-type move's parameters (`hero-controller.md`, "Jump parameters by state").

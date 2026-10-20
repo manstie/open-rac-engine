@@ -13,5 +13,8 @@ rac_hero.workspace = true
 rac_sim.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+rac_input.workspace = true
+
 [lints]
 workspace = true

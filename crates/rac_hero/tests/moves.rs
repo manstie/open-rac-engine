@@ -1391,3 +1391,65 @@ fn swimming_onto_a_shallow_shelf_stands_up() {
     assert!(!rig.hero.state.is_swimming());
     assert!((rig.hero.position.y - (SURFACE - 0.4)).abs() < 0.01);
 }
+
+/// Drops the hero from `height` onto the floor with the stick pushed, and returns how many
+/// ticks he fell, the state he lands in and the ticks the controls stay back.
+fn drop_from(height: f32, stick: Option<[i8; 2]>) -> (u32, HeroState, u32) {
+    let mut rig = Rig::new(&[floor()], Vec3::Y * height, 0.0);
+    let push = input(stick, &[], &[]);
+    let mut fell = 0;
+    while rig.hero.state == HeroState::Fall {
+        fell = rig.hero.ticks;
+        rig.tick(&push);
+        assert!(fell < 600, "still falling");
+    }
+    (fell, rig.hero.state, rig.hero.input_lock)
+}
+
+#[test]
+fn a_far_fall_lands_standing_and_holds_still_longer_the_longer_it_fell() {
+    // UYA's state 6: past its 17th tick or from over 1.75 u up it lands standing, the
+    // controls back after 7 ticks, 18 after more than 50 and 22 after 90 or more.
+    let stick = Some([0, 127]);
+    let (fell, state, lock) = drop_from(3.0, stick);
+    assert!(fell <= 50, "{fell}");
+    assert_eq!((state, lock), (HeroState::Idle, 7));
+    let (fell, state, lock) = drop_from(10.0, stick);
+    assert!(fell > 50 && fell < 90, "{fell}");
+    assert_eq!((state, lock), (HeroState::Idle, 18));
+    let (fell, _, lock) = drop_from(30.0, stick);
+    assert!(fell >= 90, "{fell}");
+    assert_eq!(lock, 22);
+}
+
+#[test]
+fn a_short_drop_walks_on_skids_or_stands() {
+    // Off a 0.4 u step he falls a few ticks only: with the stick well over he walks on.
+    let (fell, state, lock) = drop_from(0.4, Some([0, 127]));
+    assert!(fell < 17, "{fell}");
+    assert_eq!((state, lock), (HeroState::Walk, 0));
+    assert_eq!(drop_from(0.4, None).1, HeroState::Idle);
+}
+
+#[test]
+fn standing_after_a_far_fall_he_neither_walks_nor_jumps_until_the_controls_come_back() {
+    let mut rig = Rig::new(&[floor()], Vec3::Y * 3.0, 0.0);
+    while rig.hero.state == HeroState::Fall {
+        rig.tick(&idle());
+    }
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    assert_eq!(rig.hero.input_lock, 7);
+    // Held back for 6 more ticks, then free: the stick walks him off.
+    rig.tick(&input(Some([0, 127]), &[Action::Jump], &[Action::Jump]));
+    for _ in 0..5 {
+        rig.tick(&input(Some([0, 127]), &[], &[]));
+    }
+    assert_eq!((rig.hero.state, rig.hero.input_lock), (HeroState::Idle, 1));
+    assert!(rig.hero.speed.abs() < 1e-3);
+    rig.tick(&input(Some([0, 127]), &[], &[]));
+    assert_ne!(
+        rig.hero.state,
+        HeroState::Idle,
+        "he moves once they're back"
+    );
+}

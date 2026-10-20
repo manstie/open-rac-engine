@@ -4839,6 +4839,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "rac_hero",
+ "rac_input",
  "rac_sim",
  "thiserror 2.0.21",
 ]

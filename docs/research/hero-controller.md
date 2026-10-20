@@ -2061,15 +2061,54 @@ Read in the idle state's transitions (0x503B68) and the fidget picker 0x502930 o
   | Water jump (18) | 89 | 18, 28 | 14 |
   | Ledge jump (27) | 34 | 20, 29 | 19 |
 
+- **The warp** [code, UYA NTSC, 2026-10-20] (`hero_transitions`, in the jump states):
+  - `hero_anim_rate_to_frame` (0x4E1268) gives the animation rate that reaches a frame in
+    a number of ticks: factor × (frames left) / (ticks × the keyframe's own rate). The
+    factor (0x1A50C4) is 0.5, a keyframe being two frames, and 1 in the ledge jump. A
+    frame already passed counts round the sequence's end. Given a step, the rate moves
+    towards it by at most that much a tick (`approach`).
+  - On the tick after the push-off (0x1A505C ticks: the profile's `pushoff_ticks`), the
+    rate is set outright to reach the peak frame at the apex, with the ticks to the apex
+    from his upward speed and the jump's gravity (0x50D770), but at most 1.5. The double
+    jump doesn't, keeping its 0.8.
+  - Past the apex (`jump_past_apex`), before the landing keyframe, the rate moves at most
+    0.2 a tick towards reaching the landing frame in the ticks left to land
+    (`hero_ticks_to_land`: his arc against the ground under him, 60 if none), and is kept
+    to 0.2–2.7. Above 1.8 the sequence skips to the landing keyframe + 2, blended over
+    those ticks + 3. In the double jump, before frame 37 the rate moves at most 0.15 a
+    tick towards 1 instead.
+  - Landing more than 1.5 frames short of the landing frame restarts the sequence from
+    the landing keyframe + 2 (blend 7); otherwise it plays on from where it is.
 - **Falls** (state 6) start with 10, a one-keyframe step-off pose, and change to 11 after
   17 frames or at once from more than 1.75 u up. Landing from 11 goes to idle playing 12:
   from keyframe 9 (blend −1) after under 90 frames of falling, from keyframe 4 (blend 6)
   after more. A fall still in 10 lands without one. The landing also sets a lockout
-  (0x1A4DC0: 7, 10 after state 44, 18 after a fall over 50 frames, 22 after a long one),
-  which the kit's controller doesn't have yet.
+  (0x1A4DC0: 7, 10 after state 44, 18 after a fall over 50 frames, 22 after a long one).
+- **What a fall lands in, and the lockout** [code, UYA NTSC, 2026-10-20]
+  (`hero_transitions`, state 6):
+  - A fall that reached 11 lands standing (state 0) and sets the lockout: 7 frames, 10
+    after state 44; 18 after more than 50 frames of falling and 22 after 90 or more, both
+    only while a flag at 0x1A4F3C (not read) is clear.
+  - One still in 10 walks on (state 2) with the stick past 0.5 and no lockout running;
+    otherwise it skids (state 3) above 0.05 u a frame (3 u/s), or stands.
+  - While the lockout runs (it counts down each frame, 0x4FAA68), the idle skips all its
+    transitions (no walking, jumping or crouching), the walk goes back to standing, the
+    skid neither jumps nor crouches, and the fall can't glide.
+  - Other states set it too: 20 (0x52), 30 (0x80), 34 (a skid straight after state 16,
+    the thruster-pack's dash), 70 (grind states, after a drop of more than 2.5 u or 8 u
+    a frame).
+  - In the kit: `fall.landing` in the movement profiles, the lockout as
+    `HeroMotion::input_lock`, which already held back the skid and attacks
+    (`moves.rs`, `a_far_fall_lands_standing_and_holds_still_longer_the_longer_it_fell`).
+    DL's isn't read: its profile keeps UYA's.
 - In the kit the controller lands into the walk, so the rig plays a landing while he stays
   at the speed he landed with, at most 2.5 u/s (a landing with the stick let go), and
-  stops it when he speeds up. It doesn't warp the air animation yet.
+  stops it when he speeds up. The rig times each jump's clip to its arc as above
+  (`rac_rig/src/play.rs`, `JumpTiming`; the values in `openrac/src/hero_anims.rs`,
+  `JUMPS`), from the controller's ticks to the apex and to land; tested on the
+  controller's own standing jump, which shows frame 18 at the apex and 30 on landing to
+  within a frame. The jumps' push-off ticks are the profile's. Not done: the skip's blend
+  (the rig eases every change of pose its own way).
 
 ### The walk's animation [code, UYA NTSC, 2026-10-15]
 

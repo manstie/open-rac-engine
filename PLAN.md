@@ -33,8 +33,9 @@ session is working on the task now; notes on problems met stay with their task (
   DL's code lacks (crouch, wall jump, zip lines, dive) and give it its own flips. He has the follow camera with
   lock-on, the lock-strafe and first-person cameras and their blends (P1.7), and melee
   for both games (P1.8). He wears the open blocky model or, from the user's
-  discs, any of 15 UYA suits or 12 DL skins, and plays Ratchet's real animations with a
-  UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
+  discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
+  rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
+  with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed.
 - **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
   against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
@@ -298,6 +299,7 @@ None at the moment.
 | 2026-10-15 | **The repository is GPL-3.0-or-later, replacing MIT**, the hero kit included, so projects reusing the kit must be GPL-compatible. Code under licences GPLv3 can absorb (permissive, GPL-3.0, GPL-2.0-or-later, LGPL; so Wrench and PCSX2) may be reused with its notices kept and listed in `prior-art.md`; GPL-2.0-only and unlicensed code stay reference only, and decompiled game code is never committed. GPLv2 was ruled out because several dependencies (parry3d, winit, cpal) are Apache-2.0 only. Copies of the MIT commits that were already pushed stay MIT. |
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
 | 2026-10-17 | **The look stick reaches the simulation as stick counts** (`PlayerInput::look_stick`, making the encoding 12 bytes and `.orin` version 2; version 1 files still load), so each camera applies its game's own response: the follow camera's linear turn and springing tilt, the free look's squared (UYA) or linear (DL) speeds and quick turn. The mouse stays a direct turn in every camera (G5), and the follow camera keeps the tilt the mouse sets. The camera setting (third person, lock-strafe, first person) is a player option on `FollowCamera` whose default is the movement profile's. |
+| 2026-10-20 | **What the games carry on the hero as mobys of their own are attachments** (UYA's Clank and heli-pack): a model part on a skeleton of its own, riding a rig joint with its place and turn but not its scale, as the games normalise the joint before placing a moby. Their clips hold each joint's whole transform, and the game hands the rig its rules for choosing them (`BackAnimations`), as for fidgets. The rig's skeleton stays the hero's; the open model keeps its own Clank on the rig's Clank joints. |
 
 ## 6. Roadmap
 
@@ -535,7 +537,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     GC will get profiles of their own, read from their code (D7, P5.7).
   - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), crouch and its
     turn; standing, run, long and heli jumps, flips (strafe, landing and crouch), the
-    double jump, glide, fall and air control; moving platforms; the wall jump; ledges
+    double jump, glide, fall and air control, the fall's landings and lockout; moving
+    platforms; the wall jump; ledges
     (grab, hang, shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge
     boots; the ability flags; grinding, side on; swimming; zip lines; strafing and lock-on
     (`lock_on.rs`); melee (P1.8); DL's own flips, ledges (traced) and hits, and its
@@ -658,24 +661,32 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     take on; models may be bound to joints turned at rest (`ModelData::turns`). The open
     model (gold for player 1, silver for player 2) has procedural poses for every hero
     state, with two-bone IK putting the wrench on the controller's swing line. The rig
-    wears any model skinned to its skeleton (`RigModels`, `ModelData`, `SkeletonMap`).
-    From the user's discs `openrac` imports 15 UYA suits, titled with the game's names,
-    and 12 DL skins from a DL NTSC-U or Gladiator PAL disc. With a UYA disc the hero plays
-    Ratchet's real animations, chosen and timed as UYA's code does
-    (`rac_rig/src/play.rs`; `hero-controller.md`, "Idle fidgets", "Landings", "The
-    walk's animation"): the walk's bands, rates and stride, fidgets, the hurt idle,
-    landings and the run's skid. Chosen with `--model` or the menus' Model button.
-  - Read, not yet worn: UYA's 21 multiplayer skins, entries 35–55 (`Skin::read_uya`,
-    the hero's skeleton less 25 face joints); DL's wrench (class 0x23FA,
-    `Core::read_dl`, `Core::moby_textures`); DL's armors' heads, their bangles 1 and 12
-    in play (`Skin::bangles`; `moby-format.md`, "DL's skins").
+    wears any model skinned to its skeleton (`RigModels`, `ModelData`, `SkeletonMap`), and
+    a model may carry attachments: parts on skeletons of their own riding a rig joint
+    without its scale, posed by clips of their own (`AttachmentData`, `BackAnimations`,
+    `rac_rig/src/back.rs`). From the user's discs `openrac` imports 15 UYA suits, titled
+    with the game's names, with Clank and the heli-pack on the back as attachments played
+    by UYA's back rules (`moby-format.md`, "Clank and the heli-pack on the hero's back"):
+    Clank's arms, the rotors in the heli jump, glide and long jump, and his fidgets. Also
+    UYA's 21 multiplayer skins with the wrench and without Clank (`MP_SKINS`), and 17 DL
+    skins from a DL NTSC-U or Gladiator PAL disc, the five armors with their collar and
+    helmet bangles. With a UYA disc the hero plays Ratchet's real animations, chosen and
+    timed as UYA's code does (`rac_rig/src/play.rs`; `hero-controller.md`, "Idle
+    fidgets", "Landings", "The walk's animation"): the walk's bands, rates and stride,
+    fidgets, the hurt idle, each jump's air animation timed to its arc, landings and the
+    run's skid. Chosen with `--model` or the menus' Model button.
+  - Read, not yet worn: DL's wrench (class 0x23FA, `Core::read_dl`,
+    `Core::moby_textures`).
   - Found not needed: the third GS texture slot is the ship's paint job.
-  - To do: wear DL's armors (0–4) with bangles 1 and 12, and DL's wrench on the skins
-    in its sequence 1 (DL classes' sequences don't read as UYA's do yet: read them
-    first); offer the multiplayer skins with the wrench and without Clank; warp the jump's
-    air animation to its peak and landing frames; the landing lockout in the controller
-    (P1.5); firing poses (P1.9; DL's gadget table names each weapon's firing sequence:
-    `moby-format.md`, "DL's skins").
+  - To do: DL's wrench on the skins in its sequence 1 (DL classes' sequences don't read
+    as UYA's do yet: read them first); firing poses (P1.9; DL's gadget table names each
+    weapon's firing sequence: `moby-format.md`, "DL's skins"); for the back, Clank's
+    blink and glow (UYA 0x4DCC10) and the head look's hold on it, which the rig has no
+    head look for yet.
+  - UYA's Clank had no arms and no propellers: the heli-pack (class 0x25F), long taken
+    for Clank's "pack form", is his arms and the rotors, and wasn't worn. Fixed by wearing
+    it and Clank as attachments; UYA's level textures now read as DL's
+    (`Core::read_uya` reads the GS RAM image) for the pack's.
   - `wrench_points` had been measured on a bake that ignored the wrench's rest turn (P3.7).
     It is now (0.47, −0.12, −0.87), forward from the fist, which matches the game's
     screenshot. Every model's wrench and the procedural poses follow it.

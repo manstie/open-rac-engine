@@ -36,7 +36,7 @@ rig (P1.17). Started 2026-10-13 on UYA NTSC-U.
   | Hero | 0x000 | 111 | 127 | |
   | Wrench | 0x047 | 16 | 20 | 56 (right hand) |
   | Clank (back) | 0x259 | 33 | 17 | 5 (upper back) |
-  | Clank (pack form) | 0x25F | 36 | 9 | 5 |
+  | Heli-pack (Clank's arms and rotors) | 0x25F | 36 | 9 | 5 |
   | Unknown, 2 joints, 7 bangles | 0x50A | 2 | 1 | 7 (neck) |
 
   Placing the attached mobys' positions on those joints by our own forward kinematics
@@ -116,7 +116,7 @@ libuya's `MobyClass` layout matches UYA's data:
     (up to 25 cm) from his face in his standing pose, and the wrench turned 120° from
     the way it's held.
   - **How it was checked:**
-    - Read this way, every joint of the hero, of Clank in both forms (0x259, 0x25F) and
+    - Read this way, every joint of the hero, of Clank (0x259), the heli-pack (0x25F) and
       of the wrench (0x47, and 0x1245 and 0x1247 like it) sits at its parent's rest
       position plus its offset turned by the parent's rest orientation, to 0.004 units.
       Some classes in Veldin's core break that rule whichever way they're read, even
@@ -486,8 +486,62 @@ Read in the Veldin image's code and from the disc.
 - **Clank's back form** (class 0x259, 33 joints): 0 the root, 1 the hips, 4 the head's
   pivot, 5 the top of the head with the antenna chain 6–10, the face (eyes, lids, mouth)
   13–25 under 4, the feet 27 (right) and 28 (left) under 26, and a back plate 29–32. It
-  has no arm joints. The eye joints 14–25 are turned at rest, and their pivots sit
-  behind the face, so turning them slides the eyes across it.
+  has no arm joints: his arms are the heli-pack's (below). The eye joints 14–25 are
+  turned at rest, and their pivots sit behind the face, so turning them slides the eyes
+  across it.
+
+## Clank and the heli-pack on the hero's back [code, UYA NTSC, 2026-10-20]
+
+Read in Ghidra on our Veldin image (symbols in `re/SCUS-97353/symbols.toml`, from
+`hero_back_pack` on) and in the classes from the disc. R&C1 works the same way, with the
+same class numbers (ReRAC, ISC, read for orientation only).
+- **Two mobys:** `hero_spawn_item_mobys` makes Clank (class 0x259, item 1's class) and the
+  back slot's pack: item 2's class, the heli-pack (0x25F), on a new game, or the
+  thruster-pack's for item 3. Both ride on hero joint 5 like the wrench does on 56. In the
+  Veldin image both are drawn, Clank playing sequence 13 and the heli-pack sequence 7,
+  each at keyframe 24: one of Clank's fidgets (below), not his rest pose.
+- **The heli-pack isn't another form of Clank:** it is his arms and the pack's rotors
+  [data]. Joints 17–35 are his arms (17 a bar across his shoulders, 18–26 his left arm and
+  27–35 his right, each with three two-joint fingers); 2–4 a mast up the back, with the
+  top rotor on 4; 5–10 and 11–16 two booms out to the sides, with a propeller on 10 and
+  16. 1,629 vertices, 1,562 triangles, no metal packets. At rest (sequence 1, and 0, 2,
+  3, 4 and 7 throughout) the mast is scaled to 0 and the booms to 0.01, so only his arms
+  show; in the heli jump's, glide's and long jump's sequences the rotors unfold to about
+  1.2 m.
+- **Textures:** Clank's class takes Clank's texture (core class table +8 = 2,
+  `clank_texture_load`). The heli-pack's are the level's own (+8 = 0): moby textures 9
+  (128²) and 10 (32²) on Veldin, decoded from the GS RAM image as DL's are
+  ([`disc-layout.md`](disc-layout.md), "Level textures").
+- **Sequences pair up:** the pack's 1, 3, 4, 6, 7 and 8 are as long as Clank's 1, 9,
+  10, 12, 13 and 14; the heli jump's 5 and 11 cover much the same frames (8–70, 9–74) in
+  128 and 154 ticks.
+- **The back table** (`hero_back_tables`): rows of the hero's sequence, a pack sequence
+  and a Clank sequence, per back item. The heli-pack's: hero sequence 0 (the idle) with
+  (4, 10), (3, 9) and (7, 13), Clank's fidgets; 21 (the heli jump) with (5, 11); 18 (the
+  long jump) with (8, 14).
+- **Following the hero** (`hero_back_follow_anim`, from `hero_anim_set`): when the hero
+  starts a sequence that has rows (other than 0), a random one of them blends pack and
+  Clank in, at the hero's own keyframe and blend, unless the pack plays it already. The
+  heli and long jumps start with a 5-tick blend (`hero_change_state`'s shared
+  `hero_anim_set(5, sequence, 0)`), so the back does too. Any other sequence sends both
+  back to sequence 1 over 7 ticks, 19 when the state before was the glide with the
+  heli-pack on; but going back to the idle while the pack plays one of the idle's rows
+  leaves that fidget running.
+- **Speed** (`hero_back_follow_speed`): while the hero's sequence has rows, both play at
+  his animation rate; a blend resets a moby's own rate to 1 (`moby_anim_blend`).
+- **The glide** (`heli_pack_update`, the heli-pack's own update): while the hero's state is
+  8, the pack blends to its rotor sequence 6 (16 keyframes, 29 ticks a turn) over 10
+  ticks. Clank goes back to 1 with the glide's start.
+- **Standing idle** (state 0, `hero_transitions`): a pack or Clank animation that has
+  played through, off sequence 1, blends back to 1 over 7 ticks; with the head look
+  turned past 35° or 25° both blend to 1 over 12 ticks. After 10 ticks of idle, with
+  Clank on 1, the head turned less than 32° and 20° and `clank_fidget_timer` run out, the
+  timer is set to 110–270 ticks at random and `clank_fidget` plays a random idle row on
+  both over 7 ticks, if the pack is on 1. The timer starts at 0 and counts only while he
+  could fidget, so Clank looks about almost all the time Ratchet stands.
+- **Not read yet:** Clank's blink and glow (0x4DCC10, a timer of 50–200 ticks while he is
+  on sequence 1), the thruster-pack's flames (0x2FC8E8) and table (0x1DBE00), and item
+  4's (0x1DBE30, with hero sequence 82, the surface swim).
 
 ## DL's skins [verified 2026-10-15]
 
@@ -611,11 +665,19 @@ Parts of a class's mesh that each moby shows or hides one by one, read by
   (head 0.40 × 0.39 m, ears to 1.42 m, feet 0.38 m long, tail 0.63 m). No geometry or
   animation from the disc is in the repository.
 - `crates/openrac/src/hero_model.rs`: at start-up, Ratchet in each of the 15 distinct
-  suits with its textures, the wrench and Clank, skinned to the rig's skeleton as the
+  suits with its textures and the wrench, skinned to the rig's skeleton as the
   models "uya" (armor 0), "uya-blue", "uya-snowman" and so on (`SUITS`, titled with the
   game's names; PLAN.md §5, 2026-10-13), bound with the hero's turns at rest. The wrench
-  and Clank are baked in their standing poses through each joint's posed transform times
-  its inverse bind, scales carried to children. Triangles under metal packets are
-  polished metal. From a DL or Gladiator disc, the twelve complete skins as
-  "dl-ratchet", "dl-jak" and so on (`DL_SUITS`), their fingers, clavicles, forearms and
-  heels on the rig's own, each lent the open model's wrench. Nothing read is stored.
+  is baked in its standing pose through each joint's posed transform times its inverse
+  bind, scales carried to children. Clank and the heli-pack ride on the rig's chest as
+  attachments on their own skeletons and binds (`rac_rig::AttachmentData`), playing their
+  own sequences by UYA's back table (`hero_anims::back_animations`); posed so, every
+  vertex lands within 0.1 mm of where the game's skinning puts it (disc test
+  `the_backs_clips_pose_clank_and_the_heli_pack_as_the_game_skins_them`). Triangles
+  under metal packets are polished metal. The 21 multiplayer skins are "uya-mp-robo" and
+  so on (`MP_SKINS`), each its own class folded onto the rig through the hero's joints
+  (`UYA_SKIN_JOINTS`), holding the suits' wrench moved into its own hand, without Clank.
+  From a DL or Gladiator disc, the twelve complete skins and the five armors as
+  "dl-ratchet", "dl-jak", "dl-marauder" and so on (`DL_SUITS`), the armors with their
+  collar and helmet bangles (1 and 12), their fingers, clavicles, forearms and heels on
+  the rig's own, each lent the open model's wrench. Nothing read is stored.
