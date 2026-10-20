@@ -360,6 +360,107 @@ fn deadlocked_finds_ledges_further_out() {
     assert!(found(&dl, -1.5) && found(&uya, -1.5));
 }
 
+fn dl_ledge_rig() -> Rig {
+    let mut rig = ledge_rig();
+    rig.profile = HeroProfile::dl();
+    rig
+}
+
+#[test]
+fn deadlocked_hangs_against_the_wall_short_of_its_hang_point() {
+    // "Deadlocked's ledges" [verified on DL NTSC]: the lip stays where the cast hit the
+    // top, 1.05 u ahead of the feet, so the hang point is 0.55 u ahead of his axis and the
+    // wall holds him at its face. The grab hangs on its 24th tick.
+    let mut rig = dl_ledge_rig();
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    rig.until(60, &input(None, &[Action::Jump], &[]), |hero| {
+        hero.state == HeroState::LedgeGrab
+    });
+    // The kit grabs at the end of the tick before the game's first grab frame.
+    let grab = rig.until(40, &idle(), |hero| hero.state == HeroState::LedgeHang);
+    assert_eq!(grab, 24);
+    rig.ticks(60, &idle());
+    let ledge = rig.hero.ledge.expect("holds a ledge");
+    assert!(
+        (ledge.lip - Vec3::new(0.0, 3.0, -2.55)).length() < 0.01,
+        "{}",
+        ledge.lip
+    );
+    assert!((ledge.hang - Vec3::new(0.0, 1.57, -2.05)).length() < 0.01);
+    let position = rig.hero.position;
+    assert!((position.y - 1.57).abs() < 0.01, "{position}");
+    assert!(
+        (position.z + 2.0 - 0.45).abs() < 0.02,
+        "at the face: {position}"
+    );
+}
+
+#[test]
+fn deadlocked_shimmies_along_the_wall_at_about_uyas_pace() {
+    // "Deadlocked's ledges" [verified on DL NTSC]: 1.5 × the table towards the ledge 0.2 u
+    // to the side, whose hang point is 0.55 u ahead of his axis. The wall takes the rest,
+    // so along it each step is 0.2 / |(0.2, 0.55)| of that, and the steps back pull him
+    // 0.29 u off it. The animation runs from the first tick and a cycle is 32 ticks:
+    // 0.60 u (the trace: 0.605 and 0.600).
+    let mut rig = dl_ledge_rig();
+    hang(&mut rig);
+    rig.ticks(50, &idle());
+    let left = input(Some([-127, 0]), &[], &[]);
+    rig.tick(&left);
+    assert_eq!(rig.hero.state, HeroState::LedgeShimmy(Side::Left));
+    let start = rig.hero.position;
+    let along = 0.2 / 0.2f32.hypot(0.55);
+    let steps = rig.profile.ledge.shimmy_steps.clone();
+    let mut furthest_out: f32 = 0.0;
+    for tick in 1..=32 {
+        let before = rig.hero.position.x;
+        rig.tick(&left);
+        let entry = steps.get(tick / 2).copied().unwrap_or(0.0);
+        let want = -1.5 * entry * along;
+        let moved = rig.hero.position.x - before;
+        assert!(
+            (moved - want).abs() < 1e-3,
+            "tick {tick}: {moved} not {want}"
+        );
+        furthest_out = furthest_out.max(rig.hero.position.z - start.z);
+    }
+    assert_eq!(rig.hero.state, HeroState::LedgeShimmy(Side::Left));
+    let cycle = start.x - rig.hero.position.x;
+    assert!((cycle - 0.603).abs() < 0.005, "a cycle covers {cycle}");
+    assert!((furthest_out - 0.293).abs() < 0.01, "{furthest_out}");
+}
+
+#[test]
+fn deadlocked_climbs_forward_from_its_first_tick() {
+    // "Deadlocked's ledges", ledge jump [verified on DL NTSC]: off on the 4th tick and up
+    // 1.967 u from the hanging feet; the forward speed rises from the first tick at
+    // 8 u/s², 2 u/s on the 15th.
+    let mut rig = dl_ledge_rig();
+    hang(&mut rig);
+    rig.ticks(50, &idle());
+    let feet = rig.hero.position.y;
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Ledge));
+    let mut highest = feet;
+    for tick in 1..=30u32 {
+        let speed = Vec3::new(rig.hero.velocity.x, 0.0, rig.hero.velocity.z).length();
+        let want = ((tick as f32) * 8.0 / 60.0).min(2.0);
+        assert!(
+            (speed - want).abs() < 1e-4,
+            "tick {tick}: {speed} not {want}"
+        );
+        let off = rig.hero.position.y > feet + 1e-4;
+        assert_eq!(off, tick > 3, "tick {tick}: {}", rig.hero.position.y - feet);
+        rig.tick(&idle());
+        highest = highest.max(rig.hero.position.y);
+    }
+    assert!(
+        ((highest - feet) - 1.967).abs() < 0.01,
+        "{}",
+        highest - feet
+    );
+}
+
 // --- Hits, hazards and death -----------------------------------------------------------
 
 #[test]

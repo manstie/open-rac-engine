@@ -484,6 +484,10 @@ pub struct LedgeProfile {
     /// The lip is searched for in steps of `lip_step` out from the wall, up to `lip_search`.
     pub lip_step: f32,
     pub lip_search: f32,
+    /// Whether that search moves the lip at all. DL's never does: its probe starts and ends
+    /// at the same point, so the lip stays where the cast hit the top and the hang point
+    /// can lie inside the wall, which then holds the hero at its face.
+    pub lip_walk: bool,
     /// The hanging feet are this far out from the wall and below the lip.
     pub hang_out: f32,
     pub hang_below: f32,
@@ -1515,12 +1519,19 @@ mod tests {
                 "ledge.clear_back",
                 "ledge.climb.air_speed",
                 "ledge.climb.pushoff_ticks",
+                "ledge.climb_forward_from_tick",
+                "ledge.climb_forward_stop_tick",
+                "ledge.climb_forward_until_tick",
                 "ledge.double_jump_after_tick",
                 "ledge.grab_rising_below",
+                "ledge.grab_ticks",
+                "ledge.lip_walk",
                 "ledge.no_grab_ticks_lost",
                 "ledge.probe_ahead",
                 "ledge.probe_step",
                 "ledge.probe_tries",
+                "ledge.shimmy_blend_ticks",
+                "ledge.shimmy_cycle_frames",
                 "ledge.shimmy_step_scale",
                 // "Deadlocked's melee".
                 "melee.blend_creeps",

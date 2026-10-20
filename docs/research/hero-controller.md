@@ -2,8 +2,10 @@
 
 How Ratchet moves in R&C3/UYA and Gladiator/Deadlocked (PLAN.md RE.3, fed by RE.5 and
 RE.8). It is the reference for the hero kit's controller (P1.5) and its feel-matching tests
-(RE.6). Last updated 2026-10-20 (Deadlocked's flips, its missing crouch and its barred
-glide, read in DL NTSC's code and traced; the landing flip both games share). Before that,
+(RE.6). Last updated 2026-10-20 (Deadlocked's ledges, shimmy and climb, read in DL NTSC's
+code and traced, and its missing wall jump, checked at a tall wall; the shimmy's 0.2 u side
+look and the climb's still push-off in both games; Deadlocked's flips, its missing crouch
+and its barred glide; the landing flip both games share). Before that,
 2026-10-15: the grind attack, the wrench's clank and the grind's side-on stance, read in UYA
 NTSC's code; Deadlocked's melee, read in code and traced on DL NTSC; the crouch flip and the
 crouch turn, traced on UYA NTSC; Deadlocked's movement against UYA's; strafing and lock-on;
@@ -1251,8 +1253,10 @@ a found flag.
   - The stick past 0.5 and within 45° of either side shimmies that way (25 or 26), if a
     ledge is found 0.3 u to that side.
 - **Shimmy (25, 26)** [verified]:
-  - Each frame the detector runs at a point to the side: 0.2 × the hang point's offset
-    from the lip, flattened, so 0.1 u. The hero moves towards the hang point it finds.
+  - Each frame the detector runs at a point 0.2 u to the side, and the hero moves towards
+    the hang point it finds. The code sets the side vector's length to 0.2 with the
+    helper (0x40C0F0) that sets each step's length below; an earlier reading took it as
+    0.2 × the hang point's 0.5 u offset from the lip, so 0.1 u [code, 2026-10-20].
   - **Each step's length** is 0.5 × a per-animation-frame factor, whatever the distance:
     the code sets the vector's length. The factors for the 15 frames are 0, 0, 0.025,
     0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037, 0.037, −0.017, −0.017, −0.035 and
@@ -1269,6 +1273,10 @@ a found flag.
 - **Ledge jump (27)** [verified]:
   - Vertically it is the standard model: 2.0–2.05 u, push-off 4 frames, hold 1 frame,
     gravity 25 u/s². It peaks 1.97 u above the hanging feet, 0.54 u above the lip.
+  - **But he isn't pressed down during the push-off:** he hangs still for 5 frames, the
+    push-off and one more, and leaves on the 6th at 0.1618 u a frame, √(2 × 25 × 2.05)
+    less a frame of gravity (`uyantsc-veldin-ledge-3`, read again 2026-10-20). DL's
+    climb does the same after its 2 (below).
   - **Its forward speed follows the animation frame:**
     - below frame 13 it isn't changed, so it stays 0;
     - from 13 to 27 it approaches 2 u/s at 8 u/s²;
@@ -1308,17 +1316,17 @@ climb's forward speed starts on tick 5 and holds from tick 35 (`uya.ron`). **[si
 - the kit's capsule keeps a skin's width from the lip, so the climb rubs it for a few
   ticks where the game's hero passes clear.
 
-### Deadlocked's ledges [code, DL NTSC, 2026-10-20; untraced in DL]
+### Deadlocked's ledges [code and traced, DL NTSC, 2026-10-20]
 
 Read in DL's detector (0x672960, run every frame by the per-frame driver 0x6A65E8 into the
-ledge block at hero+0x1DA0, whose found flag is hero+0x1DC8), the states' motion in
+ledge block at hero+0x1DA0: hang point, lip, then the wall's yaw at +0x24 and the found
+flag at +0x28), the states' entries in `hero_change_state` (0x699C70), their motion in
 `hero_update_state` (0x690F18) and their transitions in `hero_transitions`. Everything not
 listed here reads as UYA's: the top's slope, materials and moving objects, the 0.5–1.5 u
-rise and 1.8 u drop, the wall face's five probes 0.14 u apart, the lip's 0.03 u climb to
-2.4 u, the hang point (0.5 out, 1.43 down), the same 65° angle test (0x3F91361E) before the
-lip search, the grab's 4 u/s and turn,
-the hang's and shimmy's buttons, windows and angles, the shimmy's side look and turn, and
-the 40-frame timer after letting go mid-shimmy.
+rise and 1.8 u drop, the wall face's five probes 0.14 u apart, the hang point (0.5 out,
+1.43 down), the same 65° angle test (0x3F91361E) before the lip search, the grab's 4 u/s
+and turn, the hang's and shimmy's buttons, windows and angles, the shimmy's 0.2 u side look
+and its turn, and the 40-frame timer after letting go mid-shimmy.
 - **When it looks:** a jump grabs once past its apex or rising slower than 0.5 u/s (UYA
   3.5), and a double jump from its animation's frame 24 (UYA 37).
 - **The top's probe:** one vertical cast 0.3 + 0.3 u past the capsule's front, 1.05 u
@@ -1329,16 +1337,75 @@ the 40-frame timer after letting go mid-shimmy.
   agrees. Online co-op's remote heroes would be such heroes (RE.10).
 - **No clear lip:** DL doesn't check for anything just above the lip, back towards the
   hero.
+- **The lip stays where the cast hit the top.** The search that should walk it out to the
+  wall's edge builds both ends of its short vertical probe as 0.03 u out and 0.05 u below
+  (both `vadd`, 0x6730D0, where UYA's second end is 0.05 u above), so the probe has no
+  length, never hits, and the first step ends the search.
+  - So the lip is 1.05 u ahead of the feet and the hang point 0.55 u ahead of his axis:
+    further than a wall he touches lets him come (his radius is 0.45). The grab and the
+    hang pull him towards it at 4 u/s, the wall holds him at its face, and he eases down
+    to the hang's height, the drop shrinking by about 13% a frame as the blocked part
+    comes to dominate the 4 u/s.
+- **The grab's animation starts at keyframe 1** (sequence 70, blended over 11 frames),
+  where UYA's starts at 11, so it passes frame 12 and hangs on the grab's 24th frame (UYA
+  14th). When a speed at hero+0x1B4 is over 3.5 u/s it starts at keyframe 0 over 9 frames
+  instead [code].
 - **Losing the ledge** from under his hands drops him with a 30-frame no-grab timer (UYA
-  10); letting go with R1 (its mapped button) or X pulled away still gives 10, and sets
-  libdl's `HideWeapon` byte (hero+0x2663).
-- **The shimmy's step** is 1.5 × the same per-frame table (0x3B0BA0) where UYA's is 0.5 ×.
-  The shimmy animation's rate isn't read in DL, so whether a cycle covers three times
-  UYA's 0.623 u isn't known.
-- **In the kit:** `dl.ron`'s `ledge` section (`probe_ahead`, `probe_step`,
-  `probe_tries`, `clear_back: 0` for no clear-lip check, `grab_rising_below`,
-  `double_jump_after_tick`, `no_grab_ticks_lost`, `shimmy_step_scale`). Tested in
-  `rac_hero/tests/moves.rs` (`deadlocked_finds_ledges_further_out`).
+  10). Letting go on purpose gives 10, and sets libdl's `HideWeapon` byte (hero+0x2663):
+  UYA's R1, which in DL's lock-strafe camera is L2 (`pad_action_mask`, "Deadlocked's
+  moves"; R1 there does nothing), or X with the stick pulled away.
+- **The shimmy steps 1.5 × the same table** (0x3B0BA0) where UYA's is 0.5 ×, towards the
+  hang point found 0.2 u to the side. That point is 0.55 u ahead of his axis like the
+  hang's, so the step points 70° into the wall, which takes all but 0.342 of it: along the
+  wall each step is 0.513 × the table's entry, about UYA's 0.5 ×.
+  - The table's negative entries step him away from that point, so 0.29 u off the wall in
+    a cycle, and the next cycle's first steps put him back against it.
+  - Each tick the detector must also find the ledge at his own position, or he doesn't
+    move (UYA the same).
+  - Its animation (sequence 73 left, 74 right) starts at frame 0 and runs 0.5 frames a
+    tick from the first tick, with no hold at frame 0 as in UYA, and loops over 16
+    frames. So a cycle is 32 ticks and uses all 16 entries, the last two a step back and
+    nothing.
+  - **A cycle covers 0.60 u along the wall**, 2 × 0.513 × the table's sum (0.588), about
+    1.1 u/s against UYA's 1.3.
+- **The climb (27)** is UYA's vertically: 2.05 u with X held, 25 u/s², leaving at 0.1618 u
+  a frame and peaking 1.967 u above the hanging feet.
+  - He hangs still for 3 frames, the push-off's 2 and one more, as UYA's does after its 4.
+  - Its animation starts at keyframe 14, past the 13 where the forward speed starts, so
+    the speed rises at 8 u/s² from the first frame and reaches 2 u/s on the 15th. The
+    animation passed 27 on the 38th frame, where the speed eased off as he landed on the
+    top on the 39th.
+
+**Checked against our own DL NTSC traces** (`dlntsc-dreadzone-ledge-{1,2,3}`, scripted
+keyboard play on DreadZone Station at the tutorial's ledge block, whose top is 2.22 u up;
+`docs/re-setup.md`). These match the code:
+- **The grab** started on the first frame the top was 0.5 u above the feet (0.504; 0.486
+  the frame before), just past the apex. The lip was exactly the cast's hit, 1.05 u
+  along his facing (yaw 1.343, not square to the wall), the hang point 0.5 u out from it,
+  and he hung at the wall's face 0.49 u short of the hang point in y, where the owner's
+  Gladiator savestate hangs too. He turned square to the wall in 12 frames.
+- **Hanging** on the grab's 24th frame, at animation frame 13.
+- **The shimmy:** steps of 0.0128, 0.0257, 0.0386, 0.0833, 0.0551 and 0.0190 u along the
+  wall for the entries 0.025 to 0.037 (0.513 ×), 0.0255 and 0.0525 u back and out for the
+  negative ones (1.5 ×); every cycle 32 frames; 0.6054 u a cycle left and 0.5998 right;
+  0.29 u off the wall and back each cycle. With the stick released it finished the cycle
+  and hung, then moved back to the wall at 4 u/s.
+  - At the block's west end the wall no longer took its share, so the last cycle carried
+    him 1.03 u and round the corner, where he hung with the stick still held.
+- **Letting go:** L2 and X with the stick pulled back each dropped him into a fall with the
+  10-frame timer; R1 did nothing.
+- **The climb,** as above; the wall kept him from moving forward until its 8th frame.
+
+**In the kit:** `dl.ron`'s `ledge` section (`probe_ahead`, `probe_step`, `probe_tries`,
+`clear_back: 0` for no clear-lip check, `lip_walk: false`, `grab_rising_below`,
+`double_jump_after_tick`, `grab_ticks: 23`, `no_grab_ticks_lost`, `shimmy_step_scale`,
+`shimmy_blend_ticks: 0`, `shimmy_cycle_frames: 16`, the climb's forward ticks). Tested in
+`rac_hero/tests/moves.rs` (`deadlocked_finds_ledges_further_out`,
+`deadlocked_hangs_against_the_wall_short_of_its_hang_point`,
+`deadlocked_shimmies_along_the_wall_at_about_uyas_pace`,
+`deadlocked_climbs_forward_from_its_first_tick`). Both games' climbs now hang still through
+the push-off and a frame more, and the kit's motor no longer drops a skin's width of every
+slide along a wall, which had cut each of DL's shimmy steps by 0.0016 u.
 
 ## Getting hit and dying [code, UYA NTSC, 2026-10-12]
 
@@ -2051,14 +2118,17 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
 | Double-jump cap | 8.75 u/s | 7 u/s **[verified on DL NTSC]** |
 | Double jump from a standing or run jump | from t > 14 | from t > 10 **[verified on DL NTSC]** |
 | Glide (state 8): forward speed, sink | 3 u/s (5 in one gadget mode), 2.16 u/s | 5 u/s, 3.6 u/s (5 × 0.72) [code] |
-| Ledge jump push-off | 4 frames NTSC, 3 on R&C3 PAL | 2 frames on DL NTSC [code] and on Gladiator PAL |
+| Ledge jump push-off | 4 frames NTSC (he leaves on the 6th), 3 on R&C3 PAL | 2 frames on DL NTSC (he leaves on the 4th) **[verified on DL NTSC]** and on Gladiator PAL |
+| Ledge lip | walked out over the top to the wall's edge | where the top's cast hit, 1.05 u ahead of the feet: the walk's probe has no length **[code; verified on DL NTSC]** |
+| Ledge grab, then hanging | from the grab's 14th frame | from its 24th: its animation starts at keyframe 1, not 11 **[verified on DL NTSC]** |
+| Shimmy | 0.5 × the table sideways; 28 frames and 0.623 u a cycle | 1.5 × the table towards a point the wall half blocks; 32 frames and 0.60 u a cycle **[verified on DL NTSC]** |
 | A jump from a strafing walk | flips to the side or back | always a standing jump **[verified on DL NTSC]** |
 | Flips | from a walk, as a jump lands, and from a crouch | only as a jump lands **[verified on DL NTSC]** |
 | Crouch (state 4), and with it the crouch flip, the long jump and the heli jump | R1 | none: nothing enters states 4, 10 or 15 **[code; R1 traced]** |
 | What bars the glide | no heli-pack in the back slot | hero+0x2E2C, set when the hero is created and never cleared **[code; traced]** |
 | `hero_strafe_side` for back; flip animation | 3; sequence 28 + side | −1; sequence 17 + side [code; −1 traced] |
 | The landing flip: off the ground fewer than | 8 frames | 4 frames [code] |
-| Wall jump (state 17) | from standing and run jumps, glides and wall jumps | none: nothing enters it, and no wall detector runs [code] |
+| Wall jump (state 17) | from standing and run jumps, glides and wall jumps | none: nothing enters it, and no wall detector runs **[code; checked on DL NTSC at a tall wall]** |
 | Zip lines (UYA's state 118) | yes, on the level's rails | none; 118 is the death fall [code] |
 | Diving | Square from the surface | none: DL's surface states don't dive [code] |
 | Default camera | follow (third person) | lock-strafe |
@@ -2146,7 +2216,7 @@ Read in DL's code on 2026-10-20 (`re/SCUS-97465/symbols.toml`), and traced in
   at hero+0x23E4 (0x669D30) and, in `hero_set_animation`, a call to 0x688A60: probably
   Clank's place on his back, which DL doesn't use. The flip takes held it at 1
   throughout.
-- **Deadlocked has no wall jump [code; a trace attempt inconclusive]:** nothing in the
+- **Deadlocked has no wall jump [code; checked on DL NTSC, 2026-10-20]:** nothing in the
   level's code enters state 17 (every `li a1, 0x11` near a state change was checked; two
   pass gadget 0x11, the charge boots, to the gadget code at 0x688858). The jump states'
   motion (`hero_update_jump`, 0x696620) ends with `hero_jump_vertical` where UYA's goes on
@@ -2156,6 +2226,11 @@ Read in DL's code on 2026-10-20 (`re/SCUS-97465/symbols.toml`), and traced in
   air control are still there, unreached, like the crouch's. `dlntsc-dreadzone-wall-2`
   jumped against the steps beside the start and a wall above them with X tapped: double
   jumps and no state 17, but the wall there wasn't a clean, tall one.
+  `dlntsc-dreadzone-tallwall-{1..10}` jumped at DreadZone Station's tall back wall
+  (x ≈ 658.5, facing −x), the hero against it from his jump's second frame, with X again
+  7, 9, 13 and 19 frames in (and later), standing and from a walk. Each gave a double jump,
+  never state 17. He edged 0.3 u further into the wall as he rose, so its foot may slope a
+  little.
 - **Deadlocked has no zip lines [code]:** its state 118 is the death fall (libdl's
   `DEATH_FALL`), not UYA's zip line: `hero_transitions` enters it when the hero is below
   the level's kill height (0x222BFC) and more than 2 u over the ground, its motion keeps
@@ -2258,12 +2333,11 @@ Also read in code but not seen in a trace:
 ## Next steps
 
 1. **More on Deadlocked NTSC.** The charge (2026-10-12), the walk, jumps and double jump
-   (2026-10-15), and the flips, the missing crouch and the barred glide (2026-10-20) are
-   verified ("Deadlocked's moves"), and DL has no wall jump [code]. Next: the parts of the
-   kit's DL profile still marked "not read in DL" (lock-on, grinding, the hazard floor,
-   death, the surface float, the stick's cut-off), a DL savestate by a ledge to trace "Deadlocked's ledges" (the shimmy's
-   reach above all), a clean tall wall on some DL level to trace the missing wall jump
-   against, and the code behind the 0.43 u step limit. The lock-strafe camera is read
+   (2026-10-15), and the flips, the missing crouch, the barred glide, the missing wall
+   jump and the ledges, shimmy and climb (2026-10-20) are verified ("Deadlocked's moves",
+   "Deadlocked's ledges"). Next: the parts of the kit's DL profile still marked "not read
+   in DL" (lock-on, grinding, the hazard floor, death, the surface float, the stick's
+   cut-off), and the code behind the 0.43 u step limit. The lock-strafe camera is read
    and traced (2026-10-16, `camera.md`, "Deadlocked's camera"), and the kit has it, as
    `dl.ron`'s default camera (P1.7).
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and

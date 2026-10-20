@@ -360,14 +360,23 @@
         face_reach: 1.0,
         lip_step: 0.03,
         lip_search: 2.4,
+        // DL: the search's probe is 0.03 out and 0.05 below at both ends (0x6730D0), so
+        // it never hits and the lip stays where the cast hit the top, 1.05 u ahead of the
+        // feet. The hang point is then 0.55 u ahead of his axis, so the wall holds him at
+        // its face [code; verified on DL NTSC, 2026-10-20: lip = the cast's hit, hanging
+        // 0.49 u short of the hang point].
+        lip_walk: false,
         hang_out: 0.5,
         hang_below: 1.43,
         grab_rising_below: 0.5, // DL: 0.5 × frame_dt, against UYA's 3.5 u/s
         double_jump_after_tick: 24, // DL: animation frame 24, against UYA's 37
         grab_speed: 4.0, // 0.066667 u per frame
         grab_turn: (gain: 0.04, damping: 0.2, cap: 0.10472),
-        grab_ticks: 13, // hangs once the grab animation passes frame 12
-        no_grab_ticks: 10,
+        // DL: the grab's animation starts at keyframe 1 (UYA 11), so it passes frame 12 on
+        // tick 23 [verified on DL NTSC, 2026-10-20]; at keyframe 0, 25, when the grab comes
+        // faster than 3.5 u/s (hero+0x1B4) [code].
+        grab_ticks: 23,
+        no_grab_ticks: 10, // [verified on DL NTSC: L2, or X with the stick pulled away]
         no_grab_ticks_shimmy: 40,
         no_grab_ticks_lost: 30, // DL: 30, against UYA's 10
         climb_press_window: 17,
@@ -376,20 +385,25 @@
         shimmy_stick: 0.5,
         shimmy_degrees: 45.0,
         shimmy_probe: 0.3,
-        // The shimmy steps by its animation's table, as UYA's [code; verified on UYA NTSC]:
-        // towards the ledge 0.1 u to the side (0.2 × the hang's 0.5 u offset), a scale ×
-        // the frame's entry long. In UYA the animation sits at frame 0 for 6 ticks, then runs
-        // half a frame a tick; a cycle ends on frame 14, before its last entry.
-        shimmy_look: 0.1,
+        // The shimmy steps by its animation's table, as UYA's: towards the ledge found 0.2 u
+        // to the side, 1.5 × the frame's entry long (0x3B0BA0, UYA 0.5 ×). That ledge's
+        // hang point is 0.55 u ahead of his axis (`lip_walk`), further than the wall lets
+        // him come, so it takes all but 0.342 of each step: along the wall a step is
+        // 0.513 × the entry, about UYA's pace. The steps
+        // back pull him 0.29 u off the wall each cycle, and the next steps forward put him
+        // back. The animation runs half a frame a tick from the first tick and loops over
+        // 16 frames, so a cycle is 32 ticks and covers 0.60 u [verified on DL NTSC,
+        // 2026-10-20: 0.605 and 0.600 u a cycle].
+        shimmy_look: 0.2,
         shimmy_steps: [0.0, 0.0, 0.025, 0.05, 0.075, 0.162, 0.162, 0.107, 0.037, 0.037, 0.037, -0.017, -0.017, -0.035, -0.035],
-        // DL: 1.5 × the same table (0x3B0BA0), against UYA's 0.5 [code]; the
-        // animation's rate below is UYA's [not read in DL].
         shimmy_step_scale: 1.5,
-        shimmy_blend_ticks: 6,
+        shimmy_blend_ticks: 0,
         shimmy_frames_per_tick: 0.5,
-        shimmy_cycle_frames: 14.0,
+        shimmy_cycle_frames: 16.0,
         shimmy_turn: (gain: 0.02, damping: 0.2, cap: 0.0785398),
-        // State 27, the ledge jump: 2.0-2.05 u, hold 1, push-off 2, gravity 25 [code].
+        // State 27, the ledge jump: 2.0-2.05 u, hold 1, push-off 2, gravity 25 [code;
+        // verified on DL NTSC, 2026-10-20: off on the 4th tick, peaking 1.967 u above the
+        // hanging feet].
         climb: (
             height_min: 2.0,
             height_max: 2.05,
@@ -401,14 +415,15 @@
         ),
         // The game moves forward towards 2 u/s at 8 u/s² between the climbing animation's
         // frames 13 and 27, back towards 0 until 30, and leaves the speed alone outside
-        // them [code]. The animation reached 13 on the climb's 5th tick and jumped to
-        // another clip past 30 on its 36th, so the speed held at 2 u/s until he landed
-        // [verified on UYA NTSC, 2026-10-13].
+        // them [code]. DL's climb starts its animation at keyframe 14, so the speed rises
+        // from its first tick and reaches 2 u/s on its 15th; the animation passed 27 on
+        // the 38th, where it eased off as he landed [verified on DL NTSC, 2026-10-20; the
+        // wall kept him from moving forward until the 8th tick].
         climb_forward_speed: 2.0,
         climb_forward_accel: 8.0,
-        climb_forward_from_tick: 5,
-        climb_forward_until_tick: 35,
-        climb_forward_stop_tick: 35,
+        climb_forward_from_tick: 0,
+        climb_forward_until_tick: 36,
+        climb_forward_stop_tick: 39,
         climb_turn_after_tick: 40,
     ),
     // State 125, "Charge boots" [verified on DL NTSC, apart from the descent and the wall

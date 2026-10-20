@@ -99,7 +99,10 @@ pub fn move_body(
         let length = remaining.length();
         let travel = (hit.fraction * length - SKIN).max(0.0);
         position += remaining / length * travel;
-        remaining *= 1.0 - hit.fraction;
+        // Keep all that wasn't travelled: the push into the surface goes below, and the
+        // rest slides on. Dropping the skin's share too would cut a slide along a wall
+        // short by it every tick, which a shimmy's small steps into the wall show.
+        remaining *= 1.0 - travel / length;
 
         let mut normal = hit.normal;
         if normal.y < -0.5 {

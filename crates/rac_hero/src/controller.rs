@@ -886,18 +886,21 @@ pub fn detect_ledge(
         (normal != Vec3::ZERO).then_some(normal)
     })?;
 
-    // 5. The lip: walk from the top's hit back out over the wall until the top runs out.
+    // 5. The lip: walk from the top's hit back out over the wall until the top runs out
+    // (DL's walk never moves: `lip_walk`).
     let mut lip = top;
     let mut searched = 0.0;
-    loop {
-        let from = lip + normal * ledge.lip_step + Vec3::Y * 0.05;
-        match world.cast_ray(from, Vec3::NEG_Y * 0.1) {
-            Some(hit) => lip = from + Vec3::NEG_Y * 0.1 * hit.fraction,
-            None => break,
-        }
-        searched += ledge.lip_step;
-        if searched >= ledge.lip_search {
-            return None;
+    if ledge.lip_walk {
+        loop {
+            let from = lip + normal * ledge.lip_step + Vec3::Y * 0.05;
+            match world.cast_ray(from, Vec3::NEG_Y * 0.1) {
+                Some(hit) => lip = from + Vec3::NEG_Y * 0.1 * hit.fraction,
+                None => break,
+            }
+            searched += ledge.lip_step;
+            if searched >= ledge.lip_search {
+                return None;
+            }
         }
     }
 
@@ -3215,6 +3218,12 @@ fn jump_vertical(hero: &mut HeroMotion, params: &JumpParams, holding: bool, prof
         jump.holding = false;
     }
 
+    // The climb hangs still through its push-off and one tick more, where other jumps press
+    // into the ground [verified on UYA NTSC and DL NTSC, 2026-10-20].
+    if hero.state == HeroState::Jump(JumpKind::Ledge) && t <= params.pushoff_ticks {
+        hero.velocity.y = 0.0;
+        return;
+    }
     if t < params.pushoff_ticks {
         hero.velocity.y = -air.pushoff_press * TICK;
         return;

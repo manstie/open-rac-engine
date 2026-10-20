@@ -165,8 +165,8 @@ note = "Ray forward from the capsule's front at a given height; true when it hit
 name = "hero_set_animation"
 address = 0x00688C08
 kind = "function"
-confidence = "medium"
-note = "Starts an animation with a blend length in frames (negative: the default). The 8.0, 11.0 and -2.0 next to state changes are blends, not physics."
+confidence = "high"
+note = "Starts an animation: f12 the blend length in frames (negative: the default), a1 the sequence, a2 the start keyframe, a3 flags. The 8.0, 11.0 and -2.0 next to state changes are blends, not physics. Sets hero+0x640 (the animation rate) to 1; animations advance 0.5 x rate frames a tick on NTSC (traces). The ledge states use 70 (grab, keyframe 1 over 11, or 0 over 9 when hero+0x1B4 is over 3.5 u/s), 71 (hang), 73 and 74 (shimmy left, right), each over 6 (checked by trace, 2026-10-20)."
 
 [[symbol]]
 name = "hero_play_sound"
@@ -1882,3 +1882,17 @@ address = 0x00222BFC
 kind = "data"
 confidence = "medium"
 note = "Below this height, more than 2 u over the ground, hero_transitions starts the death fall (state 118, libdl's DEATH_FALL), which empties the hero's health after 120 frames. DL has no zip lines; UYA's single player uses 118 for them."
+
+[[symbol]]
+name = "hero_detect_ledge"
+address = 0x00672960
+kind = "function"
+confidence = "high"
+note = "UYA's hero_detect_ledge with DL's changes (hero-controller.md, \"Deadlocked's ledges\"): one top cast 1.05 u ahead for the local hero, no clear-lip check, and a lip search whose probe has no length (both ends 0.03 out and 0.05 below, 0x6730D0), so the lip is the cast's hit. Writes hang point, lip, wall yaw (+0x24) and found flag (+0x28) to its output, the ledge block at hero+0x1DA0 when the per-frame driver calls it; returns 0 while the no-grab timer hero+0x388 runs. Checked by trace on DL NTSC, 2026-10-20."
+
+[[symbol]]
+name = "hero_shimmy_steps"
+address = 0x003B0BA0
+kind = "data"
+confidence = "high"
+note = "16 floats, the shimmy's step per animation frame (UYA's table plus a final 0); hero_update_state scales the entry by 1.5 (UYA 0.5) and points it at the hang point found 0.2 u to the side. Checked by trace on DL NTSC, 2026-10-20."
