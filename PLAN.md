@@ -41,7 +41,8 @@ session is working on the task now; notes on problems met stay with their task (
   collision rule the kit needs is read and traced in both games; RE.8 is answered
   (NTSC-U is the native tuning).
   UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
-  level, ammo, XP, mods, aim assist, and the guns behind P1.9's five archetypes.
+  level, ammo, XP, mods and what they do, aim assist, the guns behind P1.9's five
+  archetypes, and how firing affects the hero.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
@@ -431,21 +432,38 @@ committed (names, addresses, layouts, derived constants).
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
   `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
-  - Done for UYA NTSC-U, in code (no gun traced yet): the weapon table (0xF0-byte rows
+  - Done for UYA NTSC-U, in code: the weapon table (0xF0-byte rows
     per item and level) with every gun's damage, ammo, prices and XP thresholds; owning,
     ammo, levelling, XP from kills and the bought Mega levels; the lock-on, shock and acid
     mods and the levels that set them; switching and firing animations; the guns' aim
     assist; the damage queue's one pending hit per target; and the Shock Blaster
     (hitscan), N60 Storm (rapid fire), Nitro Launcher (lobbed), Lava Gun (stream),
-    Annihilator (homing) and Flux Rifle (sniper).
+    Annihilator (homing) and Flux Rifle (sniper). Also, in code: the hero's side of
+    firing (the firing flags and animations, the walk's turn while firing, no double
+    jump while firing, the raised gun arm, the upper body's turn to the gun's target, the
+    fire direction and how guns aim with it, state 29, Triangle's quick switch), and
+    what the shock and acid mods do, with their tables (`weapons.md`, "The hero's side of
+    firing", "What shock and acid do").
+  - Traced on UYA NTSC (`uyantsc-veldin-fire-{1,2}`, the Shock Blaster and N60 given by
+    writing their bytes): the hero's side of firing, its turn spring exact to 10⁻⁸
+    (`weapons.md`, "Checked in traces"). Projectiles aren't traced.
+  - The Shock Blaster at V1 was read as firing on a press; the trace and the code show it
+    fires while Circle is held, as often as its cooldown allows. Corrected.
   - The weapon table is static data in each level's overlay and moves per level, so the
     disc path needs P2.6; until then the numbers come from savestate images.
   - Row +0x50 is the rate of fire only for the guns whose code reads it; the N60 Storm
     has its own 14-frame interval (`weapons.md`, "Numbers").
-  - Open: the hero's side of firing (0x4E6D40, 0x503930), the Flux Rifle's piercing, the
-    Annihilator's V2–V4 mines, the mods' damage over time, the other fourteen guns, a
-    savestate with guns for traces, and all of DL.
-  - Next step: read the hero's side of firing (`weapons.md`, "Next steps", item 1).
+  - The Nitro Launcher's acid does nothing as read: its blast passes item 0x77, which has
+    no entry in the acid table. Still open whether another build fills it.
+  - `hero-controller.md` had row +0x24 as a held weapon's idle and the release skid's
+    hand-slot condition as unknown; +0x24 is the firing sequence, and the skid needs the
+    wrench in hand. Corrected.
+  - Open: the Flux Rifle's piercing and the Annihilator's V2–V4 mines (in neither the
+    shots' nor the guns' code read), the other fourteen guns, projectiles in traces (they
+    are spawned mobys a fixed layout can't follow), and all of DL.
+  - Next step: the rest of the hero's side of firing in traces (a glove's arm layers, the
+    raised arm, a target), with `uyantsc-veldin-fire.sh` extended (`weapons.md`, "Next
+    steps", item 1); or start P1.9 from what is read.
   - Weapon definitions (DL's `GadgetDef` is 0xB0 bytes): fire rates, damage and projectile
     behaviour.
   - Upgrade and XP tables: UYA V1–V5, and DL V1–V10 with mods.

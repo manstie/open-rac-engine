@@ -59,7 +59,7 @@ name = "hero_walk_turn"
 address = 0x004EB0E8
 kind = "function"
 confidence = "medium"
-note = "Walk turn spring while setting off: gain clamp(0.02 m, 0.01, 0.022), damping 0.27, cap clamp(0.064 m, 0.032, 0.0931); 0.035 and 0.1949 while skidding. The R&C3 PAL counterpart is checked in its traces."
+note = "Walk turn spring while setting off: gain clamp(0.02 m, 0.01, 0.022), damping 0.27, cap clamp(0.064 m, 0.032, 0.0931); 0.035 and 0.1949 while skidding. The R&C3 PAL counterpart is checked in its traces. While the Shock Blaster, N60, Plasma Coil or Lava Gun fires: gain 0.009 m, damping 0.15, cap 0.0785 m (m <= 0.95), else 0.017, 0.18, 0.1454; the N60's checked on 31 frames of uyantsc-veldin-fire-2 (2026-10-20)."
 
 # Added 2026-10-12 while reading the wall jump, ledges, hits and slope limit (RE.3). Found
 # by decompiling the callers of hero_change_state and the readers and writers of the hero
@@ -2079,7 +2079,7 @@ name = "hero_fire_anim"
 address = 0x004E6A08
 kind = "function"
 confidence = "medium"
-note = "(item or -1): plays the gun's firing animation: whole body (row +0x24) when standing, else arms only (+0x28, +0x2C in state type 12) on one arm layer or both for a two-handed gun (+0x18 = 2)."
+note = "(item or -1): sets hero_firing and hero_firing_held (row +0x30) and plays the gun's firing animation: whole body (row +0x24, blended over 2, 5 or 11 frames) when standing, else arms only (+0x28, +0x2C in state type 12) on one arm layer or both for a two-handed gun (+0x18 = 2). Standing excludes the raised gun arm and the lock-strafe setting with the camera pitched past 10 deg."
 
 [[symbol]]
 name = "weapon_shock_mod"
@@ -3228,3 +3228,140 @@ address = 0x001DF9D0
 kind = "data"
 confidence = "high"
 note = "The fade to black, 0 clear to 1 black: path cameras raise and lower it by 0.05 a frame and cut while it is 1. Verified on Florana (0x1DE350 there, uyantsc-florana-camvol-2)."
+
+# Added 2026-10-20 while reading the hero's side of firing (RE.7). Found from the readers
+# and writers of the firing flags and the fire direction (tools/ghidra/RefsTo.java). Those
+# marked high were checked in the uyantsc-veldin-fire traces (docs/re-setup.md).
+
+[[symbol]]
+name = "hero_gun_update"
+address = 0x004E6D40
+kind = "function"
+confidence = "medium"
+note = "Per frame (from 0x4E7118): runs the two arm layers of the firing animation (in at 0.2 a frame, out at 0.07, or 0.25 when cut), stops firing when a held gun is dry, and sets hero_fire_dir from the hero's matrix and angles, the yaw plus the upper-body twist unless strafing or firing in lock-strafe."
+
+[[symbol]]
+name = "hero_fire_stop"
+address = 0x004E6CB0
+kind = "function"
+confidence = "medium"
+note = "Ends firing: fades the arm layers out (or puts the idle sequence back on the body) and clears hero_firing and hero_firing_held. Every gun calls it."
+
+[[symbol]]
+name = "hero_firing"
+address = 0x001A71C9
+kind = "data"
+confidence = "high"
+note = "Set by hero_fire_anim, cleared when the firing animation ends or hero_fire_stop runs. While set: no double jump, and the four guns' own walk turn in hero_walk_turn. Checked in uyantsc-veldin-fire-{1,2} (2026-10-20)."
+
+[[symbol]]
+name = "hero_firing_held"
+address = 0x001A71CB
+kind = "data"
+confidence = "high"
+note = "Row +0x30 copied by hero_fire_anim: 1 for the guns fired by holding the button. While set the walk keeps its setting-off turn and holds its speed past 45° off the stick, and another animation doesn't end firing. Checked in uyantsc-veldin-fire-{1,2}: 0 for the Shock Blaster, 1 for the N60 (2026-10-20)."
+
+[[symbol]]
+name = "hero_gun_arm_raise"
+address = 0x004E26F8
+kind = "function"
+confidence = "medium"
+note = "With a gun in hand: hero_wall_probe 0.57 u up (0.7 firing) to 1.3 u ahead; a hit raises the gun arm by -70 deg x 1.25 x (1.3 - d) / 1.3, clamped to -30..-70 deg, and sets gun_arm_raised. In lock-strafe the arm follows the camera pitch (0x1A6180, -80..45 deg) instead."
+
+[[symbol]]
+name = "hero_wall_probe"
+address = 0x004E2628
+kind = "function"
+confidence = "medium"
+note = "(height, reach, out distance or 0): a ray at the height from just inside the hero's radius (0x1A4E64 - 0.02) to the reach ahead of him; 1 on a hit, with the distance to it."
+
+[[symbol]]
+name = "gun_arm_raised"
+address = 0x001A7454
+kind = "data"
+confidence = "medium"
+note = "libuya's raisedGunArm: a wall is close in front, so the gun points up. hero_fire_anim then plays arms only, the Shock Blaster's hit waits 5 frames, the Annihilator fires along the gun."
+
+[[symbol]]
+name = "hero_head_look"
+address = 0x004E2F50
+kind = "function"
+confidence = "medium"
+note = "Turns the head and upper body on springs: to gun_target_now when there is no lock-on target (gain 0.037, damping 0.3, yaw within 59 deg, pitch -25..35 deg), else to the nearest look-at object (0x1A73DC, searched every 7th frame). Clears gun_target_now."
+
+[[symbol]]
+name = "gun_target_now"
+address = 0x001A57B8
+kind = "data"
+confidence = "medium"
+note = "The target the gun in hand aims at this frame (the lock-on target 0x1A6010 or its aim assist's), set by the gun's update and cleared by hero_head_look."
+
+[[symbol]]
+name = "hero_fire_dir"
+address = 0x001A52A0
+kind = "data"
+confidence = "medium"
+note = "libuya's HeroFireDir: matrix (0x1A52A0), direction (0x1A52D0, the hero's facing) and angles (0x1A52E0, yaw plus the upper-body twist). Guns shoot along it when they have no target."
+
+[[symbol]]
+name = "aim_at_target"
+address = 0x00454298
+kind = "function"
+confidence = "high"
+note = "(speed, target, from, out): out = speed x the unit vector from 'from' to the target's position raised by its damage record's height (+0x10) along its up."
+
+[[symbol]]
+name = "aim_bend_to_point"
+address = 0x004C7010
+kind = "function"
+confidence = "medium"
+note = "(speed, range, max angle, out, from): out = speed x the direction from 'from' to fps_aim_pos, or hero_fire_dir's direction turned towards it by at most the angle (a tenth of it within 4 u). Guns call it in the lock-strafe and first-person cameras (80 deg; the scoped Flux Rifle 20 deg)."
+
+[[symbol]]
+name = "fps_aim_pos"
+address = 0x001A6230
+kind = "data"
+confidence = "medium"
+note = "libuya's FpsCamVars.aim_pos: the point the free-look camera aims at (the offsets line up with fps.active at 0x1A6290). Its writer isn't found yet."
+
+[[symbol]]
+name = "aiming_fire_wait"
+address = 0x001A749C
+kind = "data"
+confidence = "high"
+note = "40 whenever the hero isn't in state 29; counted down there, and the Shock Blaster doesn't fire until it runs out. Checked in uyantsc-veldin-fire-1 (2026-10-20)."
+
+[[symbol]]
+name = "hero_quick_switch_button"
+address = 0x00503668
+kind = "function"
+confidence = "medium"
+note = "Triangle pressed opens a 20-frame window (0x1A7460); released inside it, asks for a quick switch (0x1A74A0). Not in states 19, 20, 21, 55, 136."
+
+[[symbol]]
+name = "hero_quick_switch"
+address = 0x005037C0
+kind = "function"
+confidence = "medium"
+note = "Makes the quick switch: from the wrench to the equipped gun; otherwise turns recent_guns round among its first three until a gun with ammo leads, and asks to switch to it (0x1A71D8)."
+
+[[symbol]]
+name = "recent_guns_rotate"
+address = 0x00503760
+kind = "function"
+confidence = "medium"
+note = "(n): moves recent_guns' first item behind the other non-empty ones among the first n."
+
+[[symbol]]
+name = "recent_guns_push"
+address = 0x00503930
+kind = "function"
+confidence = "medium"
+note = "(item): moves the item to the front of recent_guns (not the wrench or items 0x16, 0x1E, 0x23); coming from past the third place, it first drops an empty gun from the first three."
+
+[[symbol]]
+name = "recent_guns"
+address = 0x00142670
+kind = "data"
+confidence = "medium"
+note = "Eight items, most recently chosen first; Triangle's tap cycles the first three."

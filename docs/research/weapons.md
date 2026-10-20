@@ -10,8 +10,9 @@ hero kit's weapons framework (P1.9). Started 2026-10-16 on UYA NTSC-U; DL follow
   the Aquatos sewers were compared for the table's placement.
 - **Labels:** **[code]** read in the game's code; **[data]** read from the memory image;
   **[text]** said by the game's own vendor descriptions (row +0x3E), which tell what each
-  level adds, not checked in code unless also marked [code]. Nothing here is traced yet:
-  no savestate of ours holds a gun.
+  level adds, not checked in code unless also marked [code]; **[verified]** checked in
+  our traces, which so far cover the hero's side of firing with the Shock Blaster and N60
+  ("Checked in traces"). Projectiles aren't traced yet.
 - Addresses below are in Veldin's image. Code and the weapon table move with each level's
   overlay; the item arrays at 0x142xxx and the hero at 0x1A4BC0 don't.
 - Names come from `re/SCUS-97353/symbols.toml`, where the functions are listed.
@@ -134,8 +135,8 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
 | Bit | Mod | What it does |
 |---|---|---|
 | 0x20 | lock-on | L2 and R2 together lock on (`hero-controller.md`, "Lock-on") |
-| 0x02 | shock | each hit also arcs to enemies near the target, as damage over time (0x34BF98) |
-| 0x08 | acid | hits leave acid that does damage over time [text]; checked by 0x31AC38 on each hit [code] |
+| 0x02 | shock | each hit also arcs to an enemy near the target (0x34BF98; below) |
+| 0x08 | acid | hits leave acid that does damage over time (0x31AC38; below) |
 
 Seen in code [code]:
 
@@ -150,6 +151,42 @@ Seen in code [code]:
 The vendor's texts add acid at V2 for the Lava Gun, Plasma Coil and Bouncer, and lock-on
 for several V5 guns [text]; their code isn't read yet.
 
+### What shock and acid do [code, data, UYA NTSC, 2026-10-20]
+
+Both take (target, item, attacker) and run only when the item's mod bit is set (the item,
+or the item its row +0x48 names, so 0xA0 and 0xA1 stand for the Plasma Coil and Lava
+Gun); both affect only living enemies (class category 5, targetable), each target at
+most once at a time, in 30 slots. Their numbers come from per-item tables in two banks:
+**bank 1 while the gun is at V3 or V4, bank 0 otherwise**. The level start fills them
+(0x34C438, 0x31AF48), with every other item zero.
+- **Acid** (`weapon_acid_mod`, 0x31AC38; slots at 0x274600, ticked by 0x31A920):
+  - each frame the target loses `damage per second / 60` straight off its health, past
+    the damage queue; the hit that takes it to 0 goes through the queue as a kill credited
+    to the attacker; it ends after the duration, when the target dies, or when it loses
+    its damage record. It tints the target green, pulsing, and drips (0x31B0A0);
+  - the table (damage per second, seconds):
+
+    | Gun | Bank 0 | Bank 1 (V3, V4) |
+    |---|---|---|
+    | Plasma Coil (0x10, 0xA0) | 2, 4 | 5, 4 |
+    | Lava Gun (0x11, 0xA1) | 2, 4 | 3, 6 |
+    | Bouncer (0x13, 0xA6) | 2, 4 | 3, 6 |
+
+  - **The Nitro Launcher has no entry:** its blast passes item 0x77, whose row is zero,
+    so its acid lasts no time and does nothing, as read in Veldin's build.
+- **Shock** (`weapon_shock_mod`, 0x34BF98; slots at 0x27F600, ticked by 0x34BA90):
+  - on the hit the target loses the table's first damage at once (a kill goes through the
+    queue); then, from that frame and every interval (1 s) for the duration, an arc jumps
+    from it to the first other living enemy found within 8 u (not class 0x1AE6) for the
+    arc's damage (0x34C5F8). With no duration the slot ends after its first frame: one
+    arc per hit;
+  - the arc's damage is the table's, but while the Shock Blaster, N60 Storm, Nitro
+    Launcher, Miniturret Glove or Spitting Hydra is in his hand it is a quarter of that
+    gun's current damage (+0x6C);
+  - only the Miniturret Glove (0x15, 0xA2) has an entry: 1 at once, arcs of 2, for 3 s
+    (bank 1: 2, 4, 3 s). So the Shock Blaster's and N60's shock is one arc per hit for a
+    quarter of their damage.
+
 ## Switching and firing [code, UYA NTSC, 2026-10-16]
 
 - **Buttons** (0x4E8830, from `hero_transitions`):
@@ -159,10 +196,16 @@ for several V5 guns [text]; their code isn't read yet.
   - With the wrench out, L2 and R2 together bring out the gun when its lock-on mod is on.
   - The gun fires on the button in 0x1A5DF0: 0x20 (Circle) for guns, 0x80 (Square) for
     the wrench.
-- **Animation** (0x4E6A08, called as a gun fires): standing still, the hero plays the
-  row's whole-body firing animation (+0x24); moving, or in the aim mode with the right
-  stick past 10°, the arms-only one (+0x28, or +0x2C in hero state type 0xC) on one arm
-  layer, or both for a two-handed gun (+0x18 = 2).
+- **Triangle tapped** (`hero_quick_switch_button`, 0x503668): released within 20 frames
+  of its press, it asks for a switch (0x1A74A0), which `hero_quick_switch` (0x5037C0)
+  makes: with the wrench out, to the equipped gun; otherwise to the next of the three
+  most recently chosen guns (`recent_guns`, 0x142670, eight items, most recent first,
+  turned round by one each tap), skipping guns out of ammo. Not during the wrench's
+  combo, jump attack or throw (states 19, 20, 21), nor states 55 and 136. Held longer,
+  Triangle is the quick-select ring's. `recent_guns_push` (0x503930) moves an
+  item to the front (never the wrench or items 0x16, 0x1E, 0x23), dropping an empty gun
+  from the first three when it comes in from further back.
+- **Animation** (0x4E6A08, called as a gun fires): see "The hero's side of firing".
 - **Damage** reaches targets through the same damage records as the wrench's
   (`damage_info_fill`, 0x443628), with the weapon's item number in the record, which is how
   a kill credits its XP.
@@ -173,6 +216,114 @@ for several V5 guns [text]; their code isn't read yet.
   a target takes at most its strongest hit per update, however many shots, stream points
   or blast frames touch it. How often each enemy then takes its pending hit (any
   invulnerability after a hit) is in each enemy's own code, not read.
+
+## The hero's side of firing [code, UYA NTSC, 2026-10-20]
+
+Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
+(0x4E6D40, from 0x4E7118), `hero_transitions`, the walk's turn and the head-look
+(0x4E2F50). Nothing here is traced yet.
+- **Two flags:** each gun calls `hero_fire_anim` as it fires, which sets `firing`
+  (0x1A71C9) and copies row +0x30 into `firing_held` (0x1A71CB). +0x30 is set for the
+  guns fired by holding the button: the N60 Storm, Infector, Suck Cannon, Qwack-O-Ray,
+  Plasma Coil, Lava Gun and Shield Charger [data]. `firing` clears when the firing
+  animation ends, at once when a held gun runs dry (`hero_fire_stop`, 0x4E6CB0), and when
+  any other animation is set while `firing_held` is clear (`hero_anim_set`).
+- **The firing animation:**
+  - **Standing** (state type 0, the gun arm not raised, and not in the lock-strafe setting
+    with the camera pitched more than 10°): the row's whole-body animation (+0x24) on the
+    body. It blends in over 2 frames for the Shock Blaster, the Refractor and sequence 49,
+    5 for the N60, else 11. In the idle, the look and state 29 a held gun keeps it
+    playing while it fires (`hero_idle_sequence` returns it).
+  - **Otherwise** (walking, in the air, crouched, the arm raised, or pitched in
+    lock-strafe): the arms-only animation (+0x28; +0x2C in a crouch, state type 12) on
+    the right arm's layer, and the left's too for a two-handed gun (+0x18 = 2), blending
+    in at 0.2 of full weight a frame and out at 0.07 when it ends (0.25 when cut). Most
+    guns have no arms-only animation (+0x28 = −1) and play nothing then; the gloves
+    (Miniturret, Agents of Doom, Holo Shield) have one [data].
+  - Whole-body sequences [data]: 49 for most two-handed guns, 51 for the one-handed
+    (N60, Plasma Coil, Qwack-O-Ray, Shield Charger), 103 the Shock Blaster and Bouncer,
+    46 the Suck Cannon, 41 the gloves; crouched 65 (two hands) or 57 (one).
+- **Firing doesn't stop the hero, but it changes his walk:**
+  - while `firing_held` is set, the walk keeps its setting-off turn (`hero_walk_turn`)
+    instead of the moving one, and its speed doesn't rise while he is more than 45° from
+    the stick, as for a part-pushed stick (`hero-controller.md`, "Skid");
+  - while the Shock Blaster, N60, Plasma Coil or Lava Gun is firing (and he isn't
+    skidding), that turn is gain 0.009 m, damping 0.15 and cap 0.0785 m rad a frame for a
+    stick m ≤ 0.95, and 0.017, 0.18 and 0.1454 above;
+  - in the lock-strafe camera, firing (or Circle or R1 in the last 2 frames) triples the
+    turn's gain and cap and makes him strafe (`camera.md`, "The hero in these modes");
+  - **no double jump while `firing` is set:** the jump's double-jump entry checks it.
+- **The release skid is the wrench's:** the walk only arms its skid on letting go
+  (`hero-controller.md`, "Skid", the hand-slot condition) with the wrench in hand
+  (item 9), the stick fully pushed, and `firing_held` clear. With a gun he stops at
+  once, as the DL trace with a gun in hand shows (`hero-controller.md`, "Letting go of the
+  walk with a gun in hand").
+- **The raised gun arm** (`gun_arm_raised`, 0x1A7454; libuya's `raisedGunArm`), each
+  frame with a gun in hand (0x4E26F8): a ray 0.57 u up (0.7 while firing) from just inside
+  his radius to 1.3 u ahead; if it hits a wall, the arm points up by
+  `−70° × 1.25 × (1.3 − d) / 1.3` (d from the ray's start to the hit), clamped to
+  −30° … −70°, and the flag is set. Guns then aim along the gun (the Annihilator) or
+  delay the shot's hit to 5 frames (the Shock Blaster). In the lock-strafe camera the arm
+  follows the camera's pitch instead (0x1A6180, clamped to −80° … 45°) and the flag
+  stays clear.
+- **The head and upper body turn to the gun's target** (0x4E2F50): the gun puts its
+  target for the frame in `gun_target_now` (0x1A57B8; the lock-on target, or its own aim
+  assist's), and without a lock-on target the head-look turns towards it on springs
+  (gain 0.037, damping 0.3), yaw up to ±59°, pitch −25° to +35°. With a lock-on target he
+  faces it by strafing anyway. With neither, the head looks at the nearest interesting
+  thing within reach every 7th frame (the look-at list, 0x1A73DC).
+- **The fire direction** (`hero_fire_dir`, 0x1A52A0; libuya's `HeroFireDir`: a matrix,
+  the direction at 0x1A52D0 and angles at 0x1A52E0), set each frame by
+  `hero_gun_update`: the hero's matrix and facing, and his angles with the yaw plus the
+  upper-body twist (none while strafing or firing in lock-strafe). The matrix and
+  direction don't take the twist (the code builds a twisted matrix and then overwrites it).
+- **How guns aim with it:**
+  - **At a target** (`aim_at_target`, 0x454298): straight from the muzzle to the
+    target's position raised by its damage record's height (+0x10) along its up, times
+    the speed. No limit on the turn.
+  - **At the camera's aim point** (`aim_bend_to_point`, 0x4C7010): in the lock-strafe
+    and first-person cameras, the N60's bullets, the Annihilator's missiles and others
+    bend from the fire direction towards the free-look camera's aim point (0x1A6230,
+    libuya's `aim_pos`) by at most 80° (a tenth of that when the point is within 4 u); the
+    Flux Rifle does it scoped, within 20°. So shots converge on what the view centres on.
+  - Otherwise along the fire direction.
+- **State 29, aiming:** a gun's update puts the hero in state 29 when it finds him in the
+  look (state 1). State 29 is the look with a gun out: it shares the idle's movement (the
+  left stick doesn't move him), his facing snaps to the camera's yaw once the view is
+  ready, R1 fires as well as Circle, and letting go of the look's button goes back to idle.
+  The Shock Blaster waits 40 frames from entering it before it fires (0x1A749C, reset to
+  40 whenever he isn't in it), as the Nitro Launcher does (below).
+
+### Checked in traces [verified on UYA NTSC, 2026-10-20]
+
+`uyantsc-veldin-fire-1` (the Shock Blaster) and `-2` (the N60 Storm), each gun given by
+writing its bytes and drawn with Circle (`docs/re-setup.md`), third-person camera:
+- **Drawing:** the gun was in his hand 17 frames after Circle and first fired 33 frames
+  after that, the frame after the press.
+- **The flags:** the Shock Blaster set `firing` alone; the N60 set both flags together,
+  and both cleared the frame after Circle was let go. Starting a walk or a jump cleared
+  the Shock Blaster's `firing` at once, but not the N60's while Circle was held.
+- **Standing:** whole-body sequence 103 (the Shock Blaster) and 51 (the N60), at half a
+  keyframe a frame, restarted by each shot, so between shots he holds the firing pose.
+  While firing, the fire direction's yaw eased back to his facing within about 15 frames
+  (the head-look drops its look-at target while firing).
+- **Walking:** no arm layer ever started (neither gun has an arms-only animation).
+- **The N60:** a shot every 14 frames while held, one round each.
+- **The walk's turn while the N60 fires** (full stick, turned 90°): each frame's rate is
+  `rate + 0.017 × (move angle − last yaw) − 0.18 × rate`, on all 31 frames of the turn
+  (to 10⁻⁸); the same turn without firing fits the moving walk's 0.037 and 0.13 on its 9
+  frames before it arrives.
+- **No double jump while firing:** with the N60 firing, X again on the jump's 10th frame
+  gave no double jump (the press is still inside the double jump's window of
+  `state timer − 4` frames when it opens on the 15th); from the Shock Blaster's shot, whose
+  `firing` the jump cleared, the same presses double jumped on the 15th frame.
+- **No release skid with a gun:** letting go of a full-speed walk with the N60 out, firing
+  or not, idled the next frame; the release flag (0x1A4FD0) never set with the gun, and
+  set at once in a walk with the wrench.
+- **State 29:** L1 with the Shock Blaster out went straight from idle to state 29; the
+  40-frame wait counted down one a frame; R1 at 11 frames did nothing (and played
+  sequence 13 while held), R1 at 62 frames fired; letting go of L1 went back to idle and
+  reset the wait to 40.
 
 ## Each gun
 
@@ -209,7 +360,8 @@ then the Mega upgrade's.
   fires every 14 frames (below); the other guns' rates aren't read yet.
 - Guns with a second damage (+0x70): the Annihilator 6, Spitting Hydra, Rift Inducer and
   Holo Shield Glove 5, RY3NO a tenth of its damage, and the Plasma Whip, Suck Cannon and
-  Plasma Coil the same as +0x6C. What each uses it for isn't read.
+  Plasma Coil the same as +0x6C. The Annihilator's is its blast's (below); the others'
+  uses aren't read. The Flux Rifle has 0 there and half its damage at +0x74.
 - Prices on other rows than V1 and Mega are copies and unused as far as read.
 
 ### What each level adds [text]
@@ -267,8 +419,13 @@ The gun moby's update reads its row through item 0x27.
 - **When it may fire:** the gun has been out for 23 frames or more (0x1A5E00), its last
   shot is over, the cooldown has run out, there is ammo, the game is in normal play (game
   mode 0) and the hero isn't in state 116.
-- **Firing at V1:** Circle pressed fires. Each shot takes one round, plays the firing
-  animation (0x4E6A08) and sets a cooldown of 1 / (+0x50) = 0.5 s.
+- **Firing at V1:** Circle held fires (the pad's held mask, +0x1A0), as often as the
+  cooldown lets it; a press during the cooldown isn't kept. Each shot takes one round,
+  plays the firing animation (0x4E6A08) and sets a cooldown of 1 / (+0x50) = 0.5 s.
+  **[verified on UYA NTSC, `uyantsc-veldin-fire-1`]:** the shot came the frame after the
+  press; held, the next came 35 frames later, which fits the 5-frame hit delay (the
+  whole-body animation was playing) plus the 30-frame cooldown; a tap 12 frames after a
+  shot did nothing. (Read as "Circle pressed" until 2026-10-20.)
 - **Firing from V2:** no cooldown. Holding Circle fires at once (the gun tries on each of
   the first 20 frames held) and then charges, with sparks that grow. Released after more
   than 78 frames held, it fires a charged shot of three times the damage; released
@@ -284,9 +441,9 @@ The gun moby's update reads its row through item 0x27.
   - Then 23 rays of 32 u: 20 at random, up to 17° off the aim with any roll, and three at
     15° down, spread 20° apart (0x36B888 tests each).
   - At V2 and up, each enemy the balls hit also gets the shock mod's check (0x34BF98).
-- **Aim:** with a target in 0x1A57B8 (the lock-on target is copied there), the aim is
-  turned towards it (0x454298) into 0x1A52A0; the shot uses 0x1A52A0, or the camera's aim
-  (0x1E2A60) with the lock-strafe camera (camera mode 1).
+- **Aim:** with a target in 0x1A57B8 (the lock-on target is copied there), the aim points
+  straight at it (`aim_at_target`) into 0x1A52A0; the shot uses 0x1A52A0, or the camera's
+  aim (0x1E2A60) with the lock-strafe camera (camera mode 1).
 - **First person:** in the look state (1) the gun puts the hero in state 29, its aiming
   state, where R1 fires as well as Circle.
 - The moby's +0x7C (2 at V2, 3 from V3) is set from the level; its use isn't read.
@@ -380,8 +537,13 @@ The gun moby's update reads its row through item 0x27.
   - it homes on its target while the target lives, for up to 294 frames (0x396A20);
   - each frame it tests the line of its step, carrying the row's damage (push 1.5) to the
     first thing it hits, and explodes;
+  - **the blast** (0x3985C0, 2026-10-20) also does the row's second damage (+0x70: 6 at
+    every level) to everything within 0.75 u of it but the missile;
   - from V5 the explosion also scatters seven bomblets of a fifth of the damage each
-    (0x3441D0). The mines the vendor gives V2–V4 aren't found yet;
+    (0x3441D0). The mines the vendor gives V2–V4 aren't in the missile's code (its
+    update, blast and trail have no other level test) nor the gun's, which only sets the
+    mods and the moby's +0x7C (1 at V2, 3 at V3, 7 from V4; probably which extra parts
+    of the model show, as on the Shock Blaster and N60) [guess];
   - its model is drawn 2.5 times larger, 4 times from V5.
 - **Mods:** shock from V3, lock-on from V4 [code].
 
@@ -398,7 +560,13 @@ The gun moby's update reads its row through item 0x27.
   row's damage, and the shot stops there if that object can take damage (0x4435E8: its
   +0x98 record has +8 set), else flies on. Where V2 and up pierce isn't found: the shot's
   update (0x346A00) and its per-step calls (0x3478E8, and 0x348A38 from V3) only lay its
-  trail.
+  trail, and the test (0x346D90) ends the shot on the first thing that can take damage at
+  every level (2026-10-20).
+- **The impact** (0x346EF0, 2026-10-20): at V1 sparks; from V2 a bigger burst and a 2 u
+  ball (`ball_damage`) carrying row +0x70, which is 0 on every Flux row, so it hurts
+  nothing; from V4 a further effect (0x447D00). The scoped hitscan from the camera carries
+  damage flag 0x100000 from V4 (0x10000 below), meaning not read. Row +0x74 holds half the
+  damage on every Flux row and no reader is found.
 - **Rate** (0x3444B0): a shot every 1 / (+0x50) = 1 s. Scoped, the zoom follows the
   buttons' pressure (pad +0x134 and +0x13C), and a ray from the camera along the scope
   (0x1E2E40, 128 u) marks a target with a reticle every fourth frame.
@@ -425,24 +593,29 @@ Rift Inducer and others; callers of 0x44D930) pick a target this way:
 
 ## Next steps
 
-1. **The hero's side of firing:** 0x4E6D40, 0x4E6CB0 and 0x503930 / 0x5037C0 in
-   `hero_transitions` (decompiled into `cache/ghidra/out/weap-d.c`, not read yet): whether
-   firing turns or slows the hero, and the aiming state 29.
-2. **Open in the archetypes:** the Flux Rifle's piercing from V2, the Annihilator's
-   V2–V4 mines, and how the lock-on target bends each gun's shot (0x454298, 0x4C7010).
-3. **The shock and acid mods' damage over time:** 0x34BF98 with its table at 0x2822A0
-   (mostly zero in this image), and 0x31AC38.
-4. **A savestate with guns, to trace firing:** on the private boot instance
-   (`docs/re-setup.md`), set `item_owned` (0x142CA0 + item) and `item_ammo`, call or
-   imitate `item_give`'s quick-select entry, then capture shots and compare with the
-   numbers here (fire intervals, bullet speeds, the Nitro's arc).
-5. **The other guns**, as above; their entry points are in `symbols.toml` and their row
+1. **The rest of the hero's side of firing in traces** (done 2026-10-20 for the Shock
+   Blaster and N60: "Checked in traces"): the arms-only layers (a glove: the Miniturret,
+   Agents of Doom or Holo Shield), the raised gun arm against a wall, the speed held past
+   45° while a held gun fires (from a standstill), the lock-strafe pitch's arms-only
+   firing, and a target for the upper body's turn and the aim (Veldin's two attackers,
+   left in place). `uyantsc-veldin-fire.sh` gives a gun by writing three bytes.
+2. **Still open in the archetypes:** the Flux Rifle's piercing from V2 and the
+   Annihilator's V2–V4 mines are in neither the shots' nor the guns' code read
+   (2026-10-20); look for them in the code that reads the moby's +0x7C, or in the
+   damage-record flags the shots carry (0x100000 on the Flux's scoped hitscan from V4).
+   Also the writer of the camera's aim point (`fps_aim_pos`, 0x1A6230), and the shock
+   arc's own function (0x34C5F8).
+3. **Projectiles in traces:** bullets, charges and missiles are mobys spawned per shot,
+   so a fixed layout region can't follow them; capturing their speeds and the Nitro's
+   arc needs `pine-probe` to read the moby list (or the class's newest moby) each frame.
+4. **The other guns**, as above; their entry points are in `symbols.toml` and their row
    readers were found by listing the users of `weapon_table` and the item byte each reads
    (0x1425C0 + item).
-6. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
+5. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
 
 How this was read, to carry on: import or reuse the Veldin project (copy
-`cache/ghidra/proj/uya.{gpr,rep}` to a name of your own so sessions don't collide), list a
+`cache/ghidra/proj/uya.{gpr,rep}` or `uya-weap` to a name of your own so sessions don't
+collide), list a
 global's users with `RefsTo.java`, and decompile them with `DecompileAt.java`; row fields
 show as `DAT_002c56xx` (0x2C5640 + offset) in the output. Names come from the text table
 (16-byte entries of string pointer and text number, 0x1C31440–0x1C3ED80 in this image).

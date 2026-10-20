@@ -168,8 +168,8 @@ R&C3/UYA, with UYA NTSC per-frame values and R&C3 PAL values in brackets.
       - it turns with gain 0.035, damping 0.27 and cap 0.1949 rad.
     - **Ends** when `err` is under 4°.
     - **Letting go of the stick** sets it too, only after the walk has seen a full stick
-      under a condition on the hand slot not yet understood. That is the release braking
-      above.
+      with the wrench in hand and no held gun firing (`weapons.md`, "The hero's side of
+      firing") **[code, 2026-10-20]**. That is the release braking above.
   - **Moving the stick's way [code]:** under 1.7 u/s the walk moves in the stick's
     direction rather than along the facing, until the facing is within 5° of it. A skid's
     start sets this too.
@@ -1981,7 +1981,7 @@ moby's sequence every frame). **[verified]** marks sequences the trace showed.
 
 | State | Sequence | Notes |
 |---|---|---|
-| Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**, and 73 ("Idle fidgets"). At 20% health or less, 74, with 78 now and then; holding a weapon, that weapon's idle from `weapon_table` (row + 0x24). |
+| Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**, and 73 ("Idle fidgets"). At 20% health or less, 74, with 78 now and then. While a held gun fires (row +0x30), the look and state 29 play its whole-body firing sequence (row + 0x24) instead (`weapons.md`, "The hero's side of firing"). |
 | Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | Strafing backwards, 20 [code]. Bands and rates under "The walk's animation". |
 | Skid (3) | 6, or 5 straight out of a run between frames 3 and 16 | |
 | Crouch (4) | 13 **[verified]**; 14 moving **[verified]** | Starts at keyframe 2. |
@@ -2244,8 +2244,8 @@ Read in DL's code on 2026-10-20 (`re/SCUS-97465/symbols.toml`), and traced in
   identified), L2 becomes L2 or R2.
 - **Letting go of the walk with a gun in hand:** one frame braking at 30 u/s², then idle
   at 1.5 u/s less one frame of 17.7 u/s². UYA's trace (the wrench in hand) skids two frames
-  at 17 first. The release skid depends on the held item (`hero_update_walk` reads the
-  hand slot), not on the game.
+  at 17 first. The release skid depends on the held item, not on the game: UYA's walk arms
+  it only with the wrench in hand (item 9; `weapons.md`, "The hero's side of firing").
 - **The lock-strafe camera:** the strafe flag is 2 while idle and 1 while walking, so the
   hero faces the camera, with UYA's strafe turn; standing, he only turns once the camera
   is more than 10° off. With the wrench in hand the flag is 0 and he turns to where he
