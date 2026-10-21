@@ -37,7 +37,8 @@ session is working on the task now; notes on problems met stay with their task (
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
   with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
-  and replayed.
+  and replayed. The demo has an arena of enemies, a melee charger and a ranged shooter,
+  that drop bolts and nanotech (P1.11).
 - **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
   against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
   collision rule the kit needs is read and traced in both games; RE.8 is answered
@@ -638,10 +639,29 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     103, the arms-only layers), with the gun's model from the disc (row +0x10's class).
 - [ ] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
   nanotech, explosive); health; a vendor stub that sells ammo.
-- [ ] **P1.11** Demo enemies (`rac_demo`):
-  - Two archetypes: a melee charger and a ranged shooter.
-  - States: idle, patrol, aggro, attack, hurt and death.
-  - Health, damage and drops.
+  - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
+    the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
+    the crates and the vendor.
+- [x] **P1.11** Demo enemies (`rac_demo/src/enemy/`, `assets/enemies.ron`). They are the
+  demo's own, not read from a game: every number is a placeholder sized against the
+  hero's.
+  - Two archetypes as RON definitions over one pure step (`enemy::brain::step`): a melee
+    charger (runs in, winds up for 30 ticks, lunges and hits once, then recovers) and a
+    ranged shooter (keeps 6–11 u away and strafes, aims, then fires three slow shots
+    along its facing, so outrunning its turn dodges them).
+  - States: idle, patrol, aggro, attack (wind-up, strike, recovery), hurt and death. They
+    see in a cone with a line-of-sight ray and hear close by; they give up past a distance
+    or a leash from home, and come back at home a while after dying.
+  - Health and damage go through `rac_combat` (hurtbox, hit points, kill XP), so the
+    wrench and guns hit them; they hurt the hero through `HurtHero`. Drops are bolts and
+    nanotech (`drops.rs`, `assets/drops.ron`).
+  - An arena in the greybox level beside the melee yard: three chargers, two shooters, low
+    cover and a pillar. Tests: `rac_demo/tests/enemies.rs`.
+  - Enemies run after `SimSet::World` and before `SimSet::Hero`. Inside `World`, their
+    reads of the combat messages would be unordered against the combat systems that
+    write them, and the order could differ between peers.
+  - To do: their sounds (P1.13), health and bolts on the HUD (P1.12), and tuning by play
+    (in a scripted run, a hero who stood his ground and swung died in about 10 s).
 - [ ] **P1.12** UI and HUD, PC first (G5):
   - HUD: health, bolts, ammo and weapon icon; plus the quick-select ring.
   - Pause menu.

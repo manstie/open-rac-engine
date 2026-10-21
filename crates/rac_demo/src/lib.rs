@@ -8,6 +8,8 @@
 //! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems, and
 //! the hero's if the app hasn't.
 
+pub mod drops;
+pub mod enemy;
 mod guns;
 mod level;
 mod spectator;
@@ -23,10 +25,13 @@ use rac_hero::{
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
+pub use drops::{Bolts, DropTuning, Pickup};
+pub use enemy::def::{Bestiary, EnemyKind};
+pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, enemy_bundle};
 pub use guns::demo_arsenal;
 pub use level::{
-    CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, GAP_WIDTHS, Mover, Piece, Shape, Surface, Target,
-    TargetKind, greybox_level, melee_targets,
+    CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, EnemySpawn, GAP_WIDTHS, Mover, Piece, Shape, Surface,
+    Target, TargetKind, enemy_spawns, greybox_level, melee_targets,
 };
 pub use spectator::SpectatorCamera;
 
@@ -86,7 +91,8 @@ impl Plugin for DemoPlugin {
         if !app.is_plugin_added::<RigPlugin>() {
             app.add_plugins(RigPlugin);
         }
-        app.init_resource::<DemoSettings>()
+        app.add_plugins(EnemyPlugin)
+            .init_resource::<DemoSettings>()
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
             .add_systems(
                 FixedUpdate,
@@ -118,6 +124,7 @@ pub fn spawn_demo(
     settings: Res<DemoSettings>,
     tuning: Res<HeroTuning>,
     armory: Res<Armory>,
+    bestiary: Res<Bestiary>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -281,6 +288,16 @@ pub fn spawn_demo(
         }
     }
 
+    commands.insert_resource(EnemyLooks::new(&mut meshes, &mut materials));
+    for spawn in enemy_spawns() {
+        let def = bestiary.get(spawn.kind);
+        commands.spawn((
+            Name::new(spawn.name),
+            DemoEntity,
+            enemy_bundle(spawn.kind, def, spawn.position, spawn.yaw, spawn.patrol),
+        ));
+    }
+
     commands.spawn((
         Name::new("sun"),
         DemoEntity,
@@ -309,6 +326,7 @@ pub fn spawn_demo(
         DemoEntity,
         hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
         demo_arsenal(&armory),
+        Bolts::default(),
         // The rig dresses him in the chosen model.
         RigLook::for_player(0),
         Visibility::default(),

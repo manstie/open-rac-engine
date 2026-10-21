@@ -10,6 +10,8 @@
 use bevy::prelude::*;
 use rac_hero::{GrindRail, Material, Water};
 
+use crate::enemy::def::EnemyKind;
+
 /// What a piece is for.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Surface {
@@ -481,6 +483,18 @@ pub fn greybox_level() -> Vec<Piece> {
         Vec3::new(14.0, 12.0, -94.0),
     ));
 
+    // The enemy arena beside the melee yard (`enemy_spawns`): cover low enough to jump
+    // onto and to shoot over standing on it, which hides a crouching or far hero from the
+    // shooters, and a pillar to break the chargers' line.
+    for (name, x, z, size) in [
+        ("arena cover west", 24.0, 18.0, Vec3::new(3.0, 1.2, 0.8)),
+        ("arena cover east", 36.0, 18.0, Vec3::new(3.0, 1.2, 0.8)),
+        ("arena cover north", 30.0, 26.0, Vec3::new(0.8, 1.2, 3.0)),
+        ("arena pillar", 22.0, 30.0, Vec3::new(1.5, 2.5, 1.5)),
+    ] {
+        pieces.push(Piece::block(name, Surface::Ground, x, z, size));
+    }
+
     pieces
 }
 
@@ -531,6 +545,67 @@ pub fn melee_targets() -> Vec<Target> {
         position: Vec3::new(0.0, 0.0, 22.0),
     });
     targets
+}
+
+/// An enemy of the arena (P1.11): where it stands and faces, and the points it walks
+/// between.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnemySpawn {
+    pub name: String,
+    pub kind: EnemyKind,
+    pub position: Vec3,
+    pub yaw: f32,
+    pub patrol: Vec<Vec3>,
+}
+
+/// The arena, from x 18 to 42 and z 10 to 34, right of the melee yard: three chargers
+/// and two shooters, far enough from the start that none notices the hero there.
+pub fn enemy_spawns() -> Vec<EnemySpawn> {
+    let at = |x: f32, z: f32| Vec3::new(x, 0.0, z);
+    let spawn = |name: &str, kind, position: Vec3, yaw: f32, patrol: Vec<Vec3>| EnemySpawn {
+        name: name.into(),
+        kind,
+        position,
+        yaw: yaw.to_radians(),
+        patrol,
+    };
+    vec![
+        spawn(
+            "charger 1",
+            EnemyKind::Charger,
+            at(26.0, 14.0),
+            90.0,
+            vec![at(22.0, 14.0), at(34.0, 14.0)],
+        ),
+        spawn(
+            "charger 2",
+            EnemyKind::Charger,
+            at(34.0, 24.0),
+            180.0,
+            vec![at(34.0, 30.0), at(40.0, 30.0), at(34.0, 24.0)],
+        ),
+        spawn(
+            "charger 3",
+            EnemyKind::Charger,
+            at(20.0, 22.0),
+            90.0,
+            vec![at(20.0, 26.0), at(20.0, 20.0)],
+        ),
+        spawn(
+            "shooter 1",
+            EnemyKind::Shooter,
+            at(30.0, 32.0),
+            0.0,
+            vec![at(26.0, 32.0), at(36.0, 32.0)],
+        ),
+        spawn(
+            "shooter 2",
+            EnemyKind::Shooter,
+            at(40.0, 12.0),
+            90.0,
+            vec![at(40.0, 20.0), at(40.0, 12.0)],
+        ),
+    ]
 }
 
 #[cfg(test)]
@@ -687,6 +762,45 @@ mod tests {
                     target.name,
                     piece.name
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn the_arenas_enemies_walk_clear_of_the_level_and_out_of_reach_of_the_start() {
+        let pieces = greybox_level();
+        let bestiary = crate::Bestiary::default();
+        for spawn in enemy_spawns() {
+            let def = bestiary.get(spawn.kind);
+            let mut points = vec![spawn.position];
+            points.extend(&spawn.patrol);
+            // Every point it stands on, and the way between each and the next.
+            let mut route = Vec::new();
+            for (i, from) in points.iter().enumerate() {
+                let to = points[(i + 1) % points.len()];
+                route.extend((0..=10).map(|step| from.lerp(to, step as f32 / 10.0)));
+            }
+            for at in route {
+                assert!(
+                    at.length() > def.senses.sight + 5.0,
+                    "{} can see the start from {at}",
+                    spawn.name
+                );
+                for piece in &pieces {
+                    let Shape::Box { half_extents } = piece.shape else {
+                        continue;
+                    };
+                    if piece.name == "floor" || !piece.surface.is_solid() {
+                        continue;
+                    }
+                    let gap = (at - piece.translation).abs() - half_extents;
+                    assert!(
+                        gap.x.max(gap.z) > def.radius + 0.5,
+                        "{} walks into {} at {at}",
+                        spawn.name,
+                        piece.name
+                    );
+                }
             }
         }
     }

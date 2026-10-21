@@ -1,0 +1,89 @@
+// The standalone demo's enemies (PLAN.md P1.11): a melee charger and a ranged shooter.
+//
+// They are the demo's own, not any game's, so every number is a guess to tune by play
+// [placeholder]. They are sized against the hero's (rac_hero's uya.ron): he runs at 6.17
+// u/s and has 10 health, the wrench does 1 a swing (2 for the combo's last) and the
+// Shock Blaster 2 a shot at V1.
+//
+// Units: u, u/s and u/s², ticks at 60 Hz, degrees.
+(
+    gravity: 30.0,
+    charger: (
+        radius: 0.5,
+        height: 1.3,
+        hitpoints: 6.0, // a wrench combo and a bit, or three Shock Blaster shots
+        kill_xp: 30,
+        senses: (
+            sight: 12.0,
+            sight_degrees: 70.0,
+            hearing: 4.0,
+            lose: 20.0,
+            leash: 18.0,
+            calm_ticks: 120,
+        ),
+        moves: (
+            walk_speed: 1.8,
+            run_speed: 4.6, // slower than the hero's run, so he can get away
+            accel: 20.0,
+            turn_degrees_per_second: 240.0,
+            wait_ticks: (60, 150),
+        ),
+        attack: Lunge((
+            range: 2.6,
+            face_degrees: 25.0,
+            wind_up_ticks: 30, // half a second to jump or step aside
+            lunge_ticks: 14,
+            lunge_speed: 11.0,
+            reach: 0.5,
+            recover_ticks: 40, // the opening for the wrench
+            cooldown_ticks: 30,
+            hit: (damage: 2, knockback: 7.0, lift: 5.0),
+        )),
+        hurt_ticks: 20,
+        death_ticks: 40,
+        respawn_ticks: 600,
+        drops: (bolts: (4, 7), bolt_value: 5, nanotech_chance: 0.3, nanotech: 2),
+    ),
+    shooter: (
+        radius: 0.4,
+        height: 1.7,
+        hitpoints: 4.0,
+        kill_xp: 25,
+        senses: (
+            sight: 18.0,
+            sight_degrees: 60.0,
+            hearing: 5.0,
+            lose: 26.0,
+            leash: 16.0,
+            calm_ticks: 120,
+        ),
+        moves: (
+            walk_speed: 2.5,
+            run_speed: 2.5,
+            accel: 16.0,
+            turn_degrees_per_second: 180.0,
+            wait_ticks: (90, 180),
+        ),
+        attack: Shoot((
+            near: 6.0,
+            far: 11.0,
+            strafe_speed: 1.6,
+            strafe_ticks: (60, 140),
+            range: 16.0,
+            face_degrees: 20.0,
+            aim_ticks: 36,
+            shots: 3,
+            shot_every: 9,
+            recover_ticks: 24,
+            cooldown_ticks: (60, 110),
+            muzzle_height: 1.15,
+            muzzle_ahead: 0.6,
+            // Slow enough to sidestep at range: 1 s to cross 14 u.
+            shot: (speed: 14.0, radius: 0.2, life_ticks: 150, hit: (damage: 1, knockback: 5.0, lift: 3.0)),
+        )),
+        hurt_ticks: 18,
+        death_ticks: 40,
+        respawn_ticks: 600,
+        drops: (bolts: (3, 5), bolt_value: 5, nanotech_chance: 0.4, nanotech: 1),
+    ),
+)
