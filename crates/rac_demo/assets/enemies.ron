@@ -42,7 +42,7 @@
         hurt_ticks: 20,
         death_ticks: 40,
         respawn_ticks: 600,
-        drops: (bolts: (4, 7), bolt_value: 5, nanotech_chance: 0.3, nanotech: 2),
+        drops: (bolts: (4, 7), bolt_value: 5, nanotech_chance: 0.3, nanotech: 2, ammo_chance: 0.25),
     ),
     shooter: (
         radius: 0.4,
@@ -84,6 +84,6 @@
         hurt_ticks: 18,
         death_ticks: 40,
         respawn_ticks: 600,
-        drops: (bolts: (3, 5), bolt_value: 5, nanotech_chance: 0.4, nanotech: 1),
+        drops: (bolts: (3, 5), bolt_value: 5, nanotech_chance: 0.4, nanotech: 1, ammo_chance: 0.35),
     ),
 )

@@ -68,6 +68,13 @@ pub enum RigMove {
     SurfaceSwim,
     SurfaceIdle,
     Dead,
+    /// Firing a gun standing: the whole-body firing animation the gun names, by the game's
+    /// own number ([`rac_hero::GunPose::standing`]), started again by each shot.
+    Fire(u8),
+    /// Firing on the move or crouched: an arms-only animation, by the game's number
+    /// ([`rac_hero::GunPose::arms`] and `crouched`), laid over the arms of whatever else
+    /// plays.
+    FireArms(u8),
 }
 
 /// Which way a flip goes, relative to where the hero faces.

@@ -1,12 +1,14 @@
 //! A hero's guns (`weapons.md`, "Owning, ammo, levels and XP" and "Switching and firing"):
 //! the ones he owns with their ammo, XP and levels, the one he brings out, the recently
-//! chosen ones the quick switch goes round, and what is in his hand.
+//! chosen ones the quick switch goes round, the quick-select rings, and what is in his
+//! hand.
 
 use bevy::prelude::*;
 
 use super::{
     def::{Armory, Mods, WeaponId},
     fire::Trigger,
+    ring::QuickSelect,
     shots::Shot,
 };
 
@@ -61,6 +63,8 @@ pub struct Arsenal {
     pub equipped: Option<WeaponId>,
     /// The guns chosen most recently, newest first (`recent_guns`, 0x142670).
     pub recent: Vec<WeaponId>,
+    /// The quick-select rings, and the one on screen while it is open.
+    pub quick: QuickSelect,
     pub hand: Hand,
     /// The shots in flight.
     pub shots: Vec<Shot>,
@@ -70,6 +74,8 @@ pub struct Arsenal {
     pub(crate) trigger: Trigger,
     /// Ticks left of the firing animation.
     pub(crate) fire_ticks: u32,
+    /// Shots so far, counting round, which restart the firing animation.
+    pub(crate) shots_fired: u8,
     /// Ticks since the quick-select button was pressed, while it is held.
     pub(crate) quick_held: Option<u32>,
     /// His moves were last told a gun is in his hand.
@@ -85,9 +91,9 @@ impl Arsenal {
         self.guns.iter_mut().find(|gun| gun.weapon == weapon)
     }
 
-    /// Gives him a gun (`item_give`, 0x416B38): owned at V1 with its ammo full, and
-    /// brought out by the fire button if nothing else is. Giving one he owns only tops up
-    /// an empty gun.
+    /// Gives him a gun (`item_give`, 0x416B38): owned at V1 with its ammo full, put in the
+    /// quick-select rings, and brought out by the fire button if nothing else is. Giving one
+    /// he owns only tops up an empty gun.
     pub fn give(&mut self, weapon: WeaponId, armory: &Armory) {
         let Some(def) = armory.get(weapon) else {
             return;
@@ -99,14 +105,18 @@ impl Arsenal {
                     gun.ammo = def.level(gun.level).ammo;
                 }
             }
-            None => self.guns.push(OwnedGun {
-                weapon,
-                level: 0,
-                xp: 0,
-                // The game's first ammo is row +0x8E, not tabulated yet [placeholder: full].
-                ammo,
-                extra_mods: Mods::default(),
-            }),
+            None => {
+                self.guns.push(OwnedGun {
+                    weapon,
+                    level: 0,
+                    xp: 0,
+                    // The game's first ammo is row +0x8E, not tabulated yet [placeholder:
+                    // full].
+                    ammo,
+                    extra_mods: Mods::default(),
+                });
+                self.quick.add(weapon);
+            }
         }
         if self.equipped.is_none() {
             self.equipped = Some(weapon);
@@ -238,6 +248,16 @@ impl Arsenal {
         self.equipped = Some(weapon);
         self.push_recent(weapon, armory);
         if self.hand != Hand::Wrench && self.hand.gun() != Some(weapon) {
+            self.draw(weapon, armory);
+        }
+    }
+
+    /// Chooses `weapon` in the quick-select ring: it becomes the one the fire button brings
+    /// out and the most recent, and comes out at once, even from the wrench, unless he is
+    /// `busy` attacking. Choosing a gun out of ammo is allowed [placeholder].
+    pub(crate) fn pick(&mut self, weapon: WeaponId, busy: bool, armory: &Armory) {
+        self.choose(weapon, armory);
+        if !busy && self.hand == Hand::Wrench && self.equipped == Some(weapon) {
             self.draw(weapon, armory);
         }
     }

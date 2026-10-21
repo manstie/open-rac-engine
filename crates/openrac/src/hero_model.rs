@@ -1606,4 +1606,30 @@ mod disc_tests {
         assert_eq!(decoded, 35);
         assert_eq!(table.clank_textures.len(), 2);
     }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn a_gun_held_by_the_rigs_grip_points_ahead_in_uyas_firing_poses() {
+        // The grip is reasoned from the fist (`model::gun_grip`); the game's own firing
+        // animations are what it has to fit: posed by their last keyframe, standing, the
+        // barrel must point ahead of him.
+        let hero = veldin().hero().unwrap();
+        let animations = crate::hero_anims::rig_animations(&hero).unwrap();
+        let joints = rac_rig::model::hero().joints;
+        for sequence in [49, 51, 103] {
+            let clip = &animations.clips[&rac_rig::RigMove::Fire(sequence)];
+            let pose = clip.keyframes.last().unwrap();
+            let mut world = vec![Quat::IDENTITY; joints.len()];
+            for (index, joint) in joints.iter().enumerate() {
+                let parent = joint.parent.map_or(Quat::IDENTITY, |p| world[p]);
+                world[index] = parent * pose.rotations[index];
+            }
+            let hand = world[rac_rig::joint::HAND_R];
+            let barrel = hand * rac_rig::model::gun_grip() * Vec3::NEG_Z;
+            let top = hand * rac_rig::model::gun_grip() * Vec3::Y;
+            println!("sequence {sequence}: barrel {barrel:.2}, top {top:.2}");
+            assert!(barrel.z < -0.8, "sequence {sequence}: barrel {barrel}");
+            assert!(top.y > 0.5, "sequence {sequence}: top {top}");
+        }
+    }
 }

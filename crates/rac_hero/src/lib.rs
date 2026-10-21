@@ -42,7 +42,7 @@ pub use controller::{
     Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
     StrikeShape, ThrownWrench,
 };
-pub use gun::GunHand;
+pub use gun::{GunHand, GunPose, Hold};
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;
 pub use rail::{GrindRail, RailKind};

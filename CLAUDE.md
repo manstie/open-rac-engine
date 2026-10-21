@@ -55,6 +55,11 @@ pattern.
 - **Keep the judgement in the main session.** That means design, reading results against
   the code, and anything written to `docs/research/`, the kit or PLAN.md.
 - **Check before trusting.** Spot-check a sample of the work before building on it.
+- **One build.** Agents in their own worktrees don't build: they stage their changes and
+  the main session merges them and tests the result in one build. Worktrees can't share
+  `target/` (cargo names a workspace's crates by their path from its root, so trees
+  overwrite each other's builds), and a target per worktree costs a full build and tens
+  of gigabytes each.
 
 **At the end:** tick or update the tasks you touched in PLAN.md and §0's next actions,
 replace your `In progress` notes, record new decisions in §5 with the date, and leave the

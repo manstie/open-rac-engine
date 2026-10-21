@@ -635,6 +635,48 @@ skin's skeleton and textures come out identical.
     sequences of the player's class (+0x30) are 65, 61, 63, 67 and 60 (the Vipers'
     arm-only one, +0x32, is 65 too).
 
+## The gadget WAD: the guns' classes [code, data, UYA NTSC, 2026-10-21]
+
+Read in Ghidra on the Veldin image and from the disc; `rac_formats::gadget` reads it, and
+its disc test checks the six guns below.
+- **Where:** the seventh global header of the TOC (index 6, 0x3C8 bytes). After its
+  `{size, sector}`, 48 entries of 20 bytes: a class number, the file's `{sector, count}`
+  and a sound bank's `{sector, count}`, sectors from the WAD's first. The game looks a
+  class up by number, the first match winning, 48 meaning none (0x429D28, 0x429FC8,
+  0x42A300, 0x4E7148).
+- **Each file:** 16 bytes giving the class's WAD and the textures' WAD (offset and size,
+  from the WAD's first sector), then both, WAD-compressed. The class unpacks to a packed
+  class, pointers from its start; the textures to a texture file as the armor's, one
+  128×128 8-bit image for every gun. `gadget_install` (0x42A058) sends the texture to a
+  fixed GS slot, unpacks the class into one buffer (0x191ED0) and registers it with its
+  texture 0 on that slot. The sound range is a 989snd bank sent to the IOP.
+- **Streaming:** three slots of 0xC800 bytes (0x16C6D0) hold the guns most likely needed;
+  `gadget_prefetch` (0x429DB0) fills one holding neither the held nor the equipped gun.
+- **The six guns** [data]: each has 3 sequences and one 128² texture.
+
+  | Gun | Class | Entry | Joints | Packets (high/low/metal) | Scale |
+  |---|---|---|---|---|---|
+  | Shock Blaster | 0x1863 | 13 | 14 | 15/0/4 | 0.0569 |
+  | N60 Storm | 0x18BE | 17 | 8 | 17/0/6 | 0.0438 |
+  | Annihilator | 0x1864 | 29 | 9 | 15/0/0 | 0.0613 |
+  | Flux Rifle | 0xC04 | 27 | 14 | 13/0/2 | 0.0519 |
+  | Nitro Launcher | 0x1865 | 15 | 20 | 16/0/0 | 0.0511 |
+  | Lava Gun | 0x5C9 | 2 | 21 | 7/4/0 | 0.0480 |
+
+  From V5 the rows name another class in the same WAD: the Shock Blaster's 0x1882, the
+  N60's 0x184F, the Annihilator's 0x1887, the Nitro Launcher's 0x1885; the Flux Rifle
+  keeps 0xC04. Entries 11, 12, 28, 40, 41 and 45–47 hold class 0 and look like copies of
+  the hero's class header and skeleton with two 256² textures; nothing was seen loading
+  them.
+- **On the hero** (`hero_place_item_mobys`, 0x4E7FD8): each of his seven item slots'
+  mobys goes on one of nine attach matrices, chosen by row +0x0C, which
+  `hero_attach_matrices` (0x4E1518) copies from his joints: 0 is joint 56, his right hand,
+  for the wrench and every gun; 2 joint 99 for the boots (their second moby 93), 4 joint
+  7, 5 joint 5 for the back, 6 joint 54 for the Miniturret glove. The gun's class origin
+  sits on the joint with the joint's axes and its own scale: its grip is its origin.
+  With 0x1DBD70 set (not read) a held gun's angles average its hand's last 2–7 frames
+  (0x4E7BA8).
+
 ## Bangles [verified on DL NTSC, 2026-10-15]
 
 Parts of a class's mesh that each moby shows or hides one by one, read by

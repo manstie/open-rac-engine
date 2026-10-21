@@ -9,7 +9,7 @@ use rac_combat::{
     WeaponId, target_bundle,
     weapons::{Hand, Mods},
 };
-use rac_hero::{Collider, HeroBody, HeroPlugin, HeroProfile, LockOn, hero_bundle};
+use rac_hero::{Collider, GunPose, HeroBody, HeroPlugin, HeroProfile, Hold, LockOn, hero_bundle};
 use rac_input::{Action, Buttons, PlayerInput, PlayerInputs};
 use rac_sim::{SimPlugin, SimTransform, TICK_HZ};
 use std::time::Duration;
@@ -88,6 +88,11 @@ impl Yard {
     }
 
     fn tick(&mut self, held: &[Action], pressed: &[Action]) {
+        self.tick_with_stick([0, 0], held, pressed);
+    }
+
+    /// A tick with the move stick at `stick`, in PS2 counts.
+    fn tick_with_stick(&mut self, stick: [i8; 2], held: &[Action], pressed: &[Action]) {
         let mut buttons = Buttons::NONE;
         for &action in held.iter().chain(pressed) {
             buttons.insert(action);
@@ -97,6 +102,7 @@ impl Yard {
             press.insert(action);
         }
         self.app.world_mut().resource_mut::<PlayerInputs>().0[0] = PlayerInput {
+            move_stick: stick,
             held: buttons,
             pressed: press,
             ..default()
@@ -203,6 +209,33 @@ fn the_n60_fires_every_14_ticks_while_held_one_round_each() {
     // Letting go starts the interval again: the next press fires at once.
     let log = yard.hold_logged(&[Action::Fire], 2);
     assert_eq!(Yard::fired_ticks(&log), [0]);
+}
+
+#[test]
+fn the_hand_names_the_gun_its_hold_and_firing_animations_and_counts_its_shots() {
+    // "The hero's side of firing": rows +0x18, +0x24 and +0x2C on Veldin [data].
+    let mut yard = Yard::new(&[(N60, 0), (BLASTER, 0)]);
+    let hand = yard.body().0.gun;
+    assert_eq!(hand.item, Some(0x2F));
+    assert_eq!(hand.pose.hold, Hold::OneHand);
+    assert_eq!(
+        (hand.pose.standing, hand.pose.crouched),
+        (Some(51), Some(57))
+    );
+    let first = hand.shots;
+    yard.hold(&[Action::Fire], 29);
+    assert_eq!(
+        yard.body().0.gun.shots,
+        first.wrapping_add(3),
+        "three shots, each starting the animation again"
+    );
+
+    // Putting it away empties his hand for the rig.
+    yard.tick(&[], &[Action::Melee]);
+    yard.idle(1);
+    let hand = yard.body().0.gun;
+    assert_eq!(hand.item, None);
+    assert_eq!(hand.pose, GunPose::default());
 }
 
 #[test]
@@ -454,6 +487,125 @@ fn the_quick_select_tapped_switches_guns_and_held_it_doesnt() {
         yard.arsenal().hand,
         Hand::Drawing { weapon: N60, .. }
     ));
+}
+
+/// The move stick pushed right and up-right, in PS2 counts.
+const RIGHT: [i8; 2] = [127, 0];
+const UP_RIGHT: [i8; 2] = [127, 127];
+
+impl Yard {
+    fn arsenal_mut(&mut self) -> Mut<'_, Arsenal> {
+        self.app.world_mut().get_mut::<Arsenal>(self.hero).unwrap()
+    }
+
+    /// Presses quick select and holds it until the ring opens.
+    fn open_ring(&mut self) {
+        self.tick(&[], &[Action::QuickSelect]);
+        self.hold(&[Action::QuickSelect], 20);
+        assert!(self.arsenal().quick.open.is_some());
+    }
+}
+
+#[test]
+fn guns_given_fill_the_first_quick_select_ring_in_order() {
+    let yard = Yard::new(&[(N60, 0), (BLASTER, 0), (NITRO, 0)]);
+    let quick = &yard.arsenal().quick;
+    assert_eq!(
+        quick.rings[0][..4],
+        [Some(N60), Some(BLASTER), Some(NITRO), None]
+    );
+    assert_eq!(quick.rings[1], [None; 8]);
+}
+
+#[test]
+fn quick_select_held_opens_the_ring_and_the_stick_chooses_a_gun_without_moving_him() {
+    let mut yard = Yard::new(&[(N60, 0), (BLASTER, 0), (NITRO, 0), (LAVA, 0)]);
+    let start = yard.body().0.position;
+    // Not before the quick switch's 20 ticks are up.
+    yard.tick(&[], &[Action::QuickSelect]);
+    yard.hold(&[Action::QuickSelect], 19);
+    assert_eq!(yard.arsenal().quick.open, None);
+    assert!(!yard.body().0.gun.selecting);
+    yard.hold(&[Action::QuickSelect], 1);
+    assert!(yard.arsenal().quick.open.is_some());
+    assert!(yard.body().0.gun.selecting);
+    // The stick points at slot 2, on the right, and stays chosen as it comes back.
+    for _ in 0..20 {
+        yard.tick_with_stick(RIGHT, &[Action::QuickSelect], &[]);
+    }
+    yard.hold(&[Action::QuickSelect], 2);
+    assert_eq!(yard.arsenal().quick.highlighted(), Some(NITRO));
+    assert_eq!(yard.body().0.position, start);
+    assert_eq!(yard.arsenal().equipped, Some(N60));
+    // Letting go chooses it: equipped, the most recent, and coming out.
+    yard.idle(1);
+    let arsenal = yard.arsenal();
+    assert_eq!(arsenal.quick.open, None);
+    assert_eq!(arsenal.equipped, Some(NITRO));
+    assert_eq!(arsenal.recent.first(), Some(&NITRO));
+    assert!(matches!(arsenal.hand, Hand::Drawing { weapon: NITRO, .. }));
+    assert!(!yard.body().0.gun.selecting);
+}
+
+#[test]
+fn letting_go_of_the_ring_with_nothing_highlighted_closes_it() {
+    let mut yard = Yard::new(&[(N60, 0), (BLASTER, 0)]);
+    yard.open_ring();
+    yard.hold(&[Action::QuickSelect], 10);
+    yard.idle(1);
+    let arsenal = yard.arsenal();
+    assert_eq!(arsenal.quick.open, None);
+    assert_eq!(arsenal.equipped, Some(N60));
+    assert_eq!(arsenal.hand.gun(), Some(N60));
+}
+
+#[test]
+fn the_weapon_buttons_turn_the_open_ring_instead_of_switching_guns() {
+    let mut yard = Yard::new(&[(N60, 0), (BLASTER, 0)]);
+    yard.open_ring();
+    yard.tick(&[Action::QuickSelect], &[Action::NextWeapon]);
+    assert_eq!(yard.arsenal().quick.ring, 1);
+    assert_eq!(yard.arsenal().equipped, Some(N60));
+    // The second ring's slot 1 is empty, so letting go there chooses nothing.
+    yard.tick_with_stick(UP_RIGHT, &[Action::QuickSelect], &[]);
+    yard.idle(1);
+    assert_eq!(yard.arsenal().equipped, Some(N60));
+    assert_eq!(yard.arsenal().hand.gun(), Some(N60));
+    // It opens on the ring last shown, and turns back.
+    yard.open_ring();
+    assert_eq!(yard.arsenal().quick.ring, 1);
+    yard.tick(&[Action::QuickSelect], &[Action::PrevWeapon]);
+    yard.tick_with_stick(UP_RIGHT, &[Action::QuickSelect], &[]);
+    yard.idle(1);
+    assert_eq!(yard.arsenal().equipped, Some(BLASTER));
+}
+
+#[test]
+fn a_gun_chosen_in_the_ring_comes_out_from_the_wrench_even_out_of_ammo() {
+    let mut yard = Yard::new(&[]);
+    let armory = Armory::uya();
+    for weapon in [N60, LAVA] {
+        yard.arsenal_mut().give(weapon, &armory);
+    }
+    yard.arsenal_mut().gun_mut(LAVA).unwrap().ammo = 0;
+    assert_eq!(yard.arsenal().hand, Hand::Wrench);
+    yard.open_ring();
+    yard.tick_with_stick(UP_RIGHT, &[Action::QuickSelect], &[]);
+    yard.idle(1);
+    assert_eq!(yard.arsenal().equipped, Some(LAVA));
+    assert!(matches!(
+        yard.arsenal().hand,
+        Hand::Drawing { weapon: LAVA, .. }
+    ));
+}
+
+#[test]
+fn a_hero_without_guns_opens_no_ring() {
+    let mut yard = Yard::new(&[]);
+    yard.tick(&[], &[Action::QuickSelect]);
+    yard.hold(&[Action::QuickSelect], 30);
+    assert_eq!(yard.arsenal().quick.open, None);
+    assert!(!yard.body().0.gun.selecting);
 }
 
 #[test]

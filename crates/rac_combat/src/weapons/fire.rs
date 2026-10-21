@@ -2,9 +2,10 @@
 //! side of firing" and "Each gun").
 //!
 //! [`step`] is a plain function of the hero's [`Arsenal`], the [`Armory`], this tick's
-//! input and what the guns can see. It brings guns out and puts them away, fires the one
-//! in hand by its [`FireMode`], moves the shots in flight, and says what they hit and what
-//! the hero's moves should know ([`GunHand`]).
+//! input and what the guns can see. It brings guns out and puts them away, works the
+//! quick-select ring ([`super::ring`]), fires the one in hand by its [`FireMode`], moves
+//! the shots in flight, and says what they hit and what the hero's moves should know
+//! ([`GunHand`]).
 
 use bevy::prelude::*;
 use rac_hero::{CameraSetting, CollisionWorld, GunHand, HeroMotion, HeroState, controller};
@@ -150,9 +151,7 @@ pub fn step(
         Hand::Wrench => {}
     }
 
-    if !busy {
-        buttons(arsenal, armory, input);
-    }
+    buttons(arsenal, armory, input, busy);
 
     arsenal.trigger.look = if hero.state == HeroState::Look {
         arsenal.trigger.look.saturating_add(1)
@@ -171,6 +170,7 @@ pub fn step(
             && can_fire_in(hero.state)
             && (hero.state != HeroState::Look || arsenal.trigger.look >= def.look_wait_ticks);
         let gun = Gun::new(arsenal, armory, weapon, def, ready, gun_input);
+        let before = out.events.len();
         match &def.fire {
             FireMode::Hitscan(fire) => {
                 hitscan(arsenal, armory, &gun, fire, gun_input, rng, &mut out)
@@ -185,6 +185,13 @@ pub fn step(
         // A held gun stops firing when the button is let go.
         if def.held && !input.held(Action::Fire) {
             arsenal.fire_ticks = 0;
+        }
+        // Each shot, and each of a stream's rounds, starts the firing animation again.
+        let fired = out.events[before..]
+            .iter()
+            .any(|(_, kind)| matches!(kind, GunEventKind::Fired { .. }));
+        if fired {
+            arsenal.shots_fired = arsenal.shots_fired.wrapping_add(1);
         }
     }
 
@@ -204,6 +211,10 @@ pub fn step(
         firing,
         firing_held: firing && in_hand.is_some_and(|def| def.held),
         steady: in_hand.is_some_and(|def| def.steady),
+        item: in_hand.map(|def| def.item),
+        pose: in_hand.map(|def| def.pose).unwrap_or_default(),
+        shots: arsenal.shots_fired,
+        selecting: arsenal.quick.open.is_some(),
     };
     arsenal.shown_out = out.hand.out;
     out.lock_on = arsenal
@@ -214,10 +225,14 @@ pub fn step(
     out
 }
 
-/// The buttons that change what is in his hand.
-fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput) {
+/// The buttons that change what is in his hand. While he is `busy` (attacking or dead)
+/// only the quick-select ring follows its buttons, and what is chosen in it doesn't come
+/// out.
+fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput, busy: bool) {
+    let rules = &armory.rules;
     // The fire button, and lock-on with the gun's lock-on mod, bring the gun out.
-    if arsenal.hand == Hand::Wrench
+    if !busy
+        && arsenal.hand == Hand::Wrench
         && let Some(equipped) = arsenal.equipped
     {
         let lock = input.pressed(Action::LockOn) && arsenal.mods(equipped, armory).lock_on;
@@ -225,22 +240,45 @@ fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput) {
             arsenal.draw(equipped, armory);
         }
     }
-    // Quick select tapped: let go soon after its press.
+    // Quick select tapped (let go soon after its press) switches guns, but not while he
+    // attacks; held, it opens the ring, and letting go chooses there.
     if input.pressed(Action::QuickSelect) {
         arsenal.quick_held = Some(0);
     } else if input.held(Action::QuickSelect) {
         if let Some(ticks) = &mut arsenal.quick_held {
             *ticks = ticks.saturating_add(1);
         }
-    } else if let Some(ticks) = arsenal.quick_held.take()
-        && ticks < armory.rules.quick_switch_ticks
-    {
-        arsenal.quick_switch(armory);
+    } else if let Some(ticks) = arsenal.quick_held.take() {
+        if arsenal.quick.open.is_some() {
+            if let Some(weapon) = arsenal.quick.close() {
+                arsenal.pick(weapon, busy, armory);
+            }
+        } else if ticks < rules.quick_switch_ticks && !busy {
+            arsenal.quick_switch(armory);
+        }
     }
-    if input.pressed(Action::NextWeapon) {
-        arsenal.cycle(true, armory);
-    } else if input.pressed(Action::PrevWeapon) {
-        arsenal.cycle(false, armory);
+    if arsenal.quick.open.is_none()
+        && arsenal
+            .quick_held
+            .is_some_and(|ticks| ticks >= rules.quick_switch_ticks)
+        && !arsenal.quick.is_empty()
+    {
+        arsenal.quick.open();
+    }
+    if arsenal.quick.open.is_some() {
+        // The move stick points at a slot, and the weapon buttons turn to the other ring.
+        arsenal.quick.point(input.move_stick, &rules.ring);
+        if input.pressed(Action::NextWeapon) {
+            arsenal.quick.turn(true);
+        } else if input.pressed(Action::PrevWeapon) {
+            arsenal.quick.turn(false);
+        }
+    } else if !busy {
+        if input.pressed(Action::NextWeapon) {
+            arsenal.cycle(true, armory);
+        } else if input.pressed(Action::PrevWeapon) {
+            arsenal.cycle(false, armory);
+        }
     }
 }
 

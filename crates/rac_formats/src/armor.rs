@@ -202,13 +202,14 @@ impl Armor {
     }
 }
 
-/// A texture file: a count, an offset per texture, then each as a PIF2 image.
-fn read_textures(bytes: &[u8]) -> Result<Vec<Texture>, FormatError> {
+/// A texture file: a count, an offset per texture, then each as a PIF2 image. The gadget
+/// WAD's textures are stored the same way (`gadget`).
+pub(crate) fn read_textures(bytes: &[u8]) -> Result<Vec<Texture>, FormatError> {
     let image = Image::new(bytes, 0);
     let count = image.u32(0)?;
     if count > 64 {
         return Err(FormatError::Invalid {
-            what: "armor textures",
+            what: "texture file",
             address: 0,
             detail: format!("{count} textures"),
         });

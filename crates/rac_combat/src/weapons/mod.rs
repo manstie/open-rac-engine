@@ -3,7 +3,7 @@
 //! - [`Armory`] holds a game's guns as RON definitions: each one's levels, [`FireMode`]
 //!   and mods. [`Armory::uya`] is UYA NTSC-U's six guns whose code is read.
 //! - An [`Arsenal`] beside a hero holds what he owns: ammo, XP and levels, the gun the fire
-//!   button brings out, and what is in his hand.
+//!   button brings out, the quick-select rings ([`ring`]), and what is in his hand.
 //! - Each tick, before the heroes move, [`fire::step`] runs every hero's guns and their
 //!   shots, and tells his moves what he holds ([`rac_hero::GunHand`]) and whether lock-on
 //!   is allowed. Then the hits go through the damage queue: a target takes only its
@@ -16,6 +16,7 @@ pub mod aim;
 pub mod arsenal;
 pub mod def;
 pub mod fire;
+pub mod ring;
 pub mod shots;
 
 use bevy::prelude::*;
@@ -29,6 +30,7 @@ pub use aim::GunTarget;
 pub use arsenal::{Arsenal, Hand, LevelUp, OwnedGun};
 pub use def::{Armory, FireMode, Mods, WeaponDef, WeaponId};
 pub use fire::{GunInput, Hit, Outcome, View};
+pub use ring::{OpenRing, QuickSelect, RingRules};
 pub use shots::{Shot, ShotKind};
 
 /// The XP a target gives the gun that kills it (UYA's per-class table, 0x4412D0).

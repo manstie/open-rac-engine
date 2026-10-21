@@ -33,7 +33,8 @@ session is working on the task now; notes on problems met stay with their task (
   DL's code lacks (crouch, wall jump, zip lines, dive) and give it its own flips. He has the follow camera with
   lock-on, the lock-strafe and first-person cameras and their blends (P1.7), melee
   for both games (P1.8), and UYA's six read guns with their levels, mods and aim assist
-  (P1.9). He wears the open blocky model or, from the user's
+  (P1.9), held in his hand with their firing animations, a quick-select ring, ammo
+  pickups, crates and a vendor's pad (P1.10), and a HUD (P1.12). He wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
   with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
@@ -58,9 +59,9 @@ session is working on the task now; notes on problems met stay with their task (
 2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
    first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
    done, the wall jump and ledges traced too).
-3. P1.9: the gun on the rig and its firing animations, then the quick-select ring
-   (`weapons.md`, "In the kit"), with RE.7's next steps alongside; with them, the free
-   look's aim assist (P1.7).
+3. P1.9: wear the disc's guns (`rac_formats::gadget`) and follow UYA's quick-select rules;
+   P1.10's crate and pickup rules and P1.12's HUD timings, all read in `weapons.md`; then
+   the free look's aim assist (P1.7).
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** savestates by moves that need a particular
@@ -436,6 +437,9 @@ committed (names, addresses, layouts, derived constants).
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
   `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
+  - Read in code 2026-10-21: ammo pickups, crates and the vendor's rounds; the
+    quick-select ring; the weapon, health and bolt HUDs (`weapons.md`, those sections).
+    Open: placed pickups' rounds, vendor kind 4, multiplayer's ring.
   - Done for UYA NTSC-U, in code: the weapon table (0xF0-byte rows
     per item and level) with every gun's damage, ammo, prices and XP thresholds; owning,
     ammo, levelling, XP from kills and the bought Mega levels; the lock-on, shock and acid
@@ -617,6 +621,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Done 2026-10-21: the gun on the rig (`weapons.md`, "In the kit", "On the rig"):
+    `GunHand` names the gun, its `GunPose` and shots; the standing firing sequences and
+    the crouched arms layer play from the disc; placeholder guns sit in the fist
+    (`RigGuns`, `model::gun_grip`, checked against UYA's firing poses); the open model
+    aims procedurally. The quick-select ring (`weapons/ring.rs`), on placeholder rules.
+  - The gun models are in the gadget WAD; `rac_formats::gadget` reads all six (disc test).
+  - Next step: wear the disc's guns (`Gadget::read_uya` with row +0x10's class, on hand
+    joint 56 with the joint's own axes and the class's scale, as `moby-format.md`, "The
+    gadget WAD", says), then follow UYA's ring rules ("The quick-select ring").
   - UYA's rules and numbers are in `docs/research/weapons.md`; what the kit has of them,
     and its placeholders, in its "In the kit".
   - Done: `rac_combat::weapons`, with UYA's six read guns in RON
@@ -637,8 +650,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Next step: the rig holds the gun in his hand and plays its firing animations from
     `GunHand` (`weapons.md`, "The hero's side of firing": whole-body sequences 49, 51 and
     103, the arms-only layers), with the gun's model from the disc (row +0x10's class).
-- [ ] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
+- [~] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
   nanotech, explosive); health; a vendor stub that sells ammo.
+  - Done 2026-10-21 (`rac_combat::pickups`, `assets/pickups.ron`): the drops moved here;
+    ammo pickups, bolt and ammo crates, enemies' ammo drops and a vendor's pad
+    (`weapons.md`, "In the kit", "Pickups"). Rounds and prices are the game's.
+  - Not done: nanotech and explosive crates, the vendor's menu.
+  - Next step: follow UYA's rules ("Ammo pickups, crates and the vendor"): crates pick a
+    random owned gun not full, 1 or 2 pickups, never the Flux Rifle; pickups are taken
+    before they fly, within 8.7 u, and never expire.
   - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
     the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
     the crates and the vendor.
@@ -662,7 +682,11 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     write them, and the order could differ between peers.
   - To do: their sounds (P1.13), health and bolts on the HUD (P1.12), and tuning by play
     (in a scripted run, a hero who stood his ground and swung died in about 10 s).
-- [ ] **P1.12** UI and HUD, PC first (G5):
+- [~] **P1.12** UI and HUD, PC first (G5):
+  - Started 2026-10-21 (`rac_demo::hud`, `assets/hud.ron`): health, bolts, the gun
+    panel, ammo warnings, the level-up notice and the ring, per player; seen running.
+  - Not done: HUD tests (`rac_demo/tests/hud.rs`), the game's show-and-fade timings
+    (`weapons.md`, "The HUD"), the pause menu and settings.
   - HUD: health, bolts, ammo and weapon icon; plus the quick-select ring.
   - Pause menu.
   - Settings:

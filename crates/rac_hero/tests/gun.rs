@@ -45,6 +45,7 @@ fn gun(firing: bool, held: bool) -> GunHand {
         firing,
         firing_held: firing && held,
         steady: true,
+        ..Default::default()
     }
 }
 
@@ -254,6 +255,42 @@ fn a_wrench_attack_puts_the_gun_away() {
     );
     assert!(rig.hero.state.is_attacking());
     assert_eq!(rig.hero.gun, GunHand::default());
+}
+
+#[test]
+fn while_the_quick_select_ring_is_open_the_stick_doesnt_move_him() {
+    // The kit's ring doesn't pause the game, so the stick that picks a gun in it mustn't
+    // walk him: his moves read it as centred.
+    let selecting = GunHand {
+        selecting: true,
+        ..default()
+    };
+    let mut rig = Rig::new(selecting);
+    let start = rig.hero.position;
+    rig.ticks(30, &input(Some(RIGHT), &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    assert_eq!(rig.hero.speed, 0.0);
+    assert_eq!(rig.hero.position, start);
+    assert_eq!(rig.hero.yaw, 0.0);
+    // His buttons still work: he jumps straight up.
+    rig.tick(&input(Some(RIGHT), &[], &[Action::Jump]));
+    assert!(matches!(rig.hero.state, HeroState::Jump(_)));
+    assert_eq!(rig.hero.velocity.with_y(0.0), Vec3::ZERO);
+
+    // Running when it opens, he stops as if the stick were let go.
+    let mut rig = Rig::new(gun(false, false));
+    rig.run_up();
+    rig.hand = GunHand {
+        selecting: true,
+        ..rig.hand
+    };
+    rig.ticks(10, &input(Some(FORWARD), &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    assert_eq!(rig.hero.speed, 0.0);
+    // Once it closes, the same stick walks him again.
+    rig.hand.selecting = false;
+    rig.ticks(6, &input(Some(FORWARD), &[], &[]));
+    assert!(rig.hero.speed > 0.0);
 }
 
 #[test]

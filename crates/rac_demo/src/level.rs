@@ -8,6 +8,7 @@
 //! Bevy's axes: y is up, and the player starts at the origin looking down −z.
 
 use bevy::prelude::*;
+use rac_combat::CrateKind;
 use rac_hero::{GrindRail, Material, Water};
 
 use crate::enemy::def::EnemyKind;
@@ -35,6 +36,9 @@ pub enum Surface {
     Checkpoint,
     /// Water to swim in, its top the surface.
     Water,
+    /// A box that sells rounds for the gun of a hero standing in it (`rac_combat::Vendor`),
+    /// shown as a pad at its centre.
+    Vendor,
 }
 
 impl Surface {
@@ -48,7 +52,7 @@ impl Surface {
     }
 
     /// Whether the hero collides with it. Rails, zip lines and swing targets wait for
-    /// their moves, and checkpoints and water are only volumes.
+    /// their moves, and checkpoints, water and vendors are only volumes.
     pub fn is_solid(self) -> bool {
         !matches!(
             self,
@@ -57,6 +61,7 @@ impl Surface {
                 | Surface::SwingTarget
                 | Surface::Checkpoint
                 | Surface::Water
+                | Surface::Vendor
         )
     }
 }
@@ -319,6 +324,17 @@ pub fn greybox_level() -> Vec<Piece> {
         )
     });
 
+    // A vendor's pad beside the melee yard (P1.10): standing on it tops up the gun in hand
+    // for bolts.
+    pieces.push(Piece::new(
+        "vendor pad",
+        Surface::Vendor,
+        Shape::Box {
+            half_extents: Vec3::new(1.5, 2.0, 1.5),
+        },
+        Vec3::new(-9.0, 0.0, 3.0),
+    ));
+
     // A pad that hurts, to try getting hit.
     pieces.push(Piece::new(
         "hazard pad",
@@ -501,8 +517,8 @@ pub fn greybox_level() -> Vec<Piece> {
 /// Something in the melee yard to hit.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetKind {
-    /// Solid, and broken by one hit.
-    Crate,
+    /// Solid, and broken by one hit into what it holds (`rac_combat::Crate`).
+    Crate(CrateKind),
     /// Pushed about by hits, and back to full health when knocked out.
     Dummy,
 }
@@ -520,17 +536,47 @@ pub const CRATE_HALF: f32 = 0.45;
 pub const DUMMY_RADIUS: f32 = 0.35;
 pub const DUMMY_HEIGHT: f32 = 1.6;
 
-/// The melee yard behind the start: a row of crates and a few training dummies, spaced
-/// for combos, throws and jump attacks.
+/// The melee yard behind the start: a row of bolt crates with two ammo crates beside it,
+/// and a few training dummies, spaced for combos, throws and jump attacks; and crates by the
+/// arena, to fill up between fights.
 pub fn melee_targets() -> Vec<Target> {
     let mut targets = Vec::new();
+    let crate_at = |name: String, kind, x: f32, z: f32| Target {
+        name,
+        kind: TargetKind::Crate(kind),
+        position: Vec3::new(x, 0.0, z),
+    };
     for i in 0..5 {
-        targets.push(Target {
-            name: format!("crate {i}"),
-            kind: TargetKind::Crate,
-            position: Vec3::new(-4.0 + 2.0 * i as f32, 0.0, 8.0),
-        });
+        targets.push(crate_at(
+            format!("bolt crate {i}"),
+            CrateKind::Bolts,
+            -4.0 + 2.0 * i as f32,
+            8.0,
+        ));
     }
+    for (i, z) in [8.0, 10.0].into_iter().enumerate() {
+        targets.push(crate_at(
+            format!("ammo crate {i}"),
+            CrateKind::Ammo,
+            -8.0,
+            z,
+        ));
+    }
+    // West of the arena, in the first charger's sight.
+    for (i, z) in [12.0, 14.0].into_iter().enumerate() {
+        targets.push(crate_at(
+            format!("arena ammo crate {i}"),
+            CrateKind::Ammo,
+            15.0,
+            z,
+        ));
+    }
+    targets.push(crate_at(
+        "arena bolt crate".into(),
+        CrateKind::Bolts,
+        15.0,
+        16.0,
+    ));
     for (i, x) in [-3.0, 0.0, 3.0].into_iter().enumerate() {
         targets.push(Target {
             name: format!("dummy {i}"),
@@ -803,6 +849,28 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_yard_and_the_arena_have_ammo_and_bolt_crates_and_the_start_a_vendor() {
+        let crates = |kind: CrateKind, near: Vec3| {
+            melee_targets()
+                .into_iter()
+                .filter(|target| {
+                    target.kind == TargetKind::Crate(kind) && target.position.distance(near) < 12.0
+                })
+                .count()
+        };
+        let yard = Vec3::new(0.0, 0.0, 10.0);
+        let arena = Vec3::new(20.0, 0.0, 14.0);
+        for near in [yard, arena] {
+            assert!(crates(CrateKind::Ammo, near) >= 2, "{near}");
+            assert!(crates(CrateKind::Bolts, near) >= 1, "{near}");
+        }
+        let pieces = greybox_level();
+        let vendor = find(&pieces, "vendor pad");
+        assert!(!vendor.surface.is_solid());
+        assert!(vendor.translation.distance(Vec3::ZERO) < 12.0);
     }
 
     #[test]

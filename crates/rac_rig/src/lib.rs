@@ -18,12 +18,15 @@
 //! - A model's attachments ([`AttachmentData`]) ride on their joints without the joints'
 //!   scale, and play the clips [`BackAnimations`] gives them by the game's rules, as UYA's
 //!   Clank and heli-pack do on the hero's back.
+//! - While a gun is in his hand ([`rac_hero::GunHand`]) he holds its model ([`RigGuns`])
+//!   instead of the wrench, and plays its firing animations if the game gave them.
 //!
 //! The rig only reads the controller ([`rac_hero::HeroBody`]), so models and animations
 //! change without touching the simulation.
 
 mod back;
 mod clips;
+mod guns;
 mod hull;
 pub mod model;
 mod play;
@@ -42,6 +45,7 @@ pub use clips::{
     BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, JumpTiming, Landing, RUN_BELOW,
     RigAnimations, RigClip, RigKeyframe, RigMove, SET_OFF_BELOW, Sample,
 };
+pub use guns::{GunData, RigGuns, open_guns};
 pub use hull::convex_hull;
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
@@ -58,8 +62,15 @@ pub struct RigPlugin;
 impl Plugin for RigPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RigModels>()
-            .add_systems(Startup, wear::register_open_model)
-            .add_systems(Update, (dress, animate, fly_thrown_wrenches).chain());
+            .init_resource::<RigGuns>()
+            .add_systems(
+                Startup,
+                (wear::register_open_model, guns::register_open_guns),
+            )
+            .add_systems(
+                Update,
+                (dress, animate, hold_guns, fly_thrown_wrenches).chain(),
+            );
     }
 }
 
@@ -121,6 +132,16 @@ pub struct HeroRig {
     attachments: Vec<Attached>,
     animator: pose::Animator,
     back: back::BackDirector,
+    /// Where a gun's grip sits in his fist, in the model's space, as last posed.
+    grip: Transform,
+    /// The gun model in his hand, and which gun it is.
+    gun: Option<(u16, Entity)>,
+}
+
+/// The model of the gun in a hero's hand.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeldGun {
+    pub item: u16,
 }
 
 /// An attachment a rig carries: the entity placed on its joint, and its own joints.
@@ -222,6 +243,8 @@ pub fn spawn_rig(
                 },
                 DynamicSkinnedMeshBounds,
                 Transform::default(),
+                // The wrench's surfaces hide while it flies or a gun is out.
+                Visibility::default(),
             ))
             .id();
         commands.entity(root).add_child(entity);
@@ -308,6 +331,8 @@ pub fn spawn_rig(
         attachments,
         animator: pose::Animator::new(hero.to_bits() as u32),
         back: back::BackDirector::new(hero.to_bits() as u32 ^ 0x9E37_79B9),
+        grip: Transform::default(),
+        gun: None,
     });
     (root, thrown)
 }
@@ -426,6 +451,7 @@ fn animate(
                 *transform = *local;
             }
         }
+        rig.grip = gripped(&rig.skeleton, &rig.turns, &locals);
 
         if !rig.attachments.is_empty() {
             let back = animations.as_deref().and_then(|a| a.back.as_ref());
@@ -459,7 +485,7 @@ fn animate(
                 }
             }
         }
-        let wanted = if hero.thrown.is_some() {
+        let wanted = if hero.thrown.is_some() || hero.gun.item.is_some() {
             Visibility::Hidden
         } else {
             Visibility::Inherited
@@ -486,6 +512,69 @@ fn placed_on(skeleton: &[JointDef], locals: &[Transform], on: usize) -> Transfor
     Transform::from_translation(translation).with_rotation(rotation)
 }
 
+/// Where a gun's grip sits in the right fist, in the model's space: the hand's place and
+/// its turn from rest without the model's own turn at rest, so every model holds a gun
+/// the same way ([`model::gun_grip`]).
+fn gripped(skeleton: &[JointDef], turns: &[Quat], locals: &[Transform]) -> Transform {
+    let hand = placed_on(skeleton, locals, joint::HAND_R);
+    let unturned = hand.rotation
+        * turns
+            .get(joint::HAND_R)
+            .copied()
+            .unwrap_or_default()
+            .inverse();
+    Transform::from_translation(hand.translation + unturned * model::GRIP_FROM_HAND)
+        .with_rotation(unturned * model::gun_grip())
+}
+
+/// Puts the model of the gun in each hero's hand in his fist, changing it when he changes
+/// guns, and takes it away when he puts it away.
+fn hold_guns(
+    guns: Res<RigGuns>,
+    heroes: Query<&HeroBody>,
+    mut rigs: Query<(Entity, &mut HeroRig)>,
+    mut held: Query<&mut Transform, With<HeldGun>>,
+    mut commands: Commands,
+) {
+    for (root, mut rig) in &mut rigs {
+        let item = heroes.get(rig.hero).ok().and_then(|body| body.0.gun.item);
+        if rig.gun.map(|(shown, _)| shown) != item {
+            if let Some((_, entity)) = rig.gun.take() {
+                commands.entity(entity).despawn();
+            }
+            let Some((item, surfaces)) = item.and_then(|item| Some((item, guns.get(item)?))) else {
+                continue;
+            };
+            let gun = commands
+                .spawn((
+                    Name::new(format!("gun {item:#x}")),
+                    HeldGun { item },
+                    rig.grip,
+                    Visibility::default(),
+                ))
+                .with_children(|parent| {
+                    for surface in surfaces {
+                        let Paint::Own(material) = &surface.paint else {
+                            continue;
+                        };
+                        parent.spawn((
+                            Mesh3d(surface.mesh.clone()),
+                            MeshMaterial3d(material.clone()),
+                            Transform::default(),
+                        ));
+                    }
+                })
+                .id();
+            commands.entity(root).add_child(gun);
+            rig.gun = Some((item, gun));
+        } else if let Some((_, entity)) = rig.gun
+            && let Ok(mut transform) = held.get_mut(entity)
+        {
+            *transform = rig.grip;
+        }
+    }
+}
+
 /// Puts the clip for the hero's move, if the game gave one, over the procedural `target`.
 /// Returns whether one is playing.
 fn play_clip(
@@ -498,30 +587,57 @@ fn play_clip(
 ) -> bool {
     let director = &mut animator.director;
     let current = director.step(hero, health, animations, seconds);
-    let (Some(animations), Some(current)) = (animations, current) else {
+    animator.arms.step(hero, animations, seconds);
+    let Some(animations) = animations else {
         return false;
     };
-    let Some(clip) = animations.clips.get(&current) else {
-        return false;
-    };
-    let sample = if current.follows_attack_frame() {
-        clip.at_frame(hero.attack_frame())
-    } else {
-        clip.at_time(director.ticks)
-    };
-    let Some((rotations, offsets, scales)) = sample else {
-        return false;
-    };
-    for (index, driven) in animations.driven.iter().enumerate() {
-        if *driven && index < target.rotations.len() && index < rotations.len() {
-            target.rotations[index] = rotations[index];
-            target.offsets[index] = offsets[index];
-            if let Some(scale) = scales.get(index) {
-                target.scales[index] = *scale;
+    let clip = current.and_then(|current| Some((current, animations.clips.get(&current)?)));
+    let sample = clip.and_then(|(current, clip)| {
+        if current.follows_attack_frame() {
+            clip.at_frame(hero.attack_frame())
+        } else {
+            clip.at_time(director.ticks)
+        }
+    });
+    let playing = sample.is_some();
+    if let Some((rotations, offsets, scales)) = sample {
+        for (index, driven) in animations.driven.iter().enumerate() {
+            if *driven && index < target.rotations.len() && index < rotations.len() {
+                target.rotations[index] = rotations[index];
+                target.offsets[index] = offsets[index];
+                if let Some(scale) = scales.get(index) {
+                    target.scales[index] = *scale;
+                }
             }
         }
     }
-    true
+
+    // The arms-only firing animation, laid over whatever the rest plays.
+    let arms = &animator.arms;
+    let layer = arms
+        .playing
+        .filter(|_| arms.weight > 0.0)
+        .and_then(|playing| animations.clips.get(&playing)?.at_time(arms.ticks));
+    if let Some((rotations, offsets, scales)) = layer {
+        let sides = if arms.both { 2 } else { 1 };
+        for index in [joint::ARM_R, joint::ARM_L]
+            .into_iter()
+            .take(sides)
+            .flatten()
+        {
+            let driven = animations.driven.get(index).copied().unwrap_or(false);
+            if !driven || index >= target.rotations.len() || index >= rotations.len() {
+                continue;
+            }
+            let weight = arms.weight;
+            target.rotations[index] = target.rotations[index].slerp(rotations[index], weight);
+            target.offsets[index] = target.offsets[index].lerp(offsets[index], weight);
+            if let Some(scale) = scales.get(index) {
+                target.scales[index] = target.scales[index].lerp(*scale, weight);
+            }
+        }
+    }
+    playing
 }
 
 /// Spins the thrown wrench along its flight, and removes it with its hero.
@@ -655,6 +771,51 @@ mod tests {
         assert!(root.translation.distance(Vec3::Y * 2.0) < 1e-5);
         assert!(root.scale.distance(Vec3::splat(3.0)) < 1e-5);
         assert_eq!(transform("attachment (pack)").scale, Vec3::ONE);
+    }
+
+    #[test]
+    fn a_gun_out_is_held_in_the_fist_in_place_of_the_wrench() {
+        let mut app = app();
+        let hero = app
+            .world_mut()
+            .spawn((
+                HeroBody(HeroMotion::new(Vec3::ZERO, 0.0)),
+                RigLook::for_player(0),
+            ))
+            .id();
+        app.update();
+        app.update();
+        let held = |app: &mut App| {
+            let mut query = app.world_mut().query::<&HeldGun>();
+            query
+                .iter(app.world())
+                .map(|gun| gun.item)
+                .collect::<Vec<_>>()
+        };
+        let wrench_shown = |app: &mut App| {
+            let mut rigs = app.world_mut().query::<&HeroRig>();
+            let surfaces = rigs.iter(app.world()).next().unwrap().wrench.clone();
+            surfaces
+                .iter()
+                .all(|&s| app.world().get::<Visibility>(s) != Some(&Visibility::Hidden))
+        };
+        assert!(held(&mut app).is_empty());
+        assert!(wrench_shown(&mut app));
+
+        let give = |app: &mut App, item: Option<u16>| {
+            let mut body = app.world_mut().get_mut::<HeroBody>(hero).unwrap();
+            body.0.gun.out = item.is_some();
+            body.0.gun.item = item;
+            app.update();
+        };
+        give(&mut app, Some(0x2F));
+        assert_eq!(held(&mut app), [0x2F]);
+        assert!(!wrench_shown(&mut app));
+        give(&mut app, Some(0x37));
+        assert_eq!(held(&mut app), [0x37], "a gun without a model of its own");
+        give(&mut app, None);
+        assert!(held(&mut app).is_empty());
+        assert!(wrench_shown(&mut app));
     }
 
     #[test]

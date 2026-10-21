@@ -8,7 +8,7 @@
 //! the rig is UYA's joint *n*, up to [`joint::UYA_JOINTS`]), so animation read from a disc
 //! drives the rig joint for joint, face and fingers included.
 
-use bevy::math::{Quat, Vec2, Vec3};
+use bevy::math::{Mat3, Quat, Vec2, Vec3};
 
 use crate::shapes::{at, beam, block_at};
 
@@ -67,6 +67,10 @@ pub mod joint {
     pub const THUMB_L: usize = 89;
     pub const THUMB_L_TIP: usize = 90;
     pub const ELBOW_L_HELPER: usize = 91;
+    /// Each arm from the clavicle to the elbow's helper, fingers included: what the
+    /// games' arm layers move.
+    pub const ARM_R: std::ops::RangeInclusive<usize> = CLAVICLE_R..=ELBOW_R_HELPER;
+    pub const ARM_L: std::ops::RangeInclusive<usize> = CLAVICLE_L..=ELBOW_L_HELPER;
     pub const THIGH_R: usize = 92;
     pub const KNEE_R: usize = 93;
     pub const ANKLE_R: usize = 94;
@@ -116,6 +120,21 @@ pub struct JointDef {
 pub fn wrench_points() -> Vec3 {
     Vec3::new(0.47, -0.12, -0.87).normalize()
 }
+
+/// How a gun sits in the right fist, in the hand's frame at rest as for
+/// [`wrench_points`]: its barrel out along the forearm, and its top on the thumb's side,
+/// where the wrench's head sticks out. Guns are modelled with the barrel along −Z and the
+/// top along +Y (`crate::guns`); this turns them into the fist.
+pub fn gun_grip() -> Quat {
+    // At rest the right arm reaches out along +x, so its forearm runs that way.
+    let barrel = Vec3::X;
+    let top = (wrench_points() - barrel * wrench_points().dot(barrel)).normalize();
+    Quat::from_mat3(&Mat3::from_cols(top.cross(-barrel), top, -barrel))
+}
+
+/// How far the fist's middle, where a gun's grip sits, is from the hand joint, in the
+/// hand's frame at rest.
+pub const GRIP_FROM_HAND: Vec3 = Vec3::new(0.05, 0.0, 0.0);
 
 /// The open wrench is modelled pointing forward, then turned about the hand by this.
 pub(crate) fn wrench_turn() -> Quat {

@@ -321,6 +321,9 @@ as the Veldin memory image has them.
   88, level 30 six, and the multiplayer maps have no class 0. His mesh isn't in the core
   at all; it comes from the armor WAD (`moby-format.md`, "The armor WAD"), the fifth of
   the eight global headers.
+- **The guns** [code, data, 2026-10-21]: the seventh global header (0x3C8 bytes) is the
+  gadget WAD, 48 entries of {class, file, sound bank} that the game streams as guns are
+  given and drawn (`moby-format.md`, "The gadget WAD").
 
 ### WAD compression [verified 2026-10-13]
 

@@ -3,6 +3,7 @@
 //! (`docs/research/weapons.md`).
 
 use bevy::prelude::*;
+use rac_hero::GunPose;
 use rac_hero::profile::Spring;
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +81,10 @@ pub struct GunRules {
     pub shock: ShockRules,
     /// How many targets can burn with acid at once.
     pub acid_slots: usize,
+    /// The quick-select ring's own rules: the kit's until the game's are read, so the
+    /// bundled files leave them out [placeholder].
+    #[serde(default)]
+    pub ring: super::ring::RingRules,
 }
 
 /// The shock mod: each hit arcs to another enemy near the target.
@@ -99,6 +104,9 @@ pub struct WeaponDef {
     pub upgraded_name: String,
     /// The game's item number (`weapons.md`, "Items").
     pub item: u16,
+    /// The rounds one of its ammo pickups holds (`crate::pickups`); 0: it has none.
+    #[serde(default)]
+    pub pickup_rounds: u32,
     /// Fired by holding the button (row +0x30): his walk changes while it fires.
     pub held: bool,
     /// While it fires his walk turns on the profile's steady firing turn.
@@ -109,6 +117,10 @@ pub struct WeaponDef {
     pub fire_ticks: u32,
     /// In the look, ticks it waits before it fires.
     pub look_wait_ticks: u32,
+    /// How he holds it and the animations he plays as it fires (row +0x18, +0x24, +0x28
+    /// and +0x2C).
+    #[serde(default)]
+    pub pose: GunPose,
     /// V1 to V5, then Mega, Giga and Omega.
     pub levels: Vec<Level>,
     pub mods: ModLevels,
@@ -158,6 +170,9 @@ pub struct Level {
     pub ammo: u32,
     /// The total XP at which it leaves this level, row +0x68; 0 for none.
     pub xp: u32,
+    /// What the vendor asks for one round, in bolts, row +0x84 (`crate::pickups::vendor`).
+    #[serde(default)]
+    pub round_price: u32,
 }
 
 /// The level each mod comes on at (0 is V1); `None` never.

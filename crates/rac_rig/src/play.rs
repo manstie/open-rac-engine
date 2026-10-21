@@ -9,10 +9,13 @@
 //!   its landing frame as he lands (`hero-controller.md`, "Landings");
 //! - coming down on his feet, a jump finishes its own animation and a fall has its landing,
 //!   deeper after a long fall, until he moves off;
-//! - a skid straight out of a run, or out of a long jump, has the run's own skid.
+//! - a skid straight out of a run, or out of a long jump, has the run's own skid;
+//! - firing a gun standing plays the gun's whole-body firing animation over the idle and
+//!   the landings, started again by each shot; on the move or crouched, its arms-only one
+//!   is laid over the arms ([`ArmLayer`]; `weapons.md`, "The hero's side of firing").
 
 use bevy::math::Vec2;
-use rac_hero::HeroMotion;
+use rac_hero::{HeroMotion, HeroState, Hold};
 
 use crate::clips::{
     JumpTiming, Landing, RUN_BELOW, RigAnimations, RigClip, RigMove, SET_OFF_BELOW,
@@ -54,6 +57,10 @@ const DOUBLE_JUMP_STEP: f32 = 0.15;
 /// A jump that lands more than this many frames short of its landing frame starts its
 /// landing afresh; otherwise its own animation plays on.
 const LANDING_SHORT: f32 = 1.5;
+/// The arms-only firing layer's weight rises this much a tick while it plays, and falls
+/// this much once firing ends (UYA 0x4E6A08).
+const ARMS_IN: f32 = 0.2;
+const ARMS_OUT: f32 = 0.07;
 
 /// What the rig remembers to choose and time its clips.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +83,8 @@ pub(crate) struct Director {
     landing_speed: f32,
     /// The jump under way has been timed to its apex.
     apex_timed: bool,
+    /// The gun's shot count last tick: a new shot starts its firing animation again.
+    shots: u8,
 }
 
 impl Director {
@@ -93,6 +102,7 @@ impl Director {
             fell_far: false,
             landing_speed: 0.0,
             apex_timed: false,
+            shots: 0,
         }
     }
 
@@ -123,6 +133,9 @@ impl Director {
         let clip = |movement: RigMove| animations.and_then(|a| a.clips.get(&movement));
         let previous = self.current;
         let base = RigMove::of(hero);
+        let firing = firing_standing(hero, base).filter(|&firing| clip(firing).is_some());
+        let shot = hero.gun.shots != self.shots;
+        self.shots = hero.gun.shots;
 
         if base == Some(RigMove::Fall) {
             if !matches!(previous, Some(RigMove::Fall | RigMove::FallStart)) {
@@ -160,7 +173,9 @@ impl Director {
                 // The game always sets off first, even landing at a run.
                 _ => RigMove::SetOff,
             }),
-            Some(RigMove::Idle) => Some(self.idle(previous, hurt, animations, whole)),
+            Some(RigMove::Idle) if firing.is_none() => {
+                Some(self.idle(previous, hurt, animations, whole))
+            }
             other => other,
         };
 
@@ -182,7 +197,15 @@ impl Director {
             }
         }
 
-        if next == previous {
+        // The gun sets its firing animation over whatever he stands in.
+        if firing.is_some() {
+            next = firing;
+        }
+
+        if next == previous && firing.is_some() && shot {
+            self.ticks = 0.0;
+            self.rate = 1.0;
+        } else if next == previous {
             let timing = next.and_then(|m| animations.and_then(|a| a.jumps.get(&m)));
             match (timing, next.and_then(clip)) {
                 // Timed from where this tick leaves it, for the ticks to come.
@@ -386,6 +409,75 @@ fn played_on(animations: &RigAnimations, air: RigMove, land: RigMove, ticks: f32
 /// How fast a move's clip plays. UYA times the walk by his speed in u per frame
 /// (`hero_walk_anim`, 0x5024B8): setting off 157 times it (0.6 to 4), running 13 times
 /// (0.6 to 2.2), walking backwards 25 times (0.7 to 2.2). The double jump plays at 0.8.
+/// The gun's whole-body firing animation, while it fires and he stands (state type 0):
+/// in the idle and the look, which [`RigMove::of`] both makes [`RigMove::Idle`].
+fn firing_standing(hero: &HeroMotion, base: Option<RigMove>) -> Option<RigMove> {
+    let gun = &hero.gun;
+    if !gun.firing || gun.item.is_none() || base != Some(RigMove::Idle) {
+        return None;
+    }
+    gun.pose.standing.map(RigMove::Fire)
+}
+
+/// The arms-only firing animation laid over the arms (`weapons.md`, "The hero's side of
+/// firing"): while the gun fires and he isn't standing, on the right arm, and the left
+/// too for a gun held in both hands. Crouched it is the gun's crouched one, otherwise its
+/// arms one; most guns have none, and then nothing plays. It blends in at
+/// [`ARMS_IN`] of full weight a tick and out at [`ARMS_OUT`] once firing ends, and each
+/// shot starts it again.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct ArmLayer {
+    /// The clip it plays, and how far into it.
+    pub playing: Option<RigMove>,
+    pub ticks: f32,
+    pub weight: f32,
+    /// Whether it lies over both arms.
+    pub both: bool,
+    shots: u8,
+}
+
+impl ArmLayer {
+    /// Moves on by `seconds`.
+    pub fn step(&mut self, hero: &HeroMotion, animations: Option<&RigAnimations>, seconds: f32) {
+        let elapsed = seconds * 60.0;
+        let gun = &hero.gun;
+        let wanted = if gun.firing && gun.item.is_some() {
+            if hero.state == HeroState::Crouch {
+                gun.pose.crouched
+            } else if RigMove::of(hero) == Some(RigMove::Idle) {
+                None
+            } else {
+                gun.pose.arms
+            }
+        } else {
+            None
+        }
+        .map(RigMove::FireArms)
+        .filter(|arms| animations.is_some_and(|a| a.clips.contains_key(arms)));
+        let shot = gun.shots != self.shots;
+        self.shots = gun.shots;
+        match wanted {
+            Some(arms) => {
+                if self.playing != Some(arms) || shot {
+                    self.ticks = 0.0;
+                } else {
+                    self.ticks += elapsed;
+                }
+                self.playing = Some(arms);
+                self.both = gun.pose.hold == Hold::TwoHands;
+                self.weight = (self.weight + ARMS_IN * elapsed).min(1.0);
+            }
+            None => {
+                self.ticks += elapsed;
+                self.weight = (self.weight - ARMS_OUT * elapsed).max(0.0);
+                if self.weight == 0.0 {
+                    self.playing = None;
+                }
+            }
+        }
+    }
+}
+
 fn rate(movement: Option<RigMove>, speed: f32) -> f32 {
     let per_frame = speed / 60.0;
     match movement {
@@ -721,5 +813,114 @@ mod tests {
             director.step(&hero, None, Some(&a), TICK),
             Some(RigMove::Skid)
         );
+    }
+
+    /// A gun in his hand, firing or not, with UYA's N60's animations.
+    fn n60(firing: bool, shots: u8) -> rac_hero::GunHand {
+        rac_hero::GunHand {
+            out: true,
+            firing,
+            item: Some(0x2F),
+            pose: rac_hero::GunPose {
+                hold: Hold::OneHand,
+                standing: Some(51),
+                arms: None,
+                crouched: Some(57),
+            },
+            shots,
+            ..Default::default()
+        }
+    }
+
+    fn with_guns() -> RigAnimations {
+        let mut a = animations();
+        a.clips.insert(RigMove::Fire(51), clip(5, 4.0, false));
+        a.clips.insert(RigMove::FireArms(57), clip(5, 4.0, false));
+        a
+    }
+
+    #[test]
+    fn firing_standing_plays_the_guns_animation_from_the_start_each_shot() {
+        let a = with_guns();
+        let mut director = Director::new(3);
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.gun = n60(false, 0);
+        run(&mut director, &hero, &a, 3);
+        assert_ne!(director.current, Some(RigMove::Fire(51)), "out, not firing");
+
+        hero.gun = n60(true, 1);
+        run(&mut director, &hero, &a, 10);
+        assert_eq!(director.current, Some(RigMove::Fire(51)));
+        assert!((director.ticks - 9.0).abs() < 1e-3, "{}", director.ticks);
+        // The next shot, 14 ticks after the first as the N60's are, starts it again.
+        run(&mut director, &hero, &a, 4);
+        hero.gun.shots = 2;
+        director.step(&hero, Some(1.0), Some(&a), TICK);
+        assert_eq!(director.current, Some(RigMove::Fire(51)));
+        assert_eq!(director.ticks, 0.0);
+        // Holding its last pose until firing ends, then back to the idle.
+        run(&mut director, &hero, &a, 40);
+        assert_eq!(director.current, Some(RigMove::Fire(51)));
+        hero.gun.firing = false;
+        director.step(&hero, Some(1.0), Some(&a), TICK);
+        assert!(matches!(
+            director.current,
+            Some(RigMove::Idle | RigMove::Fidget(_))
+        ));
+    }
+
+    #[test]
+    fn firing_without_the_guns_clip_or_on_the_move_keeps_the_moves_own() {
+        let mut director = Director::new(3);
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.gun = n60(true, 1);
+        let a = animations();
+        run(&mut director, &hero, &a, 3);
+        assert_ne!(
+            director.current,
+            Some(RigMove::Fire(51)),
+            "no clip for sequence 51"
+        );
+
+        let a = with_guns();
+        hero.state = HeroState::Walk;
+        hero.velocity = Vec3::new(0.0, 0.0, -6.0);
+        run(&mut director, &hero, &a, 3);
+        assert_eq!(director.current, Some(RigMove::SetOff));
+    }
+
+    #[test]
+    fn crouched_firing_lays_the_arms_animation_over_and_blends_it_in_and_out() {
+        let a = with_guns();
+        let mut layer = ArmLayer::default();
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.state = HeroState::Crouch;
+        hero.gun = n60(true, 1);
+        layer.step(&hero, Some(&a), TICK);
+        assert_eq!(layer.playing, Some(RigMove::FireArms(57)));
+        assert!(!layer.both, "the N60 is held in one hand");
+        assert!((layer.weight - 0.2).abs() < 1e-5);
+        for _ in 0..10 {
+            layer.step(&hero, Some(&a), TICK);
+        }
+        assert_eq!(layer.weight, 1.0);
+        hero.gun.shots = 2;
+        layer.step(&hero, Some(&a), TICK);
+        assert_eq!(layer.ticks, 0.0, "a shot starts it again");
+
+        hero.gun.firing = false;
+        layer.step(&hero, Some(&a), TICK);
+        assert!((layer.weight - 0.93).abs() < 1e-5);
+        for _ in 0..14 {
+            layer.step(&hero, Some(&a), TICK);
+        }
+        assert_eq!(layer.weight, 0.0);
+        assert_eq!(layer.playing, None);
+
+        // Standing, the whole-body animation plays instead.
+        hero.state = HeroState::Idle;
+        hero.gun.firing = true;
+        layer.step(&hero, Some(&a), TICK);
+        assert_eq!(layer.playing, None);
     }
 }

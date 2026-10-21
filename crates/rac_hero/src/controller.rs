@@ -978,6 +978,17 @@ pub fn step(
     profile: &HeroProfile,
     world: &dyn CollisionWorld,
 ) -> StepEvents {
+    // While the quick-select ring is open, its stick picks a gun rather than moving him.
+    let centred;
+    let input = if hero.gun.selecting {
+        centred = PlayerInput {
+            move_stick: [0, 0],
+            ..*input
+        };
+        &centred
+    } else {
+        input
+    };
     let stick = read_stick(input.move_stick, &profile.stick);
     let wish = stick_on_ground(stick.vector, camera_yaw);
     hero.record_stick(&stick);

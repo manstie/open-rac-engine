@@ -1,4 +1,5 @@
-//! How the enemies, their shots and their drops look: placeholder shapes made in code.
+//! How the enemies and their shots look: placeholder shapes made in code (their drops are
+//! shown with every pickup, in `crate::drops`).
 //! Each enemy's parts lean and sink with what it is doing, and the parts that give its
 //! attack away light up through the wind-up.
 
@@ -9,7 +10,6 @@ use std::f32::consts::FRAC_PI_2;
 use super::brain::{AttackPhase, EnemyMotion, EnemyState, phases};
 use super::def::{Attack, Bestiary, EnemyDef, EnemyKind};
 use super::{BURST_TICKS, Enemy, EnemyBody, EnemyShot, ShotBurst};
-use crate::drops::{self, DropTuning, Pickup, PickupKind};
 
 /// Meshes and materials for everything here, made when the demo spawns.
 #[derive(Resource, Debug, Clone)]
@@ -21,10 +21,6 @@ pub struct EnemyLooks {
     shot: Handle<Mesh>,
     burst: Handle<Mesh>,
     shot_look: Handle<StandardMaterial>,
-    bolt: Handle<Mesh>,
-    bolt_look: Handle<StandardMaterial>,
-    nanotech: Handle<Mesh>,
-    nanotech_look: Handle<StandardMaterial>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,10 +46,6 @@ pub(crate) struct EnemyPose {
     owner: Entity,
 }
 
-/// Turns a bolt about its axis.
-#[derive(Component, Debug, Default, Clone, Copy)]
-pub(crate) struct Spin;
-
 impl EnemyLooks {
     pub fn new(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Self {
         let mut plain = |r: f32, g: f32, b: f32| materials.add(Color::srgb(r, g, b));
@@ -73,13 +65,6 @@ impl EnemyLooks {
         let lit = glowing(Color::srgb(1.0, 0.95, 0.8), LinearRgba::rgb(2.0, 1.6, 0.8));
         let tell = glowing(Color::srgb(1.0, 0.2, 0.05), LinearRgba::rgb(8.0, 0.8, 0.1));
         let shot_look = glowing(Color::srgb(1.0, 0.5, 0.1), LinearRgba::rgb(8.0, 2.5, 0.4));
-        let nanotech_look = glowing(Color::srgb(0.3, 1.0, 0.6), LinearRgba::rgb(0.4, 2.0, 1.0));
-        let bolt_look = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.85, 0.8, 0.6),
-            metallic: 1.0,
-            perceptual_roughness: 0.3,
-            ..default()
-        });
 
         // Forward is −z; a cone or cylinder along +y turned this way points forward.
         let forward = Quat::from_rotation_x(-FRAC_PI_2);
@@ -147,22 +132,16 @@ impl EnemyLooks {
             shot: meshes.add(Sphere::new(0.2)),
             burst: meshes.add(Sphere::new(0.45)),
             shot_look,
-            // A hex nut.
-            bolt: meshes.add(Cylinder::new(0.12, 0.07).mesh().resolution(6)),
-            bolt_look,
-            nanotech: meshes.add(Sphere::new(0.16)),
-            nanotech_look,
         }
     }
 }
 
-/// Gives new enemies, shots, bursts and drops their looks.
+/// Gives new enemies, shots and bursts their looks.
 pub(crate) fn dress(
     looks: Res<EnemyLooks>,
     enemies: Query<(Entity, &Enemy), Added<Enemy>>,
     shots: Query<Entity, Added<EnemyShot>>,
     bursts: Query<Entity, Added<ShotBurst>>,
-    pickups: Query<(Entity, &Pickup), Added<Pickup>>,
     mut commands: Commands,
 ) {
     for (owner, enemy) in &enemies {
@@ -205,20 +184,6 @@ pub(crate) fn dress(
             Mesh3d(looks.burst.clone()),
             MeshMaterial3d(looks.shot_look.clone()),
             Visibility::default(),
-        ));
-    }
-    for (entity, pickup) in &pickups {
-        let (mesh, look) = match pickup.0.kind {
-            PickupKind::Bolts(_) => (&looks.bolt, &looks.bolt_look),
-            PickupKind::Nanotech(_) => (&looks.nanotech, &looks.nanotech_look),
-        };
-        commands.entity(entity).insert(Visibility::default());
-        commands.spawn((
-            Spin,
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(look.clone()),
-            Transform::default(),
-            ChildOf(entity),
         ));
     }
 }
@@ -300,28 +265,9 @@ fn lean(def: &EnemyDef, enemy: &EnemyMotion) -> (f32, f32) {
     }
 }
 
-/// Blinks drops about to vanish, and shrinks shot bursts.
-pub(crate) fn show_pickups(
-    tuning: Res<DropTuning>,
-    mut pickups: Query<(&Pickup, &mut Visibility)>,
-    mut bursts: Query<(&ShotBurst, &mut Transform)>,
-) {
-    for (pickup, mut visibility) in &mut pickups {
-        visibility.set_if_neq(if drops::shows(&pickup.0, &tuning) {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        });
-    }
+/// Shrinks shot bursts.
+pub(crate) fn shrink_bursts(mut bursts: Query<(&ShotBurst, &mut Transform)>) {
     for (burst, mut transform) in &mut bursts {
         transform.scale = Vec3::splat(burst.ticks_left as f32 / BURST_TICKS as f32);
-    }
-}
-
-/// Turns bolts and nanotech, tipped so the bolts' faces show.
-pub(crate) fn spin(time: Res<Time>, mut spinning: Query<&mut Transform, With<Spin>>) {
-    let rotation = Quat::from_rotation_y(time.elapsed_secs() * 4.0) * Quat::from_rotation_x(1.1);
-    for mut transform in &mut spinning {
-        transform.rotation = rotation;
     }
 }

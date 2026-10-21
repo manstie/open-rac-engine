@@ -7,7 +7,7 @@
 //!   this tick and the wrench's of the last in a fixed order.
 //! - Enemies are targets like the melee yard's (`rac_combat`): the wrench and guns hit
 //!   their hurtbox, each hit makes them reel, and the last kills them. Dead, they drop
-//!   bolts and nanotech ([`crate::drops`]), and a while later come back at home.
+//!   bolts, nanotech and ammo ([`crate::drops`]), and a while later come back at home.
 //! - The shooter's shots are [`EnemyShot`]s.
 
 pub mod brain;
@@ -16,12 +16,13 @@ mod looks;
 pub mod shot;
 
 use bevy::prelude::*;
-use rac_combat::{Destroyed, Hitpoints, Hurtbox, KillXp, Struck, target_bundle};
+use rac_combat::pickups::{self, PickupTuning};
+use rac_combat::{Armory, Arsenal, Destroyed, Hitpoints, Hurtbox, KillXp, Struck, target_bundle};
 use rac_hero::{AimTarget, CollisionScene, Hero, HeroBody, HeroState, HeroTuning, HurtHero};
 use rac_sim::{PreviousSimTransform, SimRng, SimSet, SimTransform};
 
 use crate::DemoEntity;
-use crate::drops::{self, DropTuning};
+use crate::drops;
 use brain::{EnemyMotion, HeroShape, HeroView, Surroundings};
 use def::{Bestiary, EnemyDef, EnemyKind};
 use shot::{ShotEnd, ShotMotion};
@@ -53,14 +54,14 @@ pub struct ShotBurst {
 /// How long a shot's burst shows.
 pub const BURST_TICKS: u32 = 10;
 
-/// Runs the enemies, their shots and their drops in the simulation, and, once
-/// [`EnemyLooks`] exist, shows them.
+/// Runs the enemies and their shots in the simulation, and, once [`EnemyLooks`] exist,
+/// shows them. Their drops are `rac_combat`'s pickups, which `rac_combat::CombatPlugin`
+/// moves.
 pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Bestiary>()
-            .init_resource::<DropTuning>()
             .add_systems(
                 FixedUpdate,
                 (run_enemies, fly_shots)
@@ -68,18 +69,10 @@ impl Plugin for EnemyPlugin {
                     .after(SimSet::World)
                     .before(SimSet::Hero),
             )
-            .add_systems(
-                FixedUpdate,
-                (drops::move_pickups, fade_bursts).in_set(SimSet::Particles),
-            )
+            .add_systems(FixedUpdate, fade_bursts.in_set(SimSet::Particles))
             .add_systems(
                 Update,
-                (
-                    looks::dress,
-                    looks::pose_enemies,
-                    looks::show_pickups,
-                    looks::spin,
-                )
+                (looks::dress, looks::pose_enemies, looks::shrink_bursts)
                     .run_if(resource_exists::<EnemyLooks>),
             );
     }
@@ -135,13 +128,15 @@ type EnemyItem<'a> = (
 #[allow(clippy::too_many_arguments)]
 fn run_enemies(
     bestiary: Res<Bestiary>,
-    drop_tuning: Res<DropTuning>,
+    pickup_tuning: Res<PickupTuning>,
+    armory: Res<Armory>,
     hero_tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
     mut rng: ResMut<SimRng>,
     mut struck: MessageReader<Struck>,
     mut destroyed: MessageReader<Destroyed>,
     heroes: Query<(&Hero, &HeroBody)>,
+    arsenals: Query<(&Hero, &Arsenal)>,
     mut enemies: Query<EnemyItem>,
     mut hurt: MessageWriter<HurtHero>,
     mut commands: Commands,
@@ -169,9 +164,14 @@ fn run_enemies(
         commands.entity(*entity).remove::<(Hurtbox, AimTarget)>();
         let def = bestiary.get(enemy.kind);
         let at = body.0.position + Vec3::Y * (def.height / 2.0);
-        drops::spawn(
+        let killer = arsenals
+            .iter()
+            .find(|(hero, _)| hero.player == kill.player)
+            .map(|(_, arsenal)| arsenal);
+        let kinds = drops::drops(&def.drops, killer, &armory, &mut rng);
+        pickups::spawn(
             &mut commands,
-            drops::scatter(at, &def.drops, &drop_tuning, &mut rng),
+            pickups::scatter(at, kinds, &pickup_tuning, &mut rng),
         );
     }
 

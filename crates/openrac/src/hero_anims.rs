@@ -31,7 +31,9 @@ pub const LEVEL: usize = 1;
 /// UYA's sequence for each move, whether it loops, and the keyframe the game starts it at.
 /// A landing finishes its jump's own sequence from two keyframes past the one the game
 /// lands it on (`hero_change_state` sets it per jump), and a fall's has a sequence of its
-/// own, started deeper after a long fall.
+/// own, started deeper after a long fall. The guns' firing animations are their own
+/// sequence numbers (`weapons.md`, "The hero's side of firing"), played once from the
+/// start by each shot (`uyantsc-veldin-fire-2`: the N60's 51 at its own pace).
 const MOVES: &[(RigMove, usize, bool, usize)] = &[
     (RigMove::Idle, 0, true, 0),
     (RigMove::IdleHurt, 74, true, 0),
@@ -101,6 +103,13 @@ const MOVES: &[(RigMove, usize, bool, usize)] = &[
     (RigMove::SurfaceSwim, 82, true, 0),
     (RigMove::SurfaceIdle, 53, true, 0),
     (RigMove::Dead, 64, false, 0),
+    (RigMove::Fire(41), 41, false, 0),
+    (RigMove::Fire(46), 46, false, 0),
+    (RigMove::Fire(49), 49, false, 0),
+    (RigMove::Fire(51), 51, false, 0),
+    (RigMove::Fire(103), 103, false, 0),
+    (RigMove::FireArms(57), 57, false, 0),
+    (RigMove::FireArms(65), 65, false, 0),
 ];
 
 /// The idle's fidgets, by [`RigMove::Fidget`] number: sequences 1 and 2 about every 10 s,

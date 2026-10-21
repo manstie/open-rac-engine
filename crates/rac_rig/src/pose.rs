@@ -5,14 +5,16 @@
 //! offset for the hips. The rig eases towards it, so states blend into each other. While
 //! the wrench swings, the right arm reaches for the controller's own hand position for the
 //! swing (`HeroMotion::wrench_line`) with two-bone IK, and the wrench points at its tip, so
-//! what the hero hits matches what is drawn.
+//! what the hero hits matches what is drawn. With a gun out, the right arm holds it low
+//! ahead of him, or aims it ahead while it fires, with the left hand under it for a gun
+//! held in both hands.
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::{math::ops, prelude::*};
-use rac_hero::{HeroMotion, HeroState, JumpKind};
+use rac_hero::{GunHand, HeroMotion, HeroState, Hold, JumpKind};
 
-use crate::model::{JointDef, joint, wrench_points};
+use crate::model::{JointDef, gun_grip, joint, wrench_points};
 
 /// Metres the hero covers in one stride (two steps) at a run.
 const STRIDE: f32 = 1.5;
@@ -66,6 +68,8 @@ pub struct Animator {
     pub time: f32,
     /// Which clip plays, and how far into it.
     pub director: crate::play::Director,
+    /// The arms-only firing animation over it.
+    pub(crate) arms: crate::play::ArmLayer,
 }
 
 impl Animator {
@@ -77,6 +81,7 @@ impl Animator {
             phase: 0.0,
             time: 0.0,
             director: crate::play::Director::new(seed),
+            arms: crate::play::ArmLayer::default(),
         }
     }
 
@@ -221,40 +226,93 @@ fn legs_bent(b: &mut Builder, drop: f32) {
     b.sides(joint::ANKLE_R, joint::ANKLE_L, rx(knee - hip));
 }
 
-/// Two-bone IK for the right arm: the hand at `hand`, bending the elbow down and back.
+/// Two-bone IK for an arm: its hand at `hand`, bending the elbow down, back and out.
 /// Positions are in the hero's space; the chest is taken to be upright.
-fn reach_right(b: &mut Builder, joints: &[JointDef], hand: Vec3, tip: Vec3) {
-    let shoulder = joints[joint::SHOULDER_R].rest;
-    let elbow_rest = joints[joint::ELBOW_R].rest;
-    let hand_rest = joints[joint::HAND_R].rest;
-    let upper = elbow_rest.distance(shoulder);
+fn reach(b: &mut Builder, joints: &[JointDef], right: bool, hand: Vec3) {
+    let (shoulder, elbow, wrist, out) = if right {
+        (joint::SHOULDER_R, joint::ELBOW_R, joint::HAND_R, 1.0)
+    } else {
+        (joint::SHOULDER_L, joint::ELBOW_L, joint::HAND_L, -1.0)
+    };
+    let shoulder_at = joints[shoulder].rest;
+    let elbow_rest = joints[elbow].rest;
+    let hand_rest = joints[wrist].rest;
+    let upper = elbow_rest.distance(shoulder_at);
     let lower = hand_rest.distance(elbow_rest);
-    let to_hand = hand - shoulder;
-    let along = to_hand.normalize_or(Vec3::X);
+    let to_hand = hand - shoulder_at;
+    let along = to_hand.normalize_or(Vec3::X * out);
     let reach = to_hand
         .length()
         .clamp((upper - lower).abs() + 1e-3, upper + lower - 1e-3);
-    let pole = Vec3::new(0.3, -1.0, 0.6);
+    let pole = Vec3::new(0.3 * out, -1.0, 0.6);
     let bend = (pole - along * pole.dot(along)).normalize_or(Vec3::NEG_Y);
     let a = (upper * upper - lower * lower + reach * reach) / (2.0 * reach);
     let h = (upper * upper - a * a).max(0.0).sqrt();
-    let elbow = shoulder + along * a + bend * h;
-    let wrist = shoulder + along * reach;
-    let upper_rest = (elbow_rest - shoulder).normalize();
+    let elbow_at = shoulder_at + along * a + bend * h;
+    let wrist_at = shoulder_at + along * reach;
+    let upper_rest = (elbow_rest - shoulder_at).normalize();
     let lower_rest = (hand_rest - elbow_rest).normalize();
     b.world(
-        joint::SHOULDER_R,
-        Quat::from_rotation_arc(upper_rest, (elbow - shoulder).normalize()),
+        shoulder,
+        Quat::from_rotation_arc(upper_rest, (elbow_at - shoulder_at).normalize()),
     );
     b.world(
-        joint::ELBOW_R,
-        Quat::from_rotation_arc(lower_rest, (wrist - elbow).normalize()),
+        elbow,
+        Quat::from_rotation_arc(lower_rest, (wrist_at - elbow_at).normalize()),
     );
+}
+
+/// The right hand at `hand` with the wrench pointing at `tip`.
+fn reach_right(b: &mut Builder, joints: &[JointDef], hand: Vec3, tip: Vec3) {
+    reach(b, joints, true, hand);
     let wrench = (tip - hand).normalize_or(Vec3::NEG_Z);
     b.world(
         joint::HAND_R,
         Quat::from_rotation_arc(wrench_points(), wrench),
     );
+}
+
+/// Where the right hand holds a gun, in the hero's space, and which way its barrel points:
+/// aimed ahead at chest height while it fires, at arm's length or, in both hands, closer
+/// in for the left to reach; else low ahead of him.
+const GUN_AIMED: (Vec3, Vec3) = (Vec3::new(0.1, 0.85, -0.27), Vec3::NEG_Z);
+const GUN_AIMED_IN_BOTH: (Vec3, Vec3) = (Vec3::new(0.06, 0.82, -0.14), Vec3::NEG_Z);
+const GUN_LOWERED: (Vec3, Vec3) = (Vec3::new(0.2, 0.62, -0.1), Vec3::new(0.05, -0.55, -0.83));
+/// Where the left hand holds a gun held in both hands, in the gun's own space: under the
+/// barrel, ahead of the grip.
+const GUN_SUPPORT: Vec3 = Vec3::new(0.0, -0.02, -0.11);
+
+/// The arms holding the gun out, in the states he can fire in.
+fn hold_gun(b: &mut Builder, joints: &[JointDef], gun: &GunHand) {
+    let (hand, barrel) = match (gun.firing, gun.pose.hold) {
+        (false, _) => GUN_LOWERED,
+        (true, Hold::TwoHands) => GUN_AIMED_IN_BOTH,
+        (true, _) => GUN_AIMED,
+    };
+    reach(b, joints, true, hand);
+    let aim = Transform::default()
+        .looking_to(barrel.normalize(), Vec3::Y)
+        .rotation;
+    b.world(joint::HAND_R, aim * gun_grip().inverse());
+    if gun.pose.hold == Hold::TwoHands {
+        reach(b, joints, false, hand + aim * GUN_SUPPORT);
+    }
+}
+
+/// The states the arms hold a gun in: those he can fire in.
+fn holds_gun_in(state: HeroState) -> bool {
+    matches!(
+        state,
+        HeroState::Idle
+            | HeroState::Look
+            | HeroState::Walk
+            | HeroState::Skid
+            | HeroState::Crouch
+            | HeroState::Fall
+            | HeroState::Jump(_)
+            | HeroState::DoubleJump
+            | HeroState::Glide
+    )
 }
 
 /// The pose for the hero's state now. `phase` is the stride's phase and `time` the rig's
@@ -439,6 +497,9 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
             arms_down(&mut b, -0.3, 1.5);
         }
     }
+    if hero.gun.item.is_some() && holds_gun_in(hero.state) {
+        hold_gun(&mut b, joints, &hero.gun);
+    }
     b.finish()
 }
 
@@ -517,6 +578,72 @@ mod tests {
         assert!(arm.y < -0.8, "{arm}");
         let wrench = world_rotation(&model.joints, &pose, joint::HAND_R) * wrench_points();
         assert!(wrench.y < -0.8, "{wrench}");
+    }
+
+    /// Where a joint is in the hero's space, posed.
+    fn world_position(joints: &[JointDef], pose: &Pose, index: usize) -> Vec3 {
+        let mut chain = vec![index];
+        while let Some(parent) = joints[*chain.last().unwrap()].parent {
+            chain.push(parent);
+        }
+        let mut at = Vec3::ZERO;
+        let mut turn = Quat::IDENTITY;
+        let mut previous = Vec3::ZERO;
+        for &j in chain.iter().rev() {
+            at += turn * (joints[j].rest - previous);
+            turn *= pose.rotations[j];
+            previous = joints[j].rest;
+        }
+        at
+    }
+
+    fn gun(firing: bool, hold: Hold) -> GunHand {
+        GunHand {
+            out: true,
+            firing,
+            item: Some(0x77),
+            pose: rac_hero::GunPose {
+                hold,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_gun_firing_is_aimed_ahead_and_held_low_otherwise() {
+        let model = hero();
+        let joints = &model.joints;
+        let mut motion = HeroMotion::new(Vec3::ZERO, 0.0);
+        for (firing, ahead, down) in [(true, 0.99, false), (false, 0.7, true)] {
+            motion.gun = gun(firing, Hold::OneHand);
+            let pose = target(joints, &motion, 0.0, 0.0);
+            let hand = world_rotation(joints, &pose, joint::HAND_R);
+            let barrel = hand * gun_grip() * Vec3::NEG_Z;
+            let top = hand * gun_grip() * Vec3::Y;
+            assert!(-barrel.z > ahead, "firing {firing}: {barrel}");
+            assert_eq!(barrel.y < -0.3, down, "firing {firing}: {barrel}");
+            assert!(top.y > 0.5, "firing {firing}: the top up, {top}");
+            let at = world_position(joints, &pose, joint::HAND_R);
+            assert!(at.distance(if firing { GUN_AIMED.0 } else { GUN_LOWERED.0 }) < 0.02);
+        }
+    }
+
+    #[test]
+    fn a_gun_held_in_both_hands_has_the_left_hand_under_its_barrel() {
+        let model = hero();
+        let joints = &model.joints;
+        let mut motion = HeroMotion::new(Vec3::ZERO, 0.0);
+        motion.gun = gun(true, Hold::TwoHands);
+        let pose = target(joints, &motion, 0.0, 0.0);
+        let support = GUN_AIMED_IN_BOTH.0 + GUN_SUPPORT;
+        let left = world_position(joints, &pose, joint::HAND_L);
+        assert!(left.distance(support) < 0.01, "{left} for {support}");
+
+        motion.gun = gun(true, Hold::OneHand);
+        let pose = target(joints, &motion, 0.0, 0.0);
+        let left = world_position(joints, &pose, joint::HAND_L);
+        assert!(left.distance(support) > 0.3, "one hand: the left hangs");
     }
 
     #[test]

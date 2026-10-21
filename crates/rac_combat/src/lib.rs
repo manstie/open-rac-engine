@@ -14,17 +14,23 @@
 //! A hero with an [`Arsenal`] also has guns ([`weapons`]), whose shots hit the same
 //! hurtboxes. Each hit is also sent as a [`Struck`] message. Enemies (P1.11) build on
 //! these.
+//!
+//! [`pickups`] are what the hero collects (P1.10): bolts, nanotech and ammo that crates
+//! (a [`Crate`] target breaks when [`Destroyed`]) and enemies leave, and a vendor stub that
+//! sells rounds for bolts.
 
+pub mod pickups;
 pub mod weapons;
 
 use bevy::prelude::*;
 use rac_hero::{AimTarget, Hero, HeroBody};
 use rac_sim::{SimSet, SimTransform};
 
+pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor};
 pub use weapons::{Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, WeaponId};
 
 /// Seconds per tick.
-const TICK: f32 = 1.0 / 60.0;
+pub(crate) const TICK: f32 = 1.0 / 60.0;
 
 /// How many recent attacks a target remembers being hit by.
 const REMEMBERED: usize = 8;
@@ -118,7 +124,9 @@ impl Default for CombatTuning {
 
 /// Tests the heroes' strikes against hurtboxes after the heroes move, fires their guns
 /// before they move, as the games' gun mobys update before the hero, and moves pushed
-/// targets with the world.
+/// targets with the world. After the hits, crates break, pickups move and are collected,
+/// and vendors sell, in that order, since all three spend the same random numbers, ammo and
+/// bolts.
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
@@ -126,6 +134,7 @@ impl Plugin for CombatPlugin {
         app.init_resource::<CombatTuning>()
             .init_resource::<Armory>()
             .init_resource::<Burns>()
+            .init_resource::<PickupTuning>()
             .add_message::<Struck>()
             .add_message::<Destroyed>()
             .add_message::<GunEvent>()
@@ -136,6 +145,16 @@ impl Plugin for CombatPlugin {
             .add_systems(
                 FixedUpdate,
                 strike_targets.after(SimSet::Hero).before(SimSet::Particles),
+            )
+            .add_systems(
+                FixedUpdate,
+                (
+                    pickups::crates::break_crates,
+                    pickups::move_pickups,
+                    pickups::vendor::run_vendors,
+                )
+                    .chain()
+                    .in_set(SimSet::Particles),
             );
     }
 }

@@ -1,0 +1,84 @@
+// The demo's HUD (PLAN.md P1.12) and quick-select ring (P1.9): where things go, how long
+// the notices last, and each gun's icon. All of it is the demo's own [placeholder]: UYA's
+// HUD isn't read, and no game art is used. The icons are coloured shapes with letters.
+//
+// Units: logical pixels and seconds; colours are sRGB, 0 to 1.
+(
+    margin: 20.0, // from the screen's edges
+    text: (1.0, 0.95, 0.8),
+    text_size: 20.0,
+    small_size: 15.0,
+    panel: (0.05, 0.06, 0.1, 0.55), // behind each group, with its alpha
+    // How bright the gun the fire button brings out is drawn while the wrench is out.
+    dimmed: 0.45,
+
+    // UYA's nanotech: a pip a point up to `most_pips`, then each pip a share of the most.
+    health: (
+        pip: (12.0, 20.0),
+        gap: 3.0,
+        most_pips: 20,
+        full: (0.35, 0.85, 1.0),
+        lost: (0.15, 0.2, 0.28),
+        low: 3, // at or below this, the pips turn `low_colour`
+        low_colour: (1.0, 0.3, 0.25),
+    ),
+
+    bolts: (
+        icon: 16.0,
+        colour: (1.0, 0.82, 0.3),
+        size: 24.0,
+    ),
+
+    gun: (
+        icon: 56.0,
+        name_size: 21.0,
+        ammo_size: 26.0,
+        xp: (170.0, 6.0), // the XP bar's width and height
+        xp_colour: (0.55, 0.95, 0.45),
+        xp_back: (0.2, 0.22, 0.25),
+    ),
+
+    // At or below this share of its most, a gun's ammo is low.
+    low_ammo: 0.25,
+    low_colour: (1.0, 0.75, 0.2),
+    empty_colour: (1.0, 0.3, 0.25),
+    // The warning blinks this many times a second.
+    warning_blink: 2.5,
+    // Ammo going up (a pickup) lights the count for this long.
+    ammo_flash_seconds: 0.5,
+    ammo_flash_colour: (0.55, 1.0, 0.55),
+    // A gun's level up stays on screen this long, fading over its last half second.
+    level_up_seconds: 3.0,
+    level_up_colour: (0.55, 0.95, 0.45),
+
+    // The ring round the middle of the screen, slot 0 at the top and the rest clockwise.
+    ring: (
+        radius: 130.0,
+        slot: 66.0,
+        icon: 40.0,
+        back: (0.05, 0.06, 0.1, 0.45),
+        slot_back: (0.1, 0.12, 0.18, 0.85),
+        edge: (0.45, 0.5, 0.6),
+        highlight: (1.0, 0.82, 0.3),
+        // The highlighted slot is drawn this much bigger.
+        highlight_scale: 1.15,
+    ),
+
+    // A gun's shape follows how it fires; its colour and letters are its own.
+    shapes: (
+        hitscan: Diamond,
+        projectile: Bar,
+        lobbed: Circle,
+        stream: Ring,
+        homing: Square,
+    ),
+    // By each gun's V1 name. A gun missing here is drawn grey with its initials.
+    icons: {
+        "Shock Blaster": (colour: (0.45, 0.8, 1.0), mark: "SB"),
+        "N60 Storm": (colour: (1.0, 0.82, 0.3), mark: "N60"),
+        "Nitro Launcher": (colour: (1.0, 0.5, 0.15), mark: "NL"),
+        "Lava Gun": (colour: (1.0, 0.35, 0.1), mark: "LG"),
+        "Annihilator": (colour: (0.92, 0.92, 0.88), mark: "AN"),
+        "Flux Rifle": (colour: (0.7, 0.5, 1.0), mark: "FR"),
+    },
+)

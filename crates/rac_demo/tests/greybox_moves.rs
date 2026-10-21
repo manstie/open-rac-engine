@@ -275,7 +275,7 @@ fn the_melee_yard_has_a_dummy_to_lock_on_to() {
     let mut targets = Vec::new();
     for (index, target) in melee_targets().into_iter().enumerate() {
         let middle = match target.kind {
-            TargetKind::Crate => {
+            TargetKind::Crate(_) => {
                 let centre = target.position + Vec3::Y * CRATE_HALF;
                 bodies.push(BodyPlacement::fixed(
                     Collider::Cuboid {

@@ -78,7 +78,7 @@ impl Surface {
         }
     }
 
-    fn mesh(&self, skinned: bool, shift: Vec3) -> Mesh {
+    pub(crate) fn mesh(&self, skinned: bool, shift: Vec3) -> Mesh {
         let positions: Vec<[f32; 3]> = self.positions.iter().map(|p| (*p - shift).into()).collect();
         let normals: Vec<[f32; 3]> = self.normals.iter().map(|n| n.to_array()).collect();
         let mut mesh = Mesh::new(

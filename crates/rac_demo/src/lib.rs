@@ -1,8 +1,10 @@
 //! The hero kit's standalone demo (PLAN.md Phase 1): the greybox test level (P1.4) with
 //! the hero (P1.5) and his camera, or a spectator camera to look round it with, and a
 //! melee yard of crates and dummies to hit with the wrench (P1.8) and his guns (P1.9), and
-//! to lock on to; and an arena of enemies (P1.11, [`enemy`]) that drop bolts and nanotech
-//! ([`drops`]).
+//! to lock on to; an arena of enemies (P1.11, [`enemy`]) that drop bolts, nanotech and ammo
+//! ([`drops`]); bolt and ammo crates and a vendor's pad (P1.10), whose pickups and sales
+//! are `rac_combat`'s; and the hero's HUD with his guns' quick-select ring (P1.12,
+//! [`hud`]).
 //!
 //! The app decides when the demo exists: it runs [`spawn_demo`] when gameplay starts and
 //! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems, and
@@ -11,12 +13,14 @@
 pub mod drops;
 pub mod enemy;
 mod guns;
+pub mod hud;
 mod level;
 mod spectator;
 
 use bevy::prelude::*;
 use rac_combat::{
-    Armory, CombatPlugin, Destroyed, HitReaction, Hitpoints, KillXp, Pushable, target_bundle,
+    Armory, CombatPlugin, Crate, CrateKind, Destroyed, HitReaction, Hitpoints, KillXp, Pushable,
+    Vendor, target_bundle,
 };
 use rac_hero::{
     CameraSetting, Checkpoint, Collider, FollowCamera, Hero, HeroBody, HeroPlugin, HeroTuning,
@@ -25,14 +29,18 @@ use rac_hero::{
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
-pub use drops::{Bolts, DropTuning, Pickup};
+pub use drops::PickupLooks;
 pub use enemy::def::{Bestiary, EnemyKind};
 pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, enemy_bundle};
 pub use guns::demo_arsenal;
+pub use hud::{HudLayout, HudPlugin, PlayerHud, spawn_hud};
 pub use level::{
     CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, EnemySpawn, GAP_WIDTHS, Mover, Piece, Shape, Surface,
     Target, TargetKind, enemy_spawns, greybox_level, melee_targets,
 };
+/// The pickups, which were the demo's before they moved to `rac_combat` (P1.10); the
+/// tuning keeps its old name here.
+pub use rac_combat::pickups::{Bolts, Pickup, PickupTuning as DropTuning};
 pub use spectator::SpectatorCamera;
 
 /// Marks everything [`spawn_demo`] creates.
@@ -91,12 +99,12 @@ impl Plugin for DemoPlugin {
         if !app.is_plugin_added::<RigPlugin>() {
             app.add_plugins(RigPlugin);
         }
-        app.add_plugins(EnemyPlugin)
+        app.add_plugins((EnemyPlugin, HudPlugin))
             .init_resource::<DemoSettings>()
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
             .add_systems(
                 FixedUpdate,
-                (break_targets, show_clanks).in_set(SimSet::Particles),
+                (revive_dummies, show_clanks).in_set(SimSet::Particles),
             )
             .add_systems(
                 FixedUpdate,
@@ -112,8 +120,11 @@ impl Plugin for DemoPlugin {
                     show_lock_on,
                     choose_camera.run_if(resource_changed::<DemoSettings>),
                     hide_hero_in_first_person,
-                    guns::update_hud,
                 ),
+            )
+            .add_systems(
+                Update,
+                (drops::dress, drops::blink, drops::spin).run_if(resource_exists::<PickupLooks>),
             );
     }
 }
@@ -125,6 +136,7 @@ pub fn spawn_demo(
     tuning: Res<HeroTuning>,
     armory: Res<Armory>,
     bestiary: Res<Bestiary>,
+    hud: Res<HudLayout>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -152,6 +164,7 @@ pub fn spawn_demo(
             Surface::Hazard => (0.85, 0.15, 0.1),
             Surface::Checkpoint => (0.3, 0.9, 0.9),
             Surface::Water => (0.15, 0.4, 0.85),
+            Surface::Vendor => (0.85, 0.35, 0.8),
         };
         // Water is see-through, so the hero shows under it.
         let (alpha, alpha_mode) = match surface {
@@ -171,15 +184,19 @@ pub fn spawn_demo(
         let rail = piece.rail();
         let water = piece.water();
         let (mesh, rotation) = match piece.shape {
-            // A checkpoint shows as a pad on the ground at its spawn point.
-            Shape::Box { half_extents } if piece.surface == Surface::Checkpoint => (
-                meshes.add(Cuboid::new(
-                    half_extents.x * 1.2,
-                    0.04,
-                    half_extents.z * 1.2,
-                )),
-                piece.rotation,
-            ),
+            // A checkpoint or vendor shows as a pad on the ground at its centre.
+            Shape::Box { half_extents }
+                if matches!(piece.surface, Surface::Checkpoint | Surface::Vendor) =>
+            {
+                (
+                    meshes.add(Cuboid::new(
+                        half_extents.x * 1.2,
+                        0.04,
+                        half_extents.z * 1.2,
+                    )),
+                    piece.rotation,
+                )
+            }
             Shape::Box { half_extents } => (
                 meshes.add(Cuboid::from_size(half_extents * 2.0)),
                 piece.rotation,
@@ -212,6 +229,9 @@ pub fn spawn_demo(
                         spawn_yaw: 0.0,
                     });
                 }
+                Surface::Vendor => {
+                    entity.insert(Vendor { half_extents });
+                }
                 surface if surface.is_solid() => {
                     entity.insert((Collider::Cuboid { half_extents }, surface.material()));
                 }
@@ -242,11 +262,20 @@ pub fn spawn_demo(
         emissive: LinearRgba::rgb(2.0, 1.6, 0.8),
         ..default()
     });
-    let crate_look = materials.add(Color::srgb(0.75, 0.5, 0.2));
+    let bolt_crate_look = materials.add(Color::srgb(0.75, 0.5, 0.2));
+    let ammo_crate_look = materials.add(Color::srgb(0.3, 0.36, 0.5));
+    // A glowing band round an ammo crate in the ammo pickups' colour.
+    let band_mesh = meshes.add(Cuboid::new(
+        2.0 * CRATE_HALF + 0.02,
+        0.14,
+        2.0 * CRATE_HALF + 0.02,
+    ));
+    let band_look = drops::ammo_look(&mut materials);
     let dummy_look = materials.add(Color::srgb(0.6, 0.25, 0.3));
     for target in melee_targets() {
         let (mesh, look) = match target.kind {
-            TargetKind::Crate => (crate_mesh.clone(), crate_look.clone()),
+            TargetKind::Crate(CrateKind::Bolts) => (crate_mesh.clone(), bolt_crate_look.clone()),
+            TargetKind::Crate(CrateKind::Ammo) => (crate_mesh.clone(), ammo_crate_look.clone()),
             TargetKind::Dummy => (dummy_mesh.clone(), dummy_look.clone()),
         };
         let flash = Flash {
@@ -261,16 +290,33 @@ pub fn spawn_demo(
             Visibility::default(),
         ));
         match target.kind {
-            TargetKind::Crate => {
-                // A collider is centred on its entity.
+            TargetKind::Crate(kind) => {
+                // A collider is centred on its entity. `rac_combat` breaks it.
                 entity.insert((
                     target_bundle(CRATE_HALF + 0.1, 0.0, 1.0),
+                    Crate(kind),
                     Collider::Cuboid {
                         half_extents: Vec3::splat(CRATE_HALF),
                     },
                     Transform::from_translation(target.position + Vec3::Y * CRATE_HALF),
-                    children![(Mesh3d(mesh), MeshMaterial3d(look), Transform::default())],
                 ));
+                let body = (Mesh3d(mesh), MeshMaterial3d(look), Transform::default());
+                match kind {
+                    CrateKind::Bolts => {
+                        entity.insert(children![body]);
+                    }
+                    // The band is the body's child, so the hit flash leaves it alone.
+                    CrateKind::Ammo => {
+                        entity.insert(children![(
+                            body,
+                            children![(
+                                Mesh3d(band_mesh.clone()),
+                                MeshMaterial3d(band_look.clone()),
+                                Transform::default(),
+                            )],
+                        )]);
+                    }
+                }
             }
             TargetKind::Dummy => {
                 entity.insert((
@@ -289,6 +335,7 @@ pub fn spawn_demo(
     }
 
     commands.insert_resource(EnemyLooks::new(&mut meshes, &mut materials));
+    commands.insert_resource(PickupLooks::new(&mut meshes, &mut materials));
     for spawn in enemy_spawns() {
         let def = bestiary.get(spawn.kind);
         commands.spawn((
@@ -331,7 +378,7 @@ pub fn spawn_demo(
         RigLook::for_player(0),
         Visibility::default(),
     ));
-    commands.spawn(guns::hud());
+    spawn_hud(&mut commands, 0, &hud);
     commands.spawn((
         Name::new("lock-on marker"),
         DemoEntity,
@@ -359,26 +406,27 @@ pub fn spawn_demo(
     ));
 }
 
-/// Removes everything [`spawn_demo`] created.
-pub fn despawn_demo(mut commands: Commands, entities: Query<Entity, With<DemoEntity>>) {
+/// Removes everything [`spawn_demo`] created, and the pickups left about.
+pub fn despawn_demo(
+    mut commands: Commands,
+    entities: Query<Entity, Or<(With<DemoEntity>, With<Pickup>)>>,
+) {
     for entity in &entities {
         commands.entity(entity).despawn();
     }
 }
 
-/// A crate knocked out breaks; a dummy gets up again.
-fn break_targets(
+/// A dummy knocked out gets up again. (A crate breaks in `rac_combat`.)
+fn revive_dummies(
     mut destroyed: MessageReader<Destroyed>,
     mut targets: Query<(&TargetKind, &mut Hitpoints)>,
-    mut commands: Commands,
 ) {
     for event in destroyed.read() {
         let Ok((kind, mut hitpoints)) = targets.get_mut(event.target) else {
             continue;
         };
-        match kind {
-            TargetKind::Crate => commands.entity(event.target).despawn(),
-            TargetKind::Dummy => hitpoints.current = hitpoints.max,
+        if *kind == TargetKind::Dummy {
+            hitpoints.current = hitpoints.max;
         }
     }
 }

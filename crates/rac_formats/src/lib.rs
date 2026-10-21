@@ -8,6 +8,7 @@
 //! - [`moby`]: moby classes, with their skeleton, animation and mesh
 //!   (`docs/research/moby-format.md`).
 //! - [`armor`]: UYA's armor, the hero's mesh and textures.
+//! - [`gadget`]: UYA's gadget WAD, the classes of the guns and other items held in hand.
 //! - [`elf`]: the boot executables, unpacked from their stub and written as plain ELFs.
 //! - [`texture`]: indexed images as the GS draws them.
 //! - [`wad`]: the games' LZ compression.
@@ -19,6 +20,7 @@
 
 pub mod armor;
 pub mod elf;
+pub mod gadget;
 pub mod gameplay;
 pub mod image;
 pub mod level;

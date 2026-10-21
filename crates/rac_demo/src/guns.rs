@@ -1,11 +1,8 @@
 //! The hero's guns in the demo (P1.9): UYA's six read guns at V3, and how their shots,
-//! rays, arcs and impacts look, with a line saying what is in his hand.
+//! rays, arcs and impacts look. The HUD shows what is in his hand ([`crate::hud`]).
 
 use bevy::prelude::*;
-use rac_combat::{
-    Armory, Arsenal, GunEvent, GunEventKind,
-    weapons::{Hand, ShotKind},
-};
+use rac_combat::{Armory, Arsenal, GunEvent, GunEventKind, weapons::ShotKind};
 use rac_hero::Hero;
 use rac_sim::SimTransform;
 
@@ -41,10 +38,6 @@ pub(crate) struct Fading {
     /// Its scale when new.
     scale: Vec3,
 }
-
-/// The line at the bottom of the screen naming the gun in his hand.
-#[derive(Component, Debug, Default, Clone, Copy)]
-pub(crate) struct GunHud;
 
 /// Meshes and materials for the guns' effects, made once.
 #[derive(Resource)]
@@ -221,73 +214,5 @@ pub(crate) fn fade(
         }
         let left = fade.ticks_left as f32 / fade.total as f32;
         transform.scale = Vec3::new(fade.scale.x * left, fade.scale.y * left, fade.scale.z);
-    }
-}
-
-/// The HUD's line.
-pub(crate) fn hud() -> impl Bundle {
-    (
-        Name::new("gun hud"),
-        DemoEntity,
-        GunHud,
-        Text::new(""),
-        TextFont {
-            font_size: FontSize::Px(22.0),
-            ..default()
-        },
-        TextColor(Color::srgb(1.0, 0.95, 0.8)),
-        // Top right, clear of the app's controls at the bottom left.
-        Node {
-            position_type: PositionType::Absolute,
-            right: Val::Px(24.0),
-            top: Val::Px(20.0),
-            ..default()
-        },
-    )
-}
-
-/// Says what is in his hand: the gun, its level, ammo and XP.
-pub(crate) fn update_hud(
-    armory: Res<Armory>,
-    heroes: Query<(&Hero, &Arsenal)>,
-    mut lines: Query<&mut Text, With<GunHud>>,
-) {
-    let Some((_, arsenal)) = heroes.iter().find(|(hero, _)| hero.player == 0) else {
-        return;
-    };
-    let line = match arsenal.hand {
-        Hand::Wrench => {
-            let next = arsenal
-                .equipped
-                .and_then(|weapon| armory.get(weapon))
-                .map_or(String::new(), |def| {
-                    format!("  (fire for the {})", def.name)
-                });
-            format!("OmniWrench{next}")
-        }
-        Hand::Drawing { weapon, .. } | Hand::Gun { weapon, .. } => {
-            let (Some(def), Some(gun)) = (armory.get(weapon), arsenal.gun(weapon)) else {
-                return;
-            };
-            const TIERS: [&str; 8] = ["V1", "V2", "V3", "V4", "V5", "Mega", "Giga", "Omega"];
-            let tier = TIERS.get(usize::from(gun.level)).unwrap_or(&"");
-            let stats = def.level(gun.level);
-            let ammo = if stats.ammo == 0 {
-                String::new()
-            } else {
-                format!("  {}/{}", gun.ammo, stats.ammo)
-            };
-            let xp = if stats.xp == 0 {
-                String::new()
-            } else {
-                format!("  XP {}/{}", gun.xp, stats.xp)
-            };
-            format!("{} {tier}{ammo}{xp}", def.name_at(gun.level))
-        }
-    };
-    for mut text in &mut lines {
-        if text.0 != line {
-            text.0 = line.clone();
-        }
     }
 }

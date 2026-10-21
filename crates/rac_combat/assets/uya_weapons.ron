@@ -35,21 +35,27 @@
             name: "Shock Blaster",
             upgraded_name: "Shock Cannon",
             item: 0x27,
+            // "Ammo pickups, crates and the vendor": the rounds in each pickup an ammo crate
+            // throws out (row +0x88), and each level's round_price, the vendor's price a
+            // round (+0x84) [data].
+            pickup_rounds: 4,
             held: false,
             steady: true,
             ready_ticks: 23,
             // At least 35: the trace's next shot still found it playing [placeholder].
             fire_ticks: 40,
             look_wait_ticks: 40,
+            // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
+            pose: (hold: TwoHands, standing: Some(103)),
             levels: [ // "Numbers" [data]
-                (damage: 2.0, ammo: 30, xp: 150),
-                (damage: 2.5, ammo: 35, xp: 400),
-                (damage: 3.0, ammo: 40, xp: 700),
-                (damage: 4.0, ammo: 40, xp: 1000),
-                (damage: 5.0, ammo: 50, xp: 0),
-                (damage: 55.0, ammo: 50, xp: 10000),
-                (damage: 70.0, ammo: 55, xp: 25000),
-                (damage: 105.0, ammo: 60, xp: 0),
+                (damage: 2.0, ammo: 30, xp: 150, round_price: 5),
+                (damage: 2.5, ammo: 35, xp: 400, round_price: 5),
+                (damage: 3.0, ammo: 40, xp: 700, round_price: 5),
+                (damage: 4.0, ammo: 40, xp: 1000, round_price: 5),
+                (damage: 5.0, ammo: 50, xp: 0, round_price: 5),
+                (damage: 55.0, ammo: 50, xp: 10000, round_price: 5),
+                (damage: 70.0, ammo: 55, xp: 25000, round_price: 5),
+                (damage: 105.0, ammo: 60, xp: 0, round_price: 5),
             ],
             mods: (lock_on: Some(2), shock: Some(3)), // V3, V4 [code]
             fire: Hitscan((
@@ -74,20 +80,23 @@
             name: "N60 Storm",
             upgraded_name: "N90 Hurricane",
             item: 0x2F,
+            pickup_rounds: 15,
             held: true,
             steady: true,
             ready_ticks: 23, // out more than 22 frames
             fire_ticks: 30, // [placeholder]
             look_wait_ticks: 0,
+            // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
+            pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
             levels: [
-                (damage: 1.5, ammo: 150, xp: 200),
-                (damage: 1.75, ammo: 175, xp: 500),
-                (damage: 2.0, ammo: 200, xp: 1500),
-                (damage: 2.5, ammo: 225, xp: 3300),
-                (damage: 3.5, ammo: 300, xp: 0),
-                (damage: 35.0, ammo: 300, xp: 15000),
-                (damage: 50.0, ammo: 350, xp: 37500),
-                (damage: 60.0, ammo: 400, xp: 0),
+                (damage: 1.5, ammo: 150, xp: 200, round_price: 2),
+                (damage: 1.75, ammo: 175, xp: 500, round_price: 2),
+                (damage: 2.0, ammo: 200, xp: 1500, round_price: 2),
+                (damage: 2.5, ammo: 225, xp: 3300, round_price: 2),
+                (damage: 3.5, ammo: 300, xp: 0, round_price: 2),
+                (damage: 35.0, ammo: 300, xp: 15000, round_price: 2),
+                (damage: 50.0, ammo: 350, xp: 37500, round_price: 2),
+                (damage: 60.0, ammo: 400, xp: 0, round_price: 2),
             ],
             mods: (lock_on: Some(2), shock: Some(3)),
             fire: Projectile((
@@ -111,20 +120,23 @@
             name: "Nitro Launcher",
             upgraded_name: "Nitro Eruptor",
             item: 0x77,
+            pickup_rounds: 1,
             held: false,
             steady: false,
             ready_ticks: 23, // "the usual conditions"
             fire_ticks: 30, // [placeholder]
             look_wait_ticks: 40,
+            // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
             levels: [
-                (damage: 10.0, ammo: 8, xp: 200),
-                (damage: 12.0, ammo: 8, xp: 500),
-                (damage: 15.0, ammo: 10, xp: 1100),
-                (damage: 20.0, ammo: 10, xp: 2600),
-                (damage: 40.0, ammo: 12, xp: 0),
-                (damage: 210.0, ammo: 12, xp: 7500),
-                (damage: 250.0, ammo: 14, xp: 20000),
-                (damage: 300.0, ammo: 16, xp: 0),
+                (damage: 10.0, ammo: 8, xp: 200, round_price: 50),
+                (damage: 12.0, ammo: 8, xp: 500, round_price: 50),
+                (damage: 15.0, ammo: 10, xp: 1100, round_price: 50),
+                (damage: 20.0, ammo: 10, xp: 2600, round_price: 50),
+                (damage: 40.0, ammo: 12, xp: 0, round_price: 50),
+                (damage: 210.0, ammo: 12, xp: 7500, round_price: 50),
+                (damage: 250.0, ammo: 14, xp: 20000, round_price: 50),
+                (damage: 300.0, ammo: 16, xp: 0, round_price: 50),
             ],
             // Acid from V2 does nothing as read: its blast names an item with no entry in
             // the acid table, so it has no `acid` here.
@@ -159,20 +171,23 @@
             name: "Lava Gun",
             upgraded_name: "Liquid Nitrogen Gun",
             item: 0x11,
+            pickup_rounds: 15,
             held: true,
             steady: true,
             ready_ticks: 23, // [placeholder]: not read for this gun
             fire_ticks: 30, // [placeholder]
             look_wait_ticks: 0,
+            // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
             levels: [
-                (damage: 8.0, splash: 8.0, ammo: 150, xp: 600),
-                (damage: 12.0, splash: 12.0, ammo: 150, xp: 1500),
-                (damage: 18.0, ammo: 175, xp: 2700),
-                (damage: 25.0, ammo: 175, xp: 4200),
-                (damage: 35.0, ammo: 200, xp: 0),
-                (damage: 130.0, ammo: 200, xp: 10000),
-                (damage: 150.0, ammo: 250, xp: 25000),
-                (damage: 180.0, ammo: 300, xp: 0),
+                (damage: 8.0, splash: 8.0, ammo: 150, xp: 600, round_price: 1),
+                (damage: 12.0, splash: 12.0, ammo: 150, xp: 1500, round_price: 3),
+                (damage: 18.0, ammo: 175, xp: 2700, round_price: 3),
+                (damage: 25.0, ammo: 175, xp: 4200, round_price: 3),
+                (damage: 35.0, ammo: 200, xp: 0, round_price: 3),
+                (damage: 130.0, ammo: 200, xp: 10000, round_price: 3),
+                (damage: 150.0, ammo: 250, xp: 25000, round_price: 3),
+                (damage: 180.0, ammo: 300, xp: 0, round_price: 3),
             ],
             // Lock-on from V3 [code]; acid from V2 [text].
             mods: (lock_on: Some(2), acid: Some(1)),
@@ -203,20 +218,23 @@
             name: "Annihilator",
             upgraded_name: "Decimator",
             item: 0x3F,
+            pickup_rounds: 2,
             held: false,
             steady: false,
             ready_ticks: 28,
             fire_ticks: 30, // [placeholder]
             look_wait_ticks: 0,
+            // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
             levels: [
-                (damage: 25.0, splash: 6.0, ammo: 20, xp: 800),
-                (damage: 30.0, splash: 6.0, ammo: 20, xp: 2400),
-                (damage: 40.0, splash: 6.0, ammo: 22, xp: 6400),
-                (damage: 55.0, splash: 6.0, ammo: 22, xp: 12400),
-                (damage: 70.0, splash: 6.0, ammo: 25, xp: 0),
-                (damage: 150.0, splash: 6.0, ammo: 25, xp: 10000),
-                (damage: 200.0, splash: 6.0, ammo: 28, xp: 25000),
-                (damage: 250.0, splash: 6.0, ammo: 30, xp: 0),
+                (damage: 25.0, splash: 6.0, ammo: 20, xp: 800, round_price: 20),
+                (damage: 30.0, splash: 6.0, ammo: 20, xp: 2400, round_price: 20),
+                (damage: 40.0, splash: 6.0, ammo: 22, xp: 6400, round_price: 20),
+                (damage: 55.0, splash: 6.0, ammo: 22, xp: 12400, round_price: 20),
+                (damage: 70.0, splash: 6.0, ammo: 25, xp: 0, round_price: 20),
+                (damage: 150.0, splash: 6.0, ammo: 25, xp: 10000, round_price: 20),
+                (damage: 200.0, splash: 6.0, ammo: 28, xp: 25000, round_price: 20),
+                (damage: 250.0, splash: 6.0, ammo: 30, xp: 0, round_price: 20),
             ],
             mods: (lock_on: Some(3), shock: Some(2)), // V4, V3 [code]
             fire: Homing((
@@ -242,20 +260,23 @@
             name: "Flux Rifle",
             upgraded_name: "Splitter Rifle",
             item: 0x6F,
+            pickup_rounds: 1,
             held: false,
             steady: false,
             ready_ticks: 23, // [placeholder]: not read for this gun
             fire_ticks: 30, // [placeholder]
             look_wait_ticks: 0,
+            // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
             levels: [
-                (damage: 15.0, ammo: 10, xp: 200),
-                (damage: 20.0, ammo: 12, xp: 600),
-                (damage: 25.0, ammo: 12, xp: 1500),
-                (damage: 80.0, ammo: 12, xp: 2900),
-                (damage: 140.0, ammo: 15, xp: 0),
-                (damage: 260.0, ammo: 15, xp: 7500),
-                (damage: 350.0, ammo: 18, xp: 20000),
-                (damage: 420.0, ammo: 20, xp: 0),
+                (damage: 15.0, ammo: 10, xp: 200, round_price: 50),
+                (damage: 20.0, ammo: 12, xp: 600, round_price: 50),
+                (damage: 25.0, ammo: 12, xp: 1500, round_price: 50),
+                (damage: 80.0, ammo: 12, xp: 2900, round_price: 50),
+                (damage: 140.0, ammo: 15, xp: 0, round_price: 50),
+                (damage: 260.0, ammo: 15, xp: 7500, round_price: 50),
+                (damage: 350.0, ammo: 18, xp: 20000, round_price: 50),
+                (damage: 420.0, ammo: 20, xp: 0, round_price: 50),
             ],
             mods: (),
             fire: Projectile((

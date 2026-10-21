@@ -74,8 +74,9 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
 | +0x18 | u8 | hold type: 0 none, 1 one hand, 2 both hands | 0x4E7148, 0x4E6A08 |
 | +0x24, +0x28, +0x2C | i32 | firing animations: whole body, arms only, arms only in hero state type 0xC | 0x4E6A08 |
 | +0x30 | u8 | copied to 0x1A71CB when firing | 0x4E6A08 |
-| +0x34, +0x36 | u16 | ammo-pickup message for several rounds, one round | ammo pickups |
-| +0x3A | u16 | moby class of this weapon's ammo pickup | 0x30E7F8 |
+| +0x34, +0x36 | u16 | ammo-pickup message ("Got %d … ammo") for several rounds and for one; the same text for the six guns read [data] | `ammo_pickup_collect_test` |
+| +0x38 | | the item's icon on the HUD and the quick-select ring (0 none) | 0x41AA38, 0x475078 |
+| +0x3A | u16 | a level-placed ammo pickup whose class this is fills this gun; but guns share values (0xCC5 is the Annihilator's, Hydra's, Disc Blade's and others') and no row has the two pickup classes, so it reads as the ammo's model [code, data] | 0x30E7F8 |
 | +0x3E | u16 | vendor description (text) | vendor |
 | +0x44 | u16 | name of the tier (V1–V4 share one, V5 and up another) | 0x50F920 |
 | +0x46, +0x48 | i16 | next and previous level's row, 0 at the ends | level-up |
@@ -85,10 +86,10 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
 | +0x6C | f32 | damage | every weapon's code |
 | +0x70–+0x78 | f32 | further damages; meaning per weapon (the wrench's jump attack is +0x70) | |
 | +0x7C | i32 | price in bolts: the gun's on its V1 row, the Mega upgrade's on its Mega row | vendor, help text |
-| +0x84, +0x86 | u16 | price of one round at the vendor; the second in another vendor mode | 0x4B8560 |
-| +0x88 | u16 | not read yet | |
+| +0x84, +0x86 | u16 | price of one round at the vendor; the second (10 × the first for the six guns read, but the Lava Gun's V1) at vendor kind 4 (`vendor_round_mode`) | 0x4B8560 |
+| +0x88 | u16 | rounds in each pickup an ammo crate throws out; the same at every level [code, data] | `ammo_pickup_spawn` |
 | +0x8A | u16 | maximum ammo; 0 means no ammo used | 0x50D8F8 and others |
-| +0x8E | u16 | ammo when first given | 0x416B38 |
+| +0x8E | u16 | ammo when first given; equal to +0x8A in all 48 rows of the six guns read [data] | 0x416B38 |
 | +0xD0 | i32 | message on reaching this level (text) | 0x416CC8 |
 
 ## Owning, ammo, levels and XP [code, UYA NTSC, 2026-10-16]
@@ -102,8 +103,7 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
     else fails and the gun doesn't fire. Item −1 means the held item.
   - `ammo_get` (0x50DA08) returns 1 for guns without ammo.
   - `ammo_add` (0x50D980) adds and caps at the maximum, returning what didn't fit.
-  - **Pickups** (0x30E7F8): an ammo moby finds its gun by matching its class to row
-    +0x3A, then adds the amount its own data holds.
+  - **Pickups** (0x30E7F8): see "Ammo pickups, crates and the vendor".
   - **The vendor** sells rounds at +0x84 bolts each, up to the maximum.
 - **Levels:** a row's +0x46 is the next level's row, so the level-ups of one gun form a
   chain. `item_weapon_rows` holds the current row, so levelling up just moves the item
@@ -127,6 +127,60 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
     proportion to the damage each did (per-gun tallies at 0x21FFB8, 0x270 bytes each).
   - The same kill adds to the hero's own XP (0x142694), which raises his health, and
     drops the enemy's bolts.
+
+## Ammo pickups, crates and the vendor [code, data, UYA NTSC, 2026-10-21]
+
+Read in Ghidra on the Veldin image; names in `symbols.toml`. Nothing here is traced yet.
+- **Two pickup classes** share `ammo_pickup_update` (0x30E7F8; the class table at
+  0x2F6984 lists its users): 0xCDB, which crates throw out (`ammo_pickup_spawn`,
+  0x30EF98), and 0xAE0, seemingly placed in levels (none on Veldin). The gun is a pvar
+  (+0x68) and the rounds another (+0x60), not the class; a crate's pickup carries row
+  +0x88's rounds of the gun's current level. A placed pickup's rounds come from the level's
+  data, not read.
+- **When one is taken** (`ammo_pickup_collect_test`, 0x30EDC0), with the hero alive:
+  - only while its gun isn't full (row +0x8A); a pickup for a full gun stays where it lies,
+    for good (pickups have no lifetime). Ownership isn't checked, but crates only throw out
+    owned guns' ammo;
+  - within `pickup_radius` across (8.7 u; 17.0 with the Bolt Grabber V2) and
+    `pickup_height` up from his feet (3.0 u; 4.5), the pair bolts use too; the hero's
+    update sets them every 4 frames (0x4FAA68);
+  - not while still in the air from its throw: coming in range then arms a 3-frame timer,
+    and it is taken on landing or bouncing, or at once if that timer still runs;
+  - from anywhere, full or not, once it has fallen 2 u below where it was thrown.
+- **Taken first, then flown in:** the rounds go in at once (`ammo_add`, capped), with row
+  +0x36's message for one round or +0x34's for more, and a sound at most every 10 frames.
+  Only then does it fly to him (state 2): from rest, gaining 0.00667 u a frame each frame
+  up to 1.0667 (64 u/s), at his middle 0.7 u above his feet, carried along with his own
+  movement, shrinking away over its last 30 frames.
+- **Crates** (`crate_update` 0x33A5C0, `crate_drop` 0x33B940; classes as libuya names
+  them): 0x1F4 bolts, 0x1F5 and 0x200 nanotech, 0x1F6 only broken by explosions, 0x1F7 a
+  bolt and XP doubler, 0x1F8 the wrench only, 0x1F9 explosive, 0x1FA another object,
+  0x1FF ammo. Any hit with damage breaks one (the queue's pending record), the wrench's or
+  a gun's alike; so does one landing on him. Veldin has 131 bolt crates (11, 44 or 61
+  bolts in moby +0xB4), 14 nanotech and 41 ammo [data].
+- **An ammo crate** (`ammo_crate_pick`, 0x440E98) throws out 1 pickup (4 times in 5) or 2,
+  for a random owned gun that uses ammo, chosen among those not full if any are, else
+  among all. Never the Shield Charger, Agents of Doom, **Flux Rifle** or RY3NO
+  (`ammo_crate_gun_allowed`, 0x440E38). With no such gun, nothing.
+- **A bolt crate** pays out through `moby_killed`: its bolts times a share by how often
+  that crate was broken before (100, 40, 20, then 10%; 0x1D60C8), doubled per
+  `bolt_multiplier_exp`, randomised by a quarter either way (±1 under 8), split into coins
+  of 30000 down to 1 by `bolts_drop`, at most 1–4 coins, the rest banked for later kills.
+- **The explosive crate:** touched, it blows after 179 frames, beeping; hit, after 5–15
+  (1 for an explosion); its blast grows over 20 frames, damaging mobys within 2 u at full
+  size for 2.0, and the hero within 3 u (4.0 passed; whether as damage isn't read).
+- **The nanotech crate** holds three orbs (its pvars, or max health /3, /4, /5: 3, 2 and 2
+  on a new game), let out when the hero comes within 10 u and isn't full. Not read further.
+- **The doubler crate** (0x1F7) adds 1 to `bolt_multiplier_exp` for 1800 frames.
+- **The vendor** (`vendor_buy`, 0x4B8560) sells as many rounds as fit and the bolts buy at
+  row +0x84 each; buy-all fills every owned gun with a round price.
+- **Enemies never drop ammo:** `moby_killed` drops only bolts.
+- **Each gun's** [data]: rounds per crate pickup (+0x88) and price a round (+0x84):
+  Shock Blaster 4 and 5, N60 Storm 15 and 2, Annihilator 2 and 20, Flux Rifle 1 and 50
+  (never from crates), Nitro Launcher 1 and 50, Lava Gun 15 and 3 (1 at V1). The kit's
+  maximum ammo matches all 48 rows.
+- Also seen [code, low confidence]: the wrench moby in its state 10 sweeps up bolts and
+  ammo within 2.7 u (`wrench_pickup_sweep`, 0x337E58).
 
 ## Mods [code for the flags; text for what they do]
 
@@ -216,6 +270,61 @@ most once at a time, in 30 slots. Their numbers come from per-item tables in two
   a target takes at most its strongest hit per update, however many shots, stream points
   or blast frames touch it. How often each enemy then takes its pending hit (any
   invulnerability after a hit) is in each enemy's own code, not read.
+
+## The quick-select ring [code, data, UYA NTSC, 2026-10-21]
+
+Single player only: multiplayer is another program, not read.
+- **Tap or hold:** a Triangle press sets a 20-frame timer (`quick_switch_tap_timer`);
+  letting go while it runs is the quick switch. `hero_quick_switch` clears it and the
+  "tapped lately" timer when it changes guns.
+- **Pausing is an option**, QUICK SELECT PAUSE (`quick_select_pause`, 0x143A06, on in our
+  image):
+  - **On:** Triangle held 2 frames starts a hold check (`quick_select_hold_update`) that
+    counts 4 more; still held, the game switches to mode 4 (sub-state 7), where the world
+    doesn't update: the ring is open about 7 frames after the press. Not within 8 frames
+    of a mode change, nor in hero states 0x1C, 0x31, 0x39, 0x58 and 0x74. The ring stays at
+    least 6 frames; the tap check keeps running, so letting go early still quick switches.
+  - **Off:** the ring opens over the world on the press, the world runs on, and after 15
+    frames (27 just after a tap) the hero gets no pad input while it stays up. Picking
+    starts with the same hold check.
+- **Slots:** eight, from ring 1 (0x1D4C60) or ring 2 (0x1D4C80); slot 0 at the top, then
+  clockwise every 45°. Holding R1 shows ring 2, and for 14 frames after letting go.
+- **Picking:** nothing is selected when it opens, and a stick already pushed is ignored
+  until it drops under 0.5 or 30 frames pass. Then the left stick past 0.9 of full picks
+  the slot it points to, and keeps the slot picked within 33.75° of its centre; the
+  cardinal slots are 27° wide and the diagonals 63°; pointing at an empty slot takes the
+  filled neighbour the stick leans to, if any. Between the dead zone and 0.9 nothing
+  changes. With the stick centred, the d-pad steps between slots by a neighbour table
+  (first press: left 6, right 2, up 0, down 4).
+- **Choosing:** only letting go of Triangle chooses, up to 8 frames later as the ring
+  closes; X and Circle do nothing. A gun is asked for in his hand (`hand_item_request`),
+  so `hero_item_switch` brings it out and makes it the equipped gun, and it goes to the
+  front of the recent guns; the camera options (items 0x24–0x26) set the camera instead.
+  Nothing selected chooses nothing. A gun with no ammo can be chosen; the ring shows its
+  count in red.
+- **It shows**, for the selected slot: the tier's name (row +0x44), V1–V8 (the game labels
+  Mega, Giga and Omega V6–V8 here), the ammo (red at 0) and an XP bar. While open, it
+  keeps the health and bolt counters up.
+
+## The HUD [code, UYA NTSC, 2026-10-21]
+
+- **The gun** (`hud_weapon_fill`, 0x475078): shown while a hand item other than the
+  wrench is out, and for 10 frames after; no pop-up on firing, switching or pickups. The
+  gun's icon (row +0x38) at the top left, the next two of the recent guns smaller and
+  fainter beneath, its ammo as current/maximum, its V label and an XP bar from the last
+  threshold to the next (full at the end). No name. Under 15% of the maximum the ammo
+  pulses dark red, every 40 frames.
+- **Health** (`hud_health_draw`, top centre): digits with "/" and the maximum, a bar, and
+  the hero's EXP bar. Shown for 720 frames after a kill, 360 after damage, nanotech, more
+  maximum health, L3 or the ring; under 15% it pulses red and stays up.
+- **Bolts** (top right): shown for 180 frames after a pickup or tally, L3 or the ring.
+  The count trails the real one: changes gather in a +N or −N beside it (fading in over 15
+  frames), and 61 frames after the last change roll in over 15 frames, 1/14 a frame,
+  then snap to the total. The doubler shows as "x2" and up.
+- **Levelling up** (`xp_level_check`, 0x50F920): a gun not in hand levels up at once; one
+  in hand, with him on the ground, plays the upgrade sequence with the world stopped
+  (about 200 frames; `weapon_upgrade_start`), and his input stays locked 25 frames more.
+  At most one level-up every 60 frames. The message shows 180 frames.
 
 ## The hero's side of firing [code, UYA NTSC, 2026-10-20]
 
@@ -636,8 +745,7 @@ profiles' `gun` section):
   strafe, and firing in lock-strafe triples the strafe turn; lock-on only with the gun's
   lock-on mod (`LockOn::allowed`).
 - **[placeholder] or [simplified]:**
-  - The muzzle is a fixed point from his feet and the N60's barrels are guessed; the gun
-    isn't drawn on the rig, nor are its firing animations played. `firing` lasts the
+  - The muzzle is a fixed point from his feet and the N60's barrels are guessed. `firing` lasts the
     gun's `fire_ticks` after a shot (40 for the Shock Blaster, at least the trace's 35;
     30 for the others), and a state change ends it unless the gun is held.
   - A target takes no gun hit for 8 ticks after one: the games leave that to each
@@ -656,6 +764,32 @@ profiles' `gun` section):
   - Not in yet: the V5-and-up extras (the Annihilator's bomblets, the Liquid Nitrogen
     Gun's freezing), the Flux Rifle's piercing (not found in code), the Nitro's aim at the
     ground with action 4, camera shake, the quick-select ring, the other guns and DL's.
+- **On the rig** (`rac_rig`, 2026-10-21): `GunHand` names the gun in hand, its hold and
+  firing animations (`GunPose`: rows +0x18, +0x24, +0x2C [data]) and counts its shots.
+  Standing, the gun's whole-body sequence plays (`RigMove::Fire`), from the start each
+  shot at its own pace (the N60 trace); crouched, its arms-only one is laid over the arms
+  (`RigMove::FireArms`), blending in at 0.2 a tick and out at 0.07. The wrench hides while
+  a gun is out, and the gun's model sits in the right fist (`RigGuns`; `model::gun_grip`:
+  barrel along the forearm, top on the thumb's side, which points it within 4° of ahead in
+  UYA's sequences 49, 51 and 103, a disc test). The models are blocky placeholders
+  [placeholder]; the real ones are in the gadget WAD (`moby-format.md`), read by
+  `rac_formats::gadget` but not yet worn. The open model aims procedurally.
+- **Pickups** (`rac_combat::pickups`, P1.10): an ammo pickup carries rounds for one gun
+  and flies only to a hero who owns it with room, the nearest; rounds that don't fit fall
+  for a partner. Ammo crates and the demo's enemies scatter ammo for the breaker's gun in
+  hand if it has room, else a random owned gun with room [placeholder: UYA's crates pick a
+  random owned gun not full, 1 pickup or 2, never the Flux Rifle; its enemies drop none].
+  Rounds per pickup (+0x88) and the vendor's price a round (+0x84) are [data]; the
+  vendor's pad, selling a round every 3 ticks, is the kit's own.
+- **Quick select** (`weapons/ring.rs`): two rings of eight, filled as `quick_select_add`
+  does [code]; holding the button past the quick switch opens the ring, the move stick
+  past 64 counts picks a slot (slot 0 ahead, clockwise), letting go chooses and brings the
+  gun out, next and previous weapon turn the ring. It doesn't pause, so co-op stays in
+  step: `GunHand::selecting` stands him still. The game's own rules ("The quick-select
+  ring") are read but not yet followed [placeholder].
+- **HUD** (`rac_demo::hud`, `assets/hud.ron`, P1.12): health, bolts, the gun panel
+  (procedural icon, name, tier, ammo, XP bar), low and empty ammo warnings, a level-up
+  notice and the ring; always shown [placeholder: the game's timings are in "The HUD"].
 - **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob
   and the pick), `rac_combat/tests/weapons.rs` (17) and `rac_hero/tests/gun.rs` (8).
 - **Seen in the running demo** (Xvfb, 2026-10-21; the demo gives every gun at V3): the

@@ -2107,7 +2107,7 @@ name = "ammo_pickup_update"
 address = 0x0030E7F8
 kind = "function"
 confidence = "medium"
-note = "An ammo pickup's update: finds its gun by matching its class to row +0x3A, then adds the amount in its pvars with ammo_add."
+note = "Ammo pickups (classes 0xAE0, placed, and 0xCDB, from crates): a placed one takes the gun whose row +0x3A is its class; taken by ammo_pickup_collect_test, then flies to the hero (state 2), gaining 0.00667 u a frame each frame up to 1.0667, shrinking over its last 30 frames. No lifetime."
 
 [[symbol]]
 name = "vendor_buy"
@@ -3498,3 +3498,678 @@ address = 0x001A50D0
 kind = "data"
 confidence = "medium"
 note = "Set per jump state by hero_change_state: the gravity in u a frame squared that hero_ticks_to_apex and hero_ticks_to_land take."
+
+# Ammo pickups, crates and the vendor's rounds: read 2026-10-21 by static analysis of the
+# Veldin image (RE.7; docs/research/weapons.md, "Ammo pickups, crates and the vendor").
+
+[[symbol]]
+name = "ammo_pickup_collect_test"
+address = 0x0030EDC0
+kind = "function"
+confidence = "medium"
+note = "(pickup, bounced): hero alive; taken at once if 2 u below its spawn height (pvar+0x74) or 0x1A71D3 set; else only if ammo < row +0x8A, within pickup_radius across and pickup_height up from his feet, and not still in its first arc (pvar+0x5C = 0 arms a 3-frame timer at pvar+0x78). Ownership isn't checked."
+
+[[symbol]]
+name = "ammo_pickup_spawn"
+address = 0x0030EF98
+kind = "function"
+confidence = "medium"
+note = "(pos, item, amount or -1, f): throws a class 0xCDB pickup with ammo_pickup_update; amount -1 is row +0x88 of the gun's current row. Rounds in pvar+0x60, item in pvar+0x68."
+
+[[symbol]]
+name = "pickup_ammo_take"
+address = 0x0030F1F8
+kind = "function"
+confidence = "low"
+note = "Adds a pickup's pvar+0x60 rounds to item pvar+0x68 and shows row +0x34/+0x36; flies it to the hero if anything fitted. Used by wrench_pickup_sweep."
+
+[[symbol]]
+name = "wrench_pickup_sweep"
+address = 0x00337E58
+kind = "function"
+confidence = "low"
+note = "The wrench moby (class 0x47) in its state 10: collects bolts and ammo pickups within 2.7 u (10 u with item 0x1A owned)."
+
+[[symbol]]
+name = "crate_update"
+address = 0x0033A5C0
+kind = "function"
+confidence = "medium"
+note = "Crates 0x1F4-0x200: any pending damage above 0 breaks one (0x1F6 needs flag 0x20000, 0x1F8 the wrench, 0x1F9 lights a fuse: 179 frames when touched, 5-15 when hit, 1 for explosive damage); state 3 is the explosive blast over 20 frames; state 6 respawns."
+
+[[symbol]]
+name = "crate_init"
+address = 0x0033AE40
+kind = "function"
+confidence = "medium"
+note = "Sets an ammo crate's pvar+0xF6 to 100; spawns the nanotech holder (class 0x326) for 0x1F5 and 0x200."
+
+[[symbol]]
+name = "crate_drop"
+address = 0x0033B940
+kind = "function"
+confidence = "medium"
+note = "What a broken crate gives: a bolt crate moby_killed(crate, 0x100, 0-3 coins); 0x1F7 doubles bolts and XP for 1800 frames; an ammo crate 1 or 2 ammo_pickup_spawn for ammo_crate_pick's gun."
+
+[[symbol]]
+name = "crate_stack_update"
+address = 0x0033C4D0
+kind = "function"
+confidence = "low"
+note = "Falling and stacked crates; one that comes down on the hero breaks."
+
+[[symbol]]
+name = "crate_remove"
+address = 0x0033CA98
+kind = "function"
+confidence = "low"
+note = "Removes a broken crate, or resets one that respawns (pvar+0xB0)."
+
+[[symbol]]
+name = "drop_spawn"
+address = 0x003F5830
+kind = "function"
+confidence = "low"
+note = "Throws a piece of a class (crate debris or a pickup) with the shared drop physics."
+
+[[symbol]]
+name = "drop_physics"
+address = 0x003F5D40
+kind = "function"
+confidence = "low"
+note = "Drop physics: velocity pvar+0x00, gravity pvar+0x48 a frame squared, contact pvar+0x5C (0 in the air, 3 at rest)."
+
+[[symbol]]
+name = "moby_bolt_pct"
+address = 0x003FE758
+kind = "function"
+confidence = "medium"
+note = "(table, value, uid): value times table[times this UID was killed, 0-7] / 100."
+
+[[symbol]]
+name = "nanotech_holder_spawn"
+address = 0x003015F0
+kind = "function"
+confidence = "low"
+note = "Class 0x326 inside a nanotech crate: three amounts from the crate's pvar+0x134..+0x13C, or max health /3, /4 and /5."
+
+[[symbol]]
+name = "nanotech_holder_update"
+address = 0x00301F58
+kind = "function"
+confidence = "low"
+note = "Lets a nanotech crate's orbs out when the hero is within 10 u and isn't full (or the Nano-pak has room)."
+
+[[symbol]]
+name = "ammo_crate_gun_allowed"
+address = 0x00440E38
+kind = "function"
+confidence = "high"
+note = "(item): 0 for 0x16, 0x57, 0x6F, 0x97 (and 0xA7, 0xC0-0xC4): crates never give their ammo, the Flux Rifle's included."
+
+[[symbol]]
+name = "ammo_crate_pick"
+address = 0x00440E98
+kind = "function"
+confidence = "high"
+note = "(crate, out item): a random allowed owned gun that uses ammo, among those not full if any; returns the pickup count, 1 (4 in 5) or 2 (1 in 5), or 0."
+
+[[symbol]]
+name = "bolts_drop"
+address = 0x0044A0E8
+kind = "function"
+confidence = "medium"
+note = "(z, moby, min, max, flags, -1, max coins): an amount split greedily into coins of 30000 down to 1; with flag 8 at most max coins, the rest banked in bolt_bank."
+
+[[symbol]]
+name = "bolts_drop_level"
+address = 0x0044EBF8
+kind = "function"
+confidence = "low"
+note = "(z, moby, n): drops the level's bolt amount (0x2BBDE0) times n."
+
+[[symbol]]
+name = "crate_debris_spawn"
+address = 0x0044ED60
+kind = "function"
+confidence = "low"
+note = "Throws a crate's pieces, chosen by a bit mask; not drops."
+
+[[symbol]]
+name = "hud_message_count"
+address = 0x0044ED38
+kind = "function"
+confidence = "low"
+note = "(text, number, -1, 0): a HUD message with a %d count, as the pickups' messages are."
+
+[[symbol]]
+name = "moby_spawn"
+address = 0x00435E70
+kind = "function"
+confidence = "medium"
+note = "(class, pvar size): takes a free moby slot, decrementing moby_free_slots."
+
+[[symbol]]
+name = "moby_remove"
+address = 0x00436220
+kind = "function"
+confidence = "medium"
+note = "Removes a moby."
+
+[[symbol]]
+name = "dist2_xy"
+address = 0x0040C040
+kind = "function"
+confidence = "high"
+note = "Squared distance across (x and y) between two vectors."
+
+[[symbol]]
+name = "dist2"
+address = 0x0040C018
+kind = "function"
+confidence = "high"
+note = "Squared distance between two vectors."
+
+[[symbol]]
+name = "crate_carrier_update"
+address = 0x00381B98
+kind = "function"
+confidence = "low"
+note = "Class 0x1872, a carried crate: on landing, bolts, or ammo as an ammo crate gives."
+
+[[symbol]]
+name = "pickup_radius"
+address = 0x001A7404
+kind = "data"
+confidence = "high"
+note = "f32, hero +0x2824: how far across pickups are taken; 8.7, 17.0 with the Bolt Grabber V2 (item 7), 2.125 in critter mode. Set every 4 frames by 0x4FAA68."
+
+[[symbol]]
+name = "pickup_height"
+address = 0x001A7408
+kind = "data"
+confidence = "high"
+note = "f32, hero +0x2828: how far up from his feet pickups are taken; 3.0, 4.5 with the Bolt Grabber V2, 1.25 in critter mode."
+
+[[symbol]]
+name = "hero_position"
+address = 0x001A4C60
+kind = "data"
+confidence = "high"
+note = "The hero's position, at his feet; 0x1A4CC0, 0.7 u above, is where pickups fly to."
+
+[[symbol]]
+name = "player_bolts"
+address = 0x00142660
+kind = "data"
+confidence = "high"
+note = "s32: bolts; the vendor spends them."
+
+[[symbol]]
+name = "hero_max_health"
+address = 0x00142668
+kind = "data"
+confidence = "medium"
+note = "s32: maximum health (10 on a new game)."
+
+[[symbol]]
+name = "bolt_bank"
+address = 0x0014269C
+kind = "data"
+confidence = "medium"
+note = "Bolts that didn't fit in coins."
+
+[[symbol]]
+name = "bolt_multiplier_exp"
+address = 0x001A74A8
+kind = "data"
+confidence = "medium"
+note = "u8: bolts and XP are shifted left by it; crate 0x1F7 adds 1, cleared when bolt_multiplier_timer ends."
+
+[[symbol]]
+name = "bolt_multiplier_timer"
+address = 0x001A4E10
+kind = "data"
+confidence = "medium"
+note = "s32 frames: crate 0x1F7 adds 1800."
+
+[[symbol]]
+name = "bolt_repeat_pct"
+address = 0x001D60C8
+kind = "data"
+confidence = "high"
+note = "8 bytes: the percentage of a moby's bolts by times killed (100, 40, 20, 10, ...); 0x1D60D0 is all 100 for flagged UIDs."
+
+[[symbol]]
+name = "moby_kill_counts"
+address = 0x001BBE90
+kind = "data"
+confidence = "medium"
+note = "0x400 bytes a level: 4 bits per moby UID, its kill count 0-7 and a flag."
+
+[[symbol]]
+name = "moby_free_slots"
+address = 0x001DFFC0
+kind = "data"
+confidence = "medium"
+note = "Free moby slots, decremented by moby_spawn; limits crate debris."
+
+[[symbol]]
+name = "crate_debris_recent"
+address = 0x001DCFF0
+kind = "data"
+confidence = "low"
+note = "Recent crate debris, decaying over time."
+
+[[symbol]]
+name = "class_update_table"
+address = 0x002F6984
+kind = "data"
+confidence = "medium"
+note = "216 entries of {pointer, class, update}: 0xAE0 and 0xCDB have ammo_pickup_update, 0x1F4, 0x1F5 and 0x1FF crate_update."
+
+[[symbol]]
+name = "vendor_round_mode"
+address = 0x0024479C
+kind = "data"
+confidence = "low"
+note = "Vendor block +0x5C: set by vendor_open for vendor kind 4, which prices rounds at row +0x86 instead of +0x84."
+
+# The quick-select ring and the weapon, health and bolt HUDs: read 2026-10-21 by static
+# analysis of the Veldin image (RE.7; docs/research/weapons.md, "The quick-select ring"
+# and "The HUD").
+
+[[symbol]]
+name = "quick_select_pause"
+address = 0x00143A06
+kind = "data"
+confidence = "high"
+note = "Byte, the QUICK SELECT PAUSE option (text 0x507, options row 5 at 0x2ED870, set by 0x49C368); on in our image. On: holding Triangle pushes game mode 4, sub-state 7, and the world stops; off: the ring is an overlay and the world runs."
+
+[[symbol]]
+name = "quick_select_hold_update"
+address = 0x0041FD50
+kind = "function"
+confidence = "high"
+note = "The ring's hold check, quick_select_hold_state: 1 -> 2 with a countdown from quick_select_hold_delay; in 2 a tap cancels, reaching 0 with Triangle held gives 3 (ring ready), letting go gives 0. Each frame from gameplay_update."
+
+[[symbol]]
+name = "quick_select_hold_state"
+address = 0x001D6A40
+kind = "data"
+confidence = "high"
+note = "0 idle, 1 started (0x41FD28), 2 counting, 3 ring ready (tested by 0x41FD40); 0x41FD20 resets it."
+
+[[symbol]]
+name = "quick_select_hold_delay"
+address = 0x001D6A44
+kind = "data"
+confidence = "medium"
+note = "Frames of the hold countdown: 4. No writer found."
+
+[[symbol]]
+name = "quick_select_fill_slots"
+address = 0x0041AA38
+kind = "function"
+confidence = "high"
+note = "(ring): fills quick_select_slots from quick_select_rings ring 0 or 1 (icon from row +0x38, the item)."
+
+[[symbol]]
+name = "quick_select_slots"
+address = 0x002E5FC0
+kind = "data"
+confidence = "high"
+note = "8 entries of 0x1C: +0 icon (0 empty), +8/+C/+10/+14 the d-pad's neighbour left/right/up/down, +0x18 the item. Slot 0 at the top, then clockwise every 45 degrees."
+
+[[symbol]]
+name = "quick_select_ring_init"
+address = 0x0041AAC8
+kind = "function"
+confidence = "high"
+note = "The ring opens: ring 0, nothing selected (-2), a 30-frame stick lock-out, open animation 0."
+
+[[symbol]]
+name = "quick_select_ring_update"
+address = 0x0041AB20
+kind = "function"
+confidence = "high"
+note = "R1 (pad_button_for 8) held shows ring 2 for 15 frames; the left stick past 0.9 picks a slot (kept within 33.75 deg of its centre, cardinals 27 deg wide, diagonals 63, an empty slot gives way to the filled one it leans to); the d-pad steps neighbours with the stick centred. Letting go of Triangle closes it over up to 8 frames, then chooses: camera items 0x24-0x26, else hand_item_request and recent_guns_push."
+
+[[symbol]]
+name = "quick_select_ring_draw"
+address = 0x0041B4E8
+kind = "function"
+confidence = "high"
+note = "Slot alpha 64 x open/8; for the selection the tier name (row +0x44), V1-V8 (text 0x18B8 + level), its ammo (red at 0) and a 92-pixel XP bar."
+
+[[symbol]]
+name = "quick_select_ring2_timer"
+address = 0x001D68BC
+kind = "data"
+confidence = "high"
+note = "Set to 15 while R1 is held in the ring; ring 2 shows while it is above 0."
+
+[[symbol]]
+name = "quick_switch_tap_timer"
+address = 0x001A7460
+kind = "data"
+confidence = "high"
+note = "i16, 20 on a Triangle press; letting go while it runs asks for a quick switch."
+
+[[symbol]]
+name = "quick_switch_recent"
+address = 0x001A7462
+kind = "data"
+confidence = "high"
+note = "i16, 20 on a tap; makes the unpaused ring's input delay 27 frames instead of 15."
+
+[[symbol]]
+name = "quick_select_input_delay"
+address = 0x001A745E
+kind = "data"
+confidence = "high"
+note = "i16, 27 or 15 frames after the unpaused ring opens; once it runs out the pad's gameplay input is blocked (pad +0x1CC = 2) every frame."
+
+[[symbol]]
+name = "quick_switch_request"
+address = 0x001A74A0
+kind = "data"
+confidence = "high"
+note = "Byte set by hero_quick_switch_button on a tap, taken by hero_quick_switch."
+
+[[symbol]]
+name = "hand_item_request"
+address = 0x001A71D8
+kind = "data"
+confidence = "high"
+note = "The hand item asked for (quick select, quick switch); hero_item_switch brings it out and makes it equipped_gun. 0xCC is none."
+
+[[symbol]]
+name = "gameplay_update"
+address = 0x004B5368
+kind = "function"
+confidence = "high"
+note = "Game mode 0's frame: the Start and Select menus, the quick-select pause's hold (mode 4, sub-state 7), L3 showing the health (360) and bolt (180) HUDs, then the world."
+
+[[symbol]]
+name = "overlay_update"
+address = 0x00414778
+kind = "function"
+confidence = "medium"
+note = "Game mode 4's frame, on overlay_state; case 7 is the quick-select pause (keeps the tap check running, at least 6 frames, closes 3 frames after the ring goes)."
+
+[[symbol]]
+name = "overlay_state"
+address = 0x001EA780
+kind = "data"
+confidence = "medium"
+note = "Mode 4's sub-state, set by 0x413788; 7 is quick select."
+
+[[symbol]]
+name = "game_mode_push"
+address = 0x00457288
+kind = "function"
+confidence = "medium"
+note = "(mode, push, arg, arg2, done flag): asks for a game-mode change (0x1D6690); push 1 keeps the old mode on the stack at 0x1E02A0."
+
+[[symbol]]
+name = "game_mode_pop"
+address = 0x00457360
+kind = "function"
+confidence = "medium"
+note = "Back to the mode on top of the stack."
+
+[[symbol]]
+name = "game_mode_apply"
+address = 0x00456C70
+kind = "function"
+confidence = "medium"
+note = "Leaves the old game mode for the one asked for (4: 0x413788, 5 the vendor: vendor_open, 8: 0x4C5950)."
+
+[[symbol]]
+name = "mode_frames"
+address = 0x001DFBC8
+kind = "data"
+confidence = "medium"
+note = "Frames since the game mode last changed; quick select needs 8."
+
+[[symbol]]
+name = "hud_widget_open"
+address = 0x0041A170
+kind = "function"
+confidence = "medium"
+note = "(slot and flags, arg, init, update, draw, ...): opens one of 13 widget slots of 0x90 bytes at 0x2E6110; 0x41A370 closes one."
+
+[[symbol]]
+name = "quick_select_camera_orbit"
+address = 0x004162C0
+kind = "function"
+confidence = "medium"
+note = "In the quick-select pause, when 0x1D5474 is set: the camera orbits the hero, gaining 0.000145 rad a frame each frame up to 0.02618."
+
+[[symbol]]
+name = "hud_health_show"
+address = 0x00477B38
+kind = "function"
+confidence = "high"
+note = "(frames): sets the health HUD's timer 0x1D80A0: 720 on a kill, 360 on damage, nanotech, more max health, L3 and the ring."
+
+[[symbol]]
+name = "hud_health_draw"
+address = 0x00476C68
+kind = "function"
+confidence = "high"
+note = "Health digits and '/%.2d' of the maximum, a bar of health/max 0.2303 of the screen wide; under 15% the digits pulse dark red every 40 frames and the HUD stays up."
+
+[[symbol]]
+name = "hud_health_xp_bar"
+address = 0x00477268
+kind = "function"
+confidence = "medium"
+note = "The EXP bar, 0.1285 of the screen wide: the hero's XP (0x142694 >> 5) between 0x1A7498 and 0x1A7494."
+
+[[symbol]]
+name = "hud_bolts_show"
+address = 0x00475A50
+kind = "function"
+confidence = "high"
+note = "(frames): sets the bolt HUD's timer 0x1D8050: 180 on bolt pickups, tallies, L3 and the ring."
+
+[[symbol]]
+name = "hud_bolts_roll"
+address = 0x00475EE0
+kind = "function"
+confidence = "high"
+note = "The shown count 0x1E0460 trails the bolts: changes collect in a +N/-N tally (two at 0x1E0440, fading in over 15 frames); 61 frames after the last change it rolls in over 15 frames, 1/14 a frame, then snaps."
+
+[[symbol]]
+name = "hud_weapon_fill"
+address = 0x00475078
+kind = "function"
+confidence = "high"
+note = "Each gameplay frame with a hand item other than the wrench: its icon, recent_guns[1] and [2] smaller, ammo '%.2d/%.2d', the XP bar and V label; keeps the weapon HUD up for 10 more frames (0x4789D0)."
+
+[[symbol]]
+name = "hud_weapon_ammo_text"
+address = 0x00477FD0
+kind = "function"
+confidence = "high"
+note = "(ammo, max): under 15% of the maximum the ammo pulses dark red (phase up 0.05 a frame, wrapping at 2)."
+
+[[symbol]]
+name = "message_show"
+address = 0x0044ECE0
+kind = "function"
+confidence = "high"
+note = "(text, frames, line): an on-screen message; frames -1 is 180."
+
+[[symbol]]
+name = "xp_level_check"
+address = 0x0050F920
+kind = "function"
+confidence = "medium"
+note = "Every frame: max health from the hero's XP, the Nano-pak's refill at 10% health, and each gun's level-up by XP: in hand and on the ground through weapon_upgrade_start, else at once with weapon_level_message; 60 frames between."
+
+[[symbol]]
+name = "weapon_upgrade_start"
+address = 0x004C5910
+kind = "function"
+confidence = "high"
+note = "(item, next row): pushes game mode 8, the upgrade sequence 0x4C5E38 (20, 25, 40, 2, 12, 80, 3 frames, the level-up and its message, 20 frames), then back to play."
+
+[[symbol]]
+name = "bolt_pickup_collect"
+address = 0x002F8918
+kind = "function"
+confidence = "medium"
+note = "Adds a bolt's value (table 0x2BE760, 0x1C apart) to player_bolts, shows the bolt HUD for 180 frames, sparkles."
+
+# The gadget WAD and where the hero's items ride: read 2026-10-21 by static analysis of the
+# Veldin image (P1.9, P3.7; docs/research/moby-format.md, "The gadget WAD").
+
+[[symbol]]
+name = "gadget_read_done"
+address = 0x00429AC0
+kind = "function"
+confidence = "medium"
+note = "Read callback: marks a gadget slot as holding its entry."
+
+[[symbol]]
+name = "gadget_sounds_read"
+address = 0x00429B10
+kind = "function"
+confidence = "medium"
+note = "Sound bank callback: sends the bank to the IOP, then reads the file."
+
+[[symbol]]
+name = "gadget_read"
+address = 0x00429C30
+kind = "function"
+confidence = "medium"
+note = "(index, slot, buffer, file only): reads a gadget WAD entry."
+
+[[symbol]]
+name = "gadget_preload"
+address = 0x00429D28
+kind = "function"
+confidence = "medium"
+note = "(class, slot)."
+
+[[symbol]]
+name = "gadget_prefetch"
+address = 0x00429DB0
+kind = "function"
+confidence = "medium"
+note = "(class): fills a slot holding neither the held nor the equipped gun."
+
+[[symbol]]
+name = "gadget_preload_sync"
+address = 0x00429F78
+kind = "function"
+confidence = "low"
+note = "Loads a gadget entry and waits for it; not read further."
+
+[[symbol]]
+name = "gadget_is_ready"
+address = 0x00429FC8
+kind = "function"
+confidence = "medium"
+note = "True if the class has no gadget entry or is already in a slot."
+
+[[symbol]]
+name = "gadget_install"
+address = 0x0042A058
+kind = "function"
+confidence = "medium"
+note = "Sends a gun's texture to its GS slot, unpacks its class into 0x191ED0 and registers it."
+
+[[symbol]]
+name = "gadget_select"
+address = 0x0042A300
+kind = "function"
+confidence = "medium"
+note = "(class): from hero_spawn_item_mobys with row +0x10."
+
+[[symbol]]
+name = "gadget_read_file"
+address = 0x0042A520
+kind = "function"
+confidence = "low"
+note = "The file only, for the vendor's preview."
+
+[[symbol]]
+name = "hero_attach_matrices"
+address = 0x004E1518
+kind = "function"
+confidence = "medium"
+note = "Poses the hero and copies nine joint matrices (56, 55, 99, 93, 7, 5, 54, 3, 5) to hero_attach_mats."
+
+[[symbol]]
+name = "hero_hand_smooth"
+address = 0x004E7BA8
+kind = "function"
+confidence = "low"
+note = "Keeps 16 frames of the hand's matrix (0x1A62C0); with 0x1DBD70 set a held gun's angles average the last 2-7."
+
+[[symbol]]
+name = "hero_place_item_mobys"
+address = 0x004E7FD8
+kind = "function"
+confidence = "medium"
+note = "Puts each item slot's moby on attach matrix row +0x0C: at the joint, on its axes."
+
+[[symbol]]
+name = "gadget_wad_header"
+address = 0x001651C8
+kind = "data"
+confidence = "medium"
+note = "The gadget WAD's header in memory: {size, sector} and 48 entries of {class, file range, sound bank range}."
+
+[[symbol]]
+name = "gadget_slot_entries"
+address = 0x0016C6C4
+kind = "data"
+confidence = "medium"
+note = "Which entry each of the three slots holds."
+
+[[symbol]]
+name = "gadget_slot_buffers"
+address = 0x0016C6D0
+kind = "data"
+confidence = "medium"
+note = "Three buffers of 0xC800 bytes."
+
+[[symbol]]
+name = "gadget_current"
+address = 0x0016C6A4
+kind = "data"
+confidence = "low"
+note = "i16 current entry; 0x16C6A6 the current slot."
+
+[[symbol]]
+name = "gadget_class_buffer"
+address = 0x00191ED0
+kind = "data"
+confidence = "medium"
+note = "Where a gun's class is unpacked; must end before 0x1A1EE0."
+
+[[symbol]]
+name = "gadget_read_pending"
+address = 0x001D6DE0
+kind = "data"
+confidence = "low"
+note = "{entry, slot, buffer} of the read under way."
+
+[[symbol]]
+name = "hero_item_slots"
+address = 0x001A5DC0
+kind = "data"
+confidence = "medium"
+note = "7 x 0x50, libuya's Gadget: the moby at +0x20."
+
+[[symbol]]
+name = "hero_attach_mats"
+address = 0x001A5810
+kind = "data"
+confidence = "medium"
+note = "9 x 0x40 joint matrices for the item mobys."
