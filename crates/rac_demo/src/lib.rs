@@ -1,16 +1,21 @@
 //! The hero kit's standalone demo (PLAN.md Phase 1): the greybox test level (P1.4) with
 //! the hero (P1.5) and his camera, or a spectator camera to look round it with, and a
-//! melee yard of crates and dummies to hit with the wrench (P1.8) and to lock on to.
+//! melee yard of crates and dummies to hit with the wrench (P1.8) and his guns (P1.9), and
+//! to lock on to; and an arena of enemies (P1.11, [`enemy`]) that drop bolts and nanotech
+//! ([`drops`]).
 //!
 //! The app decides when the demo exists: it runs [`spawn_demo`] when gameplay starts and
 //! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems, and
 //! the hero's if the app hasn't.
 
+mod guns;
 mod level;
 mod spectator;
 
 use bevy::prelude::*;
-use rac_combat::{CombatPlugin, Destroyed, HitReaction, Hitpoints, Pushable, target_bundle};
+use rac_combat::{
+    Armory, CombatPlugin, Destroyed, HitReaction, Hitpoints, KillXp, Pushable, target_bundle,
+};
 use rac_hero::{
     CameraSetting, Checkpoint, Collider, FollowCamera, Hero, HeroBody, HeroPlugin, HeroTuning,
     LockOn, hero_bundle,
@@ -18,6 +23,7 @@ use rac_hero::{
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
 
+pub use guns::demo_arsenal;
 pub use level::{
     CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, GAP_WIDTHS, Mover, Piece, Shape, Surface, Target,
     TargetKind, greybox_level, melee_targets,
@@ -65,6 +71,9 @@ pub struct DemoSettings {
 const HERO_SPAWN: Vec3 = Vec3::new(0.0, 0.0, 0.0);
 /// Falling this far below the floor puts the hero back at the start.
 const RESPAWN_BELOW: f32 = -20.0;
+/// The XP a dummy knocked out gives the gun that did it [placeholder: UYA's per-class XP
+/// isn't read].
+const DUMMY_XP: u32 = 40;
 
 impl Plugin for DemoPlugin {
     fn build(&self, app: &mut App) {
@@ -83,6 +92,12 @@ impl Plugin for DemoPlugin {
                 FixedUpdate,
                 (break_targets, show_clanks).in_set(SimSet::Particles),
             )
+            .add_systems(
+                FixedUpdate,
+                (guns::show_shots, guns::show_gun_events, guns::fade)
+                    .in_set(SimSet::Particles)
+                    .run_if(resource_exists::<guns::GunLooks>),
+            )
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera))
             .add_systems(
                 Update,
@@ -91,15 +106,18 @@ impl Plugin for DemoPlugin {
                     show_lock_on,
                     choose_camera.run_if(resource_changed::<DemoSettings>),
                     hide_hero_in_first_person,
+                    guns::update_hud,
                 ),
             );
     }
 }
 
 /// Spawns the greybox level, its lights and the spectator camera.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_demo(
     settings: Res<DemoSettings>,
     tuning: Res<HeroTuning>,
+    armory: Res<Armory>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -250,6 +268,7 @@ pub fn spawn_demo(
             TargetKind::Dummy => {
                 entity.insert((
                     target_bundle(DUMMY_RADIUS + 0.1, DUMMY_HEIGHT / 2.0, 5.0),
+                    KillXp(DUMMY_XP),
                     Pushable,
                     SimTransform::from_translation(target.position),
                     children![(
@@ -284,14 +303,17 @@ pub fn spawn_demo(
         return;
     }
 
+    commands.insert_resource(guns::GunLooks::new(&mut meshes, &mut materials));
     commands.spawn((
         Name::new("hero"),
         DemoEntity,
         hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
+        demo_arsenal(&armory),
         // The rig dresses him in the chosen model.
         RigLook::for_player(0),
         Visibility::default(),
     ));
+    commands.spawn(guns::hud());
     commands.spawn((
         Name::new("lock-on marker"),
         DemoEntity,

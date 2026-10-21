@@ -1188,12 +1188,13 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
 - **`CameraVolume`**: a box with a priority and optional distance, height, look height,
   tilt and drag; the distance and height gains stay at 0.001 after it, as on Florana.
 - **The hero:** `HeroState::Look` for the look button; the standing strafe turn past 10°;
-  lock-strafe doesn't lock on.
+  lock-strafe doesn't lock on. With a gun in hand (`HeroMotion::gun`, P1.9) the
+  lock-strafe and first-person cameras make him strafe, and firing in lock-strafe triples
+  the strafe turn (`weapons.md`, "In the kit").
 - **Left out:** the platform carry (step "Platforms"), the swim and critter rules, the
   modes for states the kit lacks (jets, rocket jumps, jump pads, state 12, the bounce's
   mode 11), volume steering and fields of view, the view's extra yaw (+0x48), the orbit blend, the 8° turn-back after
-  a look that followed the lock-strafe camera, and the free look's aim assist and
-  gun-forced strafing (P1.9). The
+  a look that followed the lock-strafe camera, and the free look's aim assist (P1.9). The
   kit also sweeps the camera from the pivot at the end, so it never ends behind a wall.
 - **Seen in the running demo** (Xvfb, 2026-10-17): DL's lock-strafe camera stays pointed
   down the level while the hero runs sideways; UYA's third person doesn't turn while he

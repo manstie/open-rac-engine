@@ -310,7 +310,9 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
   - **[simplified]** The kit's sight line stops 0.75 u short of the target's middle,
     because the kit's targets can be solid, and a line into one would always be blocked.
     The game's ray probably ignores objects.
-  - There is no weapon yet (P1.9), so lock-on works with anything.
+  - The game's weapons code allows it (`LockOn::allowed`): the kit's (`rac_combat`, P1.9)
+    only while the gun in hand, or the one the fire button brings out, has its lock-on
+    mod. A hero without guns locks on with anything.
   - **Gamepad only (PLAN §5, 2026-10-15):** `Action::LockOn` is
     bound to both triggers, and `rac_input` ignores keyboard and mouse bindings for it,
     because with a mouse the player aims themselves.
@@ -528,7 +530,8 @@ the states 7, 9–18, 27 and a few scripted ones, the double jump among them).
   stand for the game's landed jump state. Tested in `rac_hero/tests/deadlocked.rs`.
   **[simplified]** The re-jump that doesn't flip is the walk's (run jump by the stick, not
   by the speed and its angle to the facing), and Deadlocked's lock-strafe and first-person
-  conditions are left out: they need a gun in hand, which the kit doesn't have yet.
+  conditions are left out: they need a gun in hand, which the kit's hero has had since
+  P1.9 (`HeroMotion::gun`), so they can go in now.
 
 #### The crouch flip [code, verified on UYA NTSC, 2026-10-15]
 

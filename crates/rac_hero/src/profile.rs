@@ -46,6 +46,7 @@ pub struct HeroProfile {
     pub zip_line: ZipLineProfile,
     pub swim: SwimProfile,
     pub melee: MeleeProfile,
+    pub gun: GunProfile,
     pub hit: HitProfile,
     pub death: DeathProfile,
     pub camera: CameraProfile,
@@ -1106,6 +1107,25 @@ pub struct ClankProfile {
     pub ground_frame: f32,
     pub ground_above: f32,
     pub ground_below: f32,
+}
+
+/// How a gun in hand changes his moves (`weapons.md`, "The hero's side of firing"). The
+/// guns themselves are the weapons code's (`rac_combat`), which tells the controller
+/// what is in his hand through [`crate::GunHand`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GunProfile {
+    /// While a steady gun fires and the walk turns as it sets off, it turns on
+    /// `steady_part` for a stick up to `steady_part_stick` and on `steady_full` above it.
+    pub steady_part_stick: f32,
+    pub steady_part: ScaledTurnSpring,
+    pub steady_full: TurnSpring,
+    /// Letting go of the walk with a gun in hand brakes at the walk's `brake` for this many
+    /// ticks and then idles: only the wrench arms the release skid.
+    pub stop_ticks: u32,
+    /// In the lock-strafe camera, firing or a fire press in the last `fire_turn_ticks`
+    /// scales the strafe turn's gain and cap by `fire_turn_scale`.
+    pub fire_turn_scale: f32,
+    pub fire_turn_ticks: u32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").

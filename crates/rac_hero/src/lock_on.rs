@@ -16,11 +16,25 @@ use crate::{
 };
 
 /// What a hero is locked on to.
-#[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct LockOn {
     pub target: Option<Entity>,
     /// The target's middle this tick.
     pub at: Vec3,
+    /// Whether he may lock on. UYA allows it only while the gun's lock-on mod is on
+    /// (`hero-controller.md`, "Lock-on"), which the game's weapons code sets; without one,
+    /// it is always allowed.
+    pub allowed: bool,
+}
+
+impl Default for LockOn {
+    fn default() -> Self {
+        Self {
+            target: None,
+            at: Vec3::ZERO,
+            allowed: true,
+        }
+    }
 }
 
 impl LockOn {
@@ -42,7 +56,7 @@ pub fn update(
     profile: &LockOnProfile,
     world: &dyn CollisionWorld,
 ) {
-    if !input.held(Action::LockOn) || hero.state == HeroState::Dead {
+    if !lock.allowed || !input.held(Action::LockOn) || hero.state == HeroState::Dead {
         lock.target = None;
         return;
     }

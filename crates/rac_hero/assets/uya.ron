@@ -943,6 +943,30 @@
             ground_below: 0.9,
         ),
     ),
+    // A gun in hand, "The hero's side of firing" in weapons.md [code, UYA NTSC,
+    // 2026-10-20; the full stick's turn and the release verified on UYA NTSC with the
+    // N60].
+    gun: (
+        // The Shock Blaster's, N60's, Plasma Coil's and Lava Gun's turn while firing:
+        // gain 0.009 m, damping 0.15 and cap 0.0785 m rad up to a 0.95 stick.
+        steady_part_stick: 0.95,
+        steady_part: (
+            gain_per_m: 0.009,
+            gain_min: 0.0,
+            gain_max: 0.009,
+            damping: 0.15,
+            cap_per_m: 0.0785,
+            cap_min: 0.0,
+            cap_max: 0.0785,
+        ),
+        steady_full: (gain: 0.017, damping: 0.18, cap: 0.1454),
+        // With a gun he idles the tick after letting go; DL's trace brakes one frame at
+        // 30 u/s² first.
+        stop_ticks: 1,
+        // camera.md, "The hero in these modes": R1 or Circle in the last 2 frames.
+        fire_turn_scale: 3.0,
+        fire_turn_ticks: 2,
+    ),
     // State 22, "Getting hit and dying" [code, UYA NTSC; untraced].
     hit: (
         max_speed: 7.0, // 0.11667 u per frame

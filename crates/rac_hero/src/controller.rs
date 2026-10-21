@@ -19,7 +19,9 @@ mod melee;
 pub use melee::{Clank, Strike, StrikeShape, ThrownWrench, best_target, target_score};
 
 use crate::{
+    camera::CameraSetting,
     collision::{BodyId, CollisionWorld, Material},
+    gun::GunHand,
     motor::{self, Ground},
     profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
     rail::{GrindRail, RailKind, RailPoint},
@@ -400,6 +402,11 @@ pub struct HeroMotion {
     /// it. The look's camera sets it false while it blends in (`camera.md`, "Which camera
     /// mode shows it").
     pub look_ready: bool,
+    /// The setting of the camera he is seen through, which the camera sets.
+    pub camera_setting: CameraSetting,
+    /// What is in his hand and whether it fires, which the game's weapons code sets each
+    /// tick before he moves.
+    pub gun: GunHand,
     /// The strafe's own turning rate, kept apart from the walk's, radians per tick.
     strafe_yaw_rate: f32,
     /// The way he strafes: the stick's direction on the ground, kept when it is let go.
@@ -513,6 +520,7 @@ pub struct HeroMotion {
     dive_left: u32,
     melee_press: PressAge,
     strafe_press: PressAge,
+    fire_press: PressAge,
     /// The attack under way, or the last one.
     attack: melee::Attack,
     /// Attacks and throws so far, which number them.
@@ -542,6 +550,8 @@ impl HeroMotion {
             strikes: Vec::new(),
             clank: None,
             look_ready: true,
+            camera_setting: CameraSetting::ThirdPerson,
+            gun: GunHand::default(),
             strafing: false,
             strafe_side: StrafeSide::Forward,
             flip_side: StrafeSide::Forward,
@@ -614,6 +624,7 @@ impl HeroMotion {
             dive_left: 0,
             melee_press: PressAge::NEVER,
             strafe_press: PressAge::NEVER,
+            fire_press: PressAge::NEVER,
             attack: melee::Attack::default(),
             attack_serial: 0,
         }
@@ -975,8 +986,11 @@ pub fn step(
     hero.stick_press.update(pushed);
     hero.record_yaw();
     hero.camera_yaw = camera_yaw;
-    // Locking on holds both strafe buttons in UYA, so it strafes too.
-    hero.strafing = input.held(Action::Strafe) || input.held(Action::LockOn);
+    // Locking on holds both strafe buttons in UYA, so it strafes too, and in the
+    // lock-strafe and first-person cameras so does anything in hand but the wrench
+    // (`camera.md`, "The hero in these modes").
+    let camera_strafes = hero.gun.out && hero.camera_setting != CameraSetting::ThirdPerson;
+    hero.strafing = input.held(Action::Strafe) || input.held(Action::LockOn) || camera_strafes;
     if !hero.strafing {
         hero.strafing_back = false;
     } else if stick.is_active() {
@@ -990,6 +1004,7 @@ pub fn step(
     hero.crouch_press.update(input.pressed(Action::Crouch));
     hero.melee_press.update(input.pressed(Action::Melee));
     hero.strafe_press.update(input.pressed(Action::Strafe));
+    hero.fire_press.update(input.pressed(Action::Fire));
     hero.wall_ticks = hero.wall_ticks.saturating_sub(1);
     if hero.wall_ticks == 0 {
         hero.wall = None;
@@ -1458,10 +1473,21 @@ fn ground_tick(
             hero.setting_off = hero.speed < walk.setting_off_below;
         }
 
+        // A held gun firing keeps the setting-off turn, and a steady gun firing makes it
+        // its own (`weapons.md`, "The hero's side of firing").
+        let gun = &profile.gun;
         let spring = if hero.skidding {
             walk.turn_skidding
-        } else if hero.setting_off {
-            walk.turn_setting_off.at(stick.magnitude)
+        } else if hero.setting_off || hero.gun.firing_held {
+            if hero.gun.firing && hero.gun.steady {
+                if stick.magnitude <= gun.steady_part_stick {
+                    gun.steady_part.at(stick.magnitude)
+                } else {
+                    gun.steady_full
+                }
+            } else {
+                walk.turn_setting_off.at(stick.magnitude)
+            }
         } else {
             walk.turn_moving
         };
@@ -1479,8 +1505,9 @@ fn ground_tick(
         if stick.magnitude < walk.turn_slow_stick && error > walk.turn_slow_degrees.to_radians() {
             target *= (1.0 - error * walk.turn_slow_per_radian).max(0.0);
         }
-        // A part-pushed stick far round from the facing turns him without speeding up.
-        let accel = if stick.magnitude < walk.turn_stall_stick
+        // A part-pushed stick far round from the facing turns him without speeding up, and
+        // so does any stick while a held gun fires.
+        let accel = if (stick.magnitude < walk.turn_stall_stick || hero.gun.firing_held)
             && error > walk.turn_stall_degrees.to_radians()
         {
             0.0
@@ -1521,9 +1548,14 @@ fn ground_tick(
                     hero.set_state(HeroState::Idle);
                 }
             }
-            HeroState::Walk if hero.stop_ticks < walk.stop_skid_ticks => {
-                // Letting go: a couple of ticks of skid braking...
+            HeroState::Walk if !hero.gun.out && hero.stop_ticks < walk.stop_skid_ticks => {
+                // Letting go with the wrench in hand: a couple of ticks of skid braking...
                 hero.speed = approach(hero.speed, 0.0, walk.skid_brake * TICK);
+                hero.stop_ticks += 1;
+            }
+            HeroState::Walk if hero.gun.out && hero.stop_ticks < profile.gun.stop_ticks => {
+                // ...or with a gun, the walk's own braking, for a tick...
+                hero.speed = approach(hero.speed, 0.0, walk.brake * TICK);
                 hero.stop_ticks += 1;
             }
             HeroState::Walk => {
@@ -1576,10 +1608,19 @@ fn strafe_walk(hero: &mut HeroMotion, profile: &HeroProfile) {
     hero.yaw_rate = 0.0;
 }
 
-/// Turns him to the camera on the strafe's spring and its own rate (UYA 0x4EA5B0).
+/// Turns him to the camera on the strafe's spring and its own rate (UYA 0x4EA5B0). Firing
+/// in the lock-strafe camera turns him faster.
 fn turn_to_camera(hero: &mut HeroMotion, profile: &HeroProfile) {
+    let gun = &profile.gun;
+    let mut spring = profile.strafe.turn;
+    if hero.camera_setting == CameraSetting::LockStrafe
+        && (hero.gun.firing || hero.fire_press.ticks < gun.fire_turn_ticks)
+    {
+        spring.gain *= gun.fire_turn_scale;
+        spring.cap *= gun.fire_turn_scale;
+    }
     hero.yaw_rate = hero.strafe_yaw_rate;
-    turn(hero, hero.camera_yaw, profile.strafe.turn);
+    turn(hero, hero.camera_yaw, spring);
     hero.strafe_yaw_rate = hero.yaw_rate;
 }
 
@@ -2560,7 +2601,7 @@ fn find_water(world: &dyn CollisionWorld, feet: Vec3) -> Option<WaterLevel> {
 /// gains `gain × error` and loses `damping × rate`, is capped at `cap` when that is
 /// positive, and is kept within the error again. Within 1% of the cap of its target, the
 /// value snaps to it.
-fn game_spring(value: f32, target: f32, spring: Spring, cap: f32, rate: &mut f32) -> f32 {
+pub fn game_spring(value: f32, target: f32, spring: Spring, cap: f32, rate: &mut f32) -> f32 {
     let error = target - value;
     *rate = rate.clamp(-error.abs(), error.abs());
     *rate += spring.gain * error - spring.damping * *rate;
@@ -3245,7 +3286,13 @@ fn jump_transition(
     let height_ok = !hero.jump.past_apex
         || (hero.height_above_ground > double.past_apex_min_height
             && hero.velocity.y.abs() < double.past_apex_max_speed);
-    if !hero.double_jumped && t > double.after_tick && hero.jump_press.within(window) && height_ok {
+    // No double jump while a gun's firing animation plays (`weapons.md`).
+    if !hero.double_jumped
+        && !hero.gun.firing
+        && t > double.after_tick
+        && hero.jump_press.within(window)
+        && height_ok
+    {
         hero.jump_press.used = true;
         return Some(Transition::Double);
     }

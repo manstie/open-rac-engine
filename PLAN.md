@@ -31,8 +31,9 @@ session is working on the task now; notes on problems met stay with their task (
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
   DL's code lacks (crouch, wall jump, zip lines, dive) and give it its own flips. He has the follow camera with
-  lock-on, the lock-strafe and first-person cameras and their blends (P1.7), and melee
-  for both games (P1.8). He wears the open blocky model or, from the user's
+  lock-on, the lock-strafe and first-person cameras and their blends (P1.7), melee
+  for both games (P1.8), and UYA's six read guns with their levels, mods and aim assist
+  (P1.9). He wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
   with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
@@ -56,9 +57,9 @@ session is working on the task now; notes on problems met stay with their task (
 2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
    first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
    done, the wall jump and ledges traced too).
-3. P1.9: weapons, from `docs/research/weapons.md` (UYA's numbers and the five archetypes'
-   rules are read), with RE.7's next steps alongside; with them, the free look's aim
-   assist and the strafing a gun forces (P1.7).
+3. P1.9: the gun on the rig and its firing animations, then the quick-select ring
+   (`weapons.md`, "In the kit"), with RE.7's next steps alongside; with them, the free
+   look's aim assist (P1.7).
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** savestates by moves that need a particular
@@ -465,7 +466,7 @@ committed (names, addresses, layouts, derived constants).
     are spawned mobys a fixed layout can't follow), and all of DL.
   - Next step: the rest of the hero's side of firing in traces (a glove's arm layers, the
     raised arm, a target), with `uyantsc-veldin-fire.sh` extended (`weapons.md`, "Next
-    steps", item 1); or start P1.9 from what is read.
+    steps", item 1). P1.9 is built from what is read (`weapons.md`, "In the kit").
   - Weapon definitions (DL's `GadgetDef` is 0xB0 bytes): fire rates, damage and projectile
     behaviour.
   - Upgrade and XP tables: UYA V1–V5, and DL V1–V10 with mods.
@@ -584,8 +585,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     **`CameraVolume`**, a box with a priority and optional overrides.
   - Standing while strafing, he steps round to the camera once it is 10° off.
   - **Simplified or left out:** the kit also sweeps the camera from the pivot so it never
-    ends behind a wall; the free look's aim assist and the strafing a gun forces wait for
-    P1.9; the platform carry, the swim and critter rules, volume steering and fields of
+    ends behind a wall; the free look's aim assist waits for P1.9 (the strafing a gun
+    forces is in, from `HeroMotion::gun`); the platform carry, the swim and critter rules, volume steering and fields of
     view, and the modes for states the kit lacks (jets, rocket jumps, jump pads, the
     bounce's mode 11) aren't modelled; the camera setting isn't in input recordings.
   - **Not traced against the kit:** a replay of RE.4's traces through the kit camera
@@ -614,16 +615,27 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     frames half a frame on).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
-- [ ] **P1.9** Weapons framework (`rac_combat`), following RE.7:
-  - UYA's rules and numbers for each archetype are in `docs/research/weapons.md`.
-  - Data-driven definitions (RON):
-    - fire mode: hitscan, projectile, lobbed, stream/beam or homing;
-    - rate, ammo, damage and projectile physics;
-    - hooks for visual and sound effects;
-    - XP levels and DL-style mods.
-  - Five sample archetypes: rapid-fire, lobbed explosive, stream, homing and sniper.
-  - A quick-select ring, weapon cycling, aim assist and strafe aiming, using the lock-on
-    target.
+- [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - UYA's rules and numbers are in `docs/research/weapons.md`; what the kit has of them,
+    and its placeholders, in its "In the kit".
+  - Done: `rac_combat::weapons`, with UYA's six read guns in RON
+    (`assets/uya_weapons.ron`): every level's damage, ammo and XP, the mods' levels, and
+    the five fire modes (hitscan, projectile, lobbed, stream, homing) with their shots, so
+    the five archetypes are the N60, Nitro Launcher, Lava Gun, Annihilator and Flux Rifle.
+    The `Arsenal` owns, levels and switches them (the quick switch, next and previous);
+    the gun aim assist and the view's aim point; the damage queue, shock, acid and XP from
+    kills; `GunEvent`s, which carry each gun's effect names for sounds and visuals. In
+    `rac_hero`, `GunHand` and what it changes in his moves, lock-on by the gun's mod and
+    the strafing a gun forces. The demo gives every gun at V3 and draws its shots.
+  - A Shock Blaster at V2 or up drawn by holding fire used its 20 tries before it could
+    fire; the hold counts from when it can, as the kit's own reading.
+  - Not done: the gun on the rig and its firing animations, the raised arm and the upper
+    body's turn to the target (P1.17's rig); the quick-select ring (with P1.12's HUD);
+    DL's guns and mods (RE.7), beyond `OwnedGun::extra_mods`; the free look's aim assist
+    (P1.7).
+  - Next step: the rig holds the gun in his hand and plays its firing animations from
+    `GunHand` (`weapons.md`, "The hero's side of firing": whole-body sequences 49, 51 and
+    103, the arms-only layers), with the gun's model from the disc (row +0x10's class).
 - [ ] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
   nanotech, explosive); health; a vendor stub that sells ammo.
 - [ ] **P1.11** Demo enemies (`rac_demo`):

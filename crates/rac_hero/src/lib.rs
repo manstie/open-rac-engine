@@ -18,10 +18,13 @@
 //!   ([`CameraSetting`]), with [`CameraVolume`]s that retune it.
 //! - Strafing faces the camera; with a gamepad, [`LockOn`] holds a target that the camera
 //!   turns to.
+//! - The game's weapons code says what is in his hand and whether it fires through
+//!   [`GunHand`] (`HeroMotion::gun`), which changes how he walks, strafes and jumps.
 
 pub mod camera;
 pub mod collision;
 pub mod controller;
+pub mod gun;
 pub mod lock_on;
 pub mod motor;
 pub mod profile;
@@ -39,6 +42,7 @@ pub use controller::{
     Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
     StrikeShape, ThrownWrench,
 };
+pub use gun::GunHand;
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;
 pub use rail::{GrindRail, RailKind};
@@ -270,6 +274,9 @@ fn move_heroes(
         let camera = cameras.iter().find(|camera| camera.player == hero.player);
         let camera_yaw = camera.map_or(0.0, |camera| camera.yaw);
         body.0.look_ready = camera.is_none_or(FollowCamera::look_ready);
+        body.0.camera_setting = camera.map_or(CameraSetting::ThirdPerson, |camera| {
+            camera.setting_with(&profile.camera)
+        });
         let events = controller::step(
             &mut body.0,
             &inputs.get(hero.player),

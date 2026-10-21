@@ -993,6 +993,25 @@
             ground_below: 0.9,
         ),
     ),
+    // A gun in hand, as UYA's (weapons.md, "The hero's side of firing") [not read in DL],
+    // but for the release, which DL's trace with a gun in hand shows
+    // (hero-controller.md, "Letting go of the walk with a gun in hand").
+    gun: (
+        steady_part_stick: 0.95,
+        steady_part: (
+            gain_per_m: 0.009,
+            gain_min: 0.0,
+            gain_max: 0.009,
+            damping: 0.15,
+            cap_per_m: 0.0785,
+            cap_min: 0.0,
+            cap_max: 0.0785,
+        ),
+        steady_full: (gain: 0.017, damping: 0.18, cap: 0.1454),
+        stop_ticks: 1, // [verified on DL NTSC]
+        fire_turn_scale: 3.0,
+        fire_turn_ticks: 2,
+    ),
     // State 22, "Getting hit and dying": DL's entry (0x69DAAC), motion and transitions
     // are UYA's apart from the marked values ("Deadlocked's hits") [code]. The hazard
     // floor and death are as UYA [not read in DL].

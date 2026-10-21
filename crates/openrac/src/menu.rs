@@ -154,7 +154,9 @@ const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick.
     Strafe: right mouse / L2 or R2. Then jump sideways or back: flip.\n\
     Look round: V / L1 (first person in lock-strafe). Camera setting: in the menus.\n\
     Wrench: F / Square, again in time for the combo. Crouch first: throw it.\n\
-    Lock on (gamepad, not in lock-strafe): L2 and R2 together.";
+    Gun: left mouse / Circle brings it out and fires. Switch: Q, E or wheel / d-pad;\n\
+    tap Tab / Triangle for the last guns. Lock on (gamepad, not in lock-strafe, with the\n\
+    gun's lock-on mod): L2 and R2 together.";
 
 const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
     Up: Space / Cross. Down: Ctrl / R1. Faster: right mouse / L2 or R2.\n\

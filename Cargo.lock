@@ -4778,6 +4778,9 @@ dependencies = [
  "rac_hero",
  "rac_input",
  "rac_sim",
+ "ron",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

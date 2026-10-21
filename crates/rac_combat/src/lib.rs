@@ -1,4 +1,5 @@
-//! What the hero's attacks hit, and what that does to it (PLAN.md P1.8).
+//! What the hero's attacks hit, and what that does to it (PLAN.md P1.8), and his guns
+//! (P1.9).
 //!
 //! The hero kit's controller works out, each tick, where the wrench can hit
 //! ([`rac_hero::Strike`]: a swing's swept line, the jump attack's slam, the thrown wrench).
@@ -10,11 +11,17 @@
 //!   and pushes it for the game to show;
 //! - a [`Pushable`] target moves with the push.
 //!
-//! Each hit is also sent as a [`Struck`] message. Enemies (P1.11) build on these.
+//! A hero with an [`Arsenal`] also has guns ([`weapons`]), whose shots hit the same
+//! hurtboxes. Each hit is also sent as a [`Struck`] message. Enemies (P1.11) build on
+//! these.
+
+pub mod weapons;
 
 use bevy::prelude::*;
 use rac_hero::{AimTarget, Hero, HeroBody};
 use rac_sim::{SimSet, SimTransform};
+
+pub use weapons::{Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, WeaponId};
 
 /// Seconds per tick.
 const TICK: f32 = 1.0 / 60.0;
@@ -53,6 +60,8 @@ pub struct HitReaction {
     pub push: Vec3,
     /// The attacks that hit it lately: the player and the attack's serial.
     struck_by: Vec<(usize, u32)>,
+    /// Ticks left before a gun's hit can hurt it again.
+    pub(crate) gun_recovery: u32,
 }
 
 /// A target that the push moves (through its `SimTransform`).
@@ -68,6 +77,8 @@ pub struct Struck {
     pub damage: f32,
     /// u/s.
     pub push: Vec3,
+    /// The gun that hit it; `None` for the wrench.
+    pub weapon: Option<WeaponId>,
 }
 
 /// A target's [`Hitpoints`] ran out. The game decides what that means: a crate breaks, an
@@ -76,6 +87,8 @@ pub struct Struck {
 pub struct Destroyed {
     pub target: Entity,
     pub player: usize,
+    /// The gun that did it; `None` for the wrench.
+    pub weapon: Option<WeaponId>,
 }
 
 /// How hits look. The games hand each target a push strength that the target's own code
@@ -87,6 +100,9 @@ pub struct CombatTuning {
     /// How fast a push dies away, u/s².
     pub push_brake: f32,
     pub flash_ticks: u32,
+    /// Ticks after a gun's hit before a target takes another. The games leave it to each
+    /// enemy's own code, which isn't read [placeholder].
+    pub gun_recovery_ticks: u32,
 }
 
 impl Default for CombatTuning {
@@ -95,20 +111,28 @@ impl Default for CombatTuning {
             push_speed: 4.0,
             push_brake: 20.0,
             flash_ticks: 8,
+            gun_recovery_ticks: 8,
         }
     }
 }
 
-/// Tests the heroes' strikes against hurtboxes after the heroes move, and moves pushed
+/// Tests the heroes' strikes against hurtboxes after the heroes move, fires their guns
+/// before they move, as the games' gun mobys update before the hero, and moves pushed
 /// targets with the world.
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CombatTuning>()
+            .init_resource::<Armory>()
+            .init_resource::<Burns>()
             .add_message::<Struck>()
             .add_message::<Destroyed>()
-            .add_systems(FixedUpdate, react.in_set(SimSet::World))
+            .add_message::<GunEvent>()
+            .add_systems(
+                FixedUpdate,
+                (react, weapons::fire_guns).chain().in_set(SimSet::World),
+            )
             .add_systems(
                 FixedUpdate,
                 strike_targets.after(SimSet::Hero).before(SimSet::Particles),
@@ -126,7 +150,10 @@ pub fn target_bundle(radius: f32, height: f32, hitpoints: f32) -> impl Bundle {
 }
 
 /// Where a target is in the simulation: its `SimTransform` if it has one.
-fn position(transform: Option<&Transform>, simulated: Option<&SimTransform>) -> Option<Vec3> {
+pub(crate) fn position(
+    transform: Option<&Transform>,
+    simulated: Option<&SimTransform>,
+) -> Option<Vec3> {
     match simulated {
         Some(simulated) => Some(simulated.translation),
         None => transform.map(|transform| transform.translation),
@@ -178,6 +205,7 @@ fn strike_targets(
                     player: hero.player,
                     damage: strike.damage,
                     push,
+                    weapon: None,
                 });
                 if let Some(hitpoints) = hitpoints {
                     let was_alive = hitpoints.current > 0.0;
@@ -186,6 +214,7 @@ fn strike_targets(
                         destroyed.write(Destroyed {
                             target: *entity,
                             player: hero.player,
+                            weapon: None,
                         });
                     }
                 }
@@ -201,6 +230,7 @@ fn react(
 ) {
     for (mut reaction, simulated, pushable) in &mut targets {
         reaction.flash_ticks = reaction.flash_ticks.saturating_sub(1);
+        reaction.gun_recovery = reaction.gun_recovery.saturating_sub(1);
         if reaction.push == Vec3::ZERO {
             continue;
         }
@@ -311,7 +341,14 @@ mod tests {
             events.extend(cursor.read(messages).copied());
         }
         assert_eq!(hitpoints(&app, target), 0.0);
-        assert_eq!(events, [Destroyed { target, player: 0 }]);
+        assert_eq!(
+            events,
+            [Destroyed {
+                target,
+                player: 0,
+                weapon: None
+            }]
+        );
     }
 
     #[test]

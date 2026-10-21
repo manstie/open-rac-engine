@@ -17,6 +17,7 @@ use super::{
 };
 use crate::{
     collision::CollisionWorld,
+    gun::GunHand,
     profile::{AimProfile, AttackProfile, HeroProfile, Push, TurnSpring},
     stick::Stick,
 };
@@ -341,6 +342,8 @@ fn start_attack(
         Next::Throw => (THROW, HeroState::Throw),
     };
     let current = row(profile, row_index);
+    // Square brings out the wrench (`weapons.md`, "Switching and firing").
+    hero.gun = GunHand::default();
     hero.attack_serial += 1;
     hero.attack = Attack {
         row: row_index,
@@ -424,6 +427,7 @@ fn start_grind_attack(hero: &mut HeroMotion, step: u8, profile: &HeroProfile) {
     hero.melee_press.used = true;
     let row_index = GRIND + usize::from(step);
     let current = row(profile, row_index);
+    hero.gun = GunHand::default();
     hero.attack_serial += 1;
     hero.attack = Attack {
         row: row_index,

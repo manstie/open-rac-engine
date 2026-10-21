@@ -591,6 +591,77 @@ Rift Inducer and others; callers of 0x44D930) pick a target this way:
 - The N60 asks for 35 u, far 3° yaw and 6° pitch, near 45° and 45°. With the byte at
   0x1DB030 set (0 in our image; several guns read it), it asks 50 u, 20° and 10°.
 
+## In the kit (P1.9) [2026-10-21]
+
+`rac_combat::weapons`, with the guns' numbers in `crates/rac_combat/assets/uya_weapons.ron`
+(each labelled with its section here), and the hero's side in `rac_hero` (`gun.rs` and the
+profiles' `gun` section):
+- **Definitions** (`Armory`): the six guns read in code, with all eight levels' damage,
+  second damage, maximum ammo and XP thresholds, the levels their mods come on, the Lava
+  Gun's acid table, and a fire mode each: hitscan (the Shock Blaster), projectile (the
+  N60's bullets and the Flux Rifle's shot), lobbed (the Nitro Launcher), stream (the Lava
+  Gun) and homing (the Annihilator). Shared rules: the 17-tick draw, the quick switch's 20
+  ticks round three of eight recent guns, Mega as the bought level, the view's bend, the
+  shock arc's 8 u and quarter, and 30 acid slots.
+- **Owning** (`Arsenal`): giving, ammo used and added up to the maximum, XP up each level's
+  chain to V5, the bought Mega counting from 0, the recent guns with the empty one pushed
+  out, and the quick switch. The kit's next and previous weapon buttons go round the guns
+  owned, in the order given.
+- **The hand:** the fire button, the quick switch and, with the gun's lock-on mod,
+  lock-on bring the gun out after 17 ticks; a wrench attack puts it away at once. A gun
+  fires once it has been out its ready ticks, and in the look after its wait.
+- **Each gun** as "Each gun" reads it: the Shock Blaster's rate counted from each hit, its
+  2- or 5-tick hit delay, its ball and 20 random and 3 low rays, and from V2 one shot a
+  press and the charged shot of three times the damage; the N60's 14-tick repeat from two
+  barrels, 60–80 u/s bullets living 30 or 46 ticks, bouncing from V2, with their 0.6 and
+  1.0 u balls; the Nitro Launcher's target (lock-on within 12 u, else its assist), solved
+  arc and cut launch, the charge's bounce, fuse, ground and enemy bursts, and the blast's
+  flash and growth, hitting each target once; the Lava Gun's strength spring, a round
+  every 10 ticks, 35 points falling at 21.6 u/s², their splash and the nozzle's ball; the
+  Annihilator's 5-tick pick and drop, the enemy near the barrel, the 60 u/s missile
+  turning after its target and its blast's second damage; the Flux Rifle's 400 u/s shot
+  for 19 ticks, its muzzle ball and the scoped bend.
+- **Aim:** the lock-on target; else, in the lock-strafe and first-person cameras and the
+  look, the point the view centres on, bent from his facing by at most 80° (8° within
+  4 u); else the gun's own assist (`gun_aim_target`'s cubic cone and score; none in
+  lock-strafe); else his facing.
+- **Damage:** one pending hit per target a tick, the strongest, a weaker one adding its
+  mods; shock arcs to the first other living target within 8 u for a quarter of the gun's
+  damage; acid burns past the queue, and the burn that kills credits the gun; a kill gives
+  the target's `KillXp` to the gun that did it.
+- **The hero's side** (`GunHand`, set each tick before he moves): no double jump while
+  firing; the held gun's setting-off turn and the steady turn (the N60 trace's law, to
+  10⁻⁵); no speed-up past 45° while a held gun fires; with a gun, letting go brakes a tick
+  at 30 u/s² and idles; in the lock-strafe and first-person cameras a gun makes him
+  strafe, and firing in lock-strafe triples the strafe turn; lock-on only with the gun's
+  lock-on mod (`LockOn::allowed`).
+- **[placeholder] or [simplified]:**
+  - The muzzle is a fixed point from his feet and the N60's barrels are guessed; the gun
+    isn't drawn on the rig, nor are its firing animations played. `firing` lasts the
+    gun's `fire_ticks` after a shot (40 for the Shock Blaster, at least the trace's 35;
+    30 for the others), and a state change ends it unless the gun is held.
+  - A target takes no gun hit for 8 ticks after one: the games leave that to each
+    enemy's code, and without it the stream would hit every tick.
+  - The states a gun fires in are guessed, and there is no state 29: the look with a gun
+    out is the aiming state. No raised gun arm, no head and upper-body turn to the target,
+    no twist in the fire direction.
+  - The view's aim point is the first thing on the camera's centre line within 128 u; the
+    writer of 0x1A6230 isn't read.
+  - The Annihilator's turn (6° a tick), its near-enemy point, and the Nitro charge's
+    300-tick limit; the first ammo is the maximum (row +0x8E isn't tabulated).
+  - The Lava Gun's acid from V2 is the vendor's [text]; the Nitro Launcher's acid is on
+    and does nothing, as read.
+  - The assist, the shock arc and lock-on take any hurtbox with hit points left, not only
+    enemies (class category 5); XP counts whole points.
+  - Not in yet: the V5-and-up extras (the Annihilator's bomblets, the Liquid Nitrogen
+    Gun's freezing), the Flux Rifle's piercing (not found in code), the Nitro's aim at the
+    ground with action 4, camera shake, the quick-select ring, the other guns and DL's.
+- **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob
+  and the pick), `rac_combat/tests/weapons.rs` (17) and `rac_hero/tests/gun.rs` (8).
+- **Seen in the running demo** (Xvfb, 2026-10-21; the demo gives every gun at V3): the
+  Shock Blaster's spray of rays, one shot a press; the N60 knocking out a dummy, its ammo
+  and XP counting; the Lava Gun's stream arcing onto a dummy.
+
 ## Next steps
 
 1. **The rest of the hero's side of firing in traces** (done 2026-10-20 for the Shock

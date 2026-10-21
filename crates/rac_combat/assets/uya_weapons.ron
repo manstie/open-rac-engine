@@ -1,0 +1,277 @@
+// The guns of Ratchet & Clank: Up Your Arsenal (NTSC-U, SCUS-97353) whose code is read:
+// the hero kit's default weapons.
+//
+// Units: u, u/s and u/s², ticks at 60 Hz. Sources are sections of
+// docs/research/weapons.md, with its labels: [code] read in the game's code, [data] read
+// from the weapon table in a memory image, [text] said by the vendor's descriptions,
+// [verified] checked in our traces, [placeholder] not found in the game yet: a guess to be
+// replaced. Levels are V1 to V5, then Mega, Giga and Omega; "level 2" in a mod or a
+// ByLevel entry is V3.
+(
+    name: "UYA NTSC-U",
+    rules: (
+        // "Checked in traces": the gun was in his hand 17 frames after Circle [verified].
+        draw_ticks: 17,
+        // "Switching and firing": Triangle let go within 20 frames, round the three most
+        // recent of eight guns [code].
+        quick_switch_ticks: 20,
+        quick_switch_guns: 3,
+        recent_guns: 8,
+        bought_level: 5, // "Owning, ammo, levels and XP": Mega is bought [code]
+        muzzle: (0.25, 1.0, 0.5), // [placeholder]: the hand joint's place isn't read
+        // "How guns aim with it": aim_bend_to_point's 80°, a tenth within 4 u [code]; how
+        // far the view's aim point is looked for isn't read [placeholder].
+        view_range: 128.0,
+        bend_degrees: 80.0,
+        bend_near: 4.0,
+        // "What shock and acid do" [code]: the first other living enemy within 8 u, a
+        // quarter of the gun's damage for the guns here.
+        shock: (range: 8.0, share: 0.25),
+        acid_slots: 30,
+    ),
+    weapons: [
+        // "Shock Blaster (0x36A790)" [code; firing verified on UYA NTSC].
+        (
+            name: "Shock Blaster",
+            upgraded_name: "Shock Cannon",
+            item: 0x27,
+            held: false,
+            steady: true,
+            ready_ticks: 23,
+            // At least 35: the trace's next shot still found it playing [placeholder].
+            fire_ticks: 40,
+            look_wait_ticks: 40,
+            levels: [ // "Numbers" [data]
+                (damage: 2.0, ammo: 30, xp: 150),
+                (damage: 2.5, ammo: 35, xp: 400),
+                (damage: 3.0, ammo: 40, xp: 700),
+                (damage: 4.0, ammo: 40, xp: 1000),
+                (damage: 5.0, ammo: 50, xp: 0),
+                (damage: 55.0, ammo: 50, xp: 10000),
+                (damage: 70.0, ammo: 55, xp: 25000),
+                (damage: 105.0, ammo: 60, xp: 0),
+            ],
+            mods: (lock_on: Some(2), shock: Some(3)), // V3, V4 [code]
+            fire: Hitscan((
+                rate: 2.0, // +0x50
+                hit_ticks: 2,
+                busy_hit_ticks: 5,
+                after_hit_ticks: 20,
+                ball_radius: 1.5,
+                ray_length: 32.0,
+                random_rays: 20,
+                spread_degrees: 17.0,
+                down_rays: 3,
+                down_degrees: 15.0,
+                down_spread_degrees: 20.0,
+                push: 1.0, // "knocks enemies back" [text; placeholder strength]
+                charge: Some((from_level: 1, try_ticks: 20, ticks: 78, damage_scale: 3.0)),
+            )),
+            effects: (fire: Some("shock_blaster.fire"), impact: Some("shock_blaster.hit")),
+        ),
+        // "N60 Storm (0x3A5928, bullets 0x35B390)" [code; firing verified on UYA NTSC].
+        (
+            name: "N60 Storm",
+            upgraded_name: "N90 Hurricane",
+            item: 0x2F,
+            held: true,
+            steady: true,
+            ready_ticks: 23, // out more than 22 frames
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            levels: [
+                (damage: 1.5, ammo: 150, xp: 200),
+                (damage: 1.75, ammo: 175, xp: 500),
+                (damage: 2.0, ammo: 200, xp: 1500),
+                (damage: 2.5, ammo: 225, xp: 3300),
+                (damage: 3.5, ammo: 300, xp: 0),
+                (damage: 35.0, ammo: 300, xp: 15000),
+                (damage: 50.0, ammo: 350, xp: 37500),
+                (damage: 60.0, ammo: 400, xp: 0),
+            ],
+            mods: (lock_on: Some(2), shock: Some(3)),
+            fire: Projectile((
+                timing: Repeat(14), // its own interval, not +0x50's 7 [verified]
+                speed: (60.0, 80.0),
+                lifetime: [(0, 30), (1, 46)],
+                bounce_from: Some(1),
+                world_radius: 0.6,
+                target_radius: 1.0,
+                muzzle_ball: 0.0,
+                // Two muzzle points in turn (0x1DE340, 0x1DE350) [placeholder places].
+                barrels: [(-0.08, 0.0, 0.0), (0.08, 0.0, 0.0)],
+                assist: Some((range: 35.0, near: (45.0, 45.0), far: (3.0, 6.0))),
+                scope: None,
+                push: 0.3, // [placeholder]
+            )),
+            effects: (fire: Some("n60.fire"), impact: Some("n60.hit")),
+        ),
+        // "Nitro Launcher (0x36E360, charge 0x361218, blast 0x35E718)" [code].
+        (
+            name: "Nitro Launcher",
+            upgraded_name: "Nitro Eruptor",
+            item: 0x77,
+            held: false,
+            steady: false,
+            ready_ticks: 23, // "the usual conditions"
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 40,
+            levels: [
+                (damage: 10.0, ammo: 8, xp: 200),
+                (damage: 12.0, ammo: 8, xp: 500),
+                (damage: 15.0, ammo: 10, xp: 1100),
+                (damage: 20.0, ammo: 10, xp: 2600),
+                (damage: 40.0, ammo: 12, xp: 0),
+                (damage: 210.0, ammo: 12, xp: 7500),
+                (damage: 250.0, ammo: 14, xp: 20000),
+                (damage: 300.0, ammo: 16, xp: 0),
+            ],
+            // Acid from V2 does nothing as read: its blast names an item with no entry in
+            // the acid table, so it has no `acid` here.
+            mods: (lock_on: Some(2), acid: Some(1)),
+            fire: Lobbed((
+                rate: 0.5,
+                lock_range: 12.0,
+                assist: (range: 11.1, near: (0.0, 0.0), far: (22.5, 90.0)),
+                reach: 12.0,
+                ground_speed: 12.5,
+                aim_gravity: 16.0,
+                max_launch: 30.0, // 0.5 u a frame
+                cut_launch: 22.0,
+                gravity: 12.0,
+                target_radius: 1.5,
+                fuse_ticks: 10,
+                ground_after_ticks: 40,
+                ground_probe: 1.0,
+                lifetime: 300, // [placeholder]: no limit read
+                blast: (
+                    flash_ticks: 12,
+                    grow_ticks: 20,
+                    radius_from: 2.0,
+                    radius_to: [(0, 6.0), (3, 7.0)],
+                    push: 1.5,
+                ),
+            )),
+            effects: (fire: Some("nitro.fire"), impact: Some("nitro.blast")),
+        ),
+        // "Lava Gun (0x303F88, stream 0x304A18)" [code].
+        (
+            name: "Lava Gun",
+            upgraded_name: "Liquid Nitrogen Gun",
+            item: 0x11,
+            held: true,
+            steady: true,
+            ready_ticks: 23, // [placeholder]: not read for this gun
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            levels: [
+                (damage: 8.0, splash: 8.0, ammo: 150, xp: 600),
+                (damage: 12.0, splash: 12.0, ammo: 150, xp: 1500),
+                (damage: 18.0, ammo: 175, xp: 2700),
+                (damage: 25.0, ammo: 175, xp: 4200),
+                (damage: 35.0, ammo: 200, xp: 0),
+                (damage: 130.0, ammo: 200, xp: 10000),
+                (damage: 150.0, ammo: 250, xp: 25000),
+                (damage: 180.0, ammo: 300, xp: 0),
+            ],
+            // Lock-on from V3 [code]; acid from V2 [text].
+            mods: (lock_on: Some(2), acid: Some(1)),
+            // "What shock and acid do": bank 1 at V3 and V4, bank 0 otherwise [code, data].
+            acid: [
+                (0, (per_second: 2.0, seconds: 4.0)),
+                (2, (per_second: 3.0, seconds: 6.0)),
+                (4, (per_second: 2.0, seconds: 4.0)),
+            ],
+            fire: Stream((
+                full: 10.0,
+                rise: (gain: 0.0075, damping: 0.002),
+                fall: (gain: 0.06, damping: 0.01),
+                ammo_ticks: 10,
+                points: 35,
+                speed_per_strength: 3.0, // 0.05 u a frame
+                raise: 0.02,
+                moving_tilt_degrees: 5.6,
+                lifetime: 40,
+                gravity: 21.6,
+                splash_radius: 1.5,
+                nozzle_radius: 0.5,
+            )),
+            effects: (fire: Some("lava.fire"), impact: Some("lava.splash")),
+        ),
+        // "Annihilator (0x36D5A0, missile 0x396A20)" [code].
+        (
+            name: "Annihilator",
+            upgraded_name: "Decimator",
+            item: 0x3F,
+            held: false,
+            steady: false,
+            ready_ticks: 28,
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            levels: [
+                (damage: 25.0, splash: 6.0, ammo: 20, xp: 800),
+                (damage: 30.0, splash: 6.0, ammo: 20, xp: 2400),
+                (damage: 40.0, splash: 6.0, ammo: 22, xp: 6400),
+                (damage: 55.0, splash: 6.0, ammo: 22, xp: 12400),
+                (damage: 70.0, splash: 6.0, ammo: 25, xp: 0),
+                (damage: 150.0, splash: 6.0, ammo: 25, xp: 10000),
+                (damage: 200.0, splash: 6.0, ammo: 28, xp: 25000),
+                (damage: 250.0, splash: 6.0, ammo: 30, xp: 0),
+            ],
+            mods: (lock_on: Some(3), shock: Some(2)), // V4, V3 [code]
+            fire: Homing((
+                rate: 1.7,
+                assist: (range: 30.0, near: (18.0, 17.0), far: (18.0, 17.0)),
+                aimed_assist: (range: 30.0, near: (18.0, 4.0), far: (18.0, 4.0)),
+                assist_height: 0.75,
+                pick_ticks: 5,
+                drop_ticks: 5,
+                near_radius: 1.0,
+                near_ahead: 1.0, // "just ahead of the barrel" [placeholder]
+                speed: 60.0, // +0x4C
+                lifetime: 75,
+                homing_ticks: 294,
+                turn_degrees: 6.0, // [placeholder]: how it turns isn't read
+                push: 1.5,
+                blast_radius: 0.75,
+            )),
+            effects: (fire: Some("annihilator.fire"), impact: Some("annihilator.blast")),
+        ),
+        // "Flux Rifle (0x345350, shot 0x3463A0)" [code].
+        (
+            name: "Flux Rifle",
+            upgraded_name: "Splitter Rifle",
+            item: 0x6F,
+            held: false,
+            steady: false,
+            ready_ticks: 23, // [placeholder]: not read for this gun
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            levels: [
+                (damage: 15.0, ammo: 10, xp: 200),
+                (damage: 20.0, ammo: 12, xp: 600),
+                (damage: 25.0, ammo: 12, xp: 1500),
+                (damage: 80.0, ammo: 12, xp: 2900),
+                (damage: 140.0, ammo: 15, xp: 0),
+                (damage: 260.0, ammo: 15, xp: 7500),
+                (damage: 350.0, ammo: 18, xp: 20000),
+                (damage: 420.0, ammo: 20, xp: 0),
+            ],
+            mods: (),
+            fire: Projectile((
+                timing: Rate(1.0),
+                speed: (400.0, 400.0), // +0x4C
+                lifetime: [(0, 19)], // 128 u
+                bounce_from: None,
+                world_radius: 0.0,
+                target_radius: 0.0,
+                muzzle_ball: 1.5,
+                barrels: [(0.0, 0.0, 0.0)],
+                assist: None,
+                scope: Some((128.0, 20.0)),
+                push: 1.0, // [placeholder]
+            )),
+            effects: (fire: Some("flux.fire"), impact: Some("flux.hit")),
+        ),
+    ],
+)
