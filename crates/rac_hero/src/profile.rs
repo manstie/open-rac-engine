@@ -1218,6 +1218,7 @@ pub struct CameraProfile {
     /// Strafing or locked on, the aim moves from the follow point to the lagging look
     /// point over this many ticks, and back over as many once neither holds it there.
     pub aim_blend_ticks: u32,
+    pub view: ViewProfile,
     pub vertical: VerticalProfile,
     pub clearance: ClearanceProfile,
     pub obstacles: ObstacleProfile,
@@ -1235,6 +1236,24 @@ pub struct CameraProfile {
     pub volume_gain: f32,
     pub free_look: FreeLookProfile,
     pub blends: CameraBlends,
+}
+
+/// How the follow camera's view turns (`camera.md`, "Placing and aiming the camera"): to
+/// face the aim across, but tilted from the arm and the heights, not at the aim.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewProfile {
+    /// The view keeps its yaw while the aim is closer than this across.
+    pub min_across: f32,
+    /// The height and look height the tilt uses chase the rig's on this spring.
+    pub height_spring: Spring,
+    /// On the ground, with the dragged arm tilted below level by more than `look_up_from`
+    /// of the pitch limit, the view tilts up by up to `look_up_peak_degrees`, the most half
+    /// way to the limit, on `look_up_spring`.
+    pub look_up_from: f32,
+    pub look_up_peak_degrees: f32,
+    pub look_up_spring: Spring,
+    /// The view tilts at most this far from level.
+    pub pitch_cap_degrees: f32,
 }
 
 /// The follow point's height per hero state (`camera.md`, "The follow point's height").

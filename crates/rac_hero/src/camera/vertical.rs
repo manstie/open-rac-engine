@@ -226,13 +226,12 @@ pub(super) fn step(
     }
 }
 
-/// Whether his head has dropped under the camera's view: by more than the profile's angle
-/// below it, in the camera's vertical plane, or past straight up.
+/// Whether his head has dropped under last tick's view (0x3E2638): by more than the
+/// profile's angle below it, in the camera's vertical plane, or past straight up.
 fn head_below_view(rig: &Rig, hero: &HeroMotion, profile: &HeroProfile) -> bool {
     let camera = &profile.camera;
     let head = hero.position + Vec3::Y * camera.look_height;
-    let (_, view) = view_angles(rig.aim - rig.camera);
     let (_, to_head) = view_angles(head - rig.camera);
-    let angle = to_head - view;
+    let angle = to_head - rig.view.1;
     angle < camera.vertical.follow_down_angle || angle > FRAC_PI_2
 }

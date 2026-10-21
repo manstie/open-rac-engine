@@ -19,6 +19,8 @@
 //!    and aims a little above the follow point; while he strafes or is locked on, the aim
 //!    moves over to the look point, and back once he stops. A view blocked too long, or a
 //!    camera far from where it should be, starts again behind the hero.
+//! 7. The view faces the aim across, but its tilt comes from the arm and the heights, so
+//!    the follow point's height never tilts it.
 
 use super::{
     angle_spring, approach, arm, lerp_spring, lock_turn, obstacles, spring, steer_turn,
@@ -109,6 +111,16 @@ pub(super) struct Rig {
     /// Where the camera was and aimed last tick.
     pub camera: Vec3,
     pub aim: Vec3,
+    /// The yaw and pitch of the view shown last tick.
+    pub view: (f32, f32),
+    /// The height and look height as the view's tilt sees them, chasing the rig's.
+    view_height: f32,
+    view_height_rate: f32,
+    view_look_height: f32,
+    view_look_height_rate: f32,
+    /// How far the view tilts up beyond that with the arm below level.
+    look_up: f32,
+    look_up_rate: f32,
     /// A floor stopped the camera last tick, so the stick can't tilt it lower.
     pub on_floor: bool,
 }
@@ -151,6 +163,16 @@ impl Rig {
             aim_blend: 0,
             camera: follow + Vec3::Y * profile.height + arm(yaw, 0.0, profile.distance),
             aim: follow + Vec3::Y * profile.look_height,
+            view: (
+                yaw,
+                view_pitch(0.0, profile.height, profile.look_height, profile.distance),
+            ),
+            view_height: profile.height,
+            view_height_rate: 0.0,
+            view_look_height: profile.look_height,
+            view_look_height_rate: 0.0,
+            look_up: 0.0,
+            look_up_rate: 0.0,
             on_floor: false,
         }
     }
@@ -167,6 +189,7 @@ impl Rig {
             rig.pull_in = profile.distance - length;
             rig.actual_length = length;
             rig.camera = pivot + reach * (length / profile.distance);
+            rig.view.1 = view_pitch(0.0, profile.height, profile.look_height, length);
         }
         rig
     }
@@ -427,7 +450,60 @@ pub(super) fn step(
     }
     rig.camera = position;
     rig.aim = aim;
+
+    // 10. The view.
+    turn_view(rig, hero, position, aim, camera);
     (position, aim)
+}
+
+/// The view this tick (`camera_orient`, 0x3E7B50): it turns to face the aim across, but
+/// tilts as if the aim were the look height above the arm's pivot, from the arm's rise
+/// and the heights on a slower spring of their own. So the follow point's height, which
+/// snaps when a jump's hold ends in a glide, never tilts the view. With the dragged arm
+/// below level on the ground it tilts further up, the most half way to the pitch limit.
+fn turn_view(rig: &mut Rig, hero: &HeroMotion, position: Vec3, aim: Vec3, camera: &CameraProfile) {
+    let view = &camera.view;
+    let across = Vec2::new(aim.x - position.x, aim.z - position.z);
+    let distance = across.length();
+    if distance >= view.min_across {
+        rig.view.0 = ops::atan2(-across.x, -across.y);
+    }
+    rig.view_height = spring(
+        rig.view_height,
+        rig.height,
+        view.height_spring,
+        &mut rig.view_height_rate,
+    );
+    rig.view_look_height = spring(
+        rig.view_look_height,
+        rig.look_height,
+        view.height_spring,
+        &mut rig.view_look_height_rate,
+    );
+    let rise = ops::sin(rig.actual_tilt) * rig.actual_length;
+    let pitch = view_pitch(rise, rig.view_height, rig.view_look_height, distance);
+
+    // The games take the dragged arm's angle as atan2(rise, length).
+    let below = -ops::atan(ops::sin(rig.arm_tilt)) / camera.pitch_limit_degrees.to_radians();
+    let look_up = if hero.ground.is_some() && below > view.look_up_from {
+        2.0 * below.min(1.0 - below) * view.look_up_peak_degrees.to_radians()
+    } else {
+        0.0
+    };
+    rig.look_up = angle_spring(
+        rig.look_up,
+        look_up,
+        view.look_up_spring,
+        &mut rig.look_up_rate,
+    );
+    let cap = view.pitch_cap_degrees.to_radians();
+    rig.view.1 = (pitch + rig.look_up).clamp(-cap, cap);
+}
+
+/// The view's tilt with the camera `across` from the aim and the arm rising `rise` from
+/// its pivot.
+fn view_pitch(rise: f32, height: f32, look_height: f32, across: f32) -> f32 {
+    ops::atan2(-(rise + height - look_height), across)
 }
 
 /// The arm's tilt this tick (0x3E7668): towards the tilt the mouse set (or a camera

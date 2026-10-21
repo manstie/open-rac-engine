@@ -593,6 +593,11 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Tapping strafe while moving sideways jerked the view: the kit snapped the aim between
     the follow and look points. The games blend it over 90 frames (`camera.md`, step 8;
     read in code, not traced); fixed.
+  - A double or heli jump turning into a glide jolted the view up 35° in a tick: the kit
+    pointed the view at the aim, so the follow point's snap from the jump's hold to his
+    height reached it. The games take only the yaw from the aim and tilt the view from
+    the arm and sprung heights, plus a look-up with the arm below level (0x3E7B50,
+    0x51E680; traced, `camera.md`, step 8); fixed in `follow::turn_view`.
 - [x] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
   and the crate `rac_combat`): the wrench combo, jump attack, throw, grind attack and the
   clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with

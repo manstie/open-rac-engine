@@ -786,3 +786,111 @@ fn changing_the_setting_blends_to_the_new_camera() {
     }
     assert_eq!(scene.blend(), None);
 }
+
+/// The real hero on the floor and his camera, ticked together; returns the largest change
+/// of the view's pitch in one tick, and of the follow point's height.
+fn largest_steps(scene: &mut Scene, inputs: &[PlayerInput]) -> (f32, f32) {
+    let mut last: Option<(f32, f32)> = None;
+    let mut steps = (0.0_f32, 0.0_f32);
+    for input in inputs {
+        let yaw = scene.camera.yaw;
+        crate::controller::step(&mut scene.hero, input, yaw, &scene.profile, &scene.world);
+        scene.tick(input);
+        let now = (
+            scene.camera.pitch,
+            scene.camera.state.as_ref().unwrap().rig.follow.y,
+        );
+        if let Some(before) = last {
+            steps.0 = steps.0.max((now.0 - before.0).abs());
+            steps.1 = steps.1.max((now.1 - before.1).abs());
+        }
+        last = Some(now);
+    }
+    steps
+}
+
+fn pressing(held: &[Action], pressed: &[Action]) -> PlayerInput {
+    let mut input = PlayerInput::default();
+    for &action in held.iter().chain(pressed) {
+        input.held.insert(action);
+    }
+    for &action in pressed {
+        input.pressed.insert(action);
+    }
+    input
+}
+
+#[test]
+fn gliding_after_a_double_or_heli_jump_doesnt_jolt_the_view() {
+    // The glide isn't a jump-type state, so the jump's hold or rise ends and the follow
+    // point snaps to his height (`camera.md`, "The follow point's height"). The view's tilt
+    // comes from the arm and the heights, not the aim (0x3E7B50), so it doesn't follow:
+    // pitching at the aim, it jumped 0.62 rad in a tick.
+    let jump = pressing(&[], &[Action::Jump]);
+    let hold = pressing(&[Action::Jump], &[]);
+    let crouch = pressing(&[Action::Crouch], &[]);
+    let mut double = vec![PlayerInput::default(); 10];
+    double.push(jump);
+    double.extend(vec![hold; 16]);
+    double.extend(vec![PlayerInput::default(); 8]);
+    double.push(jump);
+    double.extend(vec![hold; 60]);
+    let mut heli = vec![PlayerInput::default(); 10];
+    heli.push(pressing(&[Action::Crouch], &[Action::Crouch]));
+    heli.extend(vec![crouch; 7]);
+    heli.push(pressing(&[Action::Crouch], &[Action::Jump]));
+    heli.extend(vec![hold; 110]);
+    for (take, inputs) in [("double", double), ("heli", heli)] {
+        let mut scene = Scene::new(uya(), None);
+        let (pitch, follow) = largest_steps(&mut scene, &inputs[..inputs.len() - 1]);
+        assert_eq!(scene.hero.state, HeroState::Glide, "{take}");
+        assert!(
+            follow > 0.5,
+            "{take}: the follow point moved {follow} at most"
+        );
+        assert!(pitch < 0.03, "{take}: the view pitched {pitch} in a tick");
+    }
+}
+
+#[test]
+fn the_view_tilts_up_with_the_arm_below_level_on_the_ground() {
+    // 0x3E7B50: on good ground, with the dragged arm x of the pitch limit below level
+    // (x past 0.1), the view tilts up towards 2 × min(x, 1 − x) × 15°. At −20° the arm's
+    // angle reads atan(sin 20°) = 18.88°, so x = 0.472 and the view tilts up 14.16° more
+    // than in the air [verified on uyantsc-veldin-camhalf-0.75-1 to 0.00002 rad].
+    let profile = uya();
+    let mut pitches = Vec::new();
+    for on_ground in [false, true] {
+        let (mut rig, mut hero) = rest(&profile);
+        if on_ground {
+            hero.ground = Some(crate::motor::Ground {
+                normal: Vec3::Y,
+                body: crate::collision::BodyId(0),
+            });
+        }
+        // Looking up lowers the camera.
+        step(
+            &mut rig,
+            &hero,
+            &mouse(Vec2::new(0.0, 20f32.to_radians())),
+            &empty(),
+        );
+        for _ in 0..600 {
+            step(&mut rig, &hero, &still(), &empty());
+        }
+        assert!(
+            (rig.arm_tilt + 20f32.to_radians()).abs() < 1e-4,
+            "{}",
+            rig.arm_tilt
+        );
+        pitches.push(rig.view.1);
+    }
+    let look_up = pitches[1] - pitches[0];
+    let expected = 2.0 * (ops::atan(ops::sin(20f32.to_radians())) / 40f32.to_radians()) * 15.0;
+    assert!(
+        (look_up - expected.to_radians()).abs() < 1e-4,
+        "{} {}",
+        look_up.to_degrees(),
+        expected
+    );
+}

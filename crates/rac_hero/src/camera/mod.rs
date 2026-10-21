@@ -225,8 +225,8 @@ impl FollowCamera {
                     steer,
                     volume,
                 };
-                let (position, aim) = follow::step(&mut state.rig, hero, &input, profile, world);
-                (position, look_rotation(aim - position))
+                let (position, _) = follow::step(&mut state.rig, hero, &input, profile, world);
+                (position, turn(state.rig.view))
             }
             View::Look { ready } => {
                 if ready {
@@ -420,7 +420,11 @@ fn view_direction(yaw: f32, pitch: f32) -> Vec3 {
 }
 
 fn look_rotation(direction: Vec3) -> Quat {
-    let (yaw, pitch) = view_angles(direction);
+    turn(view_angles(direction))
+}
+
+/// A camera's turn from its yaw and pitch.
+fn turn((yaw, pitch): (f32, f32)) -> Quat {
     Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0)
 }
 

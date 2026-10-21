@@ -198,6 +198,35 @@ Each frame, in this order:
    - Strafing, lock-on and a boss turn the blend on (`camera_follow_params`,
      "Per-state parameters" below), as do the jump pad and a camera volume's flags +0x18
      and +0x19. Deadlocked's code (0x51A660) is the same.
+   - **The view doesn't point at the aim** (`camera_orient`, 0x3E7B50, last in mode 0's
+     motion after the arm is placed) **[code; verified on UYA NTSC, 2026-10-21]**. Only
+     its yaw comes from the aim; its tilt never sees the aim's height:
+     - **Yaw:** the view faces the aim across: along the horizontal line from the
+       camera to the aim, turned by an extra yaw at follow +0x48 (zero in every trace).
+       Closer than 0.05 u across, it keeps last frame's.
+     - **Pitch:** as if the aim were at the camera's height less the actual arm's rise
+       (+0x190, along up), the height and the look height: `atan2(−(rise + h − l),
+       distance across to the aim)`, where h (+0x28) and l (+0x24) chase the height
+       (+0x1B0) and the look height (+0x130) on springs of gain 0.004 and damping 0.2,
+       rates at +0x30 and +0x2C. At rest that is the aim's own −0.107 rad; but a follow
+       point above or below the look point, as in every jump, a fall or a glide, doesn't
+       tilt the view.
+     - **Look-up:** on good ground (0x1E2D2C), with the dragged arm (+0x180) tilted
+       below level, x = −atan2(rise, length) / 40°: past x = 0.1 the view tilts up
+       towards 2 × min(x, 1 − x) × 15°, through +0x34 on an angle spring of gain 0.005 and
+       damping 0.2 (+0x3C, +0x40, set at init and every frame's end in 0x3E4008; rate
+       +0x38). Off good ground it springs back to 0.
+     - The sum is capped at ±70° (1.2217 rad).
+     - **Checked:** from each frame's arm, heights and positions, the pitch matches the
+       update camera's forward row (or its rotation's y) to 0.00001 rad on all frames of
+       `uyantsc-veldin-camvert-1` to `-5` and `uyantsc-phoenix-camwall-1`, and to 0.0016
+       rad on `-camceil-1` and `-2`; the look-up to 0.00002 rad on `-camhalf-0.75-1`
+       before its look (frame 358). Pointing at the aim instead is off by up to 0.42 rad
+       in the jumps. `-camblock-1` (the hero written under the floor) fits neither, the
+       camera being reset.
+     - **Deadlocked** (0x51E680) does the same with the same constants **[code]**; on
+       `dlntsc-dreadzone-camhalf-0.5-2`, a take without jumps, the pitch matches to
+       0.00001 rad.
 9. **Obstacles** (0x3E64E0): a sweep of growing spheres along the arm swings it round
    things beside it, a sphere at the camera end pulls it in, and the pull-in eases back
    by a cosine. See "Obstacles and collision" below **[code; the pull-in verified]**.
@@ -263,6 +292,8 @@ which nothing in the follow camera reads, so the kit can drop them):
     + look height) drops below the camera's view axis (an angle, in the camera's
     vertical plane, under −0.01 rad, or over π/2), it switches to mode 1 and follows him
     down. In take 3 it switched on the frame the angle went from 0.0099 to −0.0236.
+    The axis is last frame's view, the update camera's forward row (0x3E2638), not the
+    line to the aim ("Placing and aiming the camera").
   - Landing lower ends the jump's state type, so mode 0 takes the hero's height at once.
 - **Modes 3, 5, 6 and 7, timed rises:** `lerp(start, target, k / N)` on the k-th frame,
   linear. A 0.2 u sphere at the camera (mask 0x12) that touches anything stops the rise
@@ -1136,7 +1167,10 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   The demo hides the hero while the camera is at his eye.
 - **The follow camera** has steps 1 to 9 of "How the follow camera works", the vertical
   modes the kit's states reach, the look point's air gain, strafing's drag-free arm,
-  the aim's 90-tick blend to the look point while strafing or locked on, the clearance point, the sweep, the camera-end sphere, the pull-in with
+  the aim's 90-tick blend to the look point while strafing or locked on, the view's yaw
+  to the aim and its tilt from the arm and the heights with the look-up (2026-10-21:
+  pointing the view at the aim had it jolt 35° up in a tick when a double or heli jump
+  turned into a glide), the clearance point, the sweep, the camera-end sphere, the pull-in with
   its stick bump, timer and cosine, the 1.5 u minimum arm, and the 30-tick and 30 u
   resets. The stick turns it linearly and its tilt springs back, as the games do; the
   mouse turns it directly and its tilt stays.
@@ -1157,7 +1191,7 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   lock-strafe doesn't lock on.
 - **Left out:** the platform carry (step "Platforms"), the swim and critter rules, the
   modes for states the kit lacks (jets, rocket jumps, jump pads, state 12, the bounce's
-  mode 11), volume steering and fields of view, the orbit blend, the 8° turn-back after
+  mode 11), volume steering and fields of view, the view's extra yaw (+0x48), the orbit blend, the 8° turn-back after
   a look that followed the lock-strafe camera, and the free look's aim assist and
   gun-forced strafing (P1.9). The
   kit also sweeps the camera from the pivot at the end, so it never ends behind a wall.

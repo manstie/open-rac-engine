@@ -995,6 +995,15 @@
         stick_tilt_back: 0.01,
         strafe_look_spring: (gain: 0.04, damping: 0.2),
         aim_blend_ticks: 90, // the value at 0x1DF6B0
+        // 0x3E7B50; the tilt [verified] to 0.00002 rad.
+        view: (
+            min_across: 0.05,
+            height_spring: (gain: 0.004, damping: 0.2),
+            look_up_from: 0.1,
+            look_up_peak_degrees: 15.0,
+            look_up_spring: (gain: 0.005, damping: 0.2),
+            pitch_cap_degrees: 70.0,
+        ),
         vertical: (
             heli_rise: (height: 3.0, ticks: 85), // [verified]
             double_jump_rise: (height: 3.5, ticks: 45),
