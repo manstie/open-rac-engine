@@ -178,16 +178,34 @@ pub struct WeaponDef {
 /// What a gun draws to aim by (`weapons.md`, "Aim indicators"), for a HUD: the game's
 /// effect texture numbers name its images, and sizes are pixels of UYA's 512 × 416 frame.
 /// The lock-on reticle is every gun's ([`crate::weapons::Sights`]).
-#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sight {
     #[serde(default)]
     pub crosshair: Option<Crosshair>,
     #[serde(default)]
     pub mark: Mark,
-    /// In the look it draws a scope over the screen, with a ring that blinks while a
-    /// live enemy is on its line within `scope_reach` u and it can fire.
     #[serde(default)]
-    pub scope_reach: Option<f32>,
+    pub scope: Option<Scope>,
+}
+
+/// The Flux Rifle's scope (0x3444B0; `weapons.md`, "Aim indicators"). In the look, once
+/// its view is ready, it zooms the view and draws a scope over the screen, with a ring that
+/// blinks while the eye's ray meets a live enemy first and the gun can fire
+/// ([`crate::weapons::Sights::scope_on`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Scope {
+    /// How far the eye's ray reaches.
+    pub reach: f32,
+    /// The narrowest field of view it zooms to, degrees, by level.
+    pub narrowest: ByLevel<f32>,
+    /// Radians a tick the zoom moves while a zoom button is held: R1 in and R2 out in the
+    /// third-person setting, the left stick up and down in the others.
+    pub zoom_step: f32,
+    /// Each look starts this share of the way in.
+    pub start_share: f32,
+    /// The camera's spring to the zoom, and back out when the look ends.
+    pub zoom_in: Spring,
+    pub zoom_out: Spring,
 }
 
 /// A crosshair at the screen's centre.

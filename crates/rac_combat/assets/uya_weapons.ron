@@ -433,8 +433,19 @@
                 push: 1.0, // [placeholder]
             )),
             effects: (fire: Some("flux.fire"), impact: Some("flux.hit")),
-            // "Aim indicators" [code, data].
-            sight: (scope_reach: Some(128.0)),
+            // "Aim indicators" [code, data]. The zoom (0x3444B0) [code]: 20° at V1-V2 and
+            // 10° from V3, 0.01 rad a frame, a quarter in at each look's start, the camera
+            // springing in at 0.02 / 0.2 and back out at 0.005 / 0.2.
+            sight: (
+                scope: Some((
+                    reach: 128.0,
+                    narrowest: [(0, 20.0), (2, 10.0)],
+                    zoom_step: 0.01,
+                    start_share: 0.25,
+                    zoom_in: (gain: 0.02, damping: 0.2),
+                    zoom_out: (gain: 0.005, damping: 0.2),
+                )),
+            ),
         ),
         // UYA's other fourteen guns, read in code at the level of their firing and their
         // shots ("Where each gun's code is" and the sections after it). Their V5 variants'

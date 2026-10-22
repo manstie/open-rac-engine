@@ -38,7 +38,8 @@ session is working on the task now; notes on problems met stay with their task (
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
   models, each level's) with their firing animations, UYA's quick-select ring, UYA's ammo
   pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
-  crosshairs, lock-on reticle, target marks and the Flux scope (P1.12). He
+  crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
+  the disc's textures for them, P3.18). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
@@ -66,8 +67,8 @@ session is working on the task now; notes on problems met stay with their task (
 2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
    first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
    done, the wall jump and ledges traced too).
-3. The guns' effects from the disc (P3.18), with the aim indicators' textures and the
-   whip's links and shield, then P1.10's nanotech, explosive and doubler crates ("Ammo
+3. The guns' effects from the disc (P3.18), with the whip's links and shield, then
+   P1.10's nanotech, explosive and doubler crates ("Ammo
    pickups, crates and the vendor").
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
@@ -753,10 +754,22 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gun's `sight` and `Arsenal::sights`, on placeholder sprites keyed by effect-texture
     number. They replace the demo's lock-on torus. Seen running on Xvfb: the crosshairs
     and the scope.
+  - Done 2026-10-22: the Flux scope's zoom (the weapons code asks the camera through
+    `GunHand::zoom`; the camera springs its field of view, slows the free look by it and
+    narrows the projection) and its ray, now in the weapons code, which walls and other
+    targets block (`Sights::scope_on`). Seen running on Xvfb. State 0x74 and the world
+    stopping have nothing in the kit to follow.
+  - The Flux's zoom also lerps four floats at 0x1DF720 that nothing else in Veldin's
+    code reads; what they drive is still open (`weapons.md`, "Aim indicators").
+  - Done 2026-10-22: the sights' textures from the disc's effect table (`effects.md`,
+    "Effect textures"; `crates/openrac/src/fx_textures.rs`), the rings and the scope
+    drawn from their quarters as the game draws them, the scope over a 4:3 box. Seen
+    running on Xvfb with the disc's textures and without.
   - Lock-on is gamepad-only (`Action::is_gamepad_only`), so under Xvfb the reticle can
     only be tested, not seen.
-  - Not done: L3's show-all (no binding), the pause menu and settings; the sights'
-    textures from the disc (P3.18) and the Flux scope's zoom.
+  - Not done: L3's show-all (no binding), the pause menu and settings; the scope drawn
+    through the frame's alpha as the game does (with P3.18's blends).
+  - Next step: the pause menu and settings.
   - xdotool's keys didn't reach the app under Xvfb (no window manager, so no focus);
     `xdotool windowfocus --sync` on the window first fixes it (CLAUDE.md, "Running the
     app off-screen").
@@ -984,8 +997,11 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     four blends that matter; placeholders without a disc.
   - Each gun's recipes, read gun by gun from its code, keyed by the effect names
     `GunEvent`s carry; the sounds with P3.13.
-  - The aim indicators' textures into `rac_demo::hud::SightImages` by their numbers, and
-    the whip's links and the shield from their classes.
+  - Done 2026-10-22: the effect textures (`Core::fx_textures`), and the aim indicators'
+    into `rac_demo::hud::SightImages` by their numbers.
+  - Not done: the particle textures and definitions, the effects layer, the recipes, and
+    the whip's links and the shield from their classes. Next step: the whip and shield
+    from their classes (`weapons.md`, "Not read yet").
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.

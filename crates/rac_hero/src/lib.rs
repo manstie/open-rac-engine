@@ -36,13 +36,13 @@ use bevy::prelude::*;
 use rac_input::PlayerInputs;
 use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
 
-pub use camera::{CameraSetting, CameraVolume, FollowCamera};
+pub use camera::{CameraSetting, CameraVolume, FollowCamera, UnzoomedFov};
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
 pub use controller::{
     Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
     StrikeShape, ThrownWrench,
 };
-pub use gun::{GunArm, GunHand, GunPose, Hold, Shield, WhipHand};
+pub use gun::{GunArm, GunHand, GunPose, Hold, Shield, WhipHand, Zoom};
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;
 pub use rail::{GrindRail, RailKind};
@@ -157,7 +157,8 @@ impl Plugin for HeroPlugin {
                     .chain()
                     .in_set(SimSet::Hero),
             )
-            .add_systems(FixedUpdate, camera::follow.in_set(SimSet::Camera));
+            .add_systems(FixedUpdate, camera::follow.in_set(SimSet::Camera))
+            .add_systems(Update, camera::zoom_projections);
     }
 }
 

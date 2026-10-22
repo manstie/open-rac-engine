@@ -1198,6 +1198,14 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   blends in at 0.075 and is ready at half way, takes the further pushed of the two sticks
   with nothing under 0.5, and blends out from 0.25 at 0.018 (a cut if its own blend
   hasn't finished), re-making the follow camera behind him if it is 80° off.
+- **The field of view** (2026-10-22): the profiles' `fov` (1.1100293). A gun's zoom
+  (`GunHand::zoom`, the Flux Rifle's scope; `weapons.md`, "Aim indicators") is a target
+  and a spring, as `camera_fov_set` takes them (0x3F0FA0, mode 3), and the camera keeps
+  heading for the last one asked. The free look's rates and, our own, the mouse's turn
+  are × the field of view over the profile's (item 1). `FollowCamera::zoom` gives the
+  ratio of the half-angles' tangents, by which `zoom_projections` narrows the render
+  camera's own field of view (kept in `UnzoomedFov`). The demo's 45° vertical view isn't
+  the game's.
 - **`CameraVolume`**: a box with a priority and optional distance, height, look height,
   tilt and drag; the distance and height gains stay at 0.001 after it, as on Florana.
 - **The hero:** `HeroState::Look` for the look button; the standing strafe turn past 10°;

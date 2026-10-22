@@ -8,6 +8,7 @@
 mod camera;
 mod discs;
 mod flow;
+mod fx_textures;
 mod gun_models;
 mod hero_anims;
 mod hero_model;
@@ -174,12 +175,18 @@ fn main() -> Result<AppExit> {
     }
     app.insert_resource(hero_model::DiscModels(read.models))
         .insert_resource(gun_models::DiscGuns(read.guns))
+        .insert_resource(fx_textures::DiscEffectTextures(read.effect_textures))
         .add_systems(
             bevy::prelude::Startup,
             (
                 hero_model::register_disc_models,
                 gun_models::register_disc_guns,
             ),
+        )
+        // After the HUD has painted its placeholders.
+        .add_systems(
+            bevy::prelude::PostStartup,
+            fx_textures::register_disc_sight_images,
         );
     if let Some(model) = args.model.as_ref().or(settings.hero_model.as_ref()) {
         app.world_mut()
@@ -207,6 +214,7 @@ struct FromDisc {
     animations: Option<rac_rig::RigAnimations>,
     models: Vec<hero_model::Imported>,
     guns: Vec<gun_models::DiscGun>,
+    effect_textures: Vec<rac_formats::texture::Texture>,
 }
 
 /// The hero's animations, models and guns from the user's discs in `folder`: from UYA his
@@ -257,10 +265,18 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
     let suits = [hero_model::SUITS, hero_model::MP_SKINS].concat();
     let read = hero_model::import(&mut disc, &core, &hero, &suits);
     let models = imported(&suits, read, &path);
+    let effect_textures = core.fx_textures().unwrap_or_else(|error| {
+        warn!(
+            "couldn't read the effect textures from {}: {error}",
+            path.display()
+        );
+        Vec::new()
+    });
     FromDisc {
         animations,
         models,
         guns: guns(&mut disc, &core, &hero, &path),
+        effect_textures,
     }
 }
 

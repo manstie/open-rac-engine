@@ -85,6 +85,13 @@ struct CameraState {
     shown: (Vec3, Quat),
     /// The volumes the hero is in, in the order he entered them.
     volumes: Vec<Entity>,
+    /// The field of view, radians: the profile's (`unzoomed`), or springing to where a
+    /// gun's zoom last asked.
+    fov: f32,
+    fov_rate: f32,
+    fov_target: f32,
+    fov_spring: Spring,
+    unzoomed: f32,
 }
 
 impl FollowCamera {
@@ -137,6 +144,15 @@ impl FollowCamera {
         self.state.as_ref().map_or(0.0, |state| match state.view {
             View::Follow => 0.0,
             View::Look { .. } | View::Hero => state.free.weight(),
+        })
+    }
+
+    /// How far a gun's zoom narrows the view: the tangent of the field of view's half-angle
+    /// over the profile's, 1 unzoomed. [`zoom_projections`] narrows the camera's own
+    /// field of view by it.
+    pub fn zoom(&self) -> f32 {
+        self.state.as_ref().map_or(1.0, |state| {
+            ops::tan(state.fov / 2.0) / ops::tan(state.unzoomed / 2.0)
         })
     }
 
@@ -195,6 +211,19 @@ impl FollowCamera {
         let looking = hero.state == HeroState::Look;
         state.look_ticks = if looking { state.look_ticks + 1 } else { 0 };
         let blends = &camera.blends;
+
+        // A gun's zoom: the field of view springs to where it last asked.
+        if let Some(zoom) = hero.gun.zoom {
+            state.fov_target = zoom.fov;
+            state.fov_spring = zoom.spring;
+        }
+        state.fov = spring(
+            state.fov,
+            state.fov_target,
+            state.fov_spring,
+            &mut state.fov_rate,
+        );
+        state.free.zoom = state.fov / state.unzoomed;
 
         // Which camera shows, and which free-look view.
         let view = match setting {
@@ -316,6 +345,14 @@ impl CameraState {
             look_ticks: 0,
             blend: None,
             volumes: Vec::new(),
+            fov: profile.camera.fov,
+            fov_rate: 0.0,
+            fov_target: profile.camera.fov,
+            fov_spring: Spring {
+                gain: 0.0,
+                damping: 0.0,
+            },
+            unzoomed: profile.camera.fov,
         }
     }
 
@@ -460,6 +497,37 @@ fn view_angles(direction: Vec3) -> (f32, f32) {
 
 fn wrap(angle: f32) -> f32 {
     (angle + PI).rem_euclid(TAU) - PI
+}
+
+/// The field of view a [`FollowCamera`]'s projection had unzoomed, which
+/// [`zoom_projections`] keeps to zoom from.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct UnzoomedFov(pub f32);
+
+/// Narrows each follow camera's perspective by its [`FollowCamera::zoom`], keeping the
+/// projection's own field of view (which needn't be the game's) as the unzoomed one.
+pub(crate) fn zoom_projections(
+    mut commands: Commands,
+    mut cameras: Query<(Entity, &FollowCamera, &mut Projection, Option<&UnzoomedFov>)>,
+) {
+    for (entity, camera, mut projection, unzoomed) in &mut cameras {
+        let Projection::Perspective(perspective) = projection.as_ref() else {
+            continue;
+        };
+        let unzoomed = match unzoomed {
+            Some(unzoomed) => unzoomed.0,
+            None => {
+                commands.entity(entity).insert(UnzoomedFov(perspective.fov));
+                perspective.fov
+            }
+        };
+        let fov = 2.0 * ops::atan(ops::tan(unzoomed / 2.0) * camera.zoom());
+        if perspective.fov != fov
+            && let Projection::Perspective(perspective) = projection.as_mut()
+        {
+            perspective.fov = fov;
+        }
+    }
 }
 
 fn approach(value: f32, target: f32, step: f32) -> f32 {

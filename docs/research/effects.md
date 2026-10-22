@@ -24,10 +24,12 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
 ### Effect textures [code, data]
 
 - **The table:** core header +0x58 is the count (105 on Veldin), +0x5C its offset in the
-  header; 16-byte entries {palette offset, pixel offset, width, height} (sizes as log2;
-  negative for 4-bit images, none seen), offsets counted from the unpacked core plus the
-  header's +0x68. `fx_textures_init` (0x4225E8, from `level_load_core`) copies it to
-  0x1E7D00 (count 0x1DFA00, base 0x1DFA04).
+  header; 16-byte entries {palette offset, pixel offset, width, height}, sizes in pixels
+  [data: 32 to 128 for the aim indicators], offsets counted from the unpacked core plus
+  the header's +0x68. `fx_textures_init` (0x4225E8, from `level_load_core`) copies it to
+  0x1E7D00 (count 0x1DFA00, base 0x1DFA04) in the form `fx_tex0` reads: the GS
+  registers once uploaded (+0), the pixel and palette offsets in 64-byte units (+8,
+  +0xA), the width and height as log2 (+0xC, +0xD) and the GS pixel format (+0xE).
 - **Format:** 8-bit images, 16 to 256 pixels a side, stored linear (not GS-swizzled), each
   with a 256-colour RGBA palette in CSM1 order (`rac_formats::texture::csm1`), alpha 0x80
   opaque: the same as the armor's images [data: decoded cleanly; the swizzled reading
@@ -206,6 +208,11 @@ What it takes to show the guns' effects as the game does, from the user's disc:
    definitions (+0x6C) of the level played, or Veldin's for the demo; images as the
    armor's (8-bit, CSM1 palette, alpha 0x80). The effect textures 0–99 can come from any
    level; particle textures must be looked up through the same level's tables.
+   - Done for the effect textures (2026-10-22): `rac_formats::level::Core::fx_textures`
+     reads the table (`CoreHeader::fx_textures`), and `openrac` hands the aim
+     indicators' fourteen to the HUD (`crates/openrac/src/fx_textures.rs`, `weapons.md`,
+     "In the kit"). Rings and the scope are each stored as a top-left quarter with the
+     centre at its bottom-right corner, and drawn as four quarters turned or mirrored.
 2. **Read the shot classes** with a mesh from the same core (`Core::moby_class`, as the
    Holo Shield's V5 glove already is), and the whip's links.
 3. **An effects layer in the kit**, ISO-free as the rest: billboards, beams, strips,

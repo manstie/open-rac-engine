@@ -9,6 +9,8 @@
 use bevy::math::Vec3;
 use serde::{Deserialize, Serialize};
 
+use crate::profile::Spring;
+
 /// What the hero's gun tells his moves.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct GunHand {
@@ -48,6 +50,17 @@ pub struct GunHand {
     /// (0x1A57B8) each frame, and his head and upper body turn towards it
     /// (`hero_head_look`, 0x4E2F50); with a lock-on target he faces that instead.
     pub target: Option<Vec3>,
+    /// A field of view the gun asks of his camera this tick: the Flux Rifle's scope.
+    pub zoom: Option<Zoom>,
+}
+
+/// A field of view a gun asks of the hero's camera (UYA's `camera_fov_set`, 0x3F0FA0, as
+/// the Flux Rifle's scope calls it): the camera springs its own towards `fov`, radians,
+/// and keeps heading there until it is asked again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Zoom {
+    pub fov: f32,
+    pub spring: Spring,
 }
 
 /// The gun arm raised against a wall close ahead, or following the lock-strafe camera's

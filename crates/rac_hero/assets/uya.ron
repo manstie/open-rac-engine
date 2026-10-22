@@ -1008,6 +1008,7 @@
     // cameras". [verified] against the traces named there, otherwise [code].
     camera: (
         default_setting: ThirdPerson, // a new game's setting (0x1439F4)
+        fov: 1.1100293, // 63.6°: the free look turns at its rates × fov / this [code, 0x410B08]
         distance: 4.64, // [verified]
         height: 2.0,
         look_height: 1.5,

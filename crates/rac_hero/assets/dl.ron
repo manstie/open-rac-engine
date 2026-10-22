@@ -1056,6 +1056,7 @@
     // with UYA's]; the lock-strafe camera is read and traced in DL.
     camera: (
         default_setting: LockStrafe, // DL's default [verified]
+        fov: 1.1100293, // 63.6°, first person included [measured, Dual Vipers]
         // DL: 6.0, which is also the push-back's far end, so running at the camera only
         // stiffens the length spring [code; 6.000 throughout dlntsc-dreadzone-cam-3].
         distance: 6.0,

@@ -11,7 +11,7 @@
 //! and the caller fetches them (`rac_iso`).
 
 use crate::moby::{Bangle, MobyClass, Placement};
-use crate::texture::{Texture, csm1, unswizzle_psmt8};
+use crate::texture::{Texture, csm1_palette, unswizzle_psmt8};
 use crate::{DiscReader, FormatError, Image, wad};
 
 /// Bytes per sector.
@@ -360,6 +360,38 @@ impl CoreHeader {
             .collect()
     }
 
+    /// The level's effect textures (`effects.md`, "Effect textures"): +0x58 the count,
+    /// +0x5C the table, 16 bytes an entry: where its palette and pixels are, from the
+    /// effect data ([`Self::fx_base`]), then its width and height in pixels.
+    pub fn fx_textures(&self) -> Result<Vec<FxTextureEntry>, FormatError> {
+        let image = Image::new(&self.bytes, 0);
+        let count = image.u32(0x58)?;
+        let table = image.u32(0x5C)?;
+        if count > 0x400 {
+            return Err(FormatError::Invalid {
+                what: "effect texture table",
+                address: 0x58,
+                detail: format!("{count} textures"),
+            });
+        }
+        (0..count)
+            .map(|index| {
+                let at = table + index * 16;
+                Ok(FxTextureEntry {
+                    palette: image.u32(at)?,
+                    pixels: image.u32(at + 4)?,
+                    width: image.u32(at + 8)? as i32,
+                    height: image.u32(at + 0xC)? as i32,
+                })
+            })
+            .collect()
+    }
+
+    /// Where in the core the effect textures' data starts (+0x68).
+    pub fn fx_base(&self) -> Result<u32, FormatError> {
+        Image::new(&self.bytes, 0).u32(0x68)
+    }
+
     /// Where in the core the pixels of the textures kept in EE memory start (+0x60).
     pub fn texture_base(&self) -> Result<u32, FormatError> {
         Image::new(&self.bytes, 0).u32(0x60)
@@ -429,6 +461,19 @@ impl TextureEntry {
     pub fn kept_in_gs(&self) -> bool {
         self.kind == 0
     }
+}
+
+/// One of a level's effect textures: an 8-bit image with a 256-colour CSM1 palette, its
+/// pixels in rows (not in the GS's order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FxTextureEntry {
+    /// Where its palette (0x400 bytes) and pixels are, from [`CoreHeader::fx_base`].
+    pub palette: u32,
+    pub pixels: u32,
+    /// In pixels; the game takes a negative size for a 4-bit image, which no UYA level
+    /// has.
+    pub width: i32,
+    pub height: i32,
 }
 
 /// A level's core, unpacked, and its header.
@@ -546,18 +591,41 @@ impl Core {
                     let stored = core.bytes(self.header.texture_base()? + texture.data, len)?;
                     unswizzle_psmt8(stored, width, height)?
                 };
-                let stored = gs_ram.bytes(texture.palette as u32 * 0x100, 0x400)?;
-                let palette = (0..=255u8)
-                    .map(|index| {
-                        let slot = csm1(index) as usize * 4;
-                        [
-                            stored[slot],
-                            stored[slot + 1],
-                            stored[slot + 2],
-                            stored[slot + 3],
-                        ]
-                    })
-                    .collect();
+                let palette = csm1_palette(gs_ram.bytes(texture.palette as u32 * 0x100, 0x400)?);
+                Ok(Texture {
+                    width,
+                    height,
+                    pixels,
+                    palette,
+                })
+            })
+            .collect()
+    }
+
+    /// The level's effect textures, numbered as the game's effect code numbers them: the
+    /// first 100 are the engine's own, the same in every level, and the rest the level's
+    /// (`effects.md`, "Effect textures").
+    pub fn fx_textures(&self) -> Result<Vec<Texture>, FormatError> {
+        let base = self.header.fx_base()?;
+        let core = Image::new(&self.bytes, 0);
+        self.header
+            .fx_textures()?
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let (width, height) = (entry.width, entry.height);
+                if !(1..=1024).contains(&width) || !(1..=1024).contains(&height) {
+                    return Err(FormatError::Invalid {
+                        what: "effect texture",
+                        address: index as u32,
+                        detail: format!("{width} by {height}"),
+                    });
+                }
+                let (width, height) = (width as u32, height as u32);
+                let pixels = core
+                    .bytes(base + entry.pixels, (width * height) as usize)?
+                    .to_vec();
+                let palette = csm1_palette(core.bytes(base + entry.palette, 0x400)?);
                 Ok(Texture {
                     width,
                     height,
@@ -606,6 +674,41 @@ impl Core {
 mod tests {
     use super::*;
     use crate::moby::tests::Writer;
+
+    #[test]
+    fn reads_the_effect_textures_with_their_csm1_palettes() {
+        // Two effect textures, 4×2 and 2×2, their data from core +0x100.
+        let mut header = Writer::default();
+        header.at(0x58).u32(2).u32(0x80);
+        header.at(0x68).u32(0x100);
+        header.at(0x80);
+        header.u32(0).u32(0x400).u32(4).u32(2);
+        header.u32(0x408).u32(0x808).u32(2).u32(2);
+        // Each palette's stored slot k holds grey k, opaque.
+        let palette: Vec<u8> = (0..=255u8).flat_map(|k| [k, k, k, 0x80]).collect();
+        let mut core = Writer::default();
+        core.at(0x100)
+            .put(&palette)
+            .put(&[0, 1, 2, 3, 4, 5, 6, 7])
+            .put(&palette)
+            .put(&[8, 8, 9, 9]);
+        let mut read = Core {
+            header: CoreHeader::read(&header.bytes).unwrap(),
+            bytes: core.bytes,
+            gs_ram: Vec::new(),
+        };
+        let textures = read.fx_textures().unwrap();
+        assert_eq!(textures.len(), 2);
+        assert_eq!((textures[0].width, textures[0].height), (4, 2));
+        assert_eq!(textures[0].pixels, [0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(textures[1].pixels, [8, 8, 9, 9]);
+        // CSM1 order: index 8 is stored in slot 16.
+        assert_eq!(textures[1].palette[8], [16, 16, 16, 0x80]);
+        // A 4-bit image (a negative size) isn't read.
+        header.poke_u32(0x98, (-2i32) as u32);
+        read.header = CoreHeader::read(&header.bytes).unwrap();
+        assert!(read.fx_textures().is_err());
+    }
 
     #[test]
     fn reads_the_level_table_after_eight_globals() {
@@ -784,6 +887,26 @@ pub(crate) mod disc_tests {
             assert_eq!(hero.joints.len(), 107);
             assert!(hero.packets.is_empty());
         }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn uyas_effect_textures_0_to_99_are_the_engines_own_in_every_level() {
+        let mut disc = disc(rac_iso::Release::UyaNtsc);
+        let veldin = Core::read_uya(&mut disc, 1).unwrap().fx_textures().unwrap();
+        assert_eq!(veldin.len(), 105);
+        // The soft dot, the lock-on rings' quarters and the scope's (`weapons.md`, "Aim
+        // indicators").
+        for (number, side) in [(0x05, 32), (0x33, 64), (0x34, 64), (0x35, 64), (0x46, 128)] {
+            let texture = &veldin[number];
+            assert_eq!((texture.width, texture.height), (side, side), "{number:#x}");
+        }
+        let other = Core::read_uya(&mut disc, 28)
+            .unwrap()
+            .fx_textures()
+            .unwrap();
+        assert!(other.len() >= 100);
+        assert_eq!(veldin[..100], other[..100]);
     }
 
     #[test]

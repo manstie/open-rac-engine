@@ -43,18 +43,7 @@ impl Texture {
         if !(1..=1024).contains(&width) || !(1..=1024).contains(&height) {
             return Err(invalid(format!("{width} by {height}")));
         }
-        let stored = image.bytes(at + 0x20, 0x400)?;
-        let palette = (0..=255u8)
-            .map(|index| {
-                let slot = csm1(index) as usize * 4;
-                [
-                    stored[slot],
-                    stored[slot + 1],
-                    stored[slot + 2],
-                    stored[slot + 3],
-                ]
-            })
-            .collect();
+        let palette = csm1_palette(image.bytes(at + 0x20, 0x400)?);
         let pixels = image.bytes(at + 0x420, (width * height) as usize)?.to_vec();
         Ok(Self {
             width,
@@ -73,6 +62,21 @@ impl Texture {
         }
         out
     }
+}
+
+/// A 256-colour palette stored in the GS's CSM1 order (0x400 bytes), by index.
+pub(crate) fn csm1_palette(stored: &[u8]) -> Vec<[u8; 4]> {
+    (0..=255u8)
+        .map(|index| {
+            let slot = csm1(index) as usize * 4;
+            [
+                stored[slot],
+                stored[slot + 1],
+                stored[slot + 2],
+                stored[slot + 3],
+            ]
+        })
+        .collect()
 }
 
 /// Where the GS keeps palette entry `index` in a CSM1 palette: bits 3 and 4 swapped.

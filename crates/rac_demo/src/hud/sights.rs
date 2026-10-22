@@ -4,7 +4,8 @@
 //!   below it;
 //! - the crosshair at the view's centre, pulsing, and red over a target;
 //! - the marks the guns put on their targets;
-//! - the Flux Rifle's scope, with its ring blinking over an enemy.
+//! - the Flux Rifle's scope, with its ring blinking over an enemy (the zoom is the
+//!   camera's, [`FollowCamera::zoom`]).
 //!
 //! What to mark comes from the simulation ([`Arsenal::sights`], [`LockOn`], the free look's
 //! target weight) and how from each gun's [`Sight`]. The fades, spins and pulses only show
@@ -27,7 +28,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use rac_combat::{
-    Armory, Arsenal, Hitpoints, Hostile, Hurtbox,
+    Armory, Arsenal, Hitpoints, Hurtbox,
     weapons::{Crosshair, Hand, Mark, Showing, Sight, Sights},
 };
 use rac_hero::{CameraSetting, FollowCamera, Hero, HeroBody, HeroState, LockOn};
@@ -42,9 +43,9 @@ const FRAME_RATE: f32 = 60.0;
 const MOST_MARKS: usize = 14;
 /// The health arc's quads (`hud_arc`, 0x404F68).
 const ARC_DOTS: usize = 16;
-/// The sprites a player's HUD keeps: the scope's three, the reticle's rings and arc, the
-/// marks, the crosshair and the scope's ring.
-const POOL: usize = 3 + 3 + ARC_DOTS + MOST_MARKS + 2;
+/// The sprites a player's HUD keeps: the scope's quarters and sides, the reticle's
+/// rings' quarters and arc, the marks, the crosshair and the scope's ring.
+const POOL: usize = 6 + 3 * 4 + ARC_DOTS + MOST_MARKS + 2;
 
 /// The sights' textures, by their numbers in a level's effect table.
 pub mod texture {
@@ -56,20 +57,20 @@ pub mod texture {
     pub const SCOPE_RING: u16 = 0x20;
     /// A ring with four ticks: the shared target mark.
     pub const MARK: u16 = 0x26;
-    /// The lock-on reticle's rings: turning with its spin, against it, and fixed.
+    /// The lock-on reticle's rings, each its top-left quarter with the ring's centre at
+    /// the corner: turning with its spin, against it, and fixed.
     pub const LOCK_OUTER: u16 = 0x33;
     pub const LOCK_INNER: u16 = 0x34;
     pub const LOCK_FIXED: u16 = 0x35;
-    /// The Flux Rifle's scope.
+    /// The Flux Rifle's scope: its top-left quarter, as the lock-on rings are, for a
+    /// quarter of a 4:3 screen.
     pub const SCOPE: u16 = 0x46;
-    /// Not the game's: a plain square, for the scope's sides past its lens.
-    pub const PLAIN: u16 = u16::MAX;
     /// The crosshairs the bundled guns name, all placeholders.
     pub const CROSSHAIRS: [u16; 7] = [0x21, 0x25, 0x44, 0x56, 0x5A, 0x5B, 0x20];
 }
 
-/// The scope's surround, past its lens.
-const SURROUND: [f32; 4] = [0.03, 0.03, 0.04, 0.94];
+/// The placeholder scope's surround, past its lens.
+const SURROUND: [f32; 4] = [0.03, 0.03, 0.04, 1.0];
 /// Its bezel, pink-orange.
 const BEZEL: [f32; 4] = [1.0, 0.55, 0.45, 1.0];
 
@@ -94,6 +95,10 @@ pub struct Sprite {
     /// Turned clockwise, in degrees.
     pub degrees: f32,
     pub colour: Color,
+    /// Mirrored across and down.
+    pub flip: BVec2,
+    /// The part of its texture it shows, in the texture's pixels; all of it for none.
+    pub region: Option<Rect>,
 }
 
 /// What a player's sights keep between frames.
@@ -165,8 +170,6 @@ pub struct Aim<'a> {
     pub raised: bool,
     /// The free look's target weight ([`FollowCamera::target_weight`]).
     pub weight: f32,
-    /// The scope's ray finds a live enemy within its reach.
-    pub on_target: bool,
 }
 
 impl Aim<'_> {
@@ -177,8 +180,7 @@ impl Aim<'_> {
     }
 
     fn scoped(&self) -> bool {
-        self.sight
-            .is_some_and(|(sight, _)| sight.scope_reach.is_some())
+        self.sight.is_some_and(|(sight, _)| sight.scope.is_some())
             && self.looking
             && self.look_ready
     }
@@ -259,20 +261,6 @@ pub fn crosshair_colour(crosshair: &Crosshair, frames: f32, pulse: f32, weight: 
     colour.with_alpha(alpha)
 }
 
-/// Whether a ray from `eye` along `forward` passes through any of `balls` (centre and
-/// radius) within `reach`.
-pub fn ray_hits(
-    eye: Vec3,
-    forward: Vec3,
-    reach: f32,
-    balls: impl IntoIterator<Item = (Vec3, f32)>,
-) -> bool {
-    balls.into_iter().any(|(centre, radius)| {
-        let along = (centre - eye).dot(forward);
-        (0.0..=reach).contains(&along) && (eye + forward * along).distance(centre) <= radius
-    })
-}
-
 /// The sprites a hero's sights draw this frame, `frames` 60ths of a second after the last,
 /// moving `clock` on. `seen` finds a target by its entity.
 pub fn sprites(
@@ -319,6 +307,8 @@ pub fn sprites(
             // 150° a second.
             clock.pulse = (clock.pulse + 2.5 * frames) % 360.0;
             out.push(Sprite {
+                flip: BVec2::FALSE,
+                region: None,
                 texture: crosshair.texture,
                 centre,
                 size: Vec2::new(crosshair.size.0, crosshair.size.1) * scale,
@@ -337,8 +327,10 @@ pub fn sprites(
         }
     }
 
-    if scoped && aim.on_target && aim.sights.ready && blink_on(clock.frames) {
+    if scoped && aim.sights.scope_on && aim.sights.ready && blink_on(clock.frames) {
         out.push(Sprite {
+            flip: BVec2::FALSE,
+            region: None,
             texture: texture::SCOPE_RING,
             centre,
             size: Vec2::splat(32.0 * scale),
@@ -349,31 +341,71 @@ pub fn sprites(
     out
 }
 
-/// The scope over the screen: its lens, a square as high as the screen at its centre, with
-/// the dark surround beyond it.
+/// The part of the scope's texture its sides show, in its pixels.
+const CORNER: Rect = Rect {
+    min: Vec2::splat(2.0),
+    max: Vec2::splat(4.0),
+};
+
+/// The scope over the screen (`flux_scope_draw`, 0x345D48). Its texture is the lens's
+/// top-left quarter, its centre at the corner, which the game draws mirrored into each
+/// quarter of its 4:3 screen; so here into each quarter of a 4:3 box as high as the
+/// screen at its centre, with the sides beyond in the texture's corner, its surround.
 fn scope(out: &mut Vec<Sprite>, rect: Rect) {
-    let side = rect.height();
+    let size = Vec2::new((rect.height() * 4.0 / 3.0).min(rect.width()), rect.height());
     let centre = rect.center();
-    out.push(Sprite {
-        texture: texture::SCOPE,
-        centre,
-        size: Vec2::splat(side),
-        degrees: 0.0,
-        colour: Color::WHITE,
-    });
-    let wing = (rect.width() - side) / 2.0;
+    for (x, y) in [(false, false), (true, false), (false, true), (true, true)] {
+        let way = Vec2::new(if x { 1.0 } else { -1.0 }, if y { 1.0 } else { -1.0 });
+        out.push(Sprite {
+            flip: BVec2::new(x, y),
+            region: None,
+            texture: texture::SCOPE,
+            centre: centre + way * size / 4.0,
+            size: size / 2.0,
+            degrees: 0.0,
+            colour: Color::WHITE,
+        });
+    }
+    let wing = (rect.width() - size.x) / 2.0;
     if wing > 0.0 {
-        let [r, g, b, a] = SURROUND;
         for sign in [-1.0, 1.0] {
             out.push(Sprite {
-                texture: texture::PLAIN,
-                centre: centre + Vec2::X * sign * (side + wing) / 2.0,
+                flip: BVec2::FALSE,
+                // Inside the corner, whose own pixel the disc's texture has lighter.
+                region: Some(CORNER),
+                texture: texture::SCOPE,
+                centre: centre + Vec2::X * sign * (size.x + wing) / 2.0,
                 // A pixel over, so no seam shows.
-                size: Vec2::new(wing + 1.0, side),
+                size: Vec2::new(wing + 1.0, size.y),
                 degrees: 0.0,
-                colour: Color::srgba(r, g, b, a),
+                colour: Color::WHITE,
             });
         }
+    }
+}
+
+/// A ring drawn as the game draws the lock-on reticle's: its texture is the ring's top-left
+/// quarter, its centre at the corner, drawn `across` wide four times round `centre`, turned
+/// by `degrees` and a quarter turn more each time.
+fn quarters(
+    out: &mut Vec<Sprite>,
+    texture: u16,
+    centre: Vec2,
+    across: f32,
+    degrees: f32,
+    colour: Color,
+) {
+    for quarter in 0..4 {
+        let turn = degrees + 90.0 * quarter as f32;
+        out.push(Sprite {
+            flip: BVec2::FALSE,
+            region: None,
+            texture,
+            centre: centre + Rot2::degrees(turn) * Vec2::splat(-across / 2.0),
+            size: Vec2::splat(across),
+            degrees: turn,
+            colour,
+        });
     }
 }
 
@@ -395,33 +427,20 @@ fn reticle(
     let s = reticle_size(radius, at.distance(screen.eye)) * scale;
     let fade = clock.fade;
     let faded = |colour: Color| colour.with_alpha(colour.alpha() * fade);
-    let ring = |texture, across: f32, degrees, colour| Sprite {
-        texture,
-        centre: point,
-        size: Vec2::splat(across),
-        degrees,
-        colour: faded(colour),
-    };
-    // Each ring is 2s across: shrinking from twice that as it fades in, growing from
-    // nothing against it, and fixed, tinted blue.
-    out.push(ring(
+    // Each ring is 2s across, its quarters s: shrinking from twice that as it fades in,
+    // growing from nothing against it, and fixed, tinted blue.
+    let grey = faded(ps2(0x80, 0x80, 0x80, 0x40));
+    quarters(
+        out,
         texture::LOCK_OUTER,
-        2.0 * s * (2.0 - fade),
+        point,
+        s * (2.0 - fade),
         clock.spin,
-        ps2(0x80, 0x80, 0x80, 0x40),
-    ));
-    out.push(ring(
-        texture::LOCK_INNER,
-        2.0 * s * fade,
-        -clock.spin,
-        ps2(0x80, 0x80, 0x80, 0x40),
-    ));
-    out.push(ring(
-        texture::LOCK_FIXED,
-        2.0 * s,
-        45.0,
-        ps2(0x20, 0x20, 0xE0, 0x30),
-    ));
+        grey,
+    );
+    quarters(out, texture::LOCK_INNER, point, s * fade, -clock.spin, grey);
+    let blue = faded(ps2(0x20, 0x20, 0xE0, 0x30));
+    quarters(out, texture::LOCK_FIXED, point, s, 45.0, blue);
 
     let Some(hitpoints) = target.hitpoints.filter(|hitpoints| hitpoints.max > 0.0) else {
         return;
@@ -441,6 +460,8 @@ fn reticle(
             ps2(0x80, 0x00, 0x00, 0x60)
         };
         out.push(Sprite {
+            flip: BVec2::FALSE,
+            region: None,
             texture: texture::DOT,
             centre: point + Vec2::new(ops::cos(angle), ops::sin(angle)) * band,
             size: Vec2::splat(dot),
@@ -464,6 +485,8 @@ fn marks(
         }
         let at = target.raised();
         Some(Sprite {
+            flip: BVec2::FALSE,
+            region: None,
             texture,
             centre: (screen.project)(at)?,
             size: Vec2::splat(mark_size(at.distance(screen.eye)) * scale),
@@ -556,22 +579,29 @@ pub(super) fn paint_sight_images(mut commands: Commands, images: Option<ResMut<A
         return;
     };
     let mut handles = BTreeMap::new();
-    let textures = [
-        texture::DOT,
-        texture::TRIANGLE,
-        texture::MARK,
-        texture::LOCK_OUTER,
-        texture::LOCK_INNER,
-        texture::LOCK_FIXED,
-        texture::PLAIN,
-    ];
-    for number in textures.into_iter().chain(texture::CROSSHAIRS) {
+    let whole = [texture::DOT, texture::TRIANGLE, texture::MARK];
+    for number in whole.into_iter().chain(texture::CROSSHAIRS) {
         handles.insert(
             number,
             images.add(paint(64, |p| white(shape(number, p, 2.0 / 64.0)))),
         );
     }
-    handles.insert(texture::SCOPE, images.add(paint(256, scope_pixel)));
+    // The game's quarter textures: the top-left quarter, its centre at the corner.
+    let quarter = |p: Vec2| (p - 1.0) / 2.0;
+    for number in [
+        texture::LOCK_OUTER,
+        texture::LOCK_INNER,
+        texture::LOCK_FIXED,
+    ] {
+        let image = paint(64, |p| white(shape(number, quarter(p), 1.0 / 64.0)));
+        handles.insert(number, images.add(image));
+    }
+    // Drawn over a quarter of a 4:3 box, so a round lens is narrower across.
+    let scope = paint(128, |p| {
+        let q = quarter(p);
+        scope_pixel(Vec2::new(q.x * 4.0 / 3.0, q.y))
+    });
+    handles.insert(texture::SCOPE, images.add(scope));
     commands.insert_resource(SightImages(handles));
 }
 
@@ -621,7 +651,6 @@ pub(super) fn draw_sights(
     heroes: Query<(&Hero, &HeroBody, Option<&Arsenal>, Option<&LockOn>)>,
     cameras: Query<(&Camera, &GlobalTransform, &FollowCamera)>,
     targets: Query<(&GlobalTransform, Option<&Hurtbox>, Option<&Hitpoints>)>,
-    enemies: Query<(&GlobalTransform, &Hurtbox, Option<&Hitpoints>), With<Hostile>>,
     mut huds: Query<(&PlayerHud, &mut SightsClock, &SightSprites)>,
     mut nodes: Query<SpriteNode>,
 ) {
@@ -649,24 +678,6 @@ pub(super) fn draw_sights(
             let sight = gun.map(|(def, level)| (&def.sight, level));
             let eye = place.translation();
             let forward = place.forward().as_vec3();
-            let on_target = sight
-                .and_then(|(sight, _)| sight.scope_reach)
-                .is_some_and(|reach| {
-                    let live = enemies.iter().filter(|(.., hitpoints)| {
-                        hitpoints.is_none_or(|hitpoints| hitpoints.current > 0.0)
-                    });
-                    ray_hits(
-                        eye,
-                        forward,
-                        reach,
-                        live.map(|(place, hurtbox, _)| {
-                            (
-                                place.translation() + Vec3::Y * hurtbox.height,
-                                hurtbox.radius,
-                            )
-                        }),
-                    )
-                });
             let aim = Aim {
                 sight,
                 crosshair,
@@ -677,7 +688,6 @@ pub(super) fn draw_sights(
                 third_person: motion.camera_setting == CameraSetting::ThirdPerson,
                 raised: motion.gun_arm.raised,
                 weight: follow.target_weight(),
-                on_target,
             };
             let project = |at: Vec3| {
                 camera
@@ -722,6 +732,9 @@ pub(super) fn draw_sights(
                 image.image = handle;
             }
             image.color = sprite.colour;
+            image.flip_x = sprite.flip.x;
+            image.flip_y = sprite.flip.y;
+            image.rect = sprite.region;
             transform.rotation = Rot2::degrees(sprite.degrees);
         }
     }
@@ -791,7 +804,6 @@ fn spokes(p: Vec2, count: u32, start: f32, from: f32, to: f32, width: f32) -> f3
 fn shape(texture: u16, p: Vec2, pixel: f32) -> f32 {
     let distance = match texture {
         texture::DOT => return (1.0 - p.length()).clamp(0.0, 1.0).powi(2),
-        texture::PLAIN => return 1.0,
         texture::TRIANGLE => {
             // Pointing down (+y).
             let edges = [
@@ -913,7 +925,7 @@ mod tests {
     fn sight(name: &str) -> Sight {
         let armory = Armory::uya();
         let weapon: WeaponId = armory.find(name).unwrap();
-        armory.get(weapon).unwrap().sight
+        armory.get(weapon).unwrap().sight.clone()
     }
 
     fn aim<'a>(sight: Option<(&'a Sight, u8)>, sights: &'a Sights) -> Aim<'a> {
@@ -927,7 +939,6 @@ mod tests {
             third_person: true,
             raised: false,
             weight: 0.0,
-            on_target: false,
         }
     }
 
@@ -1024,22 +1035,33 @@ mod tests {
         for _ in 0..10 {
             drawn = sprites(&mut clock, &aim, &screen(&project), &seen, 1.0);
         }
-        let rings = &drawn[..3];
+        let rings = &drawn[..12];
+        let [outer, inner, fixed] = [
+            texture::LOCK_OUTER,
+            texture::LOCK_INNER,
+            texture::LOCK_FIXED,
+        ];
         assert_eq!(
             textures(rings),
-            [
-                texture::LOCK_OUTER,
-                texture::LOCK_INNER,
-                texture::LOCK_FIXED
-            ]
+            [[outer; 4], [inner; 4], [fixed; 4]].concat()
         );
-        // Raised by its 1 u height, faded fully in: each ring 2s across.
+        // Raised by its 1 u height, faded fully in: each ring 2s across, four quarters s
+        // across round its centre, a quarter turn apart.
         let s = reticle_size(1.0, Vec3::new(0.0, 1.0, -10.0).length());
-        assert_eq!(rings[0].centre, RECT.center() + Vec2::new(0.0, -10.0));
-        for ring in rings {
-            assert!((ring.size.x - 2.0 * s).abs() < 1e-3);
+        let centre = RECT.center() + Vec2::new(0.0, -10.0);
+        for ring in rings.chunks(4) {
+            let middle = ring.iter().map(|quarter| quarter.centre).sum::<Vec2>() / 4.0;
+            assert!(middle.distance(centre) < 1e-3, "{middle}");
+            for (quarter, next) in ring.iter().zip(&ring[1..]) {
+                assert!((quarter.size.x - s).abs() < 1e-3);
+                assert!((next.degrees - quarter.degrees - 90.0).abs() < 1e-3);
+                assert!((quarter.centre.distance(centre) - s / 2.0 * 2f32.sqrt()).abs() < 1e-3);
+            }
         }
-        let dots = &drawn[3..];
+        // The fixed ring's first quarter is turned 45°: its corner points straight down
+        // at the centre from above.
+        assert!((rings[8].centre - (centre - Vec2::Y * s / 2.0 * 2f32.sqrt())).length() < 1e-3);
+        let dots = &drawn[12..];
         assert_eq!(dots.len(), ARC_DOTS);
         let green = dots
             .iter()
@@ -1128,13 +1150,25 @@ mod tests {
         assert!(sprites(&mut clock, &look, &screen(&project), &seen, 1.0).is_empty());
         look.look_ready = true;
         let drawn = sprites(&mut clock, &look, &screen(&project), &seen, 1.0);
-        // The lens as high as the screen, and its sides.
-        assert_eq!(
-            textures(&drawn),
-            [texture::SCOPE, texture::PLAIN, texture::PLAIN]
-        );
-        assert_eq!(drawn[0].size, Vec2::splat(416.0));
-        look.on_target = true;
+        // On the game's own frame, a quarter mirrored into each quarter of the screen.
+        assert_eq!(textures(&drawn), [texture::SCOPE; 4]);
+        assert_eq!(drawn[0].size, Vec2::new(256.0, 208.0));
+        assert_eq!(drawn[0].centre, Vec2::new(128.0, 104.0));
+        assert_eq!(drawn[3].flip, BVec2::TRUE);
+        // On a wide screen, a 4:3 box at the middle, the sides in the surround.
+        let wide = Rect::new(0.0, 0.0, 1280.0, 720.0);
+        let mut out = Vec::new();
+        scope(&mut out, wide);
+        assert_eq!(out.len(), 6);
+        assert_eq!(out[0].size, Vec2::new(480.0, 360.0));
+        assert_eq!(out[4].region, Some(CORNER));
+        assert_eq!(out[4].size, Vec2::new(161.0, 720.0));
+        let on = Sights {
+            ready: true,
+            scope_on: true,
+            ..default()
+        };
+        look.sights = &on;
         let blinks: Vec<bool> = (0..31)
             .map(|_| {
                 let drawn = sprites(&mut clock, &look, &screen(&project), &seen, 1.0);
@@ -1142,18 +1176,6 @@ mod tests {
             })
             .collect();
         assert_eq!(blinks.iter().filter(|&&on| on).count(), 15);
-        assert!(ray_hits(
-            Vec3::ZERO,
-            Vec3::NEG_Z,
-            128.0,
-            [(Vec3::new(0.4, 0.0, -100.0), 0.5)]
-        ));
-        assert!(!ray_hits(
-            Vec3::ZERO,
-            Vec3::NEG_Z,
-            128.0,
-            [(Vec3::new(0.0, 0.0, -130.0), 0.5)]
-        ));
     }
 
     #[test]

@@ -901,3 +901,36 @@ fn the_view_tilts_up_with_the_arm_below_level_on_the_ground() {
         expected
     );
 }
+
+#[test]
+fn a_guns_zoom_springs_the_field_of_view_and_the_camera_keeps_it() {
+    let mut scene = Scene::new(uya(), Some(CameraSetting::FirstPerson));
+    let idle = PlayerInput::default();
+    scene.tick(&idle);
+    assert_eq!(scene.camera.zoom(), 1.0);
+    let fov = |scene: &Scene| scene.camera.state.as_ref().unwrap().fov;
+    let narrow = 20f32.to_radians();
+    scene.hero.gun.zoom = Some(crate::Zoom {
+        fov: narrow,
+        spring: Spring {
+            gain: 0.02,
+            damping: 0.2,
+        },
+    });
+    let mut last = fov(&scene);
+    for _ in 0..300 {
+        scene.tick(&idle);
+        // In without passing it.
+        assert!(fov(&scene) <= last && fov(&scene) >= narrow);
+        last = fov(&scene);
+    }
+    assert!((last - narrow).abs() < 1e-3, "{last}");
+    // It stays there once the gun stops asking, and the free look turns slower by it.
+    scene.hero.gun.zoom = None;
+    scene.tick(&idle);
+    assert!((fov(&scene) - narrow).abs() < 1e-3);
+    let free = &scene.camera.state.as_ref().unwrap().free;
+    assert!((free.zoom - narrow / 1.1100293).abs() < 1e-3);
+    let tangents = ops::tan(narrow / 2.0) / ops::tan(1.1100293 / 2.0);
+    assert!((scene.camera.zoom() - tangents).abs() < 1e-3);
+}

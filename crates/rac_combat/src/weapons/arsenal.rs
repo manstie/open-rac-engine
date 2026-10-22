@@ -68,6 +68,8 @@ pub struct Sights {
     /// It can fire now: out its ready ticks, past any wait, in a state that fires, with a
     /// round.
     pub ready: bool,
+    /// Looking through its scope, the eye's ray meets a live enemy before anything else.
+    pub scope_on: bool,
 }
 
 /// A hero's guns. Put it beside the [`rac_hero::Hero`]; the weapons code fires them and
@@ -110,6 +112,11 @@ pub struct Arsenal {
     pub(crate) agent_book: super::shots::AgentBook,
     /// What the gun in his hand aims at, as of the last tick.
     pub sights: Sights,
+    /// The scope's zoom, kept from tick to tick while he looks through it (UYA's
+    /// `flux_scope_fov`, 0x1DD2F8); none starts the next look a share of the way in.
+    pub(crate) zoom: Option<f32>,
+    /// He looked through a scope last tick, and the spring that takes the camera back out.
+    pub(crate) scoped: Option<rac_hero::profile::Spring>,
 }
 
 impl Arsenal {

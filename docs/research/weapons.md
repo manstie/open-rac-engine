@@ -412,16 +412,37 @@ are PS2 pixels on the 512 × 416 frame; colours are PS2 RGBA with R in the low b
     centre lines) as four mirrored quarter-screen quads into the frame's alpha only, a
     shading quarter (0x42), then a copy of the frame drawn over the whole screen where
     that alpha allows (taken to be the lens);
-  - the zoom: from the current view (2 atan 0.62, 63.6°) to 20° at V1–V2 and 10° from
-    V3, starting a quarter of the way in, moving 0.01 rad a frame on two pressure-read
-    buttons (pad +0x134 in, +0x13C out; probably R1 and R2) or, in the other camera
-    settings, the left stick's y; the camera springs to it (gain 0.02, damping 0.2) and
-    back out at gain 0.005. The free look's turn cap falls from 1.5° a frame unzoomed to
-    0.6° at full zoom.
-  - the on-target ring: on 4 frames of every 8 a ray from the camera (128 u) looks for a
-    live enemy; while it finds one, the aim wait is over, the shot ready and there is
-    ammo, texture 0x20 (a segmented ring), 32 px, red 0x200000FF, blinks on for 15 of
-    every 31 frames.
+  - the zoom (its target is `flux_scope_fov`, 0x1DD2F8): between the view's field of
+    view (the gun's pvar +8, 1.11) and 20° at V1–V2 or 10° from V3. Each frame of the
+    ready look it moves 0.01 rad, whatever the pressure:
+    - in the third-person setting, in on R1's pressure (pad analog float +0x134) and
+      out on R2's (+0x13C), the larger winning and R1 a tie (the floats follow the
+      raw pad's order in libuya's `PAD`: sticks, then pressures from right to R2)
+      [code; the buttons from libuya, MIT];
+    - in the other settings, in on the left stick pushed up (minus +0x10C) and out
+      pulled down.
+
+    It is kept between the view's and the narrowest, and asks the camera to spring to
+    it (`camera_fov_set`, gain 0.02, damping 0.2). Leaving the look sets the target a
+    quarter of the way in for the next look and springs the camera back to the view's
+    at gain 0.005 [code].
+  - The free look's turn rates are × the camera's field of view over 1.1100293
+    (`fps_cam_update`, 0x410B08), so a zoom slows the turn with it.
+  - The zoom also lerps four floats at 0x1DF720–0x1DF738 by its share. At rest they hold
+    0.02618 (1.5°), 0.03, 0.4 and 0, and at full zoom 0.010472 (0.6°), 0.03, 0.4 and the
+    fourth's own value, so only the first changes. Nothing else in Veldin's loaded code
+    reads or addresses them (a search of every load, store and address formed), so what
+    they drive isn't known; the earlier "turn cap" reading of them is unconfirmed [code].
+  - The scope is dropped, and the camera sent back out, in hero state 0x74 (held for a
+    path camera's flight, `camera.md`), while 0x1D6694 is set, or when 0x4B6C68 says so
+    [code; the last two not read].
+  - the on-target ring: on 4 frames of every 8 (bit 2 of the frame count) a line from the
+    camera 128 u along its view (0x3F8448) takes the first thing it meets. It is on
+    target if that is a live enemy (category 5, not class 0x19C0 or 0x1AE6), or one
+    0x447CA0 marks. While it is, the look's 40-frame aim wait (0x1A749C) is over, the shot
+    is ready and there is ammo, texture 0x20 (a segmented ring), 32 px, red 0x200000FF,
+    blinks on for 15 of every 31 frames: a count from 0 to 30 that moves only while on
+    target, drawn from 16 [code].
 - **How they are drawn:** `fx_texture` (0x401CD0) gives a texture's GS registers by its
   number in the effect table, uploading it on its first use in a frame (negative numbers
   are copies of the frame); `hud_sprite` (0x404740) draws a screen-space textured,
@@ -1818,25 +1839,45 @@ profiles' `gun` section):
   - the shared target mark, the RY3NO's marks on each target, and the Hydra's triangles
     within 60° (their size and spin are the shared mark's, checked in `hydra_marks_draw`);
   - the Flux Rifle's scope in the ready look, with its ring blinking 15 of every 31
-    frames over a live enemy on its 128 u ray while it can fire.
+    frames while it can fire and the eye's 128 u ray meets a live enemy before any wall
+    or other target (`Sights::scope_on`, worked out in the weapons code every tick
+    [simplified from 4 of 8]).
 
-  The sprites are flat UI images in game pixels scaled by the viewport's height, painted
-  at start-up and keyed by the effect-texture numbers (`SightImages`), so the disc's can
-  replace them [placeholder]. They replace the demo's torus round the lock-on target.
-  Not followed:
-  - the scope's ray stopping at walls, its 4-of-8-frame test and the zoom;
-  - the reticle hidden in hero state 0x74, and markers shrinking while the world is
-    stopped;
-  - the PS2's wider pixels (the sprites keep square pixels).
+  The scope's zoom (2026-10-22) is the weapons code's (`Scope` in the RON,
+  `look_through_scope`): it starts each look a quarter in and moves 0.01 rad a tick on
+  R1/R2 (Crouch and Strafe; Ctrl and the right mouse button) in third person, or on the
+  left stick in the other settings. Strafe also has L2 on the pad, so L2 zooms out too
+  [simplified]. It asks the camera through `GunHand::zoom`, and the camera springs its
+  field of view and slows the free look (`camera.md`, "In the kit"). Seen running on
+  Xvfb: the look starting a quarter in, Ctrl zooming in, and the view springing back out.
+
+  The sprites are flat UI images in game pixels scaled by the viewport's height, keyed by
+  the effect-texture numbers (`SightImages`). With a disc, `openrac` reads the level's
+  effect textures (`Core::fx_textures`, `effects.md`) and hands the HUD the fourteen it
+  uses (`crates/openrac/src/fx_textures.rs`); without one the demo paints its own
+  [placeholder]. The rings and the scope are drawn from a top-left quarter, as the game
+  draws them: each ring as four quarters turned 90° apart round its centre, the scope
+  mirrored into the four quarters of a 4:3 box as high as the view (the game's screen,
+  for which its lens is drawn narrower across), with the sides beyond in the texture's
+  surround. They replace the demo's torus round the lock-on target. Not followed:
+  - what the zoom's four floats at 0x1DF720 drive (not found);
+  - state 0x74 hiding the reticle and dropping the scope, and markers shrinking while
+    the world is stopped: the kit has no camera-path flight and nothing stops the world;
+  - the scope's overlay drawn as colour: the game draws it into the frame's alpha only
+    and redraws the frame through it with a shading quarter (0x42);
+  - the PS2's wider pixels (the sprites keep square pixels; only the scope fills its
+    4:3 box).
 
   Seen running on Xvfb: the Shock Blaster's crosshair in the lock-strafe camera, the
-  N60's in the look, and the Flux scope. Lock-on takes a gamepad, so the reticle was only
-  tested.
+  N60's in the look, and the Flux scope, with the disc's textures and without, its lens
+  round in both. Lock-on takes a gamepad, so the reticle was only tested.
 - **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob,
   the pick and the Flux beam), `rac_combat/tests/weapons.rs` (a test for each of the fourteen and most
   V5 variants, and one that fires each at V1 and V5 until its shots run out),
   `rac_hero/tests/gun.rs` (the raised arm too), `rac_rig`'s springs, gun player and
-  rope, and its app test of a skinned gun, `rac_demo`'s `hud::sights` (each indicator's
+  rope, and its app test of a skinned gun, the Flux scope's zoom and ray in
+  `rac_combat/tests/weapons.rs` and the camera's spring in `rac_hero`, `rac_demo`'s
+  `hud::sights` (each indicator's
   sprites, sizes, fades and colours),
   `rac_demo/tests/enemies.rs` (infected enemies fighting) and
   `openrac`'s `gun_models` (a disc test: every gun's model and bangles).
@@ -1862,8 +1903,7 @@ profiles' `gun` section):
    gun and walking are read), the Plasma Storm's arc (0x30A3D0), the Decimator and Lava
    Gun's V5, the target 0x447CA0 marks for the level search's +8, and the agents' coming
    out. In the kit still to follow what is read: the whip's links and the shield from
-   their classes (0x183A, 0x183C; 0xA5C, 0x1192 at V5), and the aim indicators' textures
-   from the level's effect table, both with the effects (P3.18); the Flux scope's zoom.
+   their classes (0x183A, 0x183C; 0xA5C, 0x1192 at V5), with the effects (P3.18).
 5. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
 
 How this was read, to carry on: import or reuse the Veldin project (copy

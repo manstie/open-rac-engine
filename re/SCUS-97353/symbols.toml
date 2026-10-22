@@ -4455,8 +4455,15 @@ note = "fps_cam +0xB0: 1 for a target its ray hits, else (cos off - cos 15) / (1
 name = "flux_scope_fov"
 address = 0x001DD2F8
 kind = "data"
-confidence = "medium"
-note = "The scope's field of view."
+confidence = "high"
+note = "The Flux scope's zoom target, radians: 0.01 a frame by R1/R2 pressure (third person) or the left stick's y, kept between the view's and 20 deg (10 deg from V3); a quarter in after each look."
+
+[[symbol]]
+name = "flux_scope_lerped"
+address = 0x001DF720
+kind = "data"
+confidence = "low"
+note = "Four floats 8 apart (0.02618, 0.03, 0.4, 0 at rest) the Flux scope lerps by its zoom share to (0.010472, 0.03, 0.4, kept), saving the rest values at 0x1DD2E8. No other reader found in Veldin's code."
 
 [[symbol]]
 name = "flux_scope_min_fov"
@@ -5038,3 +5045,10 @@ address = 0x0027FBA0
 kind = "data"
 confidence = "high"
 note = "48 x 0xD0."
+
+[[symbol]]
+name = "flux_scope_update"
+address = 0x003444B0
+kind = "function"
+confidence = "high"
+note = "(moby): the held Flux Rifle's update. In state 1 or 29 with the look ready: hides the gun, registers flux_scope_draw, tests a 128 u line from the camera for a live enemy on 4 frames of 8, moves flux_scope_fov and calls camera_fov_set (0.02, 0.2); leaving, resets the zoom a quarter in and springs back out (0.005, 0.2). Dropped in state 0x74."

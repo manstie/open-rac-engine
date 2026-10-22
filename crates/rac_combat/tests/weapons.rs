@@ -10,7 +10,8 @@ use rac_combat::{
     weapons::{Hand, Mods, ShotKind, block_shot},
 };
 use rac_hero::{
-    Collider, GunPose, Health, HeroBody, HeroPlugin, HeroProfile, Hold, LockOn, hero_bundle,
+    CameraSetting, Collider, FollowCamera, GunPose, Health, HeroBody, HeroPlugin, HeroProfile,
+    Hold, LockOn, Zoom, hero_bundle,
 };
 use rac_input::{Action, Buttons, PlayerInput, PlayerInputs};
 use rac_sim::{SimPlugin, SimTransform, TICK_HZ};
@@ -186,6 +187,37 @@ impl Yard {
 
     fn body(&self) -> &HeroBody {
         self.app.world().get::<HeroBody>(self.hero).unwrap()
+    }
+
+    /// Gives him a camera in `setting`, which his gun's scope zooms, and lets it run a
+    /// tick: until it has, his look counts as ready.
+    fn camera(&mut self, setting: CameraSetting) -> Entity {
+        let camera = self
+            .app
+            .world_mut()
+            .spawn((
+                FollowCamera::for_player(0, 0.0).with_setting(setting),
+                SimTransform::default(),
+            ))
+            .id();
+        self.idle(2);
+        camera
+    }
+
+    /// What his gun asked of the camera this tick.
+    fn zoom(&self) -> Option<Zoom> {
+        self.body().0.gun.zoom
+    }
+
+    /// Holds the first-person button until his gun's scope asks for a zoom.
+    fn look_through_scope(&mut self) -> Zoom {
+        for _ in 0..120 {
+            self.tick(&[Action::FirstPerson], &[]);
+            if let Some(zoom) = self.zoom() {
+                return zoom;
+            }
+        }
+        panic!("the scope never zoomed");
     }
 
     /// The ticks, counted from the first tick of the `log`, on which a shot was fired.
@@ -451,6 +483,76 @@ fn the_flux_rifles_shot_crosses_its_range_in_a_few_ticks() {
     yard.idle(30);
     assert_eq!(yard.hitpoints(far), 100.0);
     assert_eq!(Yard::fired_ticks(&log), [0, 60]);
+}
+
+#[test]
+fn the_flux_scope_starts_a_quarter_in_zooms_by_r1_and_r2_and_springs_back_out() {
+    // "Aim indicators", the zoom: from the view's 63.6° to 20° at V1, 0.01 rad a frame.
+    let mut yard = Yard::new(&[(FLUX, 0)]);
+    let camera = yard.camera(CameraSetting::ThirdPerson);
+    let (wide, narrow) = (1.1100293, 20f32.to_radians());
+    let start = wide + (narrow - wide) * 0.25;
+    let zoom = yard.look_through_scope();
+    assert!((zoom.fov - start).abs() < 1e-5, "{}", zoom.fov);
+    assert_eq!(zoom.spring.gain, 0.02);
+    // R1 (crouch) zooms in, R2 (strafe) out.
+    yard.hold(&[Action::FirstPerson, Action::Crouch], 10);
+    assert!((yard.zoom().unwrap().fov - (start - 0.1)).abs() < 1e-4);
+    yard.hold(&[Action::FirstPerson, Action::Crouch], 100);
+    assert_eq!(yard.zoom().unwrap().fov, narrow);
+    yard.hold(&[Action::FirstPerson, Action::Strafe], 5);
+    assert!((yard.zoom().unwrap().fov - (narrow + 0.05)).abs() < 1e-4);
+    let follow = yard.app.world().get::<FollowCamera>(camera).unwrap();
+    assert!(follow.zoom() < 0.5, "{}", follow.zoom());
+    // Out of the look (which his moves leave after the guns' tick), the camera is asked
+    // back out once, slowly.
+    yard.idle(2);
+    let back = yard.zoom().unwrap();
+    assert_eq!((back.fov, back.spring.gain), (wide, 0.005));
+    yard.idle(1);
+    assert_eq!(yard.zoom(), None);
+    // The next look starts a quarter in again.
+    let zoom = yard.look_through_scope();
+    assert!((zoom.fov - start).abs() < 1e-5);
+}
+
+#[test]
+fn the_flux_scopes_ring_needs_a_live_enemy_first_on_the_eyes_ray() {
+    // In first person the left stick zooms, here at V3 down to 10°.
+    let mut yard = Yard::new(&[(FLUX, 2)]);
+    let camera = yard.camera(CameraSetting::FirstPerson);
+    yard.look_through_scope();
+    for _ in 0..200 {
+        yard.tick_with_stick([0, 127], &[Action::FirstPerson], &[]);
+    }
+    assert_eq!(yard.zoom().unwrap().fov, 10f32.to_radians());
+    let place = *yard.app.world().get::<SimTransform>(camera).unwrap();
+    let ahead = |distance: f32| place.translation + place.rotation * Vec3::NEG_Z * distance;
+    assert!(!yard.arsenal().sights.scope_on);
+    let enemy = yard.enemy(ahead(60.0), 100.0);
+    yard.hold(&[Action::FirstPerson], 2);
+    assert!(yard.arsenal().sights.scope_on);
+    // A crate in front of it takes the ray first.
+    let crate_ahead = yard.target(ahead(30.0), 100.0);
+    yard.hold(&[Action::FirstPerson], 2);
+    assert!(!yard.arsenal().sights.scope_on);
+    yard.app.world_mut().despawn(crate_ahead);
+    yard.hold(&[Action::FirstPerson], 2);
+    assert!(yard.arsenal().sights.scope_on);
+    // So does a wall.
+    yard.app.world_mut().spawn((
+        Collider::Cuboid {
+            half_extents: Vec3::new(5.0, 5.0, 0.5),
+        },
+        Transform::from_translation(ahead(20.0)).with_rotation(place.rotation),
+    ));
+    yard.hold(&[Action::FirstPerson], 2);
+    assert!(!yard.arsenal().sights.scope_on);
+    // Past its 128 u, nothing.
+    yard.app.world_mut().despawn(enemy);
+    yard.enemy(ahead(130.0), 100.0);
+    yard.hold(&[Action::FirstPerson], 2);
+    assert!(!yard.arsenal().sights.scope_on);
 }
 
 #[test]

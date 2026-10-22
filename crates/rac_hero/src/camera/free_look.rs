@@ -76,6 +76,8 @@ pub(super) struct FreeLook {
     mouse_aims: bool,
     /// The weight of what the assist would pick, kept while the mouse aims too.
     weight: f32,
+    /// The camera's field of view over the profile's: a zoom slows the turn with it.
+    pub zoom: f32,
     /// Where the camera was last placed, which the assist looks from.
     camera: Vec3,
     /// Radians the view may look down and up.
@@ -109,6 +111,7 @@ impl FreeLook {
             snap_input: 0.0,
             mouse_aims: false,
             weight: 0.0,
+            zoom: 1.0,
             camera: hero.position + Vec3::Y * profile.eye_lock_strafe,
             down_limit: 0.0,
             up_limit: 0.0,
@@ -170,7 +173,9 @@ impl FreeLook {
 
     /// One tick of turning. `stick` is the look stick after the pad's dead zone (x right,
     /// y up), `mouse` the mouse's turn in radians, `speed` the camera-speed option, `aim`
-    /// what the aim assist sees, if the game has one.
+    /// what the aim assist sees, if the game has one. Its rates are the profile's × the
+    /// field of view over the profile's ([`Self::zoom`], as UYA's 0x410B08), and so is the
+    /// mouse's turn [our own, for aiming zoomed with a mouse].
     pub fn turn(
         &mut self,
         stick: Vec2,
@@ -187,6 +192,7 @@ impl FreeLook {
                 profile.up_limit_ease_degrees.to_radians(),
             );
         }
+        let mouse = mouse * self.zoom;
         if mouse != Vec2::ZERO {
             self.mouse_aims = true;
         } else if stick != Vec2::ZERO {
@@ -201,7 +207,7 @@ impl FreeLook {
         self.target = picked.filter(|_| !self.mouse_aims);
         let assist = profile.assist.as_ref().filter(|_| !self.mouse_aims);
         let b = self.target.map_or(0.0, |target| target.weight);
-        let k = 0.25 + speed / 64.0;
+        let k = (0.25 + speed / 64.0) * self.zoom;
         let shape = |axis: f32| {
             if profile.squared {
                 axis * axis.abs()
@@ -518,6 +524,21 @@ mod tests {
 
     fn uya() -> FreeLookProfile {
         HeroProfile::uya().camera.free_look
+    }
+
+    #[test]
+    fn a_zoom_slows_the_turn_by_the_field_of_view() {
+        // UYA's rates are × the field of view over 1.11 (0x410B08).
+        let profile = uya();
+        let mut wide = lock_strafe(&profile);
+        let mut zoomed = lock_strafe(&profile);
+        zoomed.zoom = 0.25;
+        for _ in 0..60 {
+            wide.turn(Vec2::new(0.5, 0.0), Vec2::ZERO, 50.0, &profile, None);
+            zoomed.turn(Vec2::new(0.5, 0.0), Vec2::ZERO, 50.0, &profile, None);
+        }
+        assert!(wide.yaw_speed > 0.0);
+        assert!((zoomed.yaw_speed - wide.yaw_speed * 0.25).abs() < 1e-6);
     }
 
     fn lock_strafe(profile: &FreeLookProfile) -> FreeLook {

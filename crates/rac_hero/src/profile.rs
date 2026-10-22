@@ -1215,6 +1215,9 @@ impl CameraSetting {
 pub struct CameraProfile {
     /// The camera a player starts with.
     pub default_setting: CameraSetting,
+    /// The field of view, radians, which a gun's zoom narrows; the free look's turn rates
+    /// scale with the field of view over this (`camera.md`, "The free-look camera").
+    pub fov: f32,
     /// The follow distance and height at rest, and the height of the aim point above the
     /// hero's feet.
     pub distance: f32,

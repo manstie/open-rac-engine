@@ -33,7 +33,9 @@ use crate::{CombatTuning, Destroyed, HitReaction, Hitpoints, Hostile, Hurtbox, S
 
 pub use aim::GunTarget;
 pub use arsenal::{Arsenal, Hand, LevelUp, OwnedGun, Sights};
-pub use def::{Armory, Crosshair, FireMode, Mark, Mods, Showing, Sight, WeaponDef, WeaponId};
+pub use def::{
+    Armory, Crosshair, FireMode, Mark, Mods, Scope, Showing, Sight, WeaponDef, WeaponId,
+};
 pub use fire::{Afflict, GunInput, Hit, Outcome, View};
 pub use ring::{OpenRing, QuickSelect, RingRules};
 pub use shots::{AgentMode, AgentState, BarrierState, RiftState, Shot, ShotKind, TurretState};
@@ -208,6 +210,7 @@ pub(crate) fn fire_guns(
             .find(|(camera, _)| camera.player == hero.player)
             .map(|(camera, transform)| View {
                 setting: camera.setting_with(&hero_tuning.0.camera),
+                fov: hero_tuning.0.camera.fov,
                 eye: transform.translation,
                 direction: transform.rotation * Vec3::NEG_Z,
             });

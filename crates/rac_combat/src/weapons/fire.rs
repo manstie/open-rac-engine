@@ -8,7 +8,7 @@
 //! ([`GunHand`]).
 
 use bevy::prelude::*;
-use rac_hero::{CameraSetting, CollisionWorld, GunHand, HeroMotion, HeroState, controller};
+use rac_hero::{CameraSetting, CollisionWorld, GunHand, HeroMotion, HeroState, Zoom, controller};
 use rac_input::{Action, PlayerInput};
 use rac_sim::SimRng;
 use std::f32::consts::TAU;
@@ -18,8 +18,8 @@ use super::{
     aim::{GunTarget, assist_target, assist_targets, bend, first_target, view_point},
     arsenal::{Arsenal, Hand, Sights},
     def::{
-        AimAssist, Armory, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Stream, Timing,
-        WeaponDef, WeaponId,
+        AimAssist, Armory, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Scope, Stream,
+        Timing, WeaponDef, WeaponId,
     },
     grab, hand,
     ring::RingInput,
@@ -76,6 +76,8 @@ impl Outcome {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
     pub setting: CameraSetting,
+    /// The camera's field of view unzoomed, radians.
+    pub fov: f32,
     pub eye: Vec3,
     /// A unit vector.
     pub direction: Vec3,
@@ -300,6 +302,9 @@ pub fn step(
         .map_or(0, |gun| gun.level);
     let assisted = in_hand.and_then(|def| head_target(def, level, gun_input, armory));
     let target = assisted.map(|(_, at)| at);
+    let scope = in_hand.and_then(|def| def.sight.scope.as_ref());
+    let (zoom, scope_on) =
+        look_through_scope(arsenal, scope.map(|scope| (scope, level)), gun_input);
     arsenal.sights = Sights {
         target: match in_hand.map(|def| &def.fire) {
             _ if gun_input.lock.is_some() => None,
@@ -312,6 +317,7 @@ pub fn step(
             _ => Vec::new(),
         },
         ready: ready_now,
+        scope_on,
     };
     out.hand = GunHand {
         out: in_hand.is_some(),
@@ -325,6 +331,7 @@ pub fn step(
         selecting: blocked,
         whip: in_hand.and_then(|def| hand::whip_hand(arsenal, armory, def, level)),
         target,
+        zoom,
     };
     arsenal.shown_out = out.hand.out;
     out.lock_on = arsenal
@@ -333,6 +340,75 @@ pub fn step(
         .or(arsenal.equipped)
         .is_some_and(|weapon| arsenal.mods(weapon, armory).lock_on);
     out
+}
+
+/// The scope of the gun in his hand (the Flux Rifle's, 0x3444B0), in the look once its
+/// view is ready: the zoom moves a step a tick while a zoom button is held (R1 in and R2
+/// out, the pad's pressures at +0x134 and +0x13C, in the third-person setting; the left
+/// stick's y in the others), and the camera is asked to spring to it. Returns that ask, and
+/// whether the eye's ray meets a live enemy before anything else (the game tests it on 4
+/// frames of 8; here every tick [simplified]). As the look ends the camera is asked back
+/// out once, and the next look starts a share of the way in.
+fn look_through_scope(
+    arsenal: &mut Arsenal,
+    scope: Option<(&Scope, u8)>,
+    gun_input: &GunInput,
+) -> (Option<Zoom>, bool) {
+    let hero = gun_input.hero;
+    let looking = hero.state == HeroState::Look && hero.look_ready;
+    let (Some((scope, level)), Some(view), true) = (scope, gun_input.view, looking) else {
+        arsenal.zoom = None;
+        let back = arsenal.scoped.take().zip(gun_input.view);
+        let zoom = back.map(|(spring, view)| Zoom {
+            fov: view.fov,
+            spring,
+        });
+        return (zoom, false);
+    };
+    let widest = view.fov;
+    let narrowest = scope
+        .narrowest
+        .at(level)
+        .map_or(widest, |degrees| degrees.to_radians());
+    let mut fov = arsenal
+        .zoom
+        .unwrap_or(widest + (narrowest - widest) * scope.start_share);
+    let input = gun_input.input;
+    let way = if view.setting == CameraSetting::ThirdPerson {
+        if input.held(Action::Crouch) {
+            1
+        } else if input.held(Action::Strafe) {
+            -1
+        } else {
+            0
+        }
+    } else {
+        input.move_stick[1].signum()
+    };
+    if way > 0 && fov > narrowest {
+        fov -= scope.zoom_step;
+    } else if way < 0 && fov < widest {
+        fov += scope.zoom_step;
+    }
+    fov = fov.clamp(narrowest, widest);
+    arsenal.zoom = Some(fov);
+    arsenal.scoped = Some(scope.zoom_out);
+
+    let line = view.direction * scope.reach;
+    let wall = gun_input
+        .world
+        .cast_ray(view.eye, line)
+        .map_or(1.0, |hit| hit.fraction);
+    let first = first_target(gun_input.targets, view.eye, view.eye + line, |_| true);
+    let on = first.is_some_and(|(index, along)| {
+        let target = &gun_input.targets[index];
+        along < wall && target.alive && target.enemy
+    });
+    let zoom = Zoom {
+        fov,
+        spring: scope.zoom_in,
+    };
+    (Some(zoom), on)
 }
 
 /// The point the gun in hand aims at this tick, for his head and upper body to turn to
