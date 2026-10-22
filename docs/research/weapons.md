@@ -399,7 +399,7 @@ are PS2 pixels on the 512 × 416 frame; colours are PS2 RGBA with R in the low b
   | Plasma Coil, Plasma Storm | 0x21, 32 px | never | the Coil's, on its target when ready to fire, any camera |
   | Qwack-O-Ray | none | – | on the beam's target, follow camera, outside state 29 |
   | RY3NO | none | – | V1–V4 without a lock-on: on each enemy its assist finds, one shared spin |
-  | Spitting Hydra | none | – | its marks (`hydra_marks_draw`, 0x3213A8): texture 0x1F (a downward triangle) in green 0x7F40FF40, the newest in red-orange 0x7F2040FF, only those within 60° of the view |
+  | Spitting Hydra | none | – | its marks (`hydra_marks_draw`, 0x3213A8): texture 0x1F (a downward triangle) in green 0x7F40FF40, the newest in red-orange 0x7F2040FF, sized and turned as the shared mark, only those within 60° of the view (cos > 0.5) and not dying or hidden |
   | Flux Rifle | the scope, below | – | – |
 
   The Nitro Launcher, Lava Gun, Bouncer, Infector, Agents of Doom, Holo Shield,
@@ -1646,7 +1646,7 @@ profiles' `gun` section):
     only enemies (`rac_combat::Hostile`), as the game's do. XP counts whole points.
   - Not in yet: the Liquid Nitrogen Gun's freezing, the Nitro's aim at the ground with
     action 4, camera shake, the Flux beam's colour by level and class 0x1CF7 stopping
-    it, the Nitro Eruptor's 15 bullets, and DL's guns.
+    it, and DL's guns.
 - **The other fourteen** (2026-10-22; `weapons/seekers.rs`, `thrown.rs`, `grab.rs`,
   `hand.rs`), each as its section above reads it, from V5 on firing as V4 with V5's
   numbers:
@@ -1676,8 +1676,14 @@ profiles' `gun` section):
     shield landing (5 damage in 1 u), standing 900 ticks as a wall that takes 7 hits
     (`block_shot`, which the demo's enemy shots call), from V3 sending a bolt at an enemy
     within 7.5 u 15 ticks after a hit, from V2 healing him; the agents' pod letting out
-    four (from V4 four come to him), each running at the nearest enemy it can see and
-    blowing up in 2 u when it touches it;
+    four (from V4 four come to him), each finding its target by the level search
+    (`aim::level_search`: anything with hit points within 25 u as it comes out, then
+    enemies within 30 u no agent has claimed, both within 5° of level, scored by
+    distance and a bearing of 20°; claims last 60 ticks), idling, wandering and
+    following him and chasing for up to 420 ticks on the walker's speeds and turns,
+    blowing up in 2 u; from V2 its gun's small bullets (`ShotKind::Slug`: 0.03 of the
+    damage, every 30 or 15 ticks, 50 rounds each or 120 shared at V4), from V5 the small
+    missile while it keeps by him;
   - the Rift Inducer's rift at 60–80 u/s keeping 0.92 a tick, opening after 36 ticks or
     where it meets something, then for 600 ticks taking one target at a time within 9.5 u
     whose hit points are at most its damage and swallowing it (`Affliction::Swallowed`,
@@ -1712,22 +1718,24 @@ profiles' `gun` section):
     bouncing ball arcing to enemies within 15 u; the Infecto-Bomb infecting all in its
     burst; the Megaturret's guided missiles and its walk back to the hero; the Heavy
     Bouncer's bigger bomblets; the Shock Cannon's 23 rays; the N90 Hurricane's 10-tick
-    repeat, 30 u reach and 7 bounces; the Nitro Eruptor's blast growing to 11 u.
-  - **[placeholder] or [simplified]:** the agents' running, sight and life, the holo
+    repeat, 30 u reach and 7 bounces; the Nitro Eruptor's blast growing to 11 u and its
+    15 small bullets.
+  - **[placeholder] or [simplified]:** the agents' path finding (straight at him), their
+    ledges, coming out and V4 jet-in, the idle loop's 60 ticks, their gun's height and
+    their leash; the search's +8 for a target 0x447CA0 picks (unread), the holo
     shield's size, the bounces' keep for the Bouncer, the turrets' slots, the rift's pull
     time, which enemies the Suck Cannon can take (UYA asks each enemy's record), the
     duck's XP, the ducks' falling (the game keeps them to the ground), the Megaturret
     missiles' turn and its walk speed, and the Plasma Storm's arcs, which strike as the
-    coil's (0x30A3D0 not read). The whip's rope is a straight line along the wrench's,
-    not nine trailing links, and a target takes one hit an attack (the game's queue
-    allows one a frame). In the demo an infected enemy turns on the nearest other enemy
-    it sees, which fights back, and a ducked one is gone until it comes back: the demo's
-    own, since in UYA each enemy's own code decides. Not in: the agents' gun (V2–V4
-    bullets, V5 missiles; 0x3C0128) and their walking speeds by state, the Vortex
-    Cannon's comets, ducks drawing enemy fire, the Lava Gun's
-    and the Decimator's V5 (0x38A648 only calls 0x36D5A0), the Nitro Eruptor's 5° launch
-    turn, the Suck Cannon's ricochets and burning, the turrets' and holo shields' XP for
-    hits, and the shield's state 0x31 and other ends.
+    coil's (0x30A3D0 not read). The whip hits along a straight line along the wrench's,
+    not its nine trailing links (which the rig draws), and a target takes one hit an
+    attack (the game's queue allows one a frame). In the demo an infected enemy turns on
+    the nearest other enemy it sees, which fights back, and a ducked one is gone until
+    it comes back: the demo's own, since in UYA each enemy's own code decides. Not in:
+    the Vortex Cannon's comets, ducks drawing enemy fire, the Lava Gun's and the
+    Decimator's V5 (0x38A648 only calls 0x36D5A0), the Nitro Eruptor's 5° launch turn,
+    the Suck Cannon's ricochets and burning, the turrets' and holo shields' XP for hits,
+    and the shield's state 0x31 and other ends.
 - **On the rig** (`rac_rig`, 2026-10-21): `GunHand` names the gun in hand, its hold and
   firing animations (`GunPose`: rows +0x18, +0x24, +0x2C [data]) and counts its shots.
   Standing, the gun's whole-body sequence plays (`RigMove::Fire`), from the start each
@@ -1740,11 +1748,23 @@ profiles' `gun` section):
   "The gadget WAD"), moved once from where the game puts it on joint 56 into the grip,
   so UYA's hero holds it as the game does and every other model the same way. Each
   level's model is its row's class with the bangles its update shows (`GunHand::level`,
-  `RigGuns`). Baked at rest: its own draw, idle and recoil sequences ("The gun's own
-  animation") aren't played [simplified]. The joint springs (`rac_rig/src/springs.rs`)
-  turn the waist, chest and clavicles for the raised arm and towards the gun's aim point,
-  as `hero_gun_arm_raise` and `hero_head_look` set them, at 60 Hz. Without a disc the
-  guns are blocky placeholders [placeholder]. The open model aims procedurally.
+  `RigGuns`). It plays its own sequences as "The gun's own animation" reads
+  (`rac_rig/src/gun_anim.rs`, on its own skeleton, `GunSkeleton`): it grows in on 0,
+  settles into 1 over 2 ticks once a sequence has come round (the Plasma Coil cuts), and
+  each shot does the gun's recoil (`openrac`'s `gun_models::uya_motion`); the Annihilator
+  and Disc Blade Gun fired while growing in go to their rest over 4 ticks instead of
+  recoiling (the kit's reading of "first"). The Agents' and Holo Shield's gloves and the
+  whip's handle have one sequence and stay baked in it. The joint springs
+  (`rac_rig/src/springs.rs`) turn the waist, chest and clavicles for the raised arm and
+  towards the gun's aim point, as `hero_gun_arm_raise` and `hero_head_look` set them, at
+  60 Hz. Without a disc the guns are blocky placeholders [placeholder]. The open model
+  aims procedurally. The Plasma Whip's rope (`rac_rig/src/rope.rs`): nine links trailing from the handle by
+  `whip_rope_ends`' rules (the stretch and pull by state, the links lying flat and links
+  1 and 2 adding the hand's travel in a swing, kept 0.15 u off a floor taken at his feet,
+  the end following the thrown wrench), a visual only, since the kit's whip hits along a
+  straight line. The Shield Charger's shield shows 0.75 u above his feet while up. Both
+  look like the kit's own: glowing translucent segments and a 0.9 u faceted sphere, not
+  classes 0x183A, 0x183C and 0xA5C [placeholder].
 - **Pickups** (`rac_combat::pickups`, P1.10, 2026-10-22): a hero reaches pickups within
   8.7 u across and 3 u up or down from his feet [code]. Ammo follows "Ammo pickups, crates
   and the vendor": taken only for a gun with room, on landing or bouncing, or as it lands
@@ -1786,10 +1806,38 @@ profiles' `gun` section):
   frames [code]. The layout, the pips, the gun's name and the icons are the demo's own
   [placeholder]. Not followed: L3's show-all, the upgrade sequence with the world stopped,
   at most one level-up every 60 frames.
+- **Aim indicators** (`rac_demo::hud::sights`, P1.12, 2026-10-22), as "Aim indicators"
+  reads them [code]. Each gun's `sight` in the RON says what it draws, and the wrench's is
+  `wrench_sight`. The weapons code names what to mark each tick (`Arsenal::sights`: the
+  gun's own target, its marks, whether it can fire), and the camera gives its target
+  weight (`FollowCamera::target_weight`, kept while the mouse aims too, though the assist
+  is then off). The HUD draws at the game's rates per frame:
+  - the lock-on reticle's three rings, with their fade, spin, sizes and health arc;
+  - each crosshair at the view's centre, with its fade-in, pulse, red over a target and
+    when it shows;
+  - the shared target mark, the RY3NO's marks on each target, and the Hydra's triangles
+    within 60° (their size and spin are the shared mark's, checked in `hydra_marks_draw`);
+  - the Flux Rifle's scope in the ready look, with its ring blinking 15 of every 31
+    frames over a live enemy on its 128 u ray while it can fire.
+
+  The sprites are flat UI images in game pixels scaled by the viewport's height, painted
+  at start-up and keyed by the effect-texture numbers (`SightImages`), so the disc's can
+  replace them [placeholder]. They replace the demo's torus round the lock-on target.
+  Not followed:
+  - the scope's ray stopping at walls, its 4-of-8-frame test and the zoom;
+  - the reticle hidden in hero state 0x74, and markers shrinking while the world is
+    stopped;
+  - the PS2's wider pixels (the sprites keep square pixels).
+
+  Seen running on Xvfb: the Shock Blaster's crosshair in the lock-strafe camera, the
+  N60's in the look, and the Flux scope. Lock-on takes a gamepad, so the reticle was only
+  tested.
 - **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob,
   the pick and the Flux beam), `rac_combat/tests/weapons.rs` (a test for each of the fourteen and most
   V5 variants, and one that fires each at V1 and V5 until its shots run out),
-  `rac_hero/tests/gun.rs` (the raised arm too), `rac_rig`'s springs,
+  `rac_hero/tests/gun.rs` (the raised arm too), `rac_rig`'s springs, gun player and
+  rope, and its app test of a skinned gun, `rac_demo`'s `hud::sights` (each indicator's
+  sprites, sizes, fades and colours),
   `rac_demo/tests/enemies.rs` (infected enemies fighting) and
   `openrac`'s `gun_models` (a disc test: every gun's model and bangles).
 - **Seen in the running demo** (Xvfb, 2026-10-21; the demo gives every gun at V3): the
@@ -1812,11 +1860,10 @@ profiles' `gun` section):
    arc needs `pine-probe` to read the moby list (or the class's newest moby) each frame.
 4. **The other guns' remaining code:** the rest of the agent's update (0x3BD298; its
    gun and walking are read), the Plasma Storm's arc (0x30A3D0), the Decimator and Lava
-   Gun's V5. In the kit still to follow what is read: the agents' gun and walking
-   speeds, the Nitro Eruptor's 15 bullets (both the enemy bullet, class 0x1855), the
-   gun's own sequences on the held gun ("The gun's own animation"), the whip's nine rope
-   links (classes 0x183A and 0x183C) and the Shield Charger's bubble (0xA5C; 0x1192 at
-   V5) on the rig, and the aim indicators ("Aim indicators", PLAN P1.12).
+   Gun's V5, the target 0x447CA0 marks for the level search's +8, and the agents' coming
+   out. In the kit still to follow what is read: the whip's links and the shield from
+   their classes (0x183A, 0x183C; 0xA5C, 0x1192 at V5), and the aim indicators' textures
+   from the level's effect table, both with the effects (P3.18); the Flux scope's zoom.
 5. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
 
 How this was read, to carry on: import or reuse the Veldin project (copy

@@ -26,12 +26,14 @@
 
 mod back;
 mod clips;
+mod gun_anim;
 mod guns;
 mod hull;
 pub mod model;
 mod play;
 mod pose;
 mod retarget;
+mod rope;
 mod shapes;
 mod springs;
 mod wear;
@@ -46,7 +48,7 @@ pub use clips::{
     BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, JumpTiming, Landing, RUN_BELOW,
     RigAnimations, RigClip, RigKeyframe, RigMove, SET_OFF_BELOW, Sample,
 };
-pub use guns::{GunData, RigGuns, open_guns};
+pub use guns::{GunData, GunMotion, GunSkeleton, Recoil, RigGuns, open_guns};
 pub use hull::convex_hull;
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
@@ -66,11 +68,22 @@ impl Plugin for RigPlugin {
             .init_resource::<RigGuns>()
             .add_systems(
                 Startup,
-                (wear::register_open_model, guns::register_open_guns),
+                (
+                    wear::register_open_model,
+                    guns::register_open_guns,
+                    rope::register_rope_looks,
+                ),
             )
             .add_systems(
                 Update,
-                (dress, animate, hold_guns, fly_thrown_wrenches).chain(),
+                (
+                    dress,
+                    animate,
+                    hold_guns,
+                    rope::draw_ropes,
+                    fly_thrown_wrenches,
+                )
+                    .chain(),
             );
     }
 }
@@ -138,9 +151,24 @@ pub struct HeroRig {
     springs: springs::JointSprings,
     /// Where a gun's grip sits in his fist, in the model's space, as last posed.
     grip: Transform,
-    /// The gun model in his hand: which gun, the level its model shows from, and the
-    /// entity.
-    gun: Option<(u16, u8, Entity)>,
+    /// The gun model in his hand.
+    gun: Option<InHand>,
+    /// The Plasma Whip's rope, its links drawn in the world, and the shield bubble.
+    rope: rope::Rope,
+    links: Vec<Entity>,
+    bubble: Option<Entity>,
+}
+
+/// The gun model in a hero's hand.
+#[derive(Debug)]
+struct InHand {
+    item: u16,
+    /// The level its model shows from.
+    from: u8,
+    entity: Entity,
+    /// A gun with a skeleton: its joints, and where its own animation is.
+    joints: Vec<Entity>,
+    player: Option<gun_anim::GunPlayer>,
 }
 
 /// The model of the gun in a hero's hand.
@@ -148,6 +176,10 @@ pub struct HeroRig {
 pub struct HeldGun {
     pub item: u16,
 }
+
+/// One joint of the gun in a hero's hand, or its origin.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GunJoint;
 
 /// An attachment a rig carries: the entity placed on its joint, and its own joints.
 #[derive(Debug)]
@@ -339,6 +371,9 @@ pub fn spawn_rig(
         springs: springs::JointSprings::default(),
         grip: Transform::default(),
         gun: None,
+        rope: rope::Rope::default(),
+        links: Vec::new(),
+        bubble: None,
     });
     (root, thrown)
 }
@@ -362,6 +397,9 @@ fn dress(
             }
             if let Ok(rig) = rigs.get(worn.rig) {
                 commands.entity(rig.thrown).despawn();
+                for &link in &rig.links {
+                    commands.entity(link).despawn();
+                }
             }
             commands.entity(worn.rig).despawn();
         }
@@ -537,55 +575,127 @@ fn gripped(skeleton: &[JointDef], turns: &[Quat], locals: &[Transform]) -> Trans
 }
 
 /// Puts the model of the gun in each hero's hand in his fist, changing it when he changes
-/// guns, and takes it away when he puts it away.
+/// guns, and takes it away when he puts it away. A gun with a skeleton plays its own
+/// sequences ([`gun_anim`]).
 fn hold_guns(
+    time: Res<Time>,
     guns: Res<RigGuns>,
     heroes: Query<&HeroBody>,
     mut rigs: Query<(Entity, &mut HeroRig)>,
-    mut held: Query<&mut Transform, With<HeldGun>>,
+    mut transforms: Query<&mut Transform, Or<(With<HeldGun>, With<GunJoint>)>>,
     mut commands: Commands,
 ) {
+    let seconds = time.delta_secs();
     for (root, mut rig) in &mut rigs {
         let hand = heroes.get(rig.hero).ok().map(|body| body.0.gun);
         let wanted = hand.and_then(|hand| {
             let item = hand.item?;
-            let (from, surfaces) = guns.get(item, hand.level)?;
-            Some((item, from, surfaces))
+            let (from, gun) = guns.get(item, hand.level)?;
+            Some((item, from, gun))
         });
-        if rig.gun.map(|(item, from, _)| (item, from)) != wanted.map(|(item, from, _)| (item, from))
-        {
-            if let Some((.., entity)) = rig.gun.take() {
-                commands.entity(entity).despawn();
+        let showing = rig.gun.as_ref().map(|held| (held.item, held.from));
+        if showing != wanted.map(|(item, from, _)| (item, from)) {
+            if let Some(held) = rig.gun.take() {
+                commands.entity(held.entity).despawn();
             }
-            let Some((item, from, surfaces)) = wanted else {
+            let (Some((item, from, gun)), Some(hand)) = (wanted, hand) else {
                 continue;
             };
-            let gun = commands
+            let entity = commands
                 .spawn((
                     Name::new(format!("gun {item:#x}")),
                     HeldGun { item },
                     rig.grip,
                     Visibility::default(),
                 ))
-                .with_children(|parent| {
-                    for surface in surfaces {
-                        let Paint::Own(material) = &surface.paint else {
-                            continue;
-                        };
-                        parent.spawn((
-                            Mesh3d(surface.mesh.clone()),
-                            MeshMaterial3d(material.clone()),
-                            Transform::default(),
-                        ));
-                    }
-                })
                 .id();
-            commands.entity(root).add_child(gun);
-            rig.gun = Some((item, from, gun));
-        } else if let Some((.., entity)) = rig.gun
-            && let Ok(mut transform) = held.get_mut(entity)
-        {
-            *transform = rig.grip;
+            commands.entity(root).add_child(entity);
+            let mut joints = Vec::new();
+            // Skinned meshes are placed by their joints; rigid ones sit on the gun.
+            let parent = match &gun.skeleton {
+                Some(skeleton) => {
+                    let origin = commands
+                        .spawn((
+                            Name::new("gun origin"),
+                            GunJoint,
+                            skeleton.origin,
+                            Visibility::default(),
+                        ))
+                        .id();
+                    commands.entity(entity).add_child(origin);
+                    for (index, rest) in skeleton.rest.iter().enumerate() {
+                        let joint = commands
+                            .spawn((
+                                Name::new(format!("gun joint {index}")),
+                                GunJoint,
+                                *rest,
+                                Visibility::default(),
+                            ))
+                            .id();
+                        let parent = skeleton.parents[index].map_or(origin, |p| joints[p]);
+                        commands.entity(parent).add_child(joint);
+                        joints.push(joint);
+                    }
+                    origin
+                }
+                None => entity,
+            };
+            for surface in &gun.surfaces {
+                let Paint::Own(material) = &surface.paint else {
+                    continue;
+                };
+                let mut part = commands.spawn((
+                    Mesh3d(surface.mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::default(),
+                ));
+                if let Some(skeleton) = &gun.skeleton {
+                    part.insert((
+                        SkinnedMesh {
+                            inverse_bindposes: skeleton.inverse_bindposes.clone(),
+                            joints: joints.clone(),
+                        },
+                        DynamicSkinnedMeshBounds,
+                    ));
+                }
+                let part = part.id();
+                commands.entity(parent).add_child(part);
+            }
+            rig.gun = Some(InHand {
+                item,
+                from,
+                entity,
+                joints,
+                player: gun
+                    .skeleton
+                    .as_ref()
+                    .map(|_| gun_anim::GunPlayer::new(hand.shots)),
+            });
+            continue;
+        }
+        let grip = rig.grip;
+        let (Some(held), Some((_, _, gun)), Some(hand)) = (rig.gun.as_mut(), wanted, hand) else {
+            continue;
+        };
+        if let Ok(mut transform) = transforms.get_mut(held.entity) {
+            *transform = grip;
+        }
+        let (Some(player), Some(skeleton)) = (held.player.as_mut(), &gun.skeleton) else {
+            continue;
+        };
+        let pose = player.step(&skeleton.clips, &skeleton.motion, hand.shots, seconds);
+        for (index, &joint) in held.joints.iter().enumerate() {
+            let Ok(mut transform) = transforms.get_mut(joint) else {
+                continue;
+            };
+            *transform = match &pose {
+                Some((rotations, translations, scales)) if index < rotations.len() => Transform {
+                    translation: translations[index],
+                    rotation: rotations[index],
+                    scale: scales[index],
+                },
+                _ => skeleton.rest[index],
+            };
         }
     }
 }
@@ -831,6 +941,95 @@ mod tests {
         give(&mut app, None);
         assert!(held(&mut app).is_empty());
         assert!(wrench_shown(&mut app));
+    }
+
+    #[test]
+    fn a_gun_with_a_skeleton_grows_in_settles_and_recoils_on_its_own_joints() {
+        let mut app = app();
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ));
+        // Each sequence holds the gun's first joint at its own height.
+        let clip = |height: f32| {
+            let keyframe = RigKeyframe {
+                ticks: 2.0,
+                frame: 0.0,
+                rotations: vec![Quat::IDENTITY; 2],
+                offsets: vec![Vec3::Y * height, Vec3::X],
+                scales: vec![Vec3::ONE; 2],
+            };
+            RigClip {
+                keyframes: vec![keyframe.clone(), keyframe],
+                looping: true,
+                start: 0,
+            }
+        };
+        let mut surface = Surface::new(Paint::Own(Handle::default()), false);
+        surface.push_rigid(&[[Vec3::ZERO, Vec3::X, Vec3::Y]], 1);
+        let gun = GunData {
+            item: Some(0x99),
+            level: 0,
+            surfaces: vec![surface],
+            skeleton: Some(GunSkeleton {
+                origin: Transform::default(),
+                parents: vec![None, Some(0)],
+                binds: vec![Mat4::IDENTITY, Mat4::from_translation(Vec3::X)],
+                clips: [(0, clip(1.0)), (1, clip(2.0)), (2, clip(3.0))].into(),
+                motion: GunMotion {
+                    recoil: Recoil::Cut,
+                    early: None,
+                    settle_ticks: 2.0,
+                },
+            }),
+        };
+        let world = app.world_mut();
+        world.resource_scope(|world, mut guns: Mut<RigGuns>| {
+            world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                let mut bindposes = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
+                guns.add(gun, &mut meshes, &mut bindposes);
+            });
+        });
+        let hero = app
+            .world_mut()
+            .spawn((
+                HeroBody(HeroMotion::new(Vec3::ZERO, 0.0)),
+                RigLook::for_player(0),
+            ))
+            .id();
+        app.update();
+        app.update();
+        let fire = |app: &mut App, shots: u8, ticks: usize| {
+            let mut body = app.world_mut().get_mut::<HeroBody>(hero).unwrap();
+            body.0.gun.out = true;
+            body.0.gun.item = Some(0x99);
+            body.0.gun.shots = shots;
+            for _ in 0..ticks {
+                app.update();
+            }
+        };
+        let height = |app: &mut App| {
+            let mut named = app.world_mut().query::<(&Name, &Transform)>();
+            named
+                .iter(app.world())
+                .find(|(n, _)| n.as_str() == "gun joint 0")
+                .map(|(_, t)| t.translation.y)
+                .unwrap()
+        };
+        fire(&mut app, 0, 2);
+        let mut skinned = app.world_mut().query::<&SkinnedMesh>();
+        let own: Vec<usize> = skinned
+            .iter(app.world())
+            .map(|s| s.joints.len())
+            .filter(|&n| n != joint::COUNT)
+            .collect();
+        assert_eq!(own, [2], "the gun's surface on its own two joints");
+        assert!((height(&mut app) - 1.0).abs() < 1e-5, "growing in");
+        fire(&mut app, 0, 20);
+        assert!((height(&mut app) - 2.0).abs() < 1e-5, "at rest");
+        fire(&mut app, 1, 1);
+        assert!((height(&mut app) - 3.0).abs() < 1e-5, "recoiling");
+        fire(&mut app, 1, 20);
+        assert!((height(&mut app) - 2.0).abs() < 1e-5, "settled again");
     }
 
     #[test]

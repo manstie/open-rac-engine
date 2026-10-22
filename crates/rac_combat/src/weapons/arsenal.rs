@@ -54,6 +54,22 @@ pub struct LevelUp {
     pub level: u8,
 }
 
+/// What the gun in a hero's hand aims at this tick, for a HUD to mark (`weapons.md`, "Aim
+/// indicators"; each gun's [`super::def::Sight`] says how).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Sights {
+    /// The enemy it would fire at by its own aim: the Annihilator's held pick, the
+    /// Qwack-O-Ray's beam target, else its aim assist's pick; none while he is locked on
+    /// or the lock-strafe camera aims for it.
+    pub target: Option<Entity>,
+    /// The targets it has marked, newest last: the Spitting Hydra's, or those the RY3NO's
+    /// assist finds.
+    pub marks: Vec<Entity>,
+    /// It can fire now: out its ready ticks, past any wait, in a state that fires, with a
+    /// round.
+    pub ready: bool,
+}
+
 /// A hero's guns. Put it beside the [`rac_hero::Hero`]; the weapons code fires them and
 /// tells his moves what he holds.
 #[derive(Component, Debug, Default, Clone, PartialEq)]
@@ -90,6 +106,10 @@ pub struct Arsenal {
     pub(crate) shield: Option<ShieldUp>,
     /// His moves' count of the Plasma Whip's attacks, as last seen.
     pub(crate) whip_seen: u32,
+    /// What his agents share.
+    pub(crate) agent_book: super::shots::AgentBook,
+    /// What the gun in his hand aims at, as of the last tick.
+    pub sights: Sights,
 }
 
 impl Arsenal {

@@ -37,7 +37,8 @@ session is working on the task now; notes on problems met stay with their task (
   their blends (P1.7), melee for both games (P1.8), and all twenty of UYA's guns with their
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
   models, each level's) with their firing animations, UYA's quick-select ring, UYA's ammo
-  pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings (P1.12). He
+  pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
+  crosshairs, lock-on reticle, target marks and the Flux scope (P1.12). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
@@ -65,11 +66,9 @@ session is working on the task now; notes on problems met stay with their task (
 2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
    first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
    done, the wall jump and ledges traced too).
-3. P1.10's nanotech, explosive and doubler crates ("Ammo pickups, crates and the vendor"),
-   then P1.9's rest: the guns' own sequences on the held gun ("The gun's own animation"),
-   the whip's rope and the Shield Charger's bubble on the rig, the agents' gun and the
-   Nitro Eruptor's bullets; then the aim indicators (P1.12) and the guns' effects from
-   the disc (P3.18).
+3. The guns' effects from the disc (P3.18), with the aim indicators' textures and the
+   whip's links and shield, then P1.10's nanotech, explosive and doubler crates ("Ammo
+   pickups, crates and the vendor").
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** savestates by moves that need a particular
@@ -649,16 +648,20 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Done 2026-10-22: the agents' search (`aim::level_search`, claims), states, walker and
+    gun (`ShotKind::Slug`, UYA's small bullet, and the shared `AgentBook`); the Nitro
+    Eruptor's 15 small bullets; `SmallMissile`, shared by the Decimator and the Agents of
+    Dread; the guns' own sequences on the held gun (`rac_rig::GunSkeleton`,
+    `gun_anim.rs`, recoils by `openrac`'s `gun_models::uya_motion`); the whip's rope and
+    the shield on the rig (`rope.rs`, placeholder looks). Seen running on Xvfb: the disc
+    guns skinned in his hand, the rope trailing and pulling out, the shield round him.
   - Done 2026-10-22: the Flux Rifle's scoped beam, piercing from V2 (`ShotKind::Beam`);
     the Annihilator's mines (V2–V4) and seekers (V5); shock arcs only to enemies in
     sight, striking 10 ticks on (`Arcs`); the view's aim point within 30 u; the raised
     gun arm (`rac_hero::GunArm`, which also picks the arms-only firing animation) and the
     gun's aim point (`GunHand::target`), which turns his head and upper body through
     `rac_rig`'s joint springs (`springs.rs`).
-  - Next step: the guns' own sequences on the held gun, by "The gun's own animation"
-    (its draw once, then a 2-tick blend into its idle, the recoil per the gun's table),
-    then the whip's rope and the Shield Charger's bubble, the agents' gun and walking
-    speeds and the Nitro Eruptor's 15 bullets (UYA's enemy bullet, class 0x1855).
+  - Next step: the whip's links and the shield from their disc classes with P3.18.
   - Done 2026-10-22: all twenty of UYA's guns (`weapons.md`, "In the kit", "The other
     fourteen"): their RON entries, a fire mode each in `weapons/{seekers,thrown,grab,
     hand}.rs`, enemies-only searches (`Hostile`), `Affliction`s (infected, duck,
@@ -744,11 +747,16 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     kit", "HUD"): the gun, health and bolts shown for the game's frames after what shows
     them, the bolt tally and its roll, the low pulses, the next two recent guns, the
     ring's fade; tests on the clock and the view. Seen running on Xvfb.
-  - Not done: L3's show-all (no binding), the pause menu and settings.
-  - Next: the guns' aim indicators, as `weapons.md`'s "Aim indicators" reads them: the
-    lock-on reticle's three turning rings and health arc, the guns' markers, each gun's
-    crosshair with its pulse and red over a target, the shared target mark and the Flux
-    Rifle's scope. Placeholder sprites first; the disc's effect textures with P3.18.
+  - Done 2026-10-22: the guns' aim indicators (`hud/sights.rs`; `weapons.md`, "In the
+    kit", "Aim indicators"): the lock-on reticle with its health arc, each gun's
+    crosshair, the target marks, the Hydra's triangles and the Flux scope, from each
+    gun's `sight` and `Arsenal::sights`, on placeholder sprites keyed by effect-texture
+    number. They replace the demo's lock-on torus. Seen running on Xvfb: the crosshairs
+    and the scope.
+  - Lock-on is gamepad-only (`Action::is_gamepad_only`), so under Xvfb the reticle can
+    only be tested, not seen.
+  - Not done: L3's show-all (no binding), the pause menu and settings; the sights'
+    textures from the disc (P3.18) and the Flux scope's zoom.
   - xdotool's keys didn't reach the app under Xvfb (no window manager, so no focus);
     `xdotool windowfocus --sync` on the window first fixes it (CLAUDE.md, "Running the
     app off-screen").
@@ -976,6 +984,8 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     four blends that matter; placeholders without a disc.
   - Each gun's recipes, read gun by gun from its code, keyed by the effect names
     `GunEvent`s carry; the sounds with P3.13.
+  - The aim indicators' textures into `rac_demo::hud::SightImages` by their numbers, and
+    the whip's links and the shield from their classes.
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.

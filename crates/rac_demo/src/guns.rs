@@ -175,7 +175,8 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
             }
         }
         ShotKind::Pod => ball(0.3, &looks.agent),
-        ShotKind::Agent { .. } => ball(0.3, &looks.agent),
+        ShotKind::Agent(_) => ball(0.3, &looks.agent),
+        ShotKind::Slug => ball(0.05, &looks.bullet),
         ShotKind::Comet { .. } => ball(0.2, &looks.charge),
         ShotKind::Wave => ball(0.5, &looks.arc),
         ShotKind::Pulse { .. } => ball(0.2, &looks.holo),

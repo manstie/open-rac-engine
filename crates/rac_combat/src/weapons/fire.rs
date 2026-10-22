@@ -16,7 +16,7 @@ use std::f32::consts::TAU;
 use super::{
     Affliction, GunEventKind,
     aim::{GunTarget, assist_target, assist_targets, bend, first_target, view_point},
-    arsenal::{Arsenal, Hand},
+    arsenal::{Arsenal, Hand, Sights},
     def::{
         AimAssist, Armory, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Stream, Timing,
         WeaponDef, WeaponId,
@@ -200,6 +200,7 @@ pub fn step(
         0
     };
     arsenal.fire_ticks = arsenal.fire_ticks.saturating_sub(1);
+    let mut ready_now = false;
     if let Hand::Gun { weapon, ticks } = arsenal.hand
         && let Some(def) = armory.get(weapon)
     {
@@ -211,6 +212,7 @@ pub fn step(
             && can_fire_in(hero.state)
             && (hero.state != HeroState::Look || arsenal.trigger.look >= def.look_wait_ticks);
         let gun = Gun::new(arsenal, armory, weapon, def, ready, gun_input);
+        ready_now = ready && arsenal.gun(weapon).is_some_and(|owned| owned.ammo > 0);
         let before = out.events.len();
         match &def.fire {
             FireMode::Hitscan(fire) => {
@@ -281,6 +283,7 @@ pub fn step(
     shots::step(
         &mut arsenal.shots,
         &mut arsenal.shot_serial,
+        &mut arsenal.agent_book,
         armory,
         gun_input,
         rng,
@@ -295,7 +298,21 @@ pub fn step(
         .gun()
         .and_then(|weapon| arsenal.gun(weapon))
         .map_or(0, |gun| gun.level);
-    let target = in_hand.and_then(|def| head_target(def, level, gun_input, armory));
+    let assisted = in_hand.and_then(|def| head_target(def, level, gun_input, armory));
+    let target = assisted.map(|(_, at)| at);
+    arsenal.sights = Sights {
+        target: match in_hand.map(|def| &def.fire) {
+            _ if gun_input.lock.is_some() => None,
+            Some(FireMode::Homing(_)) => arsenal.trigger.picked,
+            Some(FireMode::Beam(_)) => arsenal.trigger.beam.map(|(entity, ..)| entity),
+            _ => assisted.map(|(entity, _)| entity),
+        },
+        marks: match in_hand.map(|def| &def.fire) {
+            Some(FireMode::Hydra(_) | FireMode::Volley(_)) => arsenal.trigger.marked.clone(),
+            _ => Vec::new(),
+        },
+        ready: ready_now,
+    };
     out.hand = GunHand {
         out: in_hand.is_some(),
         firing,
@@ -325,7 +342,12 @@ pub fn step(
 /// muzzle along his facing. UYA's guns set it as they aim, each in its own update
 /// (the Shock Blaster and Lava Gun too, which the kit's give no assist): here every gun
 /// with an assist names its pick each tick [simplified].
-fn head_target(def: &WeaponDef, level: u8, gun_input: &GunInput, armory: &Armory) -> Option<Vec3> {
+fn head_target(
+    def: &WeaponDef,
+    level: u8,
+    gun_input: &GunInput,
+    armory: &Armory,
+) -> Option<(Entity, Vec3)> {
     let assist = def.fire.assist(level)?;
     let hero = gun_input.hero;
     let strafing = gun_input
@@ -345,7 +367,10 @@ fn head_target(def: &WeaponDef, level: u8, gun_input: &GunInput, armory: &Armory
         |target| target.enemy,
         1,
     );
-    picked.first().map(|&index| gun_input.targets[index].centre)
+    picked.first().map(|&index| {
+        let target = &gun_input.targets[index];
+        (target.entity, target.centre)
+    })
 }
 
 /// The quick-select button (`weapons.md`, "The quick-select ring"): pressed, it opens the
@@ -1194,6 +1219,7 @@ mod tests {
             entity,
             centre: Vec3::ZERO,
             radius: 0.5,
+            height: 0.0,
             alive: true,
             health: None,
             enemy: true,

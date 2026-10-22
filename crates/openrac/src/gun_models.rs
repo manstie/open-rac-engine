@@ -9,23 +9,28 @@
 //!   in UYA's hero. Worn by UYA's hero, a gun then sits where the game puts it; any other
 //!   model holds it the same way in its own fist.
 //! - A gun's class has a skeleton and three sequences of its own: 0 grows it from nothing
-//!   as it comes out, 1 holds it at rest, and 2 is its recoil [data]. Which the game plays
-//!   when isn't read, so here it is baked at rest and moves with the hand.
+//!   as it comes out, 1 holds it at rest, and 2 is its recoil [data]. The rig plays them by
+//!   the game's rules, each gun's recoil as its code plays it ([`uya_motion`]). The Agents'
+//!   and Holo Shield's gloves and the whip, whose classes have one sequence, are baked in
+//!   it.
 //! - Its model changes with its level ([`UYA_GUN_MODELS`]): from V2 its update shows more of
 //!   its bangles, and from V5 its rows name another class.
 
 use std::collections::BTreeMap;
 
 use bevy::math::Affine3A;
+use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 use rac_formats::gadget::{Gadget, GadgetTable};
 use rac_formats::level::{Core, Toc};
 use rac_formats::moby::{MobyClass, PacketKind};
 use rac_formats::{DiscReader, FormatError};
-use rac_rig::{GunData, Paint, RigGuns, joint, model};
+use rac_rig::{GunData, GunMotion, GunSkeleton, Paint, Recoil, RigGuns, joint, model};
 
-use crate::hero_anims::rest_orientation;
-use crate::hero_model::{Builder, ImportError, ImportPaint, baked, chromed, material, textured};
+use crate::hero_anims::{binds, part_clips, rest_orientation};
+use crate::hero_model::{
+    Builder, ImportError, ImportPaint, add_skinned, baked, chromed, material, textured,
+};
 
 /// One of a gun's models: the gun's item number, the level it shows from (0 for V1), its
 /// class, and which of the class's bangles it shows.
@@ -155,10 +160,35 @@ pub const UYA_GUN_MODELS: &[GunModel] = &[
 #[cfg(test)]
 const GLOVES: &[u16] = &[0x57, 0x67, 0x15];
 
-/// The pose a gun is baked in: its sequence 1, at rest, or for a class with one sequence
-/// (the gloves and the whip) that one's.
-fn gun_pose(class: &MobyClass) -> (usize, usize) {
-    (usize::from(class.sequences.len() > 1), 0)
+/// The pose a class with one sequence (two of the gloves and the whip) is baked in.
+const GLOVE_POSE: (usize, usize) = (0, 0);
+
+/// Whether a class plays its own sequences in the hand: it has a rest to settle into.
+fn plays(class: &MobyClass) -> bool {
+    class.sequences.get(1).is_some_and(Option::is_some)
+}
+
+/// What each of UYA's guns does with its own sequences as it fires (`weapons.md`, "The
+/// gun's own animation") [code]: every one goes to its rest over 2 ticks once a sequence
+/// has come round, but the Plasma Coil's, which cuts to it.
+pub fn uya_motion(item: u16, level: u8) -> GunMotion {
+    let recoil = match (item, level) {
+        // The N90 Hurricane, the N60's V5.
+        (0x2F, 4..) => Recoil::Restart { speed: 3.0 },
+        // The Flux Rifle, Annihilator, Infector, RY3NO and Disc Blade Gun.
+        (0x6F | 0x3F | 0x37 | 0x97 | 0x4F, _) => Recoil::Cut,
+        // The Nitro Launcher and Bouncer.
+        (0x77 | 0x13, _) => Recoil::Blend { ticks: 2.0 },
+        // The Spitting Hydra and Suck Cannon.
+        (0x47 | 0x87, _) => Recoil::Restart { speed: 1.0 },
+        _ => Recoil::None,
+    };
+    GunMotion {
+        recoil,
+        // The Annihilator and Disc Blade Gun fired while they grow in.
+        early: matches!(item, 0x3F | 0x4F).then_some(4.0),
+        settle_ticks: if item == 0x10 { 0.0 } else { 2.0 },
+    }
 }
 
 /// A gun's model read from the disc. Its surfaces' paints are placeholders until
@@ -241,8 +271,9 @@ fn into_grip(hero: &MobyClass) -> Result<Affine3A, ImportError> {
         * Affine3A::from_quat(rest_orientation(hand)))
 }
 
-/// One model: its class's mesh and the bangles it shows, baked in [`gun_pose`] in the rig's
-/// gun space.
+/// One model: its class's mesh and the bangles it shows. A class that plays its own
+/// sequences is skinned to its skeleton, its origin placed in the rig's gun space; one that
+/// doesn't is baked there.
 fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun, ImportError> {
     let class = &gadget.class;
     let metal = class.mesh(PacketKind::Metal)?;
@@ -251,11 +282,23 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
         .iter()
         .filter(|bangle| bangle.slot < 16 && model.bangles & (1 << bangle.slot) != 0)
         .map(|bangle| bangle.mesh(PacketKind::High));
+    let skinned = plays(class);
     let mut builder = Builder::default();
     for mesh in std::iter::once(class.mesh(PacketKind::High)).chain(shown) {
         let mesh = mesh?;
+        if skinned {
+            add_skinned(
+                &mut builder,
+                &mesh,
+                &metal,
+                &gadget.textures,
+                class.unit(),
+                usize::from,
+            );
+            continue;
+        }
         let chrome = chromed(&mesh, &metal);
-        let (mut vertices, _) = baked(class, &mesh, gun_pose(class), "a gun", Vec3::ZERO, |_| 0)?;
+        let (mut vertices, _) = baked(class, &mesh, GLOVE_POSE, "a gun", Vec3::ZERO, |_| 0)?;
         for vertex in &mut vertices {
             vertex.position = into_grip.transform_point3(vertex.position);
             vertex.normal = into_grip.transform_vector3(vertex.normal);
@@ -265,11 +308,19 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
         });
     }
     let (surfaces, paints) = builder.finish();
+    let skeleton = skinned.then(|| GunSkeleton {
+        origin: Transform::from_matrix(Mat4::from(into_grip)),
+        parents: class.joints.iter().map(|joint| joint.parent).collect(),
+        binds: binds(class),
+        clips: part_clips(class),
+        motion: uya_motion(model.item, model.level),
+    });
     Ok(DiscGun {
         data: GunData {
             item: Some(model.item),
             level: model.level,
             surfaces,
+            skeleton,
         },
         paints,
     })
@@ -281,6 +332,7 @@ pub fn register_disc_guns(
     pending: Option<ResMut<DiscGuns>>,
     mut guns: ResMut<RigGuns>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut bindposes: ResMut<Assets<SkinnedMeshInverseBindposes>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -292,7 +344,7 @@ pub fn register_disc_guns(
         for (surface, paint) in data.surfaces.iter_mut().zip(paints) {
             surface.paint = Paint::Own(materials.add(material(paint, &mut images)));
         }
-        guns.add(data, &mut meshes);
+        guns.add(data, &mut meshes, &mut bindposes);
     }
     if count > 0 {
         info!("the guns' models from the disc are ready: {count}");
@@ -356,12 +408,26 @@ mod disc_tests {
             assert_eq!(gun.data.level, model.level);
             assert_eq!(gun.paints.len(), gun.data.surfaces.len());
             assert!(gun.paints.iter().all(|p| p.texture.is_some()), "{name}");
+            // A skinned gun's surfaces are at rest about its origin.
+            let origin = gun
+                .data
+                .skeleton
+                .as_ref()
+                .map_or(Affine3A::IDENTITY, |s| s.origin.compute_affine());
             let points: Vec<Vec3> = gun
                 .data
                 .surfaces
                 .iter()
-                .flat_map(|s| s.positions.iter().copied())
+                .flat_map(|s| s.positions.iter().map(|p| origin.transform_point3(*p)))
                 .collect();
+            // Every gun held by a grip plays its own sequences; of the gloves, only the
+            // Miniturret's has a rest to settle into.
+            if !GLOVES.contains(&model.item) && model.item != 0x7F {
+                assert!(
+                    gun.data.skeleton.is_some(),
+                    "{name}: plays its own sequences"
+                );
+            }
             let (low, high) = points
                 .iter()
                 .fold((Vec3::MAX, Vec3::MIN), |(l, h), p| (l.min(*p), h.max(*p)));

@@ -295,7 +295,7 @@ pub(crate) fn binds(class: &MobyClass) -> Vec<Mat4> {
 /// Every sequence of a class worn as an attachment, by number: each joint's whole
 /// transform from its parent in the hero's axes and metres, looping, as a moby's
 /// sequences do.
-fn part_clips(class: &MobyClass) -> BTreeMap<u8, RigClip> {
+pub(crate) fn part_clips(class: &MobyClass) -> BTreeMap<u8, RigClip> {
     let unit = class.unit();
     class
         .sequences

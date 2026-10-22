@@ -448,7 +448,7 @@ fn folded(map: &SkeletonMap) -> impl Fn(u8) -> usize + '_ {
 
 /// A mesh at rest in class units of `unit` metres, its joints moved to the ones it's worn
 /// on by `follow`, with its textures and the metal packets drawn over it.
-fn add_skinned(
+pub(crate) fn add_skinned(
     builder: &mut Builder,
     mesh: &MobyMesh,
     metal: &MobyMesh,

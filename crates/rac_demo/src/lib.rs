@@ -24,7 +24,7 @@ use rac_combat::{
 };
 use rac_hero::{
     CameraSetting, Checkpoint, Collider, FollowCamera, Hero, HeroBody, HeroPlugin, HeroTuning,
-    LockOn, hero_bundle,
+    hero_bundle,
 };
 use rac_rig::{RigLook, RigPlugin};
 use rac_sim::{SimSet, SimTick, SimTransform};
@@ -62,10 +62,6 @@ struct Spark {
 
 /// How long a clank's spark lasts.
 const SPARK_TICKS: u32 = 10;
-
-/// The ring shown round the target the hero is locked on to.
-#[derive(Component, Debug, Default, Clone, Copy)]
-struct LockMarker;
 
 /// Moves the level's platforms and flies the spectator camera, both in the simulation.
 pub struct DemoPlugin;
@@ -117,7 +113,6 @@ impl Plugin for DemoPlugin {
                 Update,
                 (
                     flash_targets,
-                    show_lock_on,
                     choose_camera.run_if(resource_changed::<DemoSettings>),
                     hide_hero_in_first_person,
                 ),
@@ -379,20 +374,6 @@ pub fn spawn_demo(
         Visibility::default(),
     ));
     spawn_hud(&mut commands, 0, &hud);
-    commands.spawn((
-        Name::new("lock-on marker"),
-        DemoEntity,
-        LockMarker,
-        // Wide enough to clear a crate's corners and a dummy's height.
-        Mesh3d(meshes.add(Torus::new(0.78, 0.92))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.35, 0.2),
-            unlit: true,
-            ..default()
-        })),
-        Transform::default(),
-        Visibility::Hidden,
-    ));
     let mut camera = FollowCamera::for_player(0, 0.0);
     camera.setting = settings.camera;
     let (translation, rotation) = camera.placement(HERO_SPAWN, &tuning.0.camera);
@@ -486,28 +467,6 @@ fn flash_targets(
                 look.0 = wanted.clone();
             }
         }
-    }
-}
-
-/// Rings the locked-on target, turned to the camera and spinning.
-fn show_lock_on(
-    time: Res<Time>,
-    locks: Query<&LockOn>,
-    cameras: Query<&GlobalTransform, With<FollowCamera>>,
-    mut markers: Query<(&mut Transform, &mut Visibility), With<LockMarker>>,
-) {
-    let target = locks.iter().find_map(LockOn::target_point);
-    for (mut transform, mut visibility) in &mut markers {
-        let (Some(at), Ok(camera)) = (target, cameras.single()) else {
-            visibility.set_if_neq(Visibility::Hidden);
-            continue;
-        };
-        visibility.set_if_neq(Visibility::Visible);
-        let towards = (camera.translation() - at).normalize_or(Vec3::Z);
-        // A torus lies flat about +y; stand it up facing the camera.
-        let facing = Quat::from_rotation_arc(Vec3::Y, towards);
-        *transform = Transform::from_translation(at)
-            .with_rotation(facing * Quat::from_rotation_y(time.elapsed_secs() * 3.0));
     }
 }
 

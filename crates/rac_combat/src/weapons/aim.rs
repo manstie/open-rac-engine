@@ -13,6 +13,8 @@ pub struct GunTarget {
     /// The middle of its hurtbox.
     pub centre: Vec3,
     pub radius: f32,
+    /// How far its middle is above its feet.
+    pub height: f32,
     /// It has hit points left, or none to lose.
     pub alive: bool,
     /// Its hit points now and at most, if it has any.
@@ -21,15 +23,52 @@ pub struct GunTarget {
     pub enemy: bool,
 }
 
+impl GunTarget {
+    pub fn feet(&self) -> Vec3 {
+        self.centre - Vec3::Y * self.height
+    }
+}
+
+/// UYA's level search (`target_search_level` 0x44CD90, scoring 0x44CC18): of the targets
+/// `wanted` within `range` of `from` (measured to their feet), the one with the least
+/// distance × (1 + the angle of its bearing off `bearing`, a yaw fixed in the world),
+/// skipping any more than `most_pitch` above or below level from `from` to its feet.
+/// Its index.
+pub fn level_search(
+    targets: &[GunTarget],
+    from: Vec3,
+    bearing: f32,
+    range: f32,
+    most_pitch: Option<f32>,
+    wanted: impl Fn(&GunTarget) -> bool,
+) -> Option<usize> {
+    let mut best: Option<(usize, f32)> = None;
+    for (index, target) in targets.iter().enumerate() {
+        if !wanted(target) {
+            continue;
+        }
+        let to = target.feet() - from;
+        let distance = to.length();
+        if distance > range || most_pitch.is_some_and(|most| pitch_of(to).abs() > most) {
+            continue;
+        }
+        let score = distance * (1.0 + wrap(yaw_of(to) - bearing).abs());
+        if best.is_none_or(|(_, least)| score < least) {
+            best = Some((index, score));
+        }
+    }
+    best.map(|(index, _)| index)
+}
+
 /// How far a sight line stops short of a target's middle, as the lock-on's does, since a
 /// target can be solid.
 const SIGHT_SHORT: f32 = 0.75;
 
-fn wrap(angle: f32) -> f32 {
+pub(super) fn wrap(angle: f32) -> f32 {
     (angle + PI).rem_euclid(TAU) - PI
 }
 
-fn yaw_of(direction: Vec3) -> f32 {
+pub(super) fn yaw_of(direction: Vec3) -> f32 {
     ops::atan2(-direction.x, -direction.z)
 }
 
@@ -209,6 +248,7 @@ mod tests {
             entity: Entity::from_raw_u32(index).unwrap(),
             centre,
             radius: 0.5,
+            height: 0.0,
             alive: true,
             health: None,
             enemy: true,

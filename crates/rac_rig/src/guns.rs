@@ -11,14 +11,19 @@
 //!   ([`RigGuns::add`]), such as the guns' models from the user's disc.
 //! - A gun may change its model as it levels up, as UYA's do from V5 (row +0x10): a model
 //!   shows from its level ([`GunData::level`]) until the next model's.
+//! - A gun with a skeleton of its own ([`GunSkeleton`]) plays its own sequences as the game
+//!   does: it grows in, settles into its rest, and recoils as it fires
+//!   ([`crate::gun_anim`]).
 
 use std::collections::BTreeMap;
 
+use bevy::mesh::skinning::SkinnedMeshInverseBindposes;
 use bevy::prelude::*;
 
+use crate::clips::RigClip;
 use crate::hull::convex_hull;
 use crate::shapes::{beam, block};
-use crate::wear::{Paint, RigSurface, Surface};
+use crate::wear::{Paint, RigSurface, Surface, rest_from_binds};
 
 /// A gun's model before it's registered.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,39 +33,122 @@ pub struct GunData {
     /// The gun's level it shows from, 0 for V1 ([`rac_hero::GunHand::level`]).
     pub level: u8,
     /// In the gun's own space, each in its own material ([`Paint::Own`]); surfaces in
-    /// other paints aren't drawn.
+    /// other paints aren't drawn. With a skeleton they are skinned to its joints, in its
+    /// origin's space; without one they are rigid.
     pub surfaces: Vec<Surface>,
+    pub skeleton: Option<GunSkeleton>,
+}
+
+/// A gun's own skeleton and sequences, as a moby's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GunSkeleton {
+    /// Where its origin sits in the gun's space.
+    pub origin: Transform,
+    /// Each joint's parent, which comes before it; the first joint has none.
+    pub parents: Vec<Option<usize>>,
+    /// Each joint's place, turn and scale at rest from the origin: what its inverse bind
+    /// undoes.
+    pub binds: Vec<Mat4>,
+    /// Its sequences by number. UYA's guns have three: 0 grows the gun from nothing as it
+    /// comes out, 1 holds it, 2 recoils.
+    pub clips: BTreeMap<u8, RigClip>,
+    pub motion: GunMotion,
+}
+
+/// How a gun's own sequences follow its firing (`weapons.md`, "The gun's own animation").
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct GunMotion {
+    pub recoil: Recoil,
+    /// Fired while it still grows in, it goes to its rest over these ticks instead.
+    pub early: Option<f32>,
+    /// Ticks it takes to go to its rest once a sequence has come round: 2 for UYA's guns,
+    /// 0 (a cut) for the Plasma Coil's.
+    pub settle_ticks: f32,
+}
+
+/// What a shot does to the gun's own animation.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum Recoil {
+    /// Nothing.
+    #[default]
+    None,
+    /// Cuts to the recoil.
+    Cut,
+    /// Cuts to the recoil unless it plays it already, then plays at `speed`.
+    Restart { speed: f32 },
+    /// Blends to the recoil over `ticks`.
+    Blend { ticks: f32 },
+}
+
+/// A registered gun model.
+#[derive(Debug, Clone)]
+pub(crate) struct RigGun {
+    pub surfaces: Vec<RigSurface>,
+    pub skeleton: Option<RigGunSkeleton>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RigGunSkeleton {
+    pub origin: Transform,
+    pub parents: Vec<Option<usize>>,
+    /// Each joint's transform from its parent at rest.
+    pub rest: Vec<Transform>,
+    pub inverse_bindposes: Handle<SkinnedMeshInverseBindposes>,
+    pub clips: BTreeMap<u8, RigClip>,
+    pub motion: GunMotion,
 }
 
 /// Every gun model the rig can put in a hero's hand.
 #[derive(Resource, Debug, Clone, Default)]
 pub struct RigGuns {
-    guns: BTreeMap<(Option<u16>, u8), Vec<RigSurface>>,
+    guns: BTreeMap<(Option<u16>, u8), RigGun>,
 }
 
 impl RigGuns {
     /// Adds a gun's model, replacing any for the same item from the same level.
-    pub fn add(&mut self, data: GunData, meshes: &mut Assets<Mesh>) {
+    pub fn add(
+        &mut self,
+        data: GunData,
+        meshes: &mut Assets<Mesh>,
+        bindposes: &mut Assets<SkinnedMeshInverseBindposes>,
+    ) {
+        let skinned = data.skeleton.is_some();
         let surfaces = data
             .surfaces
             .iter()
-            .map(|surface| RigSurface {
-                mesh: meshes.add(surface.mesh(false, Vec3::ZERO)),
-                paint: surface.paint.clone(),
-                wrench: false,
+            .map(|surface| {
+                let mut mesh = surface.mesh(skinned, Vec3::ZERO);
+                if skinned && let Ok(bounded) = mesh.clone().with_generated_skinned_mesh_bounds() {
+                    mesh = bounded;
+                }
+                RigSurface {
+                    mesh: meshes.add(mesh),
+                    paint: surface.paint.clone(),
+                    wrench: false,
+                }
             })
             .collect();
-        self.guns.insert((data.item, data.level), surfaces);
+        let skeleton = data.skeleton.map(|skeleton| RigGunSkeleton {
+            origin: skeleton.origin,
+            rest: rest_from_binds(&skeleton.binds, &skeleton.parents),
+            parents: skeleton.parents,
+            inverse_bindposes: bindposes
+                .add(skeleton.binds.iter().map(Mat4::inverse).collect::<Vec<_>>()),
+            clips: skeleton.clips,
+            motion: skeleton.motion,
+        });
+        self.guns
+            .insert((data.item, data.level), RigGun { surfaces, skeleton });
     }
 
     /// The model for `item` at `level`, and the level it shows from: its own latest model
     /// by then, or the stand-in for guns without one.
-    pub(crate) fn get(&self, item: u16, level: u8) -> Option<(u8, &[RigSurface])> {
+    pub(crate) fn get(&self, item: u16, level: u8) -> Option<(u8, &RigGun)> {
         self.guns
             .range((Some(item), 0)..=(Some(item), level))
             .next_back()
             .or_else(|| self.guns.range((None, 0)..=(None, u8::MAX)).next())
-            .map(|((_, from), surfaces)| (*from, surfaces.as_slice()))
+            .map(|((_, from), gun)| (*from, gun))
     }
 
     /// Whether `item` has a model of its own.
@@ -299,6 +387,7 @@ pub fn open_guns(materials: &mut Assets<StandardMaterial>) -> Vec<GunData> {
                 item: design.item,
                 level: 0,
                 surfaces,
+                skeleton: None,
             }
         })
         .collect()
@@ -309,13 +398,16 @@ pub(crate) fn register_open_guns(
     mut guns: ResMut<RigGuns>,
     meshes: Option<ResMut<Assets<Mesh>>>,
     materials: Option<ResMut<Assets<StandardMaterial>>>,
+    bindposes: Option<ResMut<Assets<SkinnedMeshInverseBindposes>>>,
 ) {
-    let (Some(mut meshes), Some(mut materials)) = (meshes, materials) else {
+    let (Some(mut meshes), Some(mut materials), Some(mut bindposes)) =
+        (meshes, materials, bindposes)
+    else {
         return;
     };
     for gun in open_guns(&mut materials) {
         if gun.item.is_none_or(|item| !guns.has(item)) {
-            guns.add(gun, &mut meshes);
+            guns.add(gun, &mut meshes, &mut bindposes);
         }
     }
 }
@@ -349,20 +441,25 @@ mod tests {
     fn a_gun_without_its_own_model_gets_the_stand_in() {
         let mut meshes = Assets::<Mesh>::default();
         let mut materials = Assets::<StandardMaterial>::default();
+        let mut bindposes = Assets::<SkinnedMeshInverseBindposes>::default();
         let mut guns = RigGuns::default();
         for gun in open_guns(&mut materials) {
-            guns.add(gun, &mut meshes);
+            guns.add(gun, &mut meshes, &mut bindposes);
         }
         assert!(guns.has(item::N60_STORM));
         assert!(!guns.has(0x37), "the Infector has no open model");
         let (_, stand_in) = guns.get(0x37, 0).unwrap();
-        assert_eq!(stand_in.len(), 2, "body and glow");
-        assert_ne!(guns.get(item::N60_STORM, 0).unwrap().1, stand_in);
+        assert_eq!(stand_in.surfaces.len(), 2, "body and glow");
+        assert_ne!(
+            guns.get(item::N60_STORM, 0).unwrap().1.surfaces,
+            stand_in.surfaces
+        );
     }
 
     #[test]
     fn a_gun_shows_its_latest_model_by_its_level() {
         let mut meshes = Assets::<Mesh>::default();
+        let mut bindposes = Assets::<SkinnedMeshInverseBindposes>::default();
         let mut guns = RigGuns::default();
         let mut add = |item, level, triangles: usize| {
             let mut surface = Surface::new(Paint::Own(Handle::default()), false);
@@ -374,8 +471,10 @@ mod tests {
                     item,
                     level,
                     surfaces: vec![surface],
+                    skeleton: None,
                 },
                 &mut meshes,
+                &mut bindposes,
             );
         };
         add(None, 0, 1);
@@ -391,8 +490,8 @@ mod tests {
         assert!(!guns.has(item::LAVA_GUN));
         assert_eq!(from(&guns, item::LAVA_GUN, 5), Some(0));
         assert_eq!(
-            guns.get(item::LAVA_GUN, 5).unwrap().1,
-            guns.get(0x37, 0).unwrap().1
+            guns.get(item::LAVA_GUN, 5).unwrap().1.surfaces,
+            guns.get(0x37, 0).unwrap().1.surfaces
         );
     }
 }

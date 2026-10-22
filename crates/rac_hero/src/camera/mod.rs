@@ -130,6 +130,16 @@ impl FollowCamera {
         })
     }
 
+    /// The free look's target weight (UYA's +0xB0, `weapons.md`, "Aim indicators"): 1 for
+    /// a target under the view's ray, falling to 0 at the aim assist's cone, and 0 with
+    /// none or outside the free look. Crosshairs turn red by it.
+    pub fn target_weight(&self) -> f32 {
+        self.state.as_ref().map_or(0.0, |state| match state.view {
+            View::Follow => 0.0,
+            View::Look { .. } | View::Hero => state.free.weight(),
+        })
+    }
+
     /// Where the camera rests, and how it is turned, for a hero standing at `feet` with
     /// the camera facing `self.yaw`.
     pub fn placement(&self, feet: Vec3, profile: &CameraProfile) -> (Vec3, Quat) {

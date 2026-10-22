@@ -868,6 +868,33 @@ fn the_ry3no_fires_eight_missiles_a_round_each_at_a_marked_enemy() {
 }
 
 #[test]
+fn the_sights_name_the_guns_target_and_marks_for_a_hud() {
+    let mut yard = Yard::new(&[(N60, 0)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 100.0);
+    yard.idle(2);
+    let sights = &yard.arsenal().sights;
+    assert_eq!(sights.target, Some(enemy));
+    assert!(sights.ready);
+    // The Annihilator's mark is its held pick, which takes 5 ticks of being best.
+    let mut yard = Yard::new(&[(ANNIHILATOR, 0)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 100.0);
+    yard.idle(2);
+    assert_eq!(yard.arsenal().sights.target, None);
+    yard.idle(5);
+    assert_eq!(yard.arsenal().sights.target, Some(enemy));
+    // The Hydra's marks, newest last.
+    let mut yard = Yard::new(&[(HYDRA, 0)]);
+    let enemies: Vec<Entity> = [-2.0, 2.0]
+        .into_iter()
+        .map(|x| yard.enemy(Vec3::new(x, 1.0, -15.0), 1000.0))
+        .collect();
+    yard.hold(&[Action::Fire], 30);
+    let marks = &yard.arsenal().sights.marks;
+    assert_eq!(marks.len(), 2);
+    assert!(marks.iter().all(|mark| enemies.contains(mark)));
+}
+
+#[test]
 fn the_hydra_marks_while_held_and_strikes_each_mark_without_a_round() {
     let mut yard = Yard::new(&[(HYDRA, 0)]);
     let enemies: Vec<Entity> = [-2.0, 0.0, 2.0, 4.0]
@@ -1141,11 +1168,87 @@ fn the_agents_pod_lets_out_four_agents_that_run_at_the_enemy_and_blow_up() {
     assert_eq!(yard.ammo(AGENTS), 5);
     yard.idle(30);
     assert_eq!(
-        yard.count_shots(|kind| matches!(kind, ShotKind::Agent { .. })),
+        yard.count_shots(|kind| matches!(kind, ShotKind::Agent(_))),
         4
     );
     yard.idle(300);
     assert!(yard.hitpoints(enemy) < 1000.0);
+}
+
+#[test]
+fn from_v2_agents_shoot_small_bullets_at_an_enemy_before_they_reach_it() {
+    // "Agents of Doom": 0.03 of the damage a bullet, at an enemy within 25 u, first 27
+    // ticks after an agent comes out.
+    let mut yard = Yard::new(&[(AGENTS, 1)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -22.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let damage = Armory::uya().weapons[AGENTS.0].level(1).damage;
+    let mut slugs = 0;
+    let mut first_hit = None;
+    for _ in 0..150 {
+        let before = yard.hitpoints(enemy);
+        yard.idle(1);
+        slugs = slugs.max(yard.count_shots(|kind| *kind == ShotKind::Slug));
+        let lost = before - yard.hitpoints(enemy);
+        if lost > 0.0 && first_hit.is_none() {
+            first_hit = Some(lost);
+        }
+    }
+    assert!(slugs > 0);
+    let first_hit = first_hit.expect("a bullet reached the enemy");
+    assert!((first_hit - damage * 0.03).abs() < 1e-4, "{first_hit}");
+}
+
+#[test]
+fn agents_leave_an_enemy_well_above_level_alone() {
+    // Their search takes only targets within 5° of level, feet to feet.
+    let mut yard = Yard::new(&[(AGENTS, 0)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 5.0, -10.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(400);
+    assert_eq!(yard.hitpoints(enemy), 1000.0);
+    assert_eq!(
+        yard.count_shots(|kind| matches!(kind, ShotKind::Agent(_))),
+        4
+    );
+}
+
+#[test]
+fn the_nitro_eruptors_burst_fires_15_small_bullets_one_at_a_target_farther_off() {
+    let mut yard = Yard::new(&[(NITRO, 4)]);
+    yard.target(Vec3::new(0.0, 1.0, -8.0), 10_000.0);
+    // Within 13 u of the burst but farther than 8 u: one bullet goes straight at it.
+    let far = Vec3::new(0.0, 1.0, -18.0);
+    yard.target(far, 10_000.0);
+    yard.idle(6);
+    yard.hold(&[Action::Fire], 1);
+    for _ in 0..120 {
+        yard.idle(1);
+        let slugs: Vec<_> = yard
+            .arsenal()
+            .shots
+            .iter()
+            .filter(|shot| shot.kind == ShotKind::Slug)
+            .cloned()
+            .collect();
+        if slugs.is_empty() {
+            continue;
+        }
+        assert_eq!(slugs.len(), 15);
+        assert!(slugs.iter().all(|slug| slug.damage == 10.0));
+        let at_far = slugs
+            .iter()
+            .filter(|slug| {
+                slug.velocity
+                    .normalize()
+                    .angle_between((far - slug.position).normalize())
+                    < 0.02
+            })
+            .count();
+        assert_eq!(at_far, 1);
+        return;
+    }
+    panic!("the charge never burst");
 }
 
 #[test]

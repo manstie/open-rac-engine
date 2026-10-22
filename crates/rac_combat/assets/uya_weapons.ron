@@ -34,6 +34,16 @@
         // after the hold check; a 30-tick lock-out for a stick already pushed; picks past
         // 0.9 of full, kept within 33.75°, straight slots 27° of 45°; 8 ticks to open and
         // to close; R1 keeps the second ring up 15 ticks.
+        // "Aim indicators": the wrench in the look draws 0x25, 40 px, blue-grey, no pulse
+        // [code].
+        wrench_sight: Some((
+            texture: 0x25,
+            size: (40.0, 40.0),
+            red_above: None,
+            pulse: false,
+            colour: Some((0.8, 0.89, 1.0)),
+            when: Look,
+        )),
         ring: (
             input_delay_ticks: 15,
             input_delay_after_tap_ticks: 27,
@@ -92,6 +102,8 @@
                 charge: Some((from_level: 1, try_ticks: 20, ticks: 78, damage_scale: 3.0)),
             )),
             effects: (fire: Some("shock_blaster.fire"), impact: Some("shock_blaster.hit")),
+            // "Aim indicators" [code, data].
+            sight: (crosshair: Some((texture: 0x5B, size: (30.0, 55.0), turn_degrees: 90.0, red_above: Some(0.95), when: Aiming))),
         ),
         // "N60 Storm (0x3A5928, bullets 0x35B390)" [code; firing verified on UYA NTSC].
         (
@@ -139,6 +151,11 @@
                 )),
             )),
             effects: (fire: Some("n60.fire"), impact: Some("n60.hit")),
+            // "Aim indicators" [code, data].
+            sight: (
+                crosshair: Some((texture: 0x56, size: (30.0, 30.0), red_above: Some(0.99), when: AimingUnlocked)),
+                mark: Target(or_lock: true, follow_only: true, outside_look: true),
+            ),
         ),
         // "Nitro Launcher (0x36E360, charge 0x361218, blast 0x35E718)" [code].
         (
@@ -194,6 +211,19 @@
                         grow_ticks: 30,
                         radius: (3.0, 11.0),
                         push: 1.5,
+                        // "Infector", V5: as it bursts, 15 small bullets of a flat 10 at
+                        // 20-30 u/s, one at each target farther than 8 u of up to 10 within
+                        // 13 u, the rest any way round, 20° down to 15° up [code].
+                        spray: Some((
+                            count: 15,
+                            damage: 10.0,
+                            speed: (20.0, 30.0),
+                            near: 8.0,
+                            within: 13.0,
+                            aimed: 10,
+                            down_degrees: 20.0,
+                            up_degrees: 15.0,
+                        )),
                     )),
                 ),
             )),
@@ -332,18 +362,25 @@
                 seekers: Some((
                     from_level: 4,
                     count: 7,
-                    share: 0.2,
                     spread_degrees: 80.0,
-                    speed: (1.0, 3.0),
-                    accel: (0.7, 0.9),
-                    top: (15.0, 20.0),
                     range: 30.0,
-                    turn_degrees: 6.0,
-                    lifetime: 100,
-                    blast_radius: 1.0,
+                    missile: (
+                        share: 0.2,
+                        speed: (1.0, 3.0),
+                        accel: (0.7, 0.9),
+                        top: (15.0, 20.0),
+                        turn_degrees: 6.0,
+                        lifetime: 100,
+                        blast_radius: 1.0,
+                    ),
                 )),
             )),
             effects: (fire: Some("annihilator.fire"), impact: Some("annihilator.blast")),
+            // "Aim indicators" [code, data].
+            sight: (
+                crosshair: Some((texture: 0x44, size: (40.0, 40.0), red_above: Some(0.97), when: Look)),
+                mark: Target(follow_only: true, not_raised: true),
+            ),
         ),
         // "Flux Rifle (0x345350, shot 0x3463A0)" [code].
         (
@@ -396,6 +433,8 @@
                 push: 1.0, // [placeholder]
             )),
             effects: (fire: Some("flux.fire"), impact: Some("flux.hit")),
+            // "Aim indicators" [code, data].
+            sight: (scope_reach: Some(128.0)),
         ),
         // UYA's other fourteen guns, read in code at the level of their firing and their
         // shots ("Where each gun's code is" and the sections after it). Their V5 variants'
@@ -494,6 +533,8 @@
                 spit_blast: [(0, 1.0), (4, 2.0)],
             )),
             effects: (fire: Some("hydra.fire"), impact: Some("hydra.strike")),
+            // "Aim indicators" [code, data].
+            sight: (mark: Triangles(within_degrees: 60.0)),
         ),
         // "Disc Blade Gun (0x36EFC0, disc 0x36FA78)" [code].
         (
@@ -539,6 +580,11 @@
                 split: Some((from_level: 4, most: 15, jitter: (0.1, 0.2))),
             )),
             effects: (fire: Some("disc.fire"), impact: Some("disc.hit")),
+            // "Aim indicators" [code, data].
+            sight: (
+                crosshair: Some((texture: 0x5A, size: (64.0, 32.0), turn_degrees: 180.0, red_above: Some(0.98), when: Aiming)),
+                mark: Target(follow_only: true),
+            ),
         ),
         // "Agents of Doom (0x35C9F0, pod 0x35CEC8, agent 0x3BD298)" [code; the agents' AI
         // read in part].
@@ -577,20 +623,103 @@
                 per_pod: 4,
                 direct_from: Some(3),
                 spread: 0.5, // 0.25 to 0.75
-                // The agent (0x3C0F78, 0x3BD298) [code].
-                speed: 6.0, // a random 5.5 to 6.5 (+0x314)
-                sight: 25.0,
+                // "Agents of Doom", the agent (0x3C0F78, 0x3BD298) [code]: the level search's
+                // 25 u for anything as it comes out, then 30 u for enemies, within 5° of
+                // level, bearing 20°; claims last 60 frames.
+                sight: (
+                    first: 25.0,
+                    range: 30.0,
+                    level_degrees: 5.0,
+                    bearing_degrees: 20.0,
+                    claim_ticks: 60,
+                ),
+                // walker_set_params' numbers by state [code]; the ray-fan path finding, the
+                // ledges and the coming out (7 u/s², 3 u/s) aren't followed [simplified];
+                // the idle loop taken as 60 ticks [placeholder].
+                moves: (
+                    follow: (accel: 13.0, top: (6.5, 8.0), turn_accel: 0.2, turn_top: 12.0),
+                    chase: (accel: 13.0, top: (5.5, 6.5), turn_accel: 0.2, turn_top: 12.0),
+                    wander: (accel: 1.0, top: (0.25, 0.25), turn_accel: 0.1, turn_top: 1.0),
+                    facing_degrees: 120.0,
+                    stop: 0.5,
+                    wander_stop: 0.4,
+                    follow_beyond: 4.0,
+                    idle_within: (1.0, 4.0),
+                    wander_ticks: (30, 35, 59),
+                    idle_cycle: 60,
+                    wander_odds: 3,
+                    wander_round: (2.0, 6.0),
+                    wander_leave: 5.5,
+                ),
                 touch: 1.0,
                 touch_height: 0.3,
                 reach: 2.0,
                 chase_ticks: 420,
-                follow: 4.0,
                 life_ticks: 2000,
-                leash: 59.0,
+                leash: 59.0, // [placeholder]
                 end: [
                     (0, Blast(radius: 2.0, push: 0.0)),
                     (1, Comet(speed: (5.0, 7.5), life: 680, radius: 2.0, push: 1.0)),
                     (4, Grow(radius: 8.0, ticks: 20, push: 2.0)),
+                ],
+                // Its gun (agent_tick) [code]: from V2 small bullets of 0.03 of the damage
+                // at 25 u/s at an enemy within 25 u (bearing 90°) in a clear line, jittered
+                // 0.05 u, 27 frames after it comes out, then every 30 (15 from V3); 50
+                // rounds each, a shared 120 at V4. From V5 by the hero, the small missile
+                // of a quarter of the damage every 80-120 frames, 40 rounds shared. The
+                // gun's height (joints 6-8) [placeholder].
+                gun: [
+                    (1, Bullets(
+                        range: 25.0,
+                        bearing_degrees: 90.0,
+                        height: 0.6,
+                        jitter: 0.05,
+                        speed: 25.0,
+                        share: 0.03,
+                        first_ticks: 27,
+                        every_ticks: 30,
+                        rounds: 50,
+                        shared: false,
+                    )),
+                    (2, Bullets(
+                        range: 25.0,
+                        bearing_degrees: 90.0,
+                        height: 0.6,
+                        jitter: 0.05,
+                        speed: 25.0,
+                        share: 0.03,
+                        first_ticks: 27,
+                        every_ticks: 15,
+                        rounds: 50,
+                        shared: false,
+                    )),
+                    (3, Bullets(
+                        range: 25.0,
+                        bearing_degrees: 90.0,
+                        height: 0.6,
+                        jitter: 0.05,
+                        speed: 25.0,
+                        share: 0.03,
+                        first_ticks: 27,
+                        every_ticks: 15,
+                        rounds: 120,
+                        shared: true,
+                    )),
+                    (4, Missiles(
+                        range: 25.0,
+                        height: 0.6,
+                        every: (80, 120),
+                        rounds: 40,
+                        missile: (
+                            share: 0.25,
+                            speed: (1.0, 3.0),
+                            accel: (0.5, 0.9),
+                            top: (12.0, 17.0),
+                            turn_degrees: 6.0,
+                            lifetime: 100,
+                            blast_radius: 1.0,
+                        ),
+                    )),
                 ],
             )),
             effects: (fire: Some("agents.throw"), impact: Some("agents.blast")),
@@ -641,6 +770,8 @@
                 )),
             )),
             effects: (fire: Some("rift.fire"), impact: Some("rift.close")),
+            // "Aim indicators" [code, data].
+            sight: (crosshair: Some((texture: 0x21, size: (32.0, 32.0), red_above: None, when: Look))),
         ),
         // "Holo Shield Glove (0x3717A8, shield 0x376B88)" [code].
         (
@@ -814,6 +945,11 @@
                 ricochet_from: Some(1),
             )),
             effects: (fire: Some("suck.fire"), impact: Some("suck.hit")),
+            // "Aim indicators" [code, data].
+            sight: (
+                crosshair: Some((texture: 0x44, size: (40.0, 40.0), red_above: Some(0.97), when: Aiming)),
+                mark: Target(follow_only: true, outside_look: true),
+            ),
         ),
         // "Qwack-O-Ray (0x37DEB0, beam target 0x37D7D8)" [code]: it uses no ammo.
         (
@@ -901,6 +1037,8 @@
                 ),
             )),
             effects: (fire: Some("qwack.beam"), impact: Some("qwack.duck")),
+            // "Aim indicators" [code, data].
+            sight: (mark: Target(follow_only: true, outside_look: true)),
         ),
         // "RY3NO (0x3805B0)" [code]: V1 to V5 only.
         (
@@ -948,6 +1086,8 @@
                 up: 3.0,
             )),
             effects: (fire: Some("ryno.fire"), impact: Some("ryno.blast")),
+            // "Aim indicators" [code, data].
+            sight: (mark: Each(below_level: 4)),
         ),
         // "Plasma Coil (0x315638, ball 0x30BF18)" [code].
         (
@@ -1007,6 +1147,11 @@
                 )),
             )),
             effects: (fire: Some("coil.fire"), impact: Some("coil.arc")),
+            // "Aim indicators" [code, data].
+            sight: (
+                crosshair: Some((texture: 0x21, size: (32.0, 32.0), red_above: None, when: Aiming)),
+                mark: Target(ready_only: true),
+            ),
         ),
         // "Bouncer (0x31C890, canister 0x31D0B0, bomblets 0x31E488)" [code].
         (

@@ -10,14 +10,16 @@
 //! layout and icons, coloured shapes with letters, are the demo's own.
 //!
 //! Each player's HUD is a tree of its own under a [`PlayerHud`] root covering the screen
-//! ([`spawn_hud`]), so a second player's can be given its share of the screen later.
+//! ([`spawn_hud`]), so a second player's can be given its share of the screen later. The
+//! guns' aim indicators are drawn under it too ([`sights`]).
 
 use std::collections::BTreeMap;
 use std::f32::consts::{FRAC_PI_4, TAU};
 
 pub mod clock;
+pub mod sights;
 
-use bevy::{math::ops, prelude::*};
+use bevy::{math::ops, prelude::*, transform::TransformSystems, ui::UiSystems};
 use rac_combat::{
     Armory, Arsenal, Destroyed, GunEvent, GunEventKind, WeaponId,
     weapons::{
@@ -30,6 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Bolts, DemoEntity};
 pub use clock::{BoltCount, HudClock, HudTimings, Seen, Showing};
+pub use sights::{SightImages, SightsClock};
 
 /// The bundled layout.
 pub const HUD_RON: &str = include_str!("../../assets/hud.ron");
@@ -450,7 +453,24 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudLayout>()
-            .add_systems(Update, (note_level_ups, note_kills, draw_huds).chain());
+            .add_systems(Startup, sights::paint_sight_images)
+            .add_systems(
+                Update,
+                (
+                    note_level_ups,
+                    note_kills,
+                    draw_huds,
+                    sights::add_sight_sprites,
+                )
+                    .chain(),
+            )
+            // After the cameras and targets have moved, so the sights don't trail them.
+            .add_systems(
+                PostUpdate,
+                sights::draw_sights
+                    .after(TransformSystems::Propagate)
+                    .before(UiSystems::Prepare),
+            );
     }
 }
 

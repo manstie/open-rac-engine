@@ -74,6 +74,8 @@ pub(super) struct FreeLook {
     snap_input: f32,
     /// The mouse turned the view last, rather than the stick: no aim assist.
     mouse_aims: bool,
+    /// The weight of what the assist would pick, kept while the mouse aims too.
+    weight: f32,
     /// Where the camera was last placed, which the assist looks from.
     camera: Vec3,
     /// Radians the view may look down and up.
@@ -106,6 +108,7 @@ impl FreeLook {
             snap_ticks: 0,
             snap_input: 0.0,
             mouse_aims: false,
+            weight: 0.0,
             camera: hero.position + Vec3::Y * profile.eye_lock_strafe,
             down_limit: 0.0,
             up_limit: 0.0,
@@ -189,11 +192,14 @@ impl FreeLook {
         } else if stick != Vec2::ZERO {
             self.mouse_aims = false;
         }
-        let assist = profile.assist.as_ref().filter(|_| !self.mouse_aims);
-        self.target = match (assist, aim) {
+        let picked = match (profile.assist.as_ref(), aim) {
             (Some(assist), Some(aim)) => self.pick(assist, aim),
             _ => None,
         };
+        // The crosshairs turn red by the weight even while the mouse aims.
+        self.weight = picked.map_or(0.0, |picked| picked.weight);
+        self.target = picked.filter(|_| !self.mouse_aims);
+        let assist = profile.assist.as_ref().filter(|_| !self.mouse_aims);
         let b = self.target.map_or(0.0, |target| target.weight);
         let k = 0.25 + speed / 64.0;
         let shape = |axis: f32| {
@@ -373,6 +379,12 @@ impl FreeLook {
             },
             weight,
         })
+    }
+
+    /// The weight of what the assist picks: 1 under the view's ray, falling to 0 at its
+    /// cone's edge; 0 for nothing.
+    pub fn weight(&self) -> f32 {
+        self.weight
     }
 
     /// How far round `at` is from the view, from −π to π: positive to its left.
@@ -897,6 +909,8 @@ mod tests {
             Some(&aim(&ahead, &open)),
         );
         assert!(free.target.is_none());
+        // The crosshairs still read what it would pick.
+        assert!(free.weight() > 0.0);
         free.turn(
             Vec2::ZERO,
             Vec2::ZERO,

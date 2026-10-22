@@ -32,11 +32,11 @@ use rac_sim::{SimRng, SimTransform};
 use crate::{CombatTuning, Destroyed, HitReaction, Hitpoints, Hostile, Hurtbox, Struck, position};
 
 pub use aim::GunTarget;
-pub use arsenal::{Arsenal, Hand, LevelUp, OwnedGun};
-pub use def::{Armory, FireMode, Mods, WeaponDef, WeaponId};
+pub use arsenal::{Arsenal, Hand, LevelUp, OwnedGun, Sights};
+pub use def::{Armory, Crosshair, FireMode, Mark, Mods, Showing, Sight, WeaponDef, WeaponId};
 pub use fire::{Afflict, GunInput, Hit, Outcome, View};
 pub use ring::{OpenRing, QuickSelect, RingRules};
-pub use shots::{BarrierState, RiftState, Shot, ShotKind, TurretState};
+pub use shots::{AgentMode, AgentState, BarrierState, RiftState, Shot, ShotKind, TurretState};
 pub use thrown::block_shot;
 
 /// The XP a target gives the gun that kills it (UYA's per-class table, 0x4412D0).
@@ -186,6 +186,7 @@ pub(crate) fn fire_guns(
                     entity,
                     centre: at + Vec3::Y * hurtbox.height,
                     radius: hurtbox.radius,
+                    height: hurtbox.height,
                     alive: hitpoints.is_none_or(|hitpoints| hitpoints.current > 0.0),
                     health: hitpoints.map(|hitpoints| (hitpoints.current, hitpoints.max)),
                     enemy: hostile,

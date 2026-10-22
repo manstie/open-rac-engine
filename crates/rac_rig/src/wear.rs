@@ -141,20 +141,26 @@ pub struct AttachmentData {
     pub surfaces: Vec<Surface>,
 }
 
+/// Each joint's transform from its parent at rest, from where each sits at rest from the
+/// origin.
+pub(crate) fn rest_from_binds(binds: &[Mat4], parents: &[Option<usize>]) -> Vec<Transform> {
+    binds
+        .iter()
+        .zip(parents)
+        .map(|(bind, parent)| {
+            let local = match parent.and_then(|p| binds.get(p)) {
+                Some(parent) => parent.inverse() * *bind,
+                None => *bind,
+            };
+            Transform::from_matrix(local)
+        })
+        .collect()
+}
+
 impl AttachmentData {
     /// Each joint's transform from its parent at rest.
     pub fn rest(&self) -> Vec<Transform> {
-        self.binds
-            .iter()
-            .zip(&self.parents)
-            .map(|(bind, parent)| {
-                let local = match parent.and_then(|p| self.binds.get(p)) {
-                    Some(parent) => parent.inverse() * *bind,
-                    None => *bind,
-                };
-                Transform::from_matrix(local)
-            })
-            .collect()
+        rest_from_binds(&self.binds, &self.parents)
     }
 
     fn check(&self, model: &str) -> Result<(), ModelError> {

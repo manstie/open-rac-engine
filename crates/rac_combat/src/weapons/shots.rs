@@ -6,12 +6,14 @@
 use bevy::{math::ops, prelude::*};
 use rac_hero::CollisionWorld;
 use rac_sim::SimRng;
+use std::f32::consts::TAU;
 
 use super::{
     GunEventKind,
     aim::{GunTarget, first_target},
     def::{
-        Armory, FireMode, Homing, Lobbed, Mods, Projectile, ScopeBeam, Seekers, Stream, WeaponId,
+        Armory, FireMode, Homing, Lobbed, Mods, Projectile, ScopeBeam, SlugRules, SmallMissile,
+        Spray, Stream, WeaponId,
     },
     ducks,
     fire::{GunInput, Hit, Outcome},
@@ -113,8 +115,10 @@ pub enum ShotKind {
     Barrier(BarrierState),
     /// The Agents of Doom's pod, falling until it lands and lets them out.
     Pod,
-    /// One of the agents, running at `target` for `chase` ticks so far.
-    Agent { target: Option<Entity>, chase: u32 },
+    /// One of the agents.
+    Agent(AgentState),
+    /// UYA's small bullet, which the agents' guns and the Nitro Eruptor fire.
+    Slug,
     /// The comet an agent ends in from V2, flying `life` ticks.
     Comet { life: u32 },
     /// The Plasma Whip's shock wave along the ground.
@@ -139,6 +143,50 @@ pub struct DuckState {
     pub target: Option<Entity>,
     pub pecks: u32,
     pub wait: u32,
+}
+
+/// An agent of the Agents of Doom (`weapons.md`, "Agents of Doom").
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct AgentState {
+    /// It has made its first search, as it came out.
+    pub out: bool,
+    /// The target it chases, and the ticks into the chase.
+    pub target: Option<Entity>,
+    pub chase: u32,
+    pub mode: AgentMode,
+    /// The way it faces (as the hero's yaw) and how fast that turns, radians a tick.
+    pub yaw: f32,
+    pub turn: f32,
+    /// u/s along the ground.
+    pub speed: f32,
+    /// Its own top speeds following and chasing, drawn as it comes out.
+    pub follow_top: f32,
+    pub chase_top: f32,
+    /// Following, it idles within this of him, drawn as it sets off.
+    pub near: f32,
+    /// Ticks idle.
+    pub idle: u32,
+    /// Its own rounds, and ticks to its next shot.
+    pub rounds: u32,
+    pub cooldown: u32,
+}
+
+/// What an agent does while it has no target.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum AgentMode {
+    #[default]
+    Idle,
+    /// Walking to a point round the hero.
+    Wander(Vec3),
+    Follow,
+}
+
+/// What a hero's agents share: the rounds of their guns at the levels that share them,
+/// and the targets they have claimed, with the ticks each claim has left.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct AgentBook {
+    pub(crate) rounds: u32,
+    pub(crate) claims: Vec<(Entity, u32)>,
 }
 
 /// A rift: open for the ticks since, and the target it is pulling in for how long.
@@ -231,6 +279,7 @@ pub(super) struct Flight<'a> {
 pub(crate) fn step(
     shots: &mut Vec<Shot>,
     serial: &mut u32,
+    book: &mut AgentBook,
     armory: &Armory,
     gun_input: &GunInput,
     rng: &mut SimRng,
@@ -246,8 +295,12 @@ pub(crate) fn step(
     let (world, targets) = (flight.world, flight.targets);
     let mut agents = shots
         .iter()
-        .filter(|shot| matches!(shot.kind, ShotKind::Agent { .. }))
+        .filter(|shot| matches!(shot.kind, ShotKind::Agent(_)))
         .count();
+    book.claims.retain_mut(|(_, left)| {
+        *left = left.saturating_sub(1);
+        *left > 0
+    });
     let mut discs = shots
         .iter()
         .filter(|shot| matches!(shot.kind, ShotKind::Disc { .. }))
@@ -260,6 +313,9 @@ pub(crate) fn step(
         shot.ticks += 1;
         if matches!(shot.kind, ShotKind::Bolt { .. }) {
             return bolt(shot, targets, out);
+        }
+        if shot.kind == ShotKind::Slug {
+            return slug(shot, &armory.rules.slug, &flight, out);
         }
         match &def.fire {
             FireMode::Projectile(fire) => match &fire.scope_beam {
@@ -275,6 +331,14 @@ pub(crate) fn step(
                 let keep = charge(shot, fire, world, targets);
                 if !keep {
                     out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+                    if let Some(spray) = fire
+                        .blast
+                        .eruption
+                        .filter(|eruption| shot.level >= eruption.from_level)
+                        .and_then(|eruption| eruption.spray)
+                    {
+                        spray_slugs(shot, &spray, targets, rng, &mut born);
+                    }
                     born.push(Shot {
                         velocity: Vec3::ZERO,
                         ticks: 0,
@@ -302,7 +366,7 @@ pub(crate) fn step(
                     None => false,
                 },
                 ShotKind::Seeker { .. } => match &fire.seekers {
-                    Some(seekers) => seeker(shot, seekers, &flight, out),
+                    Some(seekers) => seeker(shot, &seekers.missile, &flight, out),
                     None => false,
                 },
                 _ => match missile(shot, &Seek::homing(fire), world, targets, out) {
@@ -327,7 +391,7 @@ pub(crate) fn step(
             FireMode::Turret(fire) => thrown::turret_shot(shot, fire, &flight, rng, out, &mut born),
             FireMode::Barrier(fire) => thrown::barrier_shot(shot, fire, &flight, out, &mut born),
             FireMode::Agents(fire) => {
-                thrown::agents_shot(shot, fire, &flight, out, &mut born, &mut agents)
+                thrown::agents_shot(shot, fire, &flight, rng, out, &mut born, &mut agents, book)
             }
             FireMode::Rift(fire) => grab::rift_shot(shot, fire, &flight, rng, out, &mut born),
             FireMode::Suck(fire) => grab::thing(shot, fire, &flight, out),
@@ -494,6 +558,75 @@ fn beam(
         None => shot.position += motion,
     }
     shot.ticks < def.ticks
+}
+
+/// The Nitro Eruptor's burst of small bullets (0x38A668): one at each target far enough
+/// off of the first near it (in the targets' order, as the game's list), the rest any way
+/// round.
+fn spray_slugs(
+    shot: &Shot,
+    spray: &Spray,
+    targets: &[GunTarget],
+    rng: &mut SimRng,
+    born: &mut Vec<Shot>,
+) {
+    let at = shot.position;
+    let aimed: Vec<Vec3> = targets
+        .iter()
+        .filter(|target| target.centre.distance(at) <= spray.within)
+        .take(spray.aimed)
+        .filter(|target| target.centre.distance(at) > spray.near)
+        .map(|target| (target.centre - at).normalize_or(Vec3::Y))
+        .collect();
+    for index in 0..spray.count as usize {
+        let way = aimed.get(index).copied().unwrap_or_else(|| {
+            let yaw = rng.unit_f32() * TAU;
+            let pitch = rng
+                .range_f32(-spray.down_degrees, spray.up_degrees)
+                .to_radians();
+            Vec3::new(
+                -ops::sin(yaw) * ops::cos(pitch),
+                ops::sin(pitch),
+                -ops::cos(yaw) * ops::cos(pitch),
+            )
+        });
+        let (low, high) = spray.speed;
+        let speed = if high > low {
+            rng.range_f32(low, high)
+        } else {
+            low
+        };
+        born.push(Shot {
+            position: at,
+            velocity: way * speed,
+            ticks: 0,
+            damage: spray.damage,
+            kind: ShotKind::Slug,
+            ..shot.clone()
+        });
+    }
+}
+
+/// UYA's small bullet (0x35D9C0): straight on while it lives and keeps near the hero;
+/// what it meets takes a ball of its damage there.
+fn slug(shot: &mut Shot, rules: &SlugRules, flight: &Flight, out: &mut Outcome) -> bool {
+    let motion = shot.velocity * TICK;
+    let (t, radius) = match meets(flight.world, flight.targets, shot.position, motion) {
+        Meets::Target(_, t) => (t, rules.target_radius),
+        Meets::World(t, _) => (t, rules.world_radius),
+        Meets::Nothing => {
+            shot.position += motion;
+            return shot.ticks < rules.life_ticks
+                && shot.position.distance(flight.hero) <= rules.leash;
+        }
+    };
+    let at = shot.position + motion * t;
+    for target in in_ball(flight.targets, at, radius, None) {
+        out.hits
+            .push(shot.hit(target.entity, shot.damage, motion * rules.push));
+    }
+    out.event(shot.weapon, GunEventKind::Impact { at });
+    false
 }
 
 /// The Nitro Launcher's charge (0x361218): it falls, bounces off the world, and bursts on
@@ -734,21 +867,8 @@ fn burst_into(
         for _ in 0..seekers.count {
             let bearing = base + rng.range_f32(-1.0, 1.0) * seekers.spread_degrees.to_radians();
             let way = Vec3::new(-ops::sin(bearing), 0.0, -ops::cos(bearing));
-            let speed = rng.range_f32(seekers.speed.0, seekers.speed.1);
-            let accel = rng.range_f32(seekers.accel.0, seekers.accel.1);
-            let top = rng.range_f32(seekers.top.0, seekers.top.1);
-            born.push(Shot {
-                position: at,
-                velocity: way * speed,
-                ticks: 0,
-                damage: shot.damage * seekers.share,
-                kind: ShotKind::Seeker {
-                    target: nearest_enemy(flight.targets, at, seekers.range),
-                    accel,
-                    top,
-                },
-                ..shot.clone()
-            });
+            let target = nearest_enemy(flight.targets, at, seekers.range);
+            born.push(small_missile(shot, &seekers.missile, at, way, target, rng));
         }
         return;
     }
@@ -765,6 +885,28 @@ fn burst_into(
     }
 }
 
+/// A small missile from `at` along `way` at `target`, with its speeds drawn.
+pub(super) fn small_missile(
+    shot: &Shot,
+    missile: &SmallMissile,
+    at: Vec3,
+    way: Vec3,
+    target: Option<Entity>,
+    rng: &mut SimRng,
+) -> Shot {
+    let speed = rng.range_f32(missile.speed.0, missile.speed.1);
+    let accel = rng.range_f32(missile.accel.0, missile.accel.1);
+    let top = rng.range_f32(missile.top.0, missile.top.1);
+    Shot {
+        position: at,
+        velocity: way * speed,
+        ticks: 0,
+        damage: shot.damage * missile.share,
+        kind: ShotKind::Seeker { target, accel, top },
+        ..shot.clone()
+    }
+}
+
 /// The nearest living enemy within `range` of `at`.
 fn nearest_enemy(targets: &[GunTarget], at: Vec3, range: f32) -> Option<Entity> {
     targets
@@ -774,14 +916,19 @@ fn nearest_enemy(targets: &[GunTarget], at: Vec3, range: f32) -> Option<Entity> 
         .map(|t| t.entity)
 }
 
-/// One of the Decimator's seekers: faster each tick to its top speed, turning after its
-/// enemy, bursting on what it meets.
-fn seeker(shot: &mut Shot, seekers: &Seekers, flight: &Flight, out: &mut Outcome) -> bool {
+/// A small missile: faster each tick to its top speed, turning after its enemy, bursting
+/// on what it meets.
+pub(super) fn seeker(
+    shot: &mut Shot,
+    missile: &SmallMissile,
+    flight: &Flight,
+    out: &mut Outcome,
+) -> bool {
     let ShotKind::Seeker { target, accel, top } = &mut shot.kind else {
         return false;
     };
     let (accel, top) = (*accel, *top);
-    if shot.ticks >= seekers.lifetime {
+    if shot.ticks >= missile.lifetime {
         return false;
     }
     let chased = target.and_then(|entity| {
@@ -797,7 +944,7 @@ fn seeker(shot: &mut Shot, seekers: &Seekers, flight: &Flight, out: &mut Outcome
     let mut way = shot.velocity.normalize_or(flight.facing);
     if let Some(chased) = chased {
         let wanted = (chased.centre - shot.position).normalize_or(way);
-        way = super::aim::bend(way, wanted, seekers.turn_degrees.to_radians());
+        way = super::aim::bend(way, wanted, missile.turn_degrees.to_radians());
     }
     shot.velocity = way * speed;
     let motion = shot.velocity * TICK;
@@ -808,7 +955,7 @@ fn seeker(shot: &mut Shot, seekers: &Seekers, flight: &Flight, out: &mut Outcome
             return true;
         }
     };
-    for near in in_ball(flight.targets, at, seekers.blast_radius, None) {
+    for near in in_ball(flight.targets, at, missile.blast_radius, None) {
         out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
     }
     out.event(shot.weapon, GunEventKind::Impact { at });
@@ -867,6 +1014,7 @@ mod tests {
             entity: Entity::from_raw_u32(raw).unwrap(),
             centre: Vec3::new(0.0, 0.0, z),
             radius: 0.5,
+            height: 0.0,
             alive: true,
             health: None,
             enemy: true,

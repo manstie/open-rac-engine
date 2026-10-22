@@ -10,16 +10,16 @@ use std::f32::consts::TAU;
 
 use super::{
     Affliction, GunEventKind,
-    aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight},
+    aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight, level_search, wrap, yaw_of},
     arsenal::Arsenal,
     def::{
-        AgentEnd, Agents, AimAssist, Armory, Barrier, Bomblet, Bounce, Cluster, Deploy, FireMode,
-        Infect, InfectBomb, Mega, Throw, Timing, Turret,
+        AgentEnd, AgentGun, Agents, AimAssist, Armory, Barrier, Bomblet, Bounce, Cluster, Deploy,
+        FireMode, Gait, Infect, InfectBomb, Mega, Throw, Timing, Turret,
     },
     fire::{Afflict, Gun, GunInput, Outcome, fire_anim, run_dry, take_shot},
     shots::{
-        BOUNCE_GAP, BarrierState, Flight, Meets, Shot, ShotKind, TICK, TurretState, in_ball, meets,
-        meets_where,
+        AgentBook, AgentMode, AgentState, BOUNCE_GAP, BarrierState, Flight, Meets, Shot, ShotKind,
+        TICK, TurretState, in_ball, meets, meets_where, seeker, small_missile,
     },
 };
 
@@ -1062,7 +1062,7 @@ pub(super) fn agents(
     gun_input: &GunInput,
     out: &mut Outcome,
 ) {
-    let about = count(arsenal, gun, |kind| matches!(kind, ShotKind::Agent { .. }));
+    let about = count(arsenal, gun, |kind| matches!(kind, ShotKind::Agent(_)));
     if !deploy(
         arsenal,
         armory,
@@ -1088,10 +1088,7 @@ pub(super) fn agents(
                 serial,
                 at,
                 Vec3::ZERO,
-                ShotKind::Agent {
-                    target: None,
-                    chase: 0,
-                },
+                ShotKind::Agent(AgentState::default()),
             ));
         }
         return;
@@ -1115,15 +1112,17 @@ fn round(at: Vec3, facing: Vec3, spread: f32) -> [Vec3; 4] {
 }
 
 /// The pod (0x35CEC8) falls and lets its agents out where it lands; an agent (0x3BD298)
-/// runs at the nearest enemy it can see, else keeps with the hero, and blows up when it
-/// touches its target.
+/// keeps by the hero until it finds a target, runs at it, and blows up when it gets there.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn agents_shot(
     shot: &mut Shot,
     fire: &Agents,
     flight: &Flight,
+    rng: &mut SimRng,
     out: &mut Outcome,
     born: &mut Vec<Shot>,
     about: &mut usize,
+    book: &mut AgentBook,
 ) -> bool {
     match shot.kind.clone() {
         ShotKind::Pod => {
@@ -1143,17 +1142,15 @@ pub(super) fn agents_shot(
                     position: spot,
                     velocity: Vec3::ZERO,
                     ticks: 0,
-                    kind: ShotKind::Agent {
-                        target: None,
-                        chase: 0,
-                    },
+                    kind: ShotKind::Agent(AgentState::default()),
                     ..shot.clone()
                 });
             }
             false
         }
-        ShotKind::Agent { target, chase } => {
-            let keep = agent(shot, target, chase, fire, flight, out, born);
+        ShotKind::Agent(mut state) => {
+            let keep = agent(shot, &mut state, fire, flight, rng, out, born, book);
+            shot.kind = ShotKind::Agent(state);
             if !keep {
                 *about = about.saturating_sub(1);
             }
@@ -1161,66 +1158,312 @@ pub(super) fn agents_shot(
         }
         ShotKind::Comet { life } => comet(shot, life, fire, flight, out),
         ShotKind::Blast { .. } => grow(shot, fire, flight, out),
+        ShotKind::Seeker { .. } => match fire.gun.at(shot.level) {
+            Some(AgentGun::Missiles { missile, .. }) => seeker(shot, &missile, flight, out),
+            _ => false,
+        },
         _ => false,
     }
 }
 
+fn draw(rng: &mut SimRng, (low, high): (f32, f32)) -> f32 {
+    if high > low {
+        rng.range_f32(low, high)
+    } else {
+        low
+    }
+}
+
+fn draw_ticks(rng: &mut SimRng, (low, high): (u32, u32)) -> u32 {
+    low + rng.below(high.saturating_sub(low) + 1)
+}
+
+/// An agent's tick (0x3BD298): its search, its end, its gun and its walk.
+#[allow(clippy::too_many_arguments)]
 fn agent(
     shot: &mut Shot,
-    target: Option<Entity>,
-    chase: u32,
+    state: &mut AgentState,
     fire: &Agents,
     flight: &Flight,
+    rng: &mut SimRng,
     out: &mut Outcome,
     born: &mut Vec<Shot>,
+    book: &mut AgentBook,
 ) -> bool {
-    let eye = shot.position + Vec3::Y * fire.touch_height;
+    let sight = &fire.sight;
+    let level = Some(sight.level_degrees.to_radians());
+    let bearing = sight.bearing_degrees.to_radians();
     let targets = flight.targets;
-    let kept = target.and_then(|entity| {
+    let claimed = |book: &AgentBook, target: &GunTarget| {
+        book.claims
+            .iter()
+            .any(|(entity, _)| *entity == target.entity)
+    };
+    if !state.out {
+        // As it comes out: its speeds, its gun's rounds, and the best of anything with hit
+        // points near.
+        state.out = true;
+        state.yaw = yaw_of(flight.facing);
+        state.follow_top = draw(rng, fire.moves.follow.top);
+        state.chase_top = draw(rng, fire.moves.chase.top);
+        match fire.gun.at(shot.level) {
+            Some(AgentGun::Bullets {
+                first_ticks,
+                rounds,
+                shared,
+                ..
+            }) => {
+                state.cooldown = first_ticks;
+                if shared {
+                    book.rounds = rounds;
+                } else {
+                    state.rounds = rounds;
+                }
+            }
+            Some(AgentGun::Missiles { every, rounds, .. }) => {
+                state.cooldown = draw_ticks(rng, every);
+                book.rounds = rounds;
+            }
+            None => {}
+        }
+        if let Some(index) =
+            level_search(targets, shot.position, bearing, sight.first, level, |t| {
+                t.alive && t.health.is_some()
+            })
+        {
+            state.target = Some(targets[index].entity);
+            book.claims.push((targets[index].entity, sight.claim_ticks));
+        }
+    }
+    // Its target while it lives; without one, the best enemy no agent has claimed.
+    let kept = state.target.and_then(|entity| {
         targets
             .iter()
             .find(|candidate| candidate.entity == entity && candidate.alive)
     });
     let chased = kept.or_else(|| {
-        targets
-            .iter()
-            .filter(|candidate| {
-                candidate.alive && candidate.enemy && candidate.centre.distance(eye) <= fire.sight
-            })
-            .map(|candidate| (candidate.centre.distance(eye), candidate))
-            .filter(|(_, candidate)| in_sight(flight.world, eye, candidate.centre))
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, candidate)| candidate)
+        let index = level_search(targets, shot.position, bearing, sight.range, level, |t| {
+            t.alive && t.enemy && !claimed(book, t)
+        })?;
+        book.claims.push((targets[index].entity, sight.claim_ticks));
+        Some(&targets[index])
     });
-    let chase = match (chased, kept) {
-        (Some(_), Some(_)) => chase + 1,
+    state.chase = match (chased, kept) {
+        (Some(_), Some(_)) => state.chase + 1,
         (Some(_), None) => 1,
         (None, _) => 0,
     };
-    shot.kind = ShotKind::Agent {
-        target: chased.map(|chased| chased.entity),
-        chase,
-    };
+    state.target = chased.map(|chased| chased.entity);
+    let eye = shot.position + Vec3::Y * fire.touch_height;
     let ended = shot.ticks >= fire.life_ticks
         || shot.position.distance(flight.hero) > fire.leash
-        || chase > fire.chase_ticks
+        || state.chase > fire.chase_ticks
         || chased.is_some_and(|chased| {
             chased.centre.distance(eye) <= fire.touch + chased.radius
-                || flat(chased.centre - shot.position).length() < fire.reach
+                || shot.position.distance(chased.feet()) < fire.reach
         });
     if ended {
         agent_end(shot, chased, fire, flight, out, born);
         return false;
     }
-    // At its enemy, or back to within a few steps of the hero.
-    let goal = chased.map(|chased| chased.centre).or_else(|| {
-        (flat(flight.hero - shot.position).length() > fire.follow).then_some(flight.hero)
-    });
-    let way = goal.map_or(Vec3::ZERO, |goal| {
-        flat(goal - shot.position).normalize_or_zero()
-    });
-    walk(shot, way * fire.speed, fire.gravity, flight.world);
+    agent_gun(shot, state, fire, flight, rng, born, book);
+
+    let moves = &fire.moves;
+    let away = flat(flight.hero - shot.position).length();
+    if chased.is_none() {
+        // Idle and wandering, it follows once he is far enough off.
+        let leave = match state.mode {
+            AgentMode::Idle => Some(moves.follow_beyond),
+            AgentMode::Wander(_) => Some(moves.wander_leave),
+            AgentMode::Follow => None,
+        };
+        state.mode = match state.mode {
+            _ if leave.is_some_and(|leave| away > leave) => {
+                state.near = draw(rng, moves.idle_within);
+                AgentMode::Follow
+            }
+            AgentMode::Idle => {
+                state.idle += 1;
+                let tick = state.idle % moves.idle_cycle.max(1);
+                if moves.wander_ticks.contains(&tick) && rng.below(moves.wander_odds.max(1)) == 0 {
+                    let around = rng.unit_f32() * TAU;
+                    let off = Vec3::new(-ops::sin(around), 0.0, -ops::cos(around));
+                    AgentMode::Wander(flight.hero + off * draw(rng, moves.wander_round))
+                } else {
+                    AgentMode::Idle
+                }
+            }
+            AgentMode::Wander(to) if flat(to - shot.position).length() <= moves.wander_stop => {
+                AgentMode::Idle
+            }
+            AgentMode::Follow if away <= state.near => AgentMode::Idle,
+            mode => mode,
+        };
+        if state.mode != AgentMode::Idle {
+            state.idle = 0;
+        }
+    }
+    let goal = match (chased, state.mode) {
+        (Some(chased), _) => Some((chased.feet(), &moves.chase, state.chase_top, moves.stop)),
+        (None, AgentMode::Idle) => None,
+        (None, AgentMode::Wander(to)) => {
+            let top = (moves.wander.top.0 + moves.wander.top.1) / 2.0;
+            Some((to, &moves.wander, top, moves.wander_stop))
+        }
+        (None, AgentMode::Follow) => {
+            Some((flight.hero, &moves.follow, state.follow_top, moves.stop))
+        }
+    };
+    match goal {
+        Some((to, gait, top, stop)) => {
+            let way = steer(
+                state,
+                shot.position,
+                to,
+                gait,
+                top,
+                stop,
+                moves.facing_degrees,
+            );
+            walk(shot, way, fire.gravity, flight.world);
+        }
+        None => {
+            state.speed = 0.0;
+            state.turn = 0.0;
+            walk(shot, Vec3::ZERO, fire.gravity, flight.world);
+        }
+    }
     true
+}
+
+/// A walker's step towards `to` (0x4577D0): it turns, faster each tick and easing to a
+/// stop as it comes round (`angle_approach`, 0x445758), and moves only while facing
+/// within `facing_degrees` of it, gaining speed up to its top but no faster than lets it
+/// stop `stop` short. Its velocity across the ground.
+fn steer(
+    state: &mut AgentState,
+    at: Vec3,
+    to: Vec3,
+    gait: &Gait,
+    top: f32,
+    stop: f32,
+    facing_degrees: f32,
+) -> Vec3 {
+    let across = flat(to - at);
+    let off = wrap(yaw_of(across) - state.yaw);
+    let accel = gait.turn_accel.to_radians();
+    let ease = (2.0 * accel * off.abs()).sqrt();
+    state.turn = (state.turn + accel)
+        .min(gait.turn_top.to_radians())
+        .min(ease);
+    state.yaw = wrap(state.yaw + off.signum() * state.turn.min(off.abs()));
+    let room = (across.length() - stop).max(0.0);
+    let most = top.min((2.0 * gait.accel * room).sqrt());
+    state.speed = if wrap(yaw_of(across) - state.yaw).abs() <= facing_degrees.to_radians() {
+        (state.speed + gait.accel * TICK).min(most)
+    } else {
+        0.0
+    };
+    Vec3::new(-ops::sin(state.yaw), 0.0, -ops::cos(state.yaw)) * state.speed
+}
+
+/// An agent's gun (`agent_tick`, 0x3C0128): small bullets at V2–V4, the small missile
+/// from V5 while it keeps by the hero.
+fn agent_gun(
+    shot: &Shot,
+    state: &mut AgentState,
+    fire: &Agents,
+    flight: &Flight,
+    rng: &mut SimRng,
+    born: &mut Vec<Shot>,
+    book: &mut AgentBook,
+) {
+    let Some(gun) = fire.gun.at(shot.level) else {
+        return;
+    };
+    state.cooldown = state.cooldown.saturating_sub(1);
+    if state.cooldown > 0 {
+        return;
+    }
+    let targets = flight.targets;
+    match gun {
+        AgentGun::Bullets {
+            range,
+            bearing_degrees,
+            height,
+            jitter,
+            speed,
+            share,
+            every_ticks,
+            shared,
+            ..
+        } => {
+            let rounds = if shared {
+                &mut book.rounds
+            } else {
+                &mut state.rounds
+            };
+            let from = shot.position + Vec3::Y * height;
+            let Some(index) = level_search(
+                targets,
+                shot.position,
+                bearing_degrees.to_radians(),
+                range,
+                None,
+                |t| t.alive && t.enemy,
+            )
+            .filter(|&index| *rounds > 0 && in_sight(flight.world, from, targets[index].centre)) else {
+                return;
+            };
+            let off = Vec3::new(
+                rng.range_f32(-jitter, jitter),
+                rng.range_f32(-jitter, jitter),
+                rng.range_f32(-jitter, jitter),
+            );
+            let way = (targets[index].centre + off - from).normalize_or(Vec3::NEG_Z);
+            *rounds -= 1;
+            state.cooldown = every_ticks;
+            born.push(Shot {
+                position: from,
+                velocity: way * speed,
+                ticks: 0,
+                damage: shot.damage * share,
+                kind: ShotKind::Slug,
+                ..shot.clone()
+            });
+        }
+        AgentGun::Missiles {
+            range,
+            height,
+            every,
+            missile,
+            ..
+        } => {
+            if state.target.is_some() || book.rounds == 0 {
+                return;
+            }
+            let from = shot.position + Vec3::Y * height;
+            let Some(target) = targets
+                .iter()
+                .filter(|t| t.alive && t.enemy && t.centre.distance(from) <= range)
+                .filter(|t| in_sight(flight.world, from, t.centre))
+                .min_by(|a, b| a.centre.distance(from).total_cmp(&b.centre.distance(from)))
+            else {
+                return;
+            };
+            book.rounds -= 1;
+            state.cooldown = draw_ticks(rng, every);
+            let way = (target.centre - from).normalize_or(Vec3::NEG_Z);
+            born.push(small_missile(
+                shot,
+                &missile,
+                from,
+                way,
+                Some(target.entity),
+                rng,
+            ));
+        }
+    }
 }
 
 /// How an agent ends (0x3C2140): a blast at V1, a comet at V2–V4 (0x395480), the

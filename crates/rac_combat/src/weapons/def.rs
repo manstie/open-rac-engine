@@ -82,11 +82,18 @@ pub struct GunRules {
     pub bend_degrees: f32,
     pub bend_near: f32,
     pub shock: ShockRules,
+    /// UYA's small bullet, which the agents' guns and the Nitro Eruptor fire; UYA's when a
+    /// file leaves it out.
+    #[serde(default)]
+    pub slug: SlugRules,
     /// How many targets can burn with acid at once.
     pub acid_slots: usize,
     /// How the quick-select ring is worked; UYA's when a file leaves it out.
     #[serde(default)]
     pub ring: super::ring::RingRules,
+    /// The wrench's crosshair in the look.
+    #[serde(default)]
+    pub wrench_sight: Option<Crosshair>,
 }
 
 /// The shock mod: each hit arcs to another enemy near the target.
@@ -98,6 +105,31 @@ pub struct ShockRules {
     pub share: f32,
     /// It reaches its target, and strikes, this many ticks after the hit.
     pub reach_ticks: u32,
+}
+
+/// UYA's small bullet (class 0x1855, `enemy_bullet_spawn` 0x35D8E8, its flight 0x35D9C0):
+/// straight on for `life_ticks` while within `leash` of the hero, testing each step's
+/// line. What it meets takes a ball of its damage where it meets it, `world_radius` on
+/// the world and `target_radius` on a target, pushed by its velocity a tick × `push`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SlugRules {
+    pub life_ticks: u32,
+    pub leash: f32,
+    pub world_radius: f32,
+    pub target_radius: f32,
+    pub push: f32,
+}
+
+impl Default for SlugRules {
+    fn default() -> Self {
+        Self {
+            life_ticks: 180,
+            leash: 80.0,
+            world_radius: 0.6,
+            target_radius: 1.0,
+            push: 3.0,
+        }
+    }
 }
 
 /// One gun.
@@ -138,6 +170,84 @@ pub struct WeaponDef {
     pub fire: FireMode,
     #[serde(default)]
     pub effects: Effects,
+    /// What it draws to aim by.
+    #[serde(default)]
+    pub sight: Sight,
+}
+
+/// What a gun draws to aim by (`weapons.md`, "Aim indicators"), for a HUD: the game's
+/// effect texture numbers name its images, and sizes are pixels of UYA's 512 × 416 frame.
+/// The lock-on reticle is every gun's ([`crate::weapons::Sights`]).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Sight {
+    #[serde(default)]
+    pub crosshair: Option<Crosshair>,
+    #[serde(default)]
+    pub mark: Mark,
+    /// In the look it draws a scope over the screen, with a ring that blinks while a
+    /// live enemy is on its line within `scope_reach` u and it can fire.
+    #[serde(default)]
+    pub scope_reach: Option<f32>,
+}
+
+/// A crosshair at the screen's centre.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Crosshair {
+    pub texture: u16,
+    /// Width and height, and how far it is turned.
+    pub size: (f32, f32),
+    #[serde(default)]
+    pub turn_degrees: f32,
+    /// It turns red while the view's target weight is above this; none, never.
+    pub red_above: Option<f32>,
+    /// It pulses between green and white; otherwise it keeps `colour`.
+    #[serde(default = "yes")]
+    pub pulse: bool,
+    /// Its colour when it doesn't pulse (sRGB, 0 to 1).
+    #[serde(default)]
+    pub colour: Option<[f32; 3]>,
+    pub when: Showing,
+}
+
+/// When a crosshair shows. Aiming is the look (UYA's state 29) or a camera other than the
+/// follow camera.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Showing {
+    Aiming,
+    /// Aiming with no lock-on target.
+    AimingUnlocked,
+    /// Only in the look.
+    Look,
+}
+
+/// What a gun marks in the world.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Mark {
+    #[default]
+    None,
+    /// The shared target mark on its target ([`crate::weapons::Sights::target`]), or the
+    /// lock-on target with `or_lock`: only in the follow camera with `follow_only`, never
+    /// in the look with `outside_look`, never with the arm raised against a wall with
+    /// `not_raised`, only while it can fire with `ready_only`.
+    Target {
+        #[serde(default)]
+        or_lock: bool,
+        #[serde(default)]
+        follow_only: bool,
+        #[serde(default)]
+        outside_look: bool,
+        #[serde(default)]
+        not_raised: bool,
+        #[serde(default)]
+        ready_only: bool,
+    },
+    /// The shared mark on each of its marks below `below_level`, with no lock-on target,
+    /// all sharing one spin (the RY3NO's).
+    Each { below_level: u8 },
+    /// Its marks as downward triangles (texture 0x1F), the newest in red-orange, only
+    /// those within `within_degrees` of the view (the Spitting Hydra's,
+    /// `hydra_marks_draw` 0x3213A8).
+    Triangles { within_degrees: f32 },
 }
 
 impl WeaponDef {
@@ -491,6 +601,25 @@ pub struct Eruption {
     pub grow_ticks: u32,
     pub radius: (f32, f32),
     pub push: f32,
+    /// What it fires as the charge bursts.
+    #[serde(default)]
+    pub spray: Option<Spray>,
+}
+
+/// The Nitro Eruptor's burst of `count` small bullets ([`SlugRules`]), each `damage`, at
+/// a random `speed` u/s: one at each target farther than `near` of the first `aimed`
+/// within `within` of the burst, the rest any way round, from `down_degrees` below level
+/// to `up_degrees` above.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Spray {
+    pub count: u32,
+    pub damage: f32,
+    pub speed: (f32, f32),
+    pub near: f32,
+    pub within: f32,
+    pub aimed: usize,
+    pub down_degrees: f32,
+    pub up_degrees: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -628,22 +757,30 @@ pub struct Mines {
     pub bomblet: Bomblet,
 }
 
-/// The Decimator's seekers (the small missile, class 0xA82, `small_missile_spawn`
-/// 0x3441D0): `count` of them, each `share` of the missile's damage, leaving fanned up to
-/// `spread_degrees` either side of the way back towards the hero (the game's camera),
-/// starting at a speed between `speed` and gaining `accel` u/s a tick to their `top`.
+/// The Decimator's seekers: `count` small missiles leaving fanned up to `spread_degrees`
+/// either side of the way back towards the hero (the game's camera), each at the nearest
+/// living enemy within `range`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Seekers {
     pub from_level: u8,
     pub count: u32,
-    pub share: f32,
     pub spread_degrees: f32,
+    pub range: f32,
+    pub missile: SmallMissile,
+}
+
+/// The small missile (class 0xA82, `small_missile_spawn` 0x3441D0, its flight 0x343330),
+/// which the Decimator and the Agents of Dread fire: `share` of the gun's damage,
+/// starting at a speed between `speed` and gaining `accel` u/s a tick to its `top`.
+/// How it turns after its enemy, how long it flies and its blast aren't read:
+/// `turn_degrees` a tick, `lifetime` ticks, and what it meets sets off a ball of
+/// `blast_radius`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SmallMissile {
+    pub share: f32,
     pub speed: (f32, f32),
     pub accel: (f32, f32),
     pub top: (f32, f32),
-    /// How they find and turn after an enemy, how long they fly and their blast aren't
-    /// read: the nearest living enemy within `range`, `turn_degrees` a tick.
-    pub range: f32,
     pub turn_degrees: f32,
     pub lifetime: u32,
     pub blast_radius: f32,
@@ -1139,21 +1276,107 @@ pub struct Agents {
     pub direct_from: Option<u8>,
     /// Out from where they are let out, along his facing and sideways.
     pub spread: f32,
-    pub speed: f32,
-    pub sight: f32,
+    pub sight: AgentSight,
+    pub moves: AgentMoves,
     /// It ends when a ball of `touch`, `touch_height` above its feet, touches its target,
-    /// when it is within `reach` of the target's feet, or `chase_ticks` into the chase;
-    /// with no target it comes back to within `follow` of the hero.
+    /// when it is within `reach` of the target's feet, or `chase_ticks` into the chase.
     pub touch: f32,
     pub touch_height: f32,
     pub reach: f32,
     pub chase_ticks: u32,
-    pub follow: f32,
     /// It also ends `life_ticks` after it comes out, or this far from the hero.
     pub life_ticks: u32,
     pub leash: f32,
     /// How it ends, by level (0x3C2140).
     pub end: ByLevel<AgentEnd>,
+    /// Its gun, by level (`agent_tick` 0x3C0128); none at V1.
+    #[serde(default)]
+    pub gun: ByLevel<AgentGun>,
+}
+
+/// How an agent finds its target (`target_search_level` 0x44CD90, scoring 0x44CC18): as
+/// it comes out, the best of anything with hit points within `first`; then each tick
+/// without a target, the best enemy within `range` that no agent of the hero's has
+/// claimed. Both take only targets within `level_degrees` of level, from its feet to the
+/// target's, and score them by distance × (1 + the angle of their bearing off
+/// `bearing_degrees`, a bearing fixed in the world). The one found is claimed for
+/// `claim_ticks` (`target_claim`, 0x4C4640).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AgentSight {
+    pub first: f32,
+    pub range: f32,
+    pub level_degrees: f32,
+    pub bearing_degrees: f32,
+    pub claim_ticks: u32,
+}
+
+/// How an agent walks (`walker_set_params` 0x458A70, run by 0x4577D0): it turns towards
+/// where it goes, and moves only while facing within `facing_degrees` of it, slowing to
+/// stop `stop` short of it (`wander_stop` wandering).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AgentMoves {
+    pub follow: Gait,
+    pub chase: Gait,
+    pub wander: Gait,
+    pub facing_degrees: f32,
+    pub stop: f32,
+    pub wander_stop: f32,
+    /// Idle, it follows the hero once he is farther than `follow_beyond`; following, it
+    /// idles again within a distance drawn from `idle_within` as it sets off.
+    pub follow_beyond: f32,
+    pub idle_within: (f32, f32),
+    /// Idle with no target, on these ticks of each `idle_cycle` (its idle animations'
+    /// frames 30, 35 and 59), one time in `wander_odds` it wanders to a random point
+    /// `wander_round` from him; wandering, it follows once he is farther than
+    /// `wander_leave`.
+    pub wander_ticks: [u32; 3],
+    pub idle_cycle: u32,
+    pub wander_odds: u32,
+    pub wander_round: (f32, f32),
+    pub wander_leave: f32,
+}
+
+/// A walker's acceleration (u/s²) and top speed (u/s, drawn between the two for each
+/// agent), and its turn's acceleration and top speed (degrees a tick² and a tick).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Gait {
+    pub accel: f32,
+    pub top: (f32, f32),
+    pub turn_accel: f32,
+    pub turn_top: f32,
+}
+
+/// An agent's gun (`agent_tick`, 0x3C0128).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AgentGun {
+    /// Small bullets ([`SlugRules`]) of `share` of the gun's damage at `speed` u/s, at the
+    /// best enemy within `range` all round (the level search, bearing `bearing_degrees`)
+    /// in a clear line from `height` above its feet, the aim jittered up to `jitter` u
+    /// each way: first `first_ticks` after it comes out, then every `every_ticks`, while
+    /// its `rounds` last, each agent's own or `shared` by the hero's agents and filled
+    /// again as each comes out.
+    Bullets {
+        range: f32,
+        bearing_degrees: f32,
+        height: f32,
+        jitter: f32,
+        speed: f32,
+        share: f32,
+        first_ticks: u32,
+        every_ticks: u32,
+        rounds: u32,
+        shared: bool,
+    },
+    /// The small missile at an enemy within `range` it can see from `height`, every
+    /// `every` ticks (drawn between the two), from the hero's agents' shared `rounds`;
+    /// only while it keeps by him (the game's hovering state 7).
+    Missiles {
+        range: f32,
+        height: f32,
+        every: (u32, u32),
+        rounds: u32,
+        missile: SmallMissile,
+    },
 }
 
 /// How an agent ends (0x3C2140).
