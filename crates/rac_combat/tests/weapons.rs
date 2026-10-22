@@ -417,6 +417,27 @@ fn the_annihilators_missile_turns_after_the_target_it_picked() {
 }
 
 #[test]
+fn the_annihilators_blast_leaves_mines_at_v2_to_v4_and_seekers_from_v5() {
+    // "Annihilator": 4 mines at V2, 6 at V3 and V4 (heavy), none from V5, which sends the
+    // Decimator's seven seekers instead.
+    for (level, mines, seekers) in [(0, 0, 0), (1, 4, 0), (2, 6, 0), (3, 6, 0), (4, 0, 7)] {
+        let mut yard = Yard::new(&[(ANNIHILATOR, level)]);
+        // A wall of a target far enough off that the mines don't reach it at once.
+        yard.target(Vec3::new(0.0, 1.0, -12.0), 10_000.0);
+        yard.idle(6);
+        yard.hold(&[Action::Fire], 1);
+        let mut most = (0, 0);
+        for _ in 0..40 {
+            yard.idle(1);
+            let bomblets = yard.count_shots(|kind| matches!(kind, ShotKind::Bomblet { .. }));
+            let seeking = yard.count_shots(|kind| matches!(kind, ShotKind::Seeker { .. }));
+            most = (most.0.max(bomblets), most.1.max(seeking));
+        }
+        assert_eq!(most, (mines, seekers), "V{}", level + 1);
+    }
+}
+
+#[test]
 fn the_flux_rifles_shot_crosses_its_range_in_a_few_ticks() {
     let mut yard = Yard::new(&[(FLUX, 0)]);
     let near = yard.target(Vec3::new(0.25, 1.0, -60.0), 100.0);
@@ -458,21 +479,36 @@ fn a_kill_gives_the_gun_its_xp_and_levels_it_up() {
 }
 
 #[test]
-fn shock_arcs_from_a_hit_to_another_target_for_a_quarter_of_the_damage() {
-    // The N60 at V4: 2.5 a bullet, and an arc of a quarter to the first other target
-    // within 8 u.
+fn shock_arcs_from_a_hit_to_another_enemy_for_a_quarter_of_the_damage_10_ticks_on() {
+    // The N60 at V4: 2.5 a bullet, and an arc of a quarter to the first other enemy in
+    // sight within 8 u, which reaches it 10 ticks after the hit (`shock_arc_add`).
     let mut yard = Yard::new(&[(N60, 3)]);
-    let struck = yard.target(Vec3::new(0.25, 1.0, -8.0), 10.0);
-    let near = yard.target(Vec3::new(3.5, 1.0, -9.0), 10.0);
+    let struck = yard.enemy(Vec3::new(0.25, 1.0, -8.0), 10.0);
+    let near = yard.enemy(Vec3::new(3.5, 1.0, -9.0), 10.0);
+    // Not a dummy that isn't an enemy, though it is nearer.
+    let dummy = yard.target(Vec3::new(1.5, 1.0, -8.5), 10.0);
     yard.hold(&[Action::Fire], 1);
-    yard.idle(20);
+    let mut arc_tick = None;
+    let mut struck_tick = None;
+    for tick in 0..30 {
+        yard.idle(1);
+        if arc_tick.is_none()
+            && yard
+                .events
+                .iter()
+                .any(|event| matches!(event.kind, GunEventKind::Arc { .. }))
+        {
+            arc_tick = Some(tick);
+        }
+        if struck_tick.is_none() && yard.hitpoints(near) < 10.0 {
+            struck_tick = Some(tick);
+        }
+    }
     assert_eq!(yard.hitpoints(struck), 7.5);
     assert_eq!(yard.hitpoints(near), 10.0 - 0.625);
-    assert!(
-        yard.events
-            .iter()
-            .any(|event| matches!(event.kind, GunEventKind::Arc { .. }))
-    );
+    assert_eq!(yard.hitpoints(dummy), 10.0);
+    let (arc, hit) = (arc_tick.unwrap(), struck_tick.unwrap());
+    assert_eq!(hit - arc, 10, "the arc reaches its target 10 ticks on");
 }
 
 #[test]

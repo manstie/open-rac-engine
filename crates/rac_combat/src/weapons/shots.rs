@@ -3,14 +3,16 @@
 //! stream and the Annihilator's missiles here; what the other guns fire, throw or put down
 //! in [`super::seekers`], [`super::thrown`], [`super::grab`] and [`super::hand`].
 
-use bevy::prelude::*;
+use bevy::{math::ops, prelude::*};
 use rac_hero::CollisionWorld;
 use rac_sim::SimRng;
 
 use super::{
     GunEventKind,
     aim::{GunTarget, first_target},
-    def::{Armory, FireMode, Homing, Lobbed, Mods, Projectile, Stream, WeaponId},
+    def::{
+        Armory, FireMode, Homing, Lobbed, Mods, Projectile, ScopeBeam, Seekers, Stream, WeaponId,
+    },
     ducks,
     fire::{GunInput, Hit, Outcome},
     grab, hand, seekers, thrown,
@@ -44,6 +46,8 @@ pub struct Shot {
 pub enum ShotKind {
     /// Flies straight for `lifetime` ticks, bouncing off the world `bounces` more times.
     Bullet { lifetime: u32, bounces: u32 },
+    /// The Flux Rifle's scoped beam, until it `hit` something.
+    Beam { hit: bool },
     /// Thrown in an arc; `fuse` counts down once it has bounced.
     Charge { fuse: Option<u32> },
     /// Grows to hit what it touches, each target once.
@@ -99,6 +103,12 @@ pub enum ShotKind {
     Pellet,
     /// A Megaturret's missile at `target`.
     Guided { target: Option<Entity> },
+    /// One of the Decimator's seekers at `target`, gaining `accel` u/s a tick to `top`.
+    Seeker {
+        target: Option<Entity>,
+        accel: f32,
+        top: f32,
+    },
     /// A holo shield.
     Barrier(BarrierState),
     /// The Agents of Doom's pod, falling until it lands and lets them out.
@@ -252,7 +262,12 @@ pub(crate) fn step(
             return bolt(shot, targets, out);
         }
         match &def.fire {
-            FireMode::Projectile(fire) => bullet(shot, fire, world, targets, out),
+            FireMode::Projectile(fire) => match &fire.scope_beam {
+                Some(beam_def) if matches!(shot.kind, ShotKind::Beam { .. }) => {
+                    beam(shot, beam_def, world, targets, out)
+                }
+                _ => bullet(shot, fire, world, targets, out),
+            },
             FireMode::Lobbed(fire) if matches!(shot.kind, ShotKind::Blast { .. }) => {
                 blast(shot, fire, targets, out)
             }
@@ -273,7 +288,32 @@ pub(crate) fn step(
                 keep
             }
             FireMode::Stream(fire) => stream_point(shot, fire, world, targets, out),
-            FireMode::Homing(fire) => missile(shot, &Seek::homing(fire), world, targets, out),
+            FireMode::Homing(fire) => match shot.kind {
+                ShotKind::Bomblet { index, life } => match fire.mines.at(shot.level) {
+                    Some(mines) => thrown::bomblet(
+                        shot,
+                        mines.gravity,
+                        &mines.bomblet,
+                        index,
+                        life,
+                        &flight,
+                        out,
+                    ),
+                    None => false,
+                },
+                ShotKind::Seeker { .. } => match &fire.seekers {
+                    Some(seekers) => seeker(shot, seekers, &flight, out),
+                    None => false,
+                },
+                _ => match missile(shot, &Seek::homing(fire), world, targets, out) {
+                    Course::On => true,
+                    Course::Out => false,
+                    Course::Burst(at) => {
+                        burst_into(shot, fire, at, &flight, rng, &mut born);
+                        false
+                    }
+                },
+            },
             FireMode::Volley(fire) => seekers::rocket(shot, fire, &flight, out),
             FireMode::Coil(fire) => seekers::coil_shot(shot, fire, &flight, out, &mut born),
             FireMode::Disc(fire) => {
@@ -403,6 +443,57 @@ fn bullet(
             shot.ticks < lifetime
         }
     }
+}
+
+/// The Flux Rifle's scoped beam (0x37CB68): its head tests the line of its step, up to
+/// `tests` times from the level it pierces, each passing over what the one before hit.
+/// Every hit takes a ball at the point hit; the first stops the head, and the beam ends
+/// after its ticks.
+fn beam(
+    shot: &mut Shot,
+    def: &ScopeBeam,
+    world: &dyn CollisionWorld,
+    targets: &[GunTarget],
+    out: &mut Outcome,
+) -> bool {
+    let ShotKind::Beam { hit: false } = shot.kind else {
+        return shot.ticks < def.ticks;
+    };
+    let motion = shot.velocity * TICK;
+    let tests = if shot.level >= def.pierce_from {
+        def.tests
+    } else {
+        1
+    };
+    let radius = def.radius.at(shot.level).unwrap_or(0.0);
+    let push = shot.velocity.normalize_or_zero() * def.push.at(shot.level).unwrap_or(0.0);
+    let mut skip = None;
+    let mut first = None;
+    for _ in 0..tests {
+        let (t, struck) = match meets_where(world, targets, shot.position, motion, |target| {
+            Some(target.entity) != skip
+        }) {
+            Meets::Target(index, t) => (t, Some(targets[index].entity)),
+            Meets::World(t, _) => (t, None),
+            Meets::Nothing => break,
+        };
+        let at = shot.position + motion * t;
+        for target in in_ball(targets, at, radius, None) {
+            out.hits.push(shot.hit(target.entity, shot.damage, push));
+        }
+        first.get_or_insert(at);
+        skip = struck;
+    }
+    match first {
+        Some(at) => {
+            shot.kind = ShotKind::Beam { hit: true };
+            shot.position = at;
+            shot.velocity = Vec3::ZERO;
+            out.event(shot.weapon, GunEventKind::Impact { at });
+        }
+        None => shot.position += motion,
+    }
+    shot.ticks < def.ticks
 }
 
 /// The Nitro Launcher's charge (0x361218): it falls, bounces off the world, and bursts on
@@ -559,6 +650,16 @@ impl Seek {
     }
 }
 
+/// How a missile's tick ended.
+enum Course {
+    /// It flies on.
+    On,
+    /// It ran out of time, or isn't a missile.
+    Out,
+    /// It burst here.
+    Burst(Vec3),
+}
+
 /// The Annihilator's missile (0x396A20): it turns after its target while that lives, and
 /// bursts on the first thing it meets, its blast doing the splash damage round it.
 fn missile(
@@ -567,9 +668,9 @@ fn missile(
     world: &dyn CollisionWorld,
     targets: &[GunTarget],
     out: &mut Outcome,
-) -> bool {
+) -> Course {
     let ShotKind::Missile { target } = &mut shot.kind else {
-        return false;
+        return Course::Out;
     };
     let chased = target.and_then(|entity| {
         targets
@@ -599,7 +700,11 @@ fn missile(
         Meets::World(t, _) => shot.position + motion * t,
         Meets::Nothing => {
             shot.position += motion;
-            return shot.ticks < fire.lifetime;
+            return if shot.ticks < fire.lifetime {
+                Course::On
+            } else {
+                Course::Out
+            };
         }
     };
     if shot.splash > 0.0 {
@@ -607,6 +712,104 @@ fn missile(
             out.hits
                 .push(shot.hit(near.entity, shot.splash, Vec3::ZERO));
         }
+    }
+    out.event(shot.weapon, GunEventKind::Impact { at });
+    Course::Burst(at)
+}
+
+/// What the Annihilator's missile leaves as it bursts at `at` (0x396A20's switch on the
+/// level): at V2–V4 its mines, from V5 the Decimator's seekers.
+fn burst_into(
+    shot: &Shot,
+    fire: &Homing,
+    at: Vec3,
+    flight: &Flight,
+    rng: &mut SimRng,
+    born: &mut Vec<Shot>,
+) {
+    if let Some(seekers) = fire.seekers.filter(|s| shot.level >= s.from_level) {
+        // Fanned either side of the way back from the blast towards the hero.
+        let back = super::aim::flat(flight.hero - at).normalize_or(-flight.facing);
+        let base = ops::atan2(-back.x, -back.z);
+        for _ in 0..seekers.count {
+            let bearing = base + rng.range_f32(-1.0, 1.0) * seekers.spread_degrees.to_radians();
+            let way = Vec3::new(-ops::sin(bearing), 0.0, -ops::cos(bearing));
+            let speed = rng.range_f32(seekers.speed.0, seekers.speed.1);
+            let accel = rng.range_f32(seekers.accel.0, seekers.accel.1);
+            let top = rng.range_f32(seekers.top.0, seekers.top.1);
+            born.push(Shot {
+                position: at,
+                velocity: way * speed,
+                ticks: 0,
+                damage: shot.damage * seekers.share,
+                kind: ShotKind::Seeker {
+                    target: nearest_enemy(flight.targets, at, seekers.range),
+                    accel,
+                    top,
+                },
+                ..shot.clone()
+            });
+        }
+        return;
+    }
+    if let Some(mines) = fire.mines.at(shot.level).filter(|m| m.count > 0) {
+        thrown::scatter(
+            shot,
+            at,
+            mines.count,
+            &mines.bomblet,
+            shot.damage * mines.share,
+            rng,
+            born,
+        );
+    }
+}
+
+/// The nearest living enemy within `range` of `at`.
+fn nearest_enemy(targets: &[GunTarget], at: Vec3, range: f32) -> Option<Entity> {
+    targets
+        .iter()
+        .filter(|t| t.alive && t.enemy && t.centre.distance(at) <= range)
+        .min_by(|a, b| a.centre.distance(at).total_cmp(&b.centre.distance(at)))
+        .map(|t| t.entity)
+}
+
+/// One of the Decimator's seekers: faster each tick to its top speed, turning after its
+/// enemy, bursting on what it meets.
+fn seeker(shot: &mut Shot, seekers: &Seekers, flight: &Flight, out: &mut Outcome) -> bool {
+    let ShotKind::Seeker { target, accel, top } = &mut shot.kind else {
+        return false;
+    };
+    let (accel, top) = (*accel, *top);
+    if shot.ticks >= seekers.lifetime {
+        return false;
+    }
+    let chased = target.and_then(|entity| {
+        flight
+            .targets
+            .iter()
+            .find(|candidate| candidate.entity == entity && candidate.alive)
+    });
+    if chased.is_none() {
+        *target = None;
+    }
+    let speed = (shot.velocity.length() + accel).min(top);
+    let mut way = shot.velocity.normalize_or(flight.facing);
+    if let Some(chased) = chased {
+        let wanted = (chased.centre - shot.position).normalize_or(way);
+        way = super::aim::bend(way, wanted, seekers.turn_degrees.to_radians());
+    }
+    shot.velocity = way * speed;
+    let motion = shot.velocity * TICK;
+    let at = match meets(flight.world, flight.targets, shot.position, motion) {
+        Meets::Target(_, t) | Meets::World(t, _) => shot.position + motion * t,
+        Meets::Nothing => {
+            shot.position += motion;
+            return true;
+        }
+    };
+    for near in in_ball(flight.targets, at, seekers.blast_radius, None) {
+        out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
     }
     out.event(shot.weapon, GunEventKind::Impact { at });
     false
@@ -638,4 +841,108 @@ fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
     let push = (struck.centre - shot.position).normalize_or_zero() * *push;
     out.hits.push(shot.hit(struck.entity, shot.damage, push));
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rac_hero::ParryWorld;
+
+    fn flux() -> (WeaponId, ScopeBeam) {
+        let armory = Armory::uya();
+        let (index, beam) = armory
+            .weapons
+            .iter()
+            .enumerate()
+            .find_map(|(index, def)| match &def.fire {
+                FireMode::Projectile(fire) => fire.scope_beam.clone().map(|beam| (index, beam)),
+                _ => None,
+            })
+            .expect("the Flux Rifle has a scoped beam");
+        (WeaponId(index), beam)
+    }
+
+    fn target(raw: u32, z: f32) -> GunTarget {
+        GunTarget {
+            entity: Entity::from_raw_u32(raw).unwrap(),
+            centre: Vec3::new(0.0, 0.0, z),
+            radius: 0.5,
+            alive: true,
+            health: None,
+            enemy: true,
+        }
+    }
+
+    /// The targets the beam hits in its first `ticks`, at `level`.
+    fn struck(level: u8, targets: &[GunTarget], ticks: u32) -> Vec<Entity> {
+        let (weapon, def) = flux();
+        let mut shot = Shot {
+            serial: 1,
+            weapon,
+            level,
+            position: Vec3::ZERO,
+            velocity: Vec3::NEG_Z * (def.step / TICK),
+            ticks: 0,
+            damage: 10.0,
+            splash: 0.0,
+            mods: Mods::default(),
+            kind: ShotKind::Beam { hit: false },
+        };
+        let world = ParryWorld::default();
+        let mut out = Outcome::default();
+        for _ in 0..ticks {
+            shot.ticks += 1;
+            beam(&mut shot, &def, &world, targets, &mut out);
+        }
+        let mut hit: Vec<_> = out.hits.iter().map(|hit| hit.target).collect();
+        hit.dedup();
+        hit
+    }
+
+    #[test]
+    fn at_v1_the_scoped_beam_stops_at_the_first_target() {
+        // Three in a line within one 30 u step, 3 u apart: the 0.6 u ball reaches only
+        // the first.
+        let targets = [target(1, -40.0), target(2, -43.0), target(3, -46.0)];
+        assert_eq!(struck(0, &targets, 4), [targets[0].entity]);
+    }
+
+    #[test]
+    fn from_v2_it_passes_the_first_target_to_reach_the_second() {
+        // Each test passes over only what the one before hit, so of three in a line it
+        // goes back and forth between the first two, and stops.
+        let targets = [target(1, -40.0), target(2, -43.0), target(3, -46.0)];
+        let hit = struck(1, &targets, 26);
+        assert!(hit.contains(&targets[0].entity) && hit.contains(&targets[1].entity));
+        assert!(!hit.contains(&targets[2].entity));
+    }
+
+    #[test]
+    fn the_beam_ends_after_its_ticks() {
+        let (weapon, def) = flux();
+        let mut shot = Shot {
+            serial: 1,
+            weapon,
+            level: 0,
+            position: Vec3::ZERO,
+            velocity: Vec3::NEG_Z * (def.step / TICK),
+            ticks: 0,
+            damage: 10.0,
+            splash: 0.0,
+            mods: Mods::default(),
+            kind: ShotKind::Beam { hit: false },
+        };
+        let world = ParryWorld::default();
+        let mut out = Outcome::default();
+        let mut alive = 0;
+        loop {
+            shot.ticks += 1;
+            if !beam(&mut shot, &def, &world, &[], &mut out) {
+                break;
+            }
+            alive += 1;
+        }
+        assert_eq!(alive + 1, def.ticks);
+        assert!((shot.position.z + def.step * def.ticks as f32).abs() < 1e-2);
+    }
 }

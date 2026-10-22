@@ -141,6 +141,7 @@ impl Plugin for CombatPlugin {
         app.init_resource::<CombatTuning>()
             .init_resource::<Armory>()
             .init_resource::<Burns>()
+            .init_resource::<weapons::Arcs>()
             .init_resource::<PickupTuning>()
             .add_message::<Struck>()
             .add_message::<Destroyed>()

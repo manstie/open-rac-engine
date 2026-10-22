@@ -13,8 +13,8 @@ use super::{
     aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight},
     arsenal::Arsenal,
     def::{
-        AgentEnd, Agents, AimAssist, Armory, Barrier, Bounce, Cluster, Deploy, FireMode, Infect,
-        InfectBomb, Mega, Throw, Timing, Turret,
+        AgentEnd, Agents, AimAssist, Armory, Barrier, Bomblet, Bounce, Cluster, Deploy, FireMode,
+        Infect, InfectBomb, Mega, Throw, Timing, Turret,
     },
     fire::{Afflict, Gun, GunInput, Outcome, fire_anim, run_dry, take_shot},
     shots::{
@@ -149,7 +149,8 @@ pub(super) fn cluster_shot(
     born: &mut Vec<Shot>,
 ) -> bool {
     if let ShotKind::Bomblet { index, life } = shot.kind {
-        return bomblet(shot, fire, index, life, flight, out);
+        let (_, b) = fire.at(shot.level);
+        return bomblet(shot, fire.gravity, b, index, life, flight, out);
     }
     let ShotKind::Canister { bounces, rolled } = &mut shot.kind else {
         return false;
@@ -185,7 +186,30 @@ pub(super) fn cluster_shot(
         return true;
     }
     out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
-    for index in 0..fire.bomblets {
+    scatter(
+        shot,
+        shot.position,
+        fire.bomblets,
+        b,
+        shot.damage,
+        rng,
+        born,
+    );
+    false
+}
+
+/// Bursts into `count` bomblets at `at`, each doing `damage`: at random bearings, up from
+/// the ground and at speeds within the bomblet's, living a random while (0x31D6C0).
+pub(super) fn scatter(
+    shot: &Shot,
+    at: Vec3,
+    count: u32,
+    b: &Bomblet,
+    damage: f32,
+    rng: &mut SimRng,
+    born: &mut Vec<Shot>,
+) {
+    for index in 0..count {
         let bearing = rng.unit_f32() * TAU;
         let up = rng.range_f32(b.up_degrees.0, b.up_degrees.1).to_radians();
         let speed = rng.range_f32(b.speed.0, b.speed.1);
@@ -197,25 +221,28 @@ pub(super) fn cluster_shot(
             -ops::cos(bearing) * ops::cos(up),
         );
         born.push(Shot {
+            position: at,
             velocity: direction * speed,
             ticks: 0,
+            damage,
             kind: ShotKind::Bomblet { index, life },
             ..shot.clone()
         });
     }
-    false
 }
 
-fn bomblet(
+/// A bomblet (0x31E488), falling under `gravity`: it bounces towards enemies and, once
+/// armed, bursts on the first target with hit points near it.
+pub(super) fn bomblet(
     shot: &mut Shot,
-    fire: &Cluster,
+    gravity: f32,
+    b: &Bomblet,
     index: u32,
     life: u32,
     flight: &Flight,
     out: &mut Outcome,
 ) -> bool {
-    let (_, b) = fire.at(shot.level);
-    shot.velocity.y -= fire.gravity * TICK;
+    shot.velocity.y -= gravity * TICK;
     let motion = shot.velocity * TICK;
     match flight.world.cast_ray(shot.position, motion) {
         Some(hit) => {

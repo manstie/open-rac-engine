@@ -669,7 +669,9 @@ its disc test checks the six guns below.
 - **Each gun's sequences** [data, 2026-10-22]: 0 grows the gun from nothing over 11
   keyframes (5 for the Nitro Launcher's V5 class; the Lava Gun's starts at about half
   size), 1 holds it at rest (its bind pose; 1–5 keyframes), 2 is a recoil of 3–36
-  keyframes. Which the game plays when isn't read.
+  keyframes. When the game plays each [code, 2026-10-22]: `weapons.md`, "The gun's own
+  animation" (0 once as it is drawn, then 1; 2 on each shot for some guns, and as it is
+  put away).
 - **Bangles by level** [code for the writes, 2026-10-22]: the V1 classes have bangles
   (the Shock Blaster, Annihilator, Flux Rifle and Nitro Launcher 3, the N60 2; the Lava
   Gun and the V5 classes none), and each gun's update writes its moby's +0x7C by level:

@@ -295,6 +295,7 @@ pub fn step(
         .gun()
         .and_then(|weapon| arsenal.gun(weapon))
         .map_or(0, |gun| gun.level);
+    let target = in_hand.and_then(|def| head_target(def, level, gun_input, armory));
     out.hand = GunHand {
         out: in_hand.is_some(),
         firing,
@@ -306,6 +307,7 @@ pub fn step(
         shots: arsenal.shots_fired,
         selecting: blocked,
         whip: in_hand.and_then(|def| hand::whip_hand(arsenal, armory, def, level)),
+        target,
     };
     arsenal.shown_out = out.hand.out;
     out.lock_on = arsenal
@@ -314,6 +316,36 @@ pub fn step(
         .or(arsenal.equipped)
         .is_some_and(|weapon| arsenal.mods(weapon, armory).lock_on);
     out
+}
+
+/// The point the gun in hand aims at this tick, for his head and upper body to turn to
+/// (`gun_target_now`; `weapons.md`, "The head and upper body turn to the gun's
+/// target"): none while he is locked on, whom he faces anyway, or in the lock-strafe
+/// camera, where guns aim with the view; else the enemy its own assist picks from the
+/// muzzle along his facing. UYA's guns set it as they aim, each in its own update
+/// (the Shock Blaster and Lava Gun too, which the kit's give no assist): here every gun
+/// with an assist names its pick each tick [simplified].
+fn head_target(def: &WeaponDef, level: u8, gun_input: &GunInput, armory: &Armory) -> Option<Vec3> {
+    let assist = def.fire.assist(level)?;
+    let hero = gun_input.hero;
+    let strafing = gun_input
+        .view
+        .is_some_and(|view| view.setting == CameraSetting::LockStrafe);
+    if gun_input.lock.is_some() || strafing {
+        return None;
+    }
+    let [right, up, forward] = armory.rules.muzzle;
+    let muzzle = hero.position + Quat::from_rotation_y(hero.yaw) * Vec3::new(right, up, -forward);
+    let picked = assist_targets(
+        gun_input.targets,
+        muzzle,
+        hero.facing(),
+        &assist,
+        gun_input.world,
+        |target| target.enemy,
+        1,
+    );
+    picked.first().map(|&index| gun_input.targets[index].centre)
 }
 
 /// The quick-select button (`weapons.md`, "The quick-select ring"): pressed, it opens the
@@ -800,21 +832,46 @@ fn projectile(
         (None, None) => assisted().map_or(gun.facing, |at| (at - from).normalize_or(gun.facing)),
     };
     // Scoped in the look, the aim bends to the nearest target near it.
+    let scoped = gun_input.hero.state == HeroState::Look;
+    let mut scoped_at = None;
     if let Some((range, degrees)) = fire.scope
-        && gun_input.hero.state == HeroState::Look
+        && scoped
     {
         let limit = degrees.to_radians();
         let nearest = gun_input
             .targets
             .iter()
             .filter(|target| target.alive && target.centre.distance(from) <= range)
-            .map(|target| (target.centre - from).normalize_or_zero())
-            .map(|to| (direction.angle_between(to), to))
-            .filter(|&(angle, _)| angle <= limit)
+            .map(|target| {
+                let to = (target.centre - from).normalize_or_zero();
+                (direction.angle_between(to), to, target.centre)
+            })
+            .filter(|&(angle, ..)| angle <= limit)
             .min_by(|a, b| a.0.total_cmp(&b.0));
-        if let Some((_, to)) = nearest {
+        if let Some((_, to, at)) = nearest {
             direction = to;
+            scoped_at = Some(at);
         }
+    }
+    // And a beam goes from the eye along the aim with the shot.
+    if let (Some(beam), Some(view), true) = (&fire.scope_beam, gun_input.view, scoped) {
+        let aim = scoped_at.map_or(view.direction, |at| {
+            (at - view.eye).normalize_or(view.direction)
+        });
+        out.event(
+            gun.weapon,
+            GunEventKind::Ray {
+                from: view.eye,
+                to: view.eye + aim * beam.shown,
+            },
+        );
+        let serial = arsenal.next_serial();
+        arsenal.shots.push(gun.shot(
+            serial,
+            view.eye,
+            aim * (beam.step / TICK),
+            ShotKind::Beam { hit: false },
+        ));
     }
 
     if fire.muzzle_ball > 0.0 {

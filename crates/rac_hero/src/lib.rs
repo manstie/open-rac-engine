@@ -42,7 +42,7 @@ pub use controller::{
     Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
     StrikeShape, ThrownWrench,
 };
-pub use gun::{GunHand, GunPose, Hold, Shield, WhipHand};
+pub use gun::{GunArm, GunHand, GunPose, Hold, Shield, WhipHand};
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;
 pub use rail::{GrindRail, RailKind};
@@ -277,6 +277,7 @@ fn move_heroes(
         body.0.camera_setting = camera.map_or(CameraSetting::ThirdPerson, |camera| {
             camera.setting_with(&profile.camera)
         });
+        body.0.camera_pitch = camera.map_or(0.0, |camera| camera.pitch);
         let events = controller::step(
             &mut body.0,
             &inputs.get(hero.player),

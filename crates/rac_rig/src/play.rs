@@ -15,7 +15,7 @@
 //!   is laid over the arms ([`ArmLayer`]; `weapons.md`, "The hero's side of firing").
 
 use bevy::math::Vec2;
-use rac_hero::{HeroMotion, HeroState, Hold};
+use rac_hero::{CameraSetting, HeroMotion, HeroState, Hold};
 
 use crate::clips::{
     JumpTiming, Landing, RUN_BELOW, RigAnimations, RigClip, RigMove, SET_OFF_BELOW,
@@ -409,15 +409,28 @@ fn played_on(animations: &RigAnimations, air: RigMove, land: RigMove, ticks: f32
 /// How fast a move's clip plays. UYA times the walk by his speed in u per frame
 /// (`hero_walk_anim`, 0x5024B8): setting off 157 times it (0.6 to 4), running 13 times
 /// (0.6 to 2.2), walking backwards 25 times (0.7 to 2.2). The double jump plays at 0.8.
-/// The gun's whole-body firing animation, while it fires and he stands (state type 0):
-/// in the idle and the look, which [`RigMove::of`] both makes [`RigMove::Idle`].
+/// The gun's whole-body firing animation, while it fires and he stands to fire.
 fn firing_standing(hero: &HeroMotion, base: Option<RigMove>) -> Option<RigMove> {
     let gun = &hero.gun;
-    if !gun.firing || gun.item.is_none() || base != Some(RigMove::Idle) {
+    if !gun.firing || gun.item.is_none() || !stands_to_fire(hero, base) {
         return None;
     }
     gun.pose.standing.map(RigMove::Fire)
 }
+
+/// He fires with the gun's whole-body animation (`hero_fire_anim`, 0x4E6A08): standing
+/// (state type 0: the idle and the look, which [`RigMove::of`] both makes
+/// [`RigMove::Idle`]), the gun arm not raised against a wall, and not in the lock-strafe
+/// camera pitched more than 10° (either way: the sign isn't read).
+fn stands_to_fire(hero: &HeroMotion, base: Option<RigMove>) -> bool {
+    let pitched = hero.camera_setting == CameraSetting::LockStrafe
+        && hero.camera_pitch.abs() > STRAFE_PITCHED.to_radians();
+    base == Some(RigMove::Idle) && !hero.gun_arm.raised && !pitched
+}
+
+/// In the lock-strafe camera pitched more than this, in degrees, he fires with the arms
+/// only.
+const STRAFE_PITCHED: f32 = 10.0;
 
 /// The arms-only firing animation laid over the arms (`weapons.md`, "The hero's side of
 /// firing"): while the gun fires and he isn't standing, on the right arm, and the left
@@ -444,7 +457,7 @@ impl ArmLayer {
         let wanted = if gun.firing && gun.item.is_some() {
             if hero.state == HeroState::Crouch {
                 gun.pose.crouched
-            } else if RigMove::of(hero) == Some(RigMove::Idle) {
+            } else if stands_to_fire(hero, RigMove::of(hero)) {
                 None
             } else {
                 gun.pose.arms

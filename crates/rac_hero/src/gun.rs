@@ -6,6 +6,7 @@
 //! moves, as UYA's gun mobys update before the hero. A hero without guns keeps the
 //! default: the wrench in hand, never firing. A wrench attack puts the gun away.
 
+use bevy::math::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// What the hero's gun tells his moves.
@@ -42,6 +43,23 @@ pub struct GunHand {
     pub selecting: bool,
     /// The gun in hand is the Plasma Whip.
     pub whip: Option<WhipHand>,
+    /// The point the gun aims at this tick, while he isn't locked on: its aim assist's
+    /// pick, raised to where the gun aims on it. UYA's guns put it in `gun_target_now`
+    /// (0x1A57B8) each frame, and his head and upper body turn towards it
+    /// (`hero_head_look`, 0x4E2F50); with a lock-on target he faces that instead.
+    pub target: Option<Vec3>,
+}
+
+/// The gun arm raised against a wall close ahead, or following the lock-strafe camera's
+/// pitch (`hero_gun_arm_raise`, 0x4E26F8; `weapons.md`, "The raised gun arm"). The
+/// controller sets it each tick a gun is in his hand.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct GunArm {
+    /// A wall is close ahead (`gun_arm_raised`, 0x1A7454): a shot that would hit it aims
+    /// along the gun instead, and his firing animation is the arms-only one.
+    pub raised: bool,
+    /// How far the gun arm turns up, radians, up positive; 0 when it doesn't.
+    pub pitch: f32,
 }
 
 /// The Plasma Whip in his hand (`weapons.md`, "Plasma Whip"): the fire button starts the

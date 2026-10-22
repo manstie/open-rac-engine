@@ -307,9 +307,14 @@ as the Veldin memory image has them.
     passes with the GS RAM table at +0x00/+0x04 when it sends the textures to the GS.)
   - Between them, `{count, offset}` pairs of tables in the core header [data, from the
     values; not read in code yet]: +0x20 tie classes, +0x28 shrub classes, then textures
-    for tfrags (+0x30), mobys (+0x38, 143 on Veldin, 16 bytes each), ties, shrubs,
-    particles and effects (+0x58). The texture data itself is probably the data part's
-    first block (3.4 MB at +0x80), which the loader sends to the GS.
+    for tfrags (+0x30), mobys (+0x38, 143 on Veldin, 16 bytes each), ties, shrubs. The
+    texture data itself is probably the data part's first block (3.4 MB at +0x80), which
+    the loader sends to the GS.
+  - **Effects** [code, data, 2026-10-22; `effects.md`]: +0x50 and +0x54 the particle
+    textures (65 on Veldin), +0x58 and +0x5C the effect textures (105), +0x64 and +0x68
+    where their pixels and palettes start in the core, +0x6C the particle definitions
+    (each particle type's list of textures). Stored linear, 8-bit with CSM1 palettes.
+    Effect textures 0–99 are the same on every level checked.
   - At load the game also fills a memory map of the level's regions (0x1EA9C0): the core,
     the moby classes, the hero's sequences, the mobys and the armor mesh.
 - **DL's and Gladiator's table of contents** [verified 2026-10-15] starts the same way:

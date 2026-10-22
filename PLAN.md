@@ -14,6 +14,8 @@ The source of truth for **scope, strategy, decisions, status and next steps**.
   - [moby-format.md](docs/research/moby-format.md): moby skeletons, animation and meshes
     (P3.7).
   - [gameplay-format.md](docs/research/gameplay-format.md): levels' gameplay files (P3.10).
+  - [effects.md](docs/research/effects.md): particles, effect textures, beams, lights
+    and the guns' effects (P3.18).
 - The reverse-engineering setup, and the catalogue of savestates, recordings and traces:
   [docs/re-setup.md](docs/re-setup.md).
 
@@ -48,8 +50,9 @@ session is working on the task now; notes on problems met stay with their task (
   (NTSC-U is the native tuning).
   UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
   level, ammo, XP, mods and what they do, aim assist, all twenty guns' firing and shots,
-  their V5 variants included (`weapons.md`, "Next steps" 4 has the few left), and how
-  firing affects the hero.
+  their V5 variants included (`weapons.md`, "Next steps" 4 has the few left), how
+  firing affects the hero, the guns' aim indicators, and the effects engine the guns
+  draw with (`effects.md`).
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
@@ -63,9 +66,10 @@ session is working on the task now; notes on problems met stay with their task (
    first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
    done, the wall jump and ledges traced too).
 3. P1.10's nanotech, explosive and doubler crates ("Ammo pickups, crates and the vendor"),
-   then the guns' own sequences on the rig (P1.9: their draw, idle and recoil, by rules
-   still to read), the whip's rope and the Shield Charger's bubble on the rig, and RE.7's
-   open items (`weapons.md`, "Next steps").
+   then P1.9's rest: the guns' own sequences on the held gun ("The gun's own animation"),
+   the whip's rope and the Shield Charger's bubble on the rig, the agents' gun and the
+   Nitro Eruptor's bullets; then the aim indicators (P1.12) and the guns' effects from
+   the disc (P3.18).
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** savestates by moves that need a particular
@@ -442,6 +446,17 @@ committed (names, addresses, layouts, derived constants).
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
   `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
+  - Done 2026-10-22: the last of UYA's guns' open items: the Flux Rifle's piercing (its
+    scoped beam, class 0x186F), the Annihilator's V2–V4 mines and V5 seekers, the agents'
+    sight, walking and gun (from V2), the Nitro Eruptor's bullets, the shock arc
+    (enemies in sight, 10 frames to reach), the view's aim point (`fps_cam_find_target`,
+    30 u), the joint springs behind the raised arm and the upper body's turn, and when
+    the gun's own sequences play (`weapons.md`, "The gun's own animation"). Also the aim
+    indicators (`weapons.md`, "Aim indicators": the lock-on reticle, markers, crosshair
+    colours, each gun's crosshair and marks) and the effects engine with each gun's
+    effects (`effects.md`, for P3.18).
+  - Open: what the damage-record flags mean, the rest of the agent's update, the Plasma
+    Storm's arc, the Decimator's and Lava Gun's V5 (`weapons.md`, "Next steps" 2 and 4).
   - Done 2026-10-22: UYA's other fourteen guns, read in code at the level of their
     firing and their shots (`weapons.md`, "Where each gun's code is" and the sections
     after the Flux Rifle). Not read: the V5 variants' own code, the agents' AI, the ducks'
@@ -478,9 +493,8 @@ committed (names, addresses, layouts, derived constants).
   - `hero-controller.md` had row +0x24 as a held weapon's idle and the release skid's
     hand-slot condition as unknown; +0x24 is the firing sequence, and the skid needs the
     wrench in hand. Corrected.
-  - Open: the Flux Rifle's piercing and the Annihilator's V2–V4 mines (in neither the
-    shots' nor the guns' code read), the other fourteen guns, projectiles in traces (they
-    are spawned mobys a fixed layout can't follow), and all of DL.
+  - Open: projectiles in traces (they are spawned mobys a fixed layout can't follow),
+    and all of DL.
   - Next step: the rest of the hero's side of firing in traces (a glove's arm layers, the
     raised arm, a target), with `uyantsc-veldin-fire.sh` extended (`weapons.md`, "Next
     steps", item 1). P1.9 is built from what is read (`weapons.md`, "In the kit").
@@ -635,6 +649,16 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Done 2026-10-22: the Flux Rifle's scoped beam, piercing from V2 (`ShotKind::Beam`);
+    the Annihilator's mines (V2–V4) and seekers (V5); shock arcs only to enemies in
+    sight, striking 10 ticks on (`Arcs`); the view's aim point within 30 u; the raised
+    gun arm (`rac_hero::GunArm`, which also picks the arms-only firing animation) and the
+    gun's aim point (`GunHand::target`), which turns his head and upper body through
+    `rac_rig`'s joint springs (`springs.rs`).
+  - Next step: the guns' own sequences on the held gun, by "The gun's own animation"
+    (its draw once, then a 2-tick blend into its idle, the recoil per the gun's table),
+    then the whip's rope and the Shield Charger's bubble, the agents' gun and walking
+    speeds and the Nitro Eruptor's 15 bullets (UYA's enemy bullet, class 0x1855).
   - Done 2026-10-22: all twenty of UYA's guns (`weapons.md`, "In the kit", "The other
     fourteen"): their RON entries, a fire mode each in `weapons/{seekers,thrown,grab,
     hand}.rs`, enemies-only searches (`Hostile`), `Affliction`s (infected, duck,
@@ -649,9 +673,6 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     Cannon's shot, the Holo Shield's drain, the agents' ends, the Quantum Whip's cut, the
     Qwack-O-Ray's ducks and eggs, and the V5 variants (`weapons.md`, "In the kit", which
     lists what is still [placeholder]).
-  - Next for the fourteen: the whip's rope (classes 0x183A and 0x183C) and the Shield
-    Charger's bubble (0xA5C, 0x1192 at V5) on the rig, then the unread code in
-    `weapons.md`'s "Next steps" 4.
   - Done 2026-10-21: the gun on the rig (`weapons.md`, "In the kit", "On the rig"):
     `GunHand` names the gun, its `GunPose` and shots; the standing firing sequences and
     the crouched arms layer play from the disc; guns sit in the fist (`RigGuns`,
@@ -665,9 +686,6 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     stays in step): it opens on the press, holds his input after 15 ticks, picks after
     the hold check and the stick's lock-out, steps by the d-pad's neighbour table, shows
     the second ring with R1 and chooses as it closes (`weapons.md`, "In the kit").
-  - Next step: read which of the guns' own sequences the game plays when (the draw,
-    idle and recoil; the gun's moby update, row +0x10's class), then play them on the
-    held gun as an attachment.
   - UYA's rules and numbers are in `docs/research/weapons.md`; what the kit has of them,
     and its placeholders, in its "In the kit".
   - Done: `rac_combat::weapons`, with UYA's six read guns in RON
@@ -681,9 +699,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     the strafing a gun forces. The demo gives every gun at V3 and draws its shots.
   - A Shock Blaster at V2 or up drawn by holding fire used its 20 tries before it could
     fire; the hold counts from when it can, as the kit's own reading.
-  - Not done: the raised arm and the upper body's turn to the target (P1.17's rig);
-    DL's guns and mods (RE.7), beyond `OwnedGun::extra_mods`; the free look's aim assist
-    (P1.7).
+  - Not done: DL's guns and mods (RE.7), beyond `OwnedGun::extra_mods`.
 - [~] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
   nanotech, explosive); health; a vendor stub that sells ammo.
   - Done 2026-10-21 (`rac_combat::pickups`, `assets/pickups.ron`): the drops moved here;
@@ -729,6 +745,10 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     them, the bolt tally and its roll, the low pulses, the next two recent guns, the
     ring's fade; tests on the clock and the view. Seen running on Xvfb.
   - Not done: L3's show-all (no binding), the pause menu and settings.
+  - Next: the guns' aim indicators, as `weapons.md`'s "Aim indicators" reads them: the
+    lock-on reticle's three turning rings and health arc, the guns' markers, each gun's
+    crosshair with its pulse and red over a target, the shared target mark and the Flux
+    Rifle's scope. Placeholder sprites first; the disc's effect textures with P3.18.
   - xdotool's keys didn't reach the app under Xvfb (no window manager, so no focus);
     `xdotool windowfocus --sync` on the window first fixes it (CLAUDE.md, "Running the
     app off-screen").
@@ -948,6 +968,14 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Field of view and culling that are correct in widescreen.
   - Uncapped frame rates through interpolation.
   - Support for user-supplied high-resolution texture packs.
+- [ ] **P3.18** The guns' **effects from the disc** (`effects.md`, "Importing them"):
+  - Read the level's effect and particle textures and particle definitions from its core
+    (`rac_formats`), and the shot classes' meshes (`Core::moby_class`).
+  - An ISO-free effects layer in the kit: billboards, beams, strips, trails, rings, point
+    lights, camera shake, screen flashes and particles with the game's motion, in the
+    four blends that matter; placeholders without a disc.
+  - Each gun's recipes, read gun by gun from its code, keyed by the effect names
+    `GunEvent`s carry; the sounds with P3.13.
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.

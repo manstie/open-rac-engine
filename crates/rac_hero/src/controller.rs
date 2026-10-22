@@ -21,7 +21,7 @@ pub use melee::{Clank, Strike, StrikeShape, ThrownWrench, best_target, target_sc
 use crate::{
     camera::CameraSetting,
     collision::{BodyId, CollisionWorld, Material},
-    gun::{GunHand, Shield},
+    gun::{GunArm, GunHand, Hold, Shield},
     motor::{self, Ground},
     profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
     rail::{GrindRail, RailKind, RailPoint},
@@ -404,9 +404,15 @@ pub struct HeroMotion {
     pub look_ready: bool,
     /// The setting of the camera he is seen through, which the camera sets.
     pub camera_setting: CameraSetting,
+    /// That camera's pitch, radians, negative looking down, which the camera sets: the
+    /// gun arm follows it in the lock-strafe camera.
+    pub camera_pitch: f32,
     /// What is in his hand and whether it fires, which the game's weapons code sets each
     /// tick before he moves.
     pub gun: GunHand,
+    /// The gun arm raised against a wall, or to the lock-strafe camera's pitch, which
+    /// the controller sets each tick.
+    pub gun_arm: GunArm,
     /// A shield round him, which takes hits first.
     pub shield: Shield,
     /// Attacks the Plasma Whip has started, counting round: each takes a round of its
@@ -556,7 +562,9 @@ impl HeroMotion {
             clank: None,
             look_ready: true,
             camera_setting: CameraSetting::ThirdPerson,
+            camera_pitch: 0.0,
             gun: GunHand::default(),
+            gun_arm: GunArm::default(),
             shield: Shield::default(),
             whip_attacks: 0,
             strafing: false,
@@ -1096,6 +1104,7 @@ pub fn step(
     melee::thrown_tick(hero, profile, world);
     melee::update_strikes(hero, profile);
     melee::clank(hero, profile, world);
+    hero.gun_arm = gun_arm(hero, profile, world);
 
     let mut events = StepEvents::default();
     if let Some(ground) = hero.ground {
@@ -1106,6 +1115,49 @@ pub fn step(
         }
     }
     events
+}
+
+/// The gun arm this tick (`hero_gun_arm_raise`, 0x4E26F8): with a gun held in a hand,
+/// raised against a wall close ahead, or in the lock-strafe camera following the camera's
+/// pitch where that raises it more.
+fn gun_arm(hero: &HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) -> GunArm {
+    let gun = &hero.gun;
+    if !gun.out || gun.item.is_none() || gun.pose.hold == Hold::None {
+        return GunArm::default();
+    }
+    let raise = &profile.gun.raise;
+    let radius = profile.body.radius;
+    let height = if gun.firing {
+        raise.firing_height
+    } else {
+        raise.height
+    };
+    let ahead = hero.facing();
+    let up = Vec3::Y * height;
+    let from = hero.position + up + ahead * (radius - raise.start_inside);
+    let to = hero.position + up + ahead * raise.reach;
+    let mut arm = GunArm::default();
+    if let Some(hit) = world.cast_ray(from, to - from) {
+        let at = from + (to - from) * hit.fraction;
+        let d = at.distance(hero.position) - radius;
+        let most = raise.most.to_radians();
+        arm.pitch = (most * raise.scale * (raise.reach - d) / raise.reach)
+            .clamp(raise.least.to_radians(), most);
+        arm.raised = true;
+    }
+    if hero.camera_setting == CameraSetting::LockStrafe {
+        let pitch = hero.camera_pitch.clamp(
+            -raise.strafe_down.to_radians(),
+            raise.strafe_up.to_radians(),
+        );
+        if !arm.raised || pitch > arm.pitch {
+            arm = GunArm {
+                raised: false,
+                pitch,
+            };
+        }
+    }
+    arm
 }
 
 /// Moves the capsule by this tick's velocity and settles what that means: landing,

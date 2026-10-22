@@ -33,6 +33,7 @@ mod play;
 mod pose;
 mod retarget;
 mod shapes;
+mod springs;
 mod wear;
 
 use bevy::camera::visibility::DynamicSkinnedMeshBounds;
@@ -132,6 +133,9 @@ pub struct HeroRig {
     attachments: Vec<Attached>,
     animator: pose::Animator,
     back: back::BackDirector,
+    /// The game's springs on a few joints over the animation: the raised gun arm and the
+    /// turn to the gun's target.
+    springs: springs::JointSprings,
     /// Where a gun's grip sits in his fist, in the model's space, as last posed.
     grip: Transform,
     /// The gun model in his hand: which gun, the level its model shows from, and the
@@ -332,6 +336,7 @@ pub fn spawn_rig(
         attachments,
         animator: pose::Animator::new(hero.to_bits() as u32),
         back: back::BackDirector::new(hero.to_bits() as u32 ^ 0x9E37_79B9),
+        springs: springs::JointSprings::default(),
         grip: Transform::default(),
         gun: None,
     });
@@ -435,13 +440,16 @@ fn animate(
             1.0 - (-speed * seconds).exp(),
         );
 
+        rig.springs.step(hero, seconds);
+        let springs = &rig.springs;
         let locals: Vec<Transform> = (0..rig.joints.len())
             .map(|index| {
+                let rotation = animator.rotation(index);
                 joint_transform(
                     &rig.skeleton,
                     &rig.turns,
                     index,
-                    animator.rotation(index),
+                    springs.turn(index).map_or(rotation, |turn| rotation * turn),
                     animator.pose.offsets[index],
                     animator.pose.scales[index],
                 )

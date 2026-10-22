@@ -234,6 +234,15 @@ most once at a time, in 30 slots. Their numbers come from per-item tables in two
     from it to the first other living enemy found within 8 u (not class 0x1AE6) for the
     arc's damage (0x34C5F8). With no duration the slot ends after its first frame: one
     arc per hit;
+  - **the arc** (`shock_arc_add` 0x34C5F8, `shock_arcs_update` 0x34C870; 48 slots of 0xD0
+    at 0x27FBA0; 2026-10-22): its target is the first entry of `ball_damage`'s 8 u list,
+    in the list's order rather than the nearest, that is targetable, alive, in sight, an
+    enemy (category 5, not class 0x1AE6) with health left, skipping the source. Two arcs
+    go, one carrying the damage and one for show, each reaching the target over 10
+    frames; when the reach ends the target, if it still has collision, takes the damage
+    (flags 0x410000, pushed 1/30 u along the arc) and sparks (0x34D600), and the arcs
+    stay 30 frames more. One frame in 11 a target crackles with a short arc to itself
+    (reach 5–15, life 15–30). The Plasma Coil's arcs have the same form;
   - the arc's damage is the table's, but while the Shock Blaster, N60 Storm, Nitro
     Launcher, Miniturret Glove or Spitting Hydra is in his hand it is a quarter of that
     gun's current damage (+0x6C);
@@ -333,6 +342,96 @@ Single player only: multiplayer is another program, not read.
   (about 200 frames; `weapon_upgrade_start`), and his input stays locked 25 frames more.
   At most one level-up every 60 frames. The message shows 180 frames.
 
+## Aim indicators [code, data, UYA NTSC, 2026-10-22]
+
+Every reticle, crosshair and target mark the guns draw. All are flat sprites drawn over
+the frame (never hidden by the world), in the level's effect textures (`effects.md`). Sizes
+are PS2 pixels on the 512 × 416 frame; colours are PS2 RGBA with R in the low byte and
+0x80 meaning full.
+- **The lock-on reticle** (`lock_reticle`, 0x3F4700, drawn by `reticle_markers_draw`
+  0x3F4FE0 each frame except in hero state 0x74):
+  - It shows while there is a lock-on target or its fade (0x1A6044) is above 0. The fade
+    moves 0.1 a frame (6/s), so it fades in over 10 frames; on a change of target the old
+    one (0x1A6040) fades out fully before the new one is taken and fades in.
+  - Its spin (0x1A6048) turns 45°/s (0.75° a frame), twice that while fading in.
+  - It sits on the target's position raised by r along the target's up axis, where r is
+    its damage record's height (+0x10) at most 2.0, or 0.75 without a record, projected
+    to the screen (`world_to_screen`, 0x3FE7B0). Its size is
+    s = clamp(350 × atan(r / d), 16, 128) pixels, d from the camera (0x1D6008–0x1D6014).
+  - Three rings, each one quarter texture drawn four times round the centre (each quarter
+    s × s with its corner on the centre, so a ring is 2s across): texture 0x33 turning
+    with the spin, shrinking from 2× to 1× as it fades in; 0x34 turning against it,
+    growing from nothing; 0x35 fixed at 45°. The first two are the texture's colour at
+    alpha up to 0.5 (0x40808080), the third tinted blue (0x30E02020: × 0.25, 0.25, 1.75)
+    at alpha up to 0.375, all lerped in from transparent by the fade.
+  - A health arc when the target's record has a maximum (s16 at +4): `hud_arc`
+    (0x404F68), 16 quads of texture 5 (a soft dot), between radii 12s/16 and 14s/16,
+    centred below the target and spanning 2 × (2 atan(max / 6)) (a lower half circle at 6
+    hit points, nearly a full ring for many): red 0x60000080 behind, green 0x60008000
+    over the share of health left, fading with the reticle.
+- **Markers** (`reticle_marker_add`, 0x3F4D78): the guns queue up to 14 sprites a frame
+  (0x1E5200, cleared each frame by 0x3F4D68), each a world point (projected each frame) or
+  a screen point, a size, an angle, a colour with alpha at most 0x40, and a texture; drawn
+  after the lock-on reticle, skipping dead owners. While the world is stopped
+  (0x1D6698) they stay, shrinking 0.75 a frame.
+- **The crosshair's colour** (`crosshair_colour`, 0x4C7588, with a threshold and 150°/s):
+  it fades in over about 13 frames (alpha 5 a frame to 20 counts, under the 0x40 cap),
+  and pulses between green (0x0F, 0xFF, 0x00) and white by 0.5 + 0.5 sin, the phase
+  moving 150°/s (a 2.4 s pulse). It is solid red (0x600000FF) while the free-look
+  camera's target weight (+0xB0, 0x1A61D0; 1 for a target its ray hits, else
+  (cos θ − cos 15°) / (1 − cos 15°) for one θ off the view) is above the gun's threshold:
+  0.95 is about 3.3° off, 0.97 2.6°, 0.98 2.1°, 0.99 1.5°. A gun resets the fade and
+  pulse on each frame it draws no crosshair.
+- **The shared target mark:** texture 0x26 (a ring with four ticks), 40 × 40 px ×
+  |0.9 − d / 150 × 0.65| (36 px close, 10 px at 150 u), green 0xFF0FFF0F at the 0x40
+  cap, turning against its own spin of 2° a frame, on the target raised by its record's
+  height (0x4C74C0).
+- **Each gun** ("aiming" is state 29 or a camera mode other than follow):
+
+  | Gun | Crosshair at the screen's centre (texture, size) | Red above | Target mark |
+  |---|---|---|---|
+  | Shock Blaster (and V5) | 0x5B, 30 × 55 turned 90° | 0.95 | none |
+  | N60 Storm (and V5) | 0x56, 30 px; aiming without a lock-on | 0.99 | on its target or the lock-on target, in the follow camera outside state 29 |
+  | Annihilator (and V5) | 0x44, 40 px; only in state 29 with the hero hidden (first person, guessed) | 0.97 | on its held target, follow camera, not with the arm raised |
+  | Disc Blade Gun | 0x5A, 80 × 40 × 0.8 turned 180° | 0.98 | on its target, follow camera |
+  | Suck Cannon | 0x44, 40 px | 0.97 | in 0x600FFF0F, follow camera, outside state 29 |
+  | Rift Inducer | 0x21, 32 px; state 29 only | never | none |
+  | Plasma Coil, Plasma Storm | 0x21, 32 px | never | the Coil's, on its target when ready to fire, any camera |
+  | Qwack-O-Ray | none | – | on the beam's target, follow camera, outside state 29 |
+  | RY3NO | none | – | V1–V4 without a lock-on: on each enemy its assist finds, one shared spin |
+  | Spitting Hydra | none | – | its marks (`hydra_marks_draw`, 0x3213A8): texture 0x1F (a downward triangle) in green 0x7F40FF40, the newest in red-orange 0x7F2040FF, only those within 60° of the view |
+  | Flux Rifle | the scope, below | – | – |
+
+  The Nitro Launcher, Lava Gun, Bouncer, Infector, Agents of Doom, Holo Shield,
+  Miniturret, Shield Charger and Plasma Whip draw none: only the lock-on reticle. The
+  wrench in the look draws 0x25 (40 px, blue-grey 0xFF917267, no pulse). The aim assist
+  marks nothing itself; each gun's update queues its mark.
+- **The Flux Rifle's scope** (0x3444B0): in the look or state 29 once the view is ready
+  it hides the gun's moby and registers a draw callback (`flux_scope_draw`, 0x345D48):
+  - the overlay: texture 0x46 (128², a dark surround, a pink-orange bezel and dotted
+    centre lines) as four mirrored quarter-screen quads into the frame's alpha only, a
+    shading quarter (0x42), then a copy of the frame drawn over the whole screen where
+    that alpha allows (taken to be the lens);
+  - the zoom: from the current view (2 atan 0.62, 63.6°) to 20° at V1–V2 and 10° from
+    V3, starting a quarter of the way in, moving 0.01 rad a frame on two pressure-read
+    buttons (pad +0x134 in, +0x13C out; probably R1 and R2) or, in the other camera
+    settings, the left stick's y; the camera springs to it (gain 0.02, damping 0.2) and
+    back out at gain 0.005. The free look's turn cap falls from 1.5° a frame unzoomed to
+    0.6° at full zoom.
+  - the on-target ring: on 4 frames of every 8 a ray from the camera (128 u) looks for a
+    live enemy; while it finds one, the aim wait is over, the shot ready and there is
+    ammo, texture 0x20 (a segmented ring), 32 px, red 0x200000FF, blinks on for 15 of
+    every 31 frames.
+- **How they are drawn:** `fx_texture` (0x401CD0) gives a texture's GS registers by its
+  number in the effect table, uploading it on its first use in a frame (negative numbers
+  are copies of the frame); `hud_sprite` (0x404740) draws a screen-space textured,
+  alpha-blended strip with a pivot and flips. The reticles' images are 64² 8-bit, but 5
+  (32²), 0x46 (128²) and 0x42 (256²).
+- **Clank's ring:** 0x41BE10 (init, with update 0x41BE58 and draw 0x41C340) is a
+  four-slot ring the game opens in place of the quick-select ring while he plays Clank
+  (0x1A71C4 = 1), picked by the right stick or the d-pad's neighbour table; not an aim
+  indicator, and what its choices do isn't read.
+
 ## The hero's side of firing [code, UYA NTSC, 2026-10-20]
 
 Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
@@ -382,12 +481,15 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
   delay the shot's hit to 5 frames (the Shock Blaster). In the lock-strafe camera the arm
   follows the camera's pitch instead (0x1A6180, clamped to −80° … 45°) and the flag
   stays clear.
-- **The head and upper body turn to the gun's target** (0x4E2F50): the gun puts its
-  target for the frame in `gun_target_now` (0x1A57B8; the lock-on target, or its own aim
-  assist's), and without a lock-on target the head-look turns towards it on springs
-  (gain 0.037, damping 0.3), yaw up to ±59°, pitch −25° to +35°. With a lock-on target he
-  faces it by strafing anyway. With neither, the head looks at the nearest interesting
-  thing within reach every 7th frame (the look-at list, 0x1A73DC).
+- **The head and upper body turn to the gun's target** (`hero_head_look`, 0x4E2F50;
+  "The hero's joint springs" has the joints): each frame the gun's update puts its
+  target in `gun_target_now` (0x1A57B8; the lock-on target, or its own pick: the Shock
+  Blaster, N60, Annihilator, Flux Rifle, Lava Gun, RY3NO, Rift Inducer, Plasma Coil and
+  others set it), and without a lock-on target the upper chest turns to its yaw and the
+  waist to its pitch on springs (gain 0.037, damping 0.3), yaw up to ±59°, pitch from
+  25° up to 35° down. With a lock-on target he faces it by strafing anyway. With
+  neither, the head looks at the nearest interesting thing within reach every 7th frame
+  (the look-at list, 0x1A73DC).
 - **The fire direction** (`hero_fire_dir`, 0x1A52A0; libuya's `HeroFireDir`: a matrix,
   the direction at 0x1A52D0 and angles at 0x1A52E0), set each frame by
   `hero_gun_update`: the hero's matrix and facing, and his angles with the yaw plus the
@@ -402,6 +504,15 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
     bend from the fire direction towards the free-look camera's aim point (0x1A6230,
     libuya's `aim_pos`) by at most 80° (a tenth of that when the point is within 4 u); the
     Flux Rifle does it scoped, within 20°. So shots converge on what the view centres on.
+  - **The aim point** (`fps_cam_find_target`, 0x411918, first thing in each frame of
+    the free-look camera, so in the lock-strafe and first-person cameras and the look;
+    2026-10-22): a line from the camera's position along its forward, 30 u long (fps_cam
+    +0x120), skipping one object (+0xBC); the point is where it hits, else its end. An
+    enemy it hits (category 5, not classes 0x19C0 or 0x1AE6) becomes the camera's target
+    (+0x8C) at weight 1; otherwise its target is the best living enemy in sight within
+    30 u inside a cone of 15° × the zoom (+0x7C), scored distance × (1 + weight), +10
+    for those 0x447CA0 accepts. The weight is what the crosshairs turn red by ("Aim
+    indicators").
   - Otherwise along the fire direction.
 - **State 29, aiming:** a gun's update puts the hero in state 29 when it finds him in the
   look (state 1). State 29 is the look with a gun out: it shares the idle's movement (the
@@ -409,6 +520,102 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
   ready, R1 fires as well as Circle, and letting go of the look's button goes back to idle.
   The Shock Blaster waits 40 frames from entering it before it fires (0x1A749C, reset to
   40 whenever he isn't in it), as the Nitro Launcher does (below).
+
+### The hero's joint springs [code, data, UYA NTSC, 2026-10-22]
+
+After his animation poses him, the hero turns a few joints by angles of their own, each
+eased on a spring towards a target the game sets afresh every frame. Read in the update
+(0x4DE348), the springs' step (`hero_joint_spring_step`, 0x4DC480) and their users.
+- **The springs** (`hero_joint_springs`, 0x2F4580): 43 records of 0xB0 bytes, each naming
+  a moby (+0xA2: 0, 2, 3, 4 and 6 the hero, 1 Clank on his back, 7 another) and one of
+  its points (+0xA0; the class's point list, `moby-format.md`, "Points"). Each holds
+  three target angles (+0x60, about the joint's own x, y and z; UYA's axes are x
+  forward, y left, z up), the angles and their rates (+0x40, +0x50) and a gain and
+  damping (+0xA4, +0xA8). Each frame (`hero_joint_springs_update`, 0x4DC790) every
+  record with anything to do eases its angles on `spring_angle` (0x4455F0: the rate,
+  kept within the gap, gains `gain × gap` and loses `damping × rate`, is kept within the
+  gap again and moves the angle), hands the moby a turn built from them (x, then y, then
+  z; 0x443FD8) for its joint, and sets its targets back to 0, so a spring nothing drives
+  goes home. Gains stay as last set.
+- **The hero's** [data; points read from his class on Veldin]:
+
+  | Record | Point | Joint | Gain, damping at load | What drives it |
+  |---|---|---|---|---|
+  | 0 | 9 | 0, the root | 0, 0 | the strafe's twist (`hero_body_twist`) |
+  | 1 | 10 | 2, the waist | 0.008, 0.3 | the gun target's pitch; the raised arm past 35°; slopes |
+  | 2 | 11 | 6, the upper chest | 0.014, 0.3 | the gun target's yaw; a quarter of the look-at's |
+  | 3 | 4 | 7, the neck | 0.007, 0.3 | the look-at and idle glances |
+  | 8, 9 | 13, 12 | 72 and 52, the clavicles | 0, 0 | the raised gun arm |
+  | 12 | 21 | 18, the eyes' parent | 0.12, 0.3 | the neck's targets: pitch / 2.8 within −10° … 17°, yaw × 0.25 within ±8.5° (0x4DC908) |
+  | 4–7 | 22, 23, 7, 8 | 100, 94, 98, 92: the ankles and thighs | 0.1, 0.3 | slopes (0x4EEC00, not read further) |
+  | 10 | 6 | 54, the right elbow | 0, 0 | not read |
+  | 13–16 | 25–28 | 104, 106, 108, 110: the tail | 0.013–0.017, 0.21–0.3 | slopes |
+  | 17 | 24 | 8, the head | 0.03, 0.2 | not read |
+
+  Records 18 on are Clank's and the other mobys'.
+- **The raised gun arm** (`hero_gun_arm_raise`, the bullet above): an arm angle a (UYA's
+  sign, negative up) of −35° or less is split: the waist's y target takes a + 35° on a
+  spring of 0.05 and 0.3, and the arm keeps −35°. The right clavicle's y target is a
+  (0.05, 0.3); for the Annihilator and RY3NO its x target is a × 0.00997 (at most 40°),
+  a slight roll; for a gun held in both hands (0x1A71CC = 2) the left clavicle takes the
+  same. While firing at an enemy close ahead (the ray's hit a moby that 0x447CA0 accepts)
+  the flag is set but the arm doesn't turn.
+- **The turn to the gun's target** (`hero_head_look`): only in state types 0, 1, 2, 4 and
+  7 (standing, walking, falling, jumping and one not read), and not in state 0x2E. From
+  0.5 u ahead of his feet and 0.55 u up, the target's position raised by its damage
+  record's height: yaw within ±59° on the upper chest's z, pitch (down positive) from 25°
+  up to 35° down on the waist's y, both springs 0.037 and 0.3. Once a hero timer at
+  +0x1FC (0x1A4DBC, not read) passes 27 the yaw keeps within ±17° and the pitch is 0.
+  The look-at (no gun target) instead turns the neck: from 0.3 ahead and 0.85 up, yaw ×
+  0.75 and the pitch on 0.021 and 0.27, the upper chest a quarter of the yaw on 0.014.
+- **Order each frame:** the raised arm, the idle glances (0x4E2A30), the turn to the
+  target (which overrides the raise's waist pitch), the eyes, the slope lean (0x4EEC00,
+  which on a slope sets the waist's x and, not raised, the clavicles' y against it), then
+  the springs step.
+
+### The gun's own animation [code, data, UYA NTSC, 2026-10-22]
+
+Each gun's class has three sequences (`moby-format.md`, "The gadget WAD"): 0 grows it
+from nothing, 1 holds it, 2 recoils. How a moby plays them: a new moby starts on sequence
+0 at speed 1 (`moby_init`, 0x435F98); its animation advances by its speed (+0x48) times
+the sequence's rate (+0x18, or each keyframe's own 1/ticks), and every sequence loops,
+setting bit 0x02 of +0x60 on the frame it wraps (`moby_anim_advance`, 0x4389D8). It
+changes sequence by a cut (0x441BA0) or a blend over some ticks (`moby_anim_blend`,
+0x441C78; 0x441E00 with flags), each resetting the speed to 1.
+- **Drawn:** the gun's moby is spawned on sequence 0 and left to play it
+  (`hero_spawn_item_mobys`; only the wrench is put straight on its sequence 1). Each
+  frame in his hand (`hand_slots_update`, 0x4E93B8), once sequence 0 has wrapped and no
+  blend runs, it blends to sequence 1 over 2 ticks. The Shock Blaster's draw is 11
+  keyframes of 2 ticks, so about 22 ticks, with the draw sound on its trigger [data].
+  Nothing scales the moby: any growing is in the keyframes.
+- **At rest:** most guns' own updates check the same each frame: a sequence that has
+  wrapped, with no blend running, blends to 1 over 2 ticks (the Flux Rifle, Annihilator,
+  N60 and N90, Suck Cannon, Infector, Nitro Launcher, Disc Blade Gun, RY3NO, Spitting
+  Hydra and Bouncer, V5 included). So a recoil plays once and settles back.
+- **Firing** plays sequence 2, right after `hero_fire_anim`:
+
+  | Gun | Each shot |
+  |---|---|
+  | Flux Rifle, Annihilator, Infector, RY3NO | cuts to 2 |
+  | Disc Blade Gun | cuts to 2 (still drawing, it first blends to 1 over 4 ticks) |
+  | Nitro Launcher, Bouncer | blends to 2 over 2 ticks |
+  | Spitting Hydra, Suck Cannon | cuts to 2 unless already on it |
+  | N90 Hurricane (the N60's V5) | cuts to 2 unless already on it, then plays it at speed 3 |
+  | Shock Blaster, N60 V1–V4, Lava Gun, Qwack-O-Ray, Rift Inducer, the gloves, the whip | nothing |
+
+  The Plasma Coil and Plasma Storm cut to 1 once their draw has played and never play 2.
+  The Annihilator fired before its draw ends blends to 1 over 4 ticks first.
+- **Put away:** `hero_item_switch` (0x4E92E0) blends the held gun to sequence 2 over 2
+  ticks and marks its slot as leaving; the next frame `hand_slot_remove` (0x4E8698)
+  removes it at once (the hand's slots; the other slots wait for their sequence to wrap)
+  and holds off the next spawn about 3 frames (and until the new gun's class has streamed
+  in, `gadget_is_ready` 0x4E9228). So the old gun vanishes and the new one grows in.
+- **In first person** (`hero_fp_gun_place`, 0x50F410): the gun is placed before the
+  camera by its row's offsets (+0xA0 forward, 0.35–0.7; +0xA4 to the side, −0.2 to
+  −0.65, mirrored with 0x1D5477; +0xA8 down, −0.5) and angles (+0xB0: 0, −90°, 90°),
+  bobbing 0.02 × sin(phase), the phase easing to 600°/s while he moves and 90°/s at a
+  speed of 0.02 u a frame or less; every other frame a ray pulls it back up to 1.5 u when
+  something is in front; the fire direction is the camera's.
 
 ### Checked in traces [verified on UYA NTSC, 2026-10-20]
 
@@ -627,7 +834,11 @@ The gun moby's update reads its row through item 0x27.
   charge marked as the Eruptor's ends in another blast (0x38A668, class 0x1888, update
   0x38A7B8): 18 frames, then for 30 frames a ball growing from 3 to 11 u in which
   everything (not the hero) takes the row's damage every frame (flags 0x1030000, pushed
-  1.5 away) and the acid check.
+  1.5 away) and the acid check. As it bursts (2026-10-22) it fires 15 bullets (class
+  0x1855, `enemy_bullet_spawn` 0x35D8E8) at 20–30 u/s, each a flat 10 damage (flags
+  0x10000): one at each target but the hero farther than 8 u among up to 10 within
+  13 u, the rest in random directions (any bearing, 20° down to 15° up): the vendor's
+  "spread of missiles". (Class 0x1888 is the Eruptor's blast, not the Decimator's.)
 
 ### Lava Gun (0x303F88, stream 0x304A18) [code, UYA NTSC, 2026-10-16]
 
@@ -645,6 +856,9 @@ The gun moby's update reads its row through item 0x27.
     after) to everything within 1.5 u, as fire, or as cold from V5;
   - from V5 (the Liquid Nitrogen Gun), an enemy with no more health than one hit's
     damage is frozen to death instead, and its XP goes straight to the gun.
+- **V5** (class 0xC59, 2026-10-22) runs the same update (0x303F88); besides the freezing,
+  only its nozzle ball's flags (0x11010000 for 0x1110000), its sounds' and effects'
+  class and its splashes (cold, 0x470258, for 0x463938) differ.
   - Each point hits once; with the damage queue's one pending hit per target, an enemy in
     the stream takes at most one hit per update.
 - **At the nozzle** a ball of 0.5 u also damages what it touches (+0x6C).
@@ -668,15 +882,24 @@ The gun moby's update reads its row through item 0x27.
     first thing it hits, and explodes;
   - **the blast** (0x3985C0, 2026-10-20) also does the row's second damage (+0x70: 6 at
     every level) to everything within 0.75 u of it but the missile;
-  - from V5 the explosion also scatters seven bomblets of a fifth of the damage each
-    (0x3441D0). The mines the vendor gives V2–V4 aren't in the missile's code (its
-    update, blast and trail have no other level test) nor the gun's, which only sets the
-    mods and the moby's +0x7C (1 at V2, 3 at V3, 7 from V4; probably which extra parts
-    of the model show, as on the Shock Blaster and N60) [guess];
-  - its model is drawn 2.5 times larger, 4 times from V5.
+  - **the mines** (found 2026-10-22, in the missile's explosion, a switch on the level):
+    V2 scatters 4, V3 6 and V4 6 heavy ones, each a Bouncer bomblet
+    (`bouncer_bomblet_spawn` 0x31E2D8, its update 0x31E488) marked the Annihilator's:
+    model class 0x1897 at 0.275 of its scale (0.55 heavy), a tenth of the row's damage,
+    bursting in a 2 u ball (7 u heavy); they leave 50–90° up from the surface's plane at
+    4–9 u/s (V4: 40–75° at 4–12 u/s) on a random bearing, bounce towards enemies within
+    7 u and arm after 70 frames plus their index, as the Bouncer's do;
+  - from V5 (the Decimator) the explosion instead sends seven seekers (the small missile,
+    class 0xA82, `small_missile_spawn` 0x3441D0) of a fifth of the damage each, fanned
+    ±80° round the bearing towards the camera, starting at 1–3 u/s and speeding up by
+    0.7–0.9 to 15–20 u/s;
+  - its model is drawn 2.5 times larger, 4 times from V5; its trail is tinted blue from
+    V2 (0x398688).
 - **Mods:** shock from V3, lock-on from V4 [code].
 - **V5 and up** (the Decimator): its update (0x38A648) only calls the V1–V4 one
-  (0x36D5A0).
+  (0x36D5A0); its level tests are in the shared code: the gun's animation plays at speed
+  2 as it fires, the missile is scaled ×4 and its blast sends the seekers. It has no
+  mines.
 
 ### Flux Rifle (0x345350, shot 0x3463A0) [code, UYA NTSC, 2026-10-16]
 
@@ -689,10 +912,22 @@ The gun moby's update reads its row through item 0x27.
   camera a hitscan from the camera goes along the aim as well (0x37C818).
 - **Each frame** the shot tests the line of its step (0x346D90); what it hits takes the
   row's damage, and the shot stops there if that object can take damage (0x4435E8: its
-  +0x98 record has +8 set), else flies on. Where V2 and up pierce isn't found: the shot's
-  update (0x346A00) and its per-step calls (0x3478E8, and 0x348A38 from V3) only lay its
-  trail, and the test (0x346D90) ends the shot on the first thing that can take damage at
-  every level (2026-10-20).
+  +0x98 record has +8 set), else flies on. This shot never pierces, at any level: its
+  update (0x346A00) and per-step calls (0x3478E8, 0x348A38 from V3) only lay its trail.
+- **The scoped beam pierces** (found 2026-10-22): class 0x186F (`flux_scope_beam_spawn`
+  0x37C818, its update 0x37CB68), from the camera's position along the aim, fired only
+  scoped (the look or state 29 with the view ready) and in first person or state 29. At
+  V1 one line test: the first hit takes a 0.6 u ball of the row's damage and the beam
+  stops hitting. From V2 up to 6 line tests a frame, each skipping only what the one
+  before hit, so it passes the first target to reach the second (three in a line, it
+  alternates between the first two); each hit is a ball of 0.8 u at V2–V3 and 2.5 u from
+  V4 at the hit point, pushed along his aim × 1.75, flags 0x10000 (0x110000 from V4).
+  Class 0x1CF7 stops it. The beam shows for a 20-frame timer in a colour by level.
+  Its head (2026-10-22) flies 30 u a frame along the aim (from the camera with offsets
+  along its forward and side in first person) and the tests are of each frame's step;
+  any hit sets its speed to 0.2 u a frame backwards, so the first frame with a hit is
+  the last that hits, and it goes after 26 frames. It is drawn from its start to 100 u
+  ahead whatever it hits.
 - **The impact** (0x346EF0, 2026-10-20): at V1 sparks; from V2 a bigger burst and a 2 u
   ball (`ball_damage`) carrying row +0x70, which is 0 on every Flux row, so it hurts
   nothing; from V4 a further effect (0x447D00). The scoped hitscan from the camera carries
@@ -746,13 +981,29 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
 - **Ammo:** entering any of the three states takes a round (`hero_change_state`: each
   swing and the jump attack call `ammo_use(held, 1)`; the throw's release does). Without
   ammo the state change is refused and he stays as he was.
-- **The rope:** the whip in his hand (class 0x1843) leads nine links (one of class
-  0x183A, then eight of 0x183C), each placed at its own end pushed out along its axis by
-  the rope's stretch (the whip's +0x14) and turned to point back at the one before, kept
-  0.15 u off the ground. So the rope is about 9 × the stretch long. In a combo swing the
-  first links lag behind the hand's sweep (by 4/i of the hand's travel for link i under
-  5), so the rope trails as he swings. The stretch moves towards a goal by at most a step
-  a frame (`approach`, 0x4450C0):
+- **The rope** (`whip_rope_spawn` 0x3572B0, `whip_rope_ends` 0x357678, `whip_rope_lag`
+  0x3574D0, `whip_link_place` 0x357778): the whip in his hand (class 0x1843, from the
+  gadget WAD) leads nine links, eight of class 0x183A and the tip of 0x183C (corrected
+  2026-10-22: the listing at 0x357318 picks 0x183A for links 1–8). Both link classes are
+  in the core of every single-player level, 1–36, not the multiplayer maps [data]; each
+  has one still sequence (0x183A: 3 joints, scale 0.04077; 0x183C: 2 joints, 0.05679).
+  - Spawned once: the handle at its class scale × 0.3, tinted (0x40, 0x10, 0x80); each
+    link at its class scale × 0.2, alpha 0x3C (about 47%), following the whip for lights
+    and draw distance (`moby_follow_parent`, 0x452E70).
+  - Each frame, each piece (the whip, then links 1–8) wants its end at its joint 0 plus
+    the rope's stretch (the whip's +0x14) along joint 0's x axis, raised to at least
+    0.15 u above the ground found by a line from 0.5 u above it. The stored end of each
+    piece then turns from where it was towards that by 0.1 + the whip's second value
+    (+0x1C: 0 at rest, up to 0.9 in a swing), so the rope trails more at rest and pulls
+    taut as he swings (the direction of the turn is read with medium confidence).
+  - Link k sits at the lagged end of piece k − 1, turned away from that piece's joint 0
+    (yaw by atan2 + 180°, pitch from the height difference, roll 90°). In the wrench
+    combo (state 0x13) the links lie flat (no pitch or roll), and links 1, 2 and 5 add
+    the hand's travel since last frame × 4, 2 and 1 (2 × (2 div k) in integer division;
+    the others none), so the first links trail the swing.
+  - So the rope is about 9 × the stretch long. The links hide with the whip, in
+    cutscenes, and 300 frames after the ammo runs out. The stretch moves towards a goal
+    by at most a step a frame (`approach`, 0x4450C0):
 
   | When | Stretch (step) | Second value, +0x1C (step) |
   |---|---|---|
@@ -788,8 +1039,12 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   frames; each frame the line between its joints 0 and 6 (about 3 u across it) strikes
   what it crosses for the row's damage, pushed by its velocity × 1.75 (flags 0x210000).
   The game strikes every frame it crosses; the kit strikes each target once.
-- **Looks:** the rope glows orange at V1–V2 and blue at V3–V4 (0xBF4020, 0x2040BF), with a
-  light of radius 5.5 at the whip; its sparks and trails are many small effects.
+- **Looks** (2026-10-22): each frame the links take a glow colour (`moby_set_colour`,
+  0x438908; R, G, B) of (0xBF, 0x40, 0x20) at V1–V2 and (0x20, 0x40, 0xBF) at V3–V4;
+  from V5 none. A light starts at radius 5.5 at the whip and then pulses between 3.5 and
+  4.5 (3.5 + 0.5 + 0.5 sin(phase × 0.1)), its colour swinging between two (written R
+  low: 0x2055FF and 0x5585FF at V1–V2, 0xFF5520 and 0xFF8555 from V3) by 0.5 + 0.5 sin,
+  the phase moving a random 160–800°/s. Its sparks and trails are effects (`effects.md`).
 
 ### Plasma Coil (0x315638, ball 0x30BF18) [code, UYA NTSC, 2026-10-22]
 
@@ -833,8 +1088,13 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   - each frame it finds up to 15 targets within 15 u all round (0x44CF68) that it can see
     and hasn't arced to in the last 120 frames (0x4C46A8, 0x4C4640), and sends each an arc
     (0x30A148: one of 30 shared slots, reaching its target over 10 frames; at most 15 from
-    one ball at once). The arcs' update (0x30A3D0) isn't read: the kit has them strike as
-    the coil's do;
+    one ball at once). The arcs (`coil_arcs_update` 0x30A3D0, 30 slots of 0xA0 at
+    0x26FDB0; read 2026-10-22) strike as the coil's: the start follows the ball, the end
+    grows to the target's centre over the reach; then the target, if it still has
+    collision and wasn't struck, takes the Plasma Coil's row +0x70, pushed 1/30 u along
+    the arc (flags 0x410000), the acid check (item 0xA0), a sound and sparks (0x30BC80),
+    and the arc stays 20 frames. Arcs waver by six random phases and rates (±0.001–0.005
+    rad a frame, ×100 while reaching) of amplitude 3.25–4.75;
   - then for 40 frames it shrinks, jittering, sending no arcs, and goes once its arcs
     are done.
 
@@ -870,8 +1130,8 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   for 4 s; V3–V4 3 for 6 s).
 - **V5 and up** (the Heavy Bouncer, class 0xE9E, the same update; in the kit): the canister's sweep
   0.5 u; the bomblets leave 40–75° up at 4–12 u/s, their sweep 0.25 u, and their ball
-  7 u. The Annihilator's V5 missile scatters the same bomblets (0x31E2D8 from 0x396A20),
-  for a tenth of its damage.
+  7 u. The Annihilator's missile scatters the same bomblets at V2–V4, not V5 (corrected
+  2026-10-22; "Annihilator").
 
 ### Miniturret Glove (0x346078, turret 0x32AFB0) [code, data, UYA NTSC, 2026-10-22]
 
@@ -936,8 +1196,31 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   lightning bolt (0x34DAA0, the row's damage as it goes) for a random 20–60 frames. After
   its 40th bolt (0x1DD29C) the shield goes. A shield of the V1–V4 class still up once the
   gun is V5 is replaced by a V5 one, for nothing, when its points run out.
-- Its colour runs from blue to red as its points go (0x202090 to 0xA02020 at V1, other
-  pairs at V2–V5).
+- **Its colour** flashes on a hit and fades back (corrected 2026-10-22: it doesn't run
+  with its points): a timer set to 30 frames whenever its points change (0x1DD2D4)
+  counts down, and the colour is rest × (1 − t) + hit × t with t = timer / 30
+  (`colour_lerp`, 0x40D020). Pairs (rest, hit; written R in the low byte): V1 0x202090,
+  0xA02020; V2 0x204090, 0xA04020; V3 0x205020, 0x3030A0; V4 0x905020, 0x2040A0; V5 and
+  up 0xA06565, 0x3030A0. Each point it absorbs is a point of item 0x16's XP (damage × 32
+  at 0x142E38).
+- **Its look** (`shield_draw`, 0x341C10, a draw callback the update registers each
+  frame; only in game mode 0): the class's own mesh is never drawn (its moby keeps mode
+  bit 0x01, medium confidence), and nothing grows it in or fades it out. It draws, round
+  hero point 10 (joint 2), all from the level's effect textures (`effects.md`):
+  - five crackling arcs of 10 points, each living 3–45 frames and jittered each frame,
+    as 4-wide strips of texture 0x17 (V1–V2), 0x0F (V3–V4) or 0x30 (V5), grey 0x7F7F7F
+    with an edge colour by level, fading with their life;
+  - a shell: a camera-facing dome of 290 vertices (0x2A5AE0, 0.3 u, × 3: 0.9 u) in
+    texture 21, the shield's colour at alpha 0x18, then a rim of 32 additive quads from
+    0.9 to about 1.32 u in texture 11 at alpha 0x40;
+  - four trails of 20 points orbiting 0.9–1.1 u out, turning 6° a frame (10° at V5),
+    each head throwing two sparkles, ribbons 0.02–0.07 wide of texture 0x2C (V1–V2), 0x0F
+    (V3–V4) or 0x30 (V5);
+  - from V3 a camera-facing glow in texture 0x17 at alpha 0x1F whose texture scrolls 0.1
+    a frame;
+  - and from the update, eight sparkles on the 1 u sphere (texture 0x3E) and 8 pairs of
+    zap sparks at each enemy it zaps (0x342DB8). Sound 1 plays as it rises, 3 loops while
+    it is up and 2 as it goes; it is removed at once.
 
 ### Holo Shield Glove (0x3717A8, shield 0x376B88) [code, UYA NTSC, 2026-10-22]
 
@@ -984,14 +1267,40 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   four slots at 0x1E2280).
 - **An agent** (class 0x1ADA; spawned by 0x3C0F78, its update 0x3BD298, about 1500
   lines, read in part):
-  - as it comes out it looks for an enemy within 25 u and 20° (0x44CD90) and, with one,
-    chases it (state 5); otherwise it idles by the hero (state 0) while he is within 4 u,
-    wanders to random points 2–6 u round him (state 1), and follows him (state 3) once
-    farther. From V4 they jet in to slots round him (states 6–8, 0x10). Its run speed is
-    a random 5.5–6.5 (+0x314). It finds a way by casting rays fanned 10° apart up to
-    160° either side (0x3C1620, 12 u at least). Some classes are never its target
-    (0x1A17, 0x1B27, 0x1AE6, 0x107E, 0x1D87). It keeps with the hero (checks at 30, 35
-    and 59 u).
+  - **sight** (corrected 2026-10-22): as it comes out it takes anything with health
+    within 25 u and 5° of level (`target_search_level`, 0x44CD90; not class 0x18AD);
+    then each frame without a target, an enemy within 30 u and 5° of level that no one
+    has claimed. There is no cone round its facing: the search scores distance × (1 +
+    the angle off a fixed bearing, 20°), so in practice it takes the nearest. A target
+    found is claimed for 60 frames in the hero's claim list (`target_claim` 0x4C4640,
+    32 entries at 0x24FA60), which other agents and the Plasma Storm skip
+    (0x4C46A8). Some classes are never its target (0x1A17, 0x1B27, 0x1AE6, 0x107E,
+    0x1D87). With a target it chases (state 5) for 420 frames.
+  - **moving** (`walker_set_params` 0x458A70, run by 0x4577D0): it turns towards its
+    goal, speeding the turn up and easing it to a stop (`angle_approach`, 0x445758), and
+    only moves while facing within 120° of it, at min(top, √(2 × acceleration ×
+    (distance − 0.5))), stopping 0.5 u short (0.4 wandering):
+
+    | When | Acceleration | Top speed | Turn: acceleration, top |
+    |---|---|---|---|
+    | Coming out | 7 u/s² | 3 u/s | 0.2°, 12° a frame |
+    | Following (state 3) | 13 u/s² | a random 6.5–8 u/s (+0x310) | the same |
+    | Chasing (state 5) | 13 u/s² | a random 5.5–6.5 u/s (+0x314) | the same |
+    | Wandering (state 1) | 1 u/s² | 0.25 u/s | 0.1°, 1° a frame |
+
+    It also turns itself towards its waypoint or target at 0.5° a frame², up to 30° a
+    frame.
+  - **by the hero:** idle (state 0) it follows once he is more than 4 u away; on frames
+    30, 35 and 59 of its idle animations (`anim_frame_reached`, 0x44AF40; once read as
+    distances) it starts wandering one time in three if it has no target. Wandering, it
+    walks to random points 2–6 u round him and follows once farther than 5.5 u.
+    Following, it finds a way by casting rays fanned 10° apart up to 160° either side
+    (0x3C1620, up to 12 u), plans again when he has moved 1 u, when it is within 0.75 u
+    of its waypoint or 4 u from where it planned, and idles within a random 1–4 u of
+    him. Where the ground 1 u ahead falls away it looks 9 u ahead (0x3C1BA8): more than
+    2 u lower or a slope of 10° or more ends it (at V2–V4 firing its comet first),
+    otherwise it jumps down (state 8). From V4 they jet in to slots round him (states
+    6–8, 0x10).
   - it ends (0x3C2140) when it comes within 2 u of its target's feet, when a 1 u ball
     0.3 u above its feet touches the target, 420 frames into a chase (+0x344), or 2000
     frames after it came out (+0x144): at V1 a 2 u blast of the row's damage, no push
@@ -1002,13 +1311,22 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
     0x188F, 0x3914C0): a ball growing to 8 u over 20 frames, which each frame strikes
     what it holds for the row's damage, pushed 2 out, and sets it alight (0x31AC38 by
     item 0x57). The agent then goes.
-  - V2–V4 also give it a gun moby (+0x308, 0x453FC0). Its firing (0x3C0128, 2026-10-22)
-    only happens from V5, in state 7 (by the hero), while a shared count (0x1E22B0) of
-    shots lasts: every 80–120 frames, at an enemy within 25 u (0x44CD90) seen from its
-    gun's joint, the shared small missile (0x3441D0) of a quarter of the row's damage,
-    starting at 1–3 u/s and gaining 0.5–0.9 a frame to 12–17 u/s, living 100 frames. The
-    Suck Cannon's V5 shots are the same comet as V2–V4's agents, with its own damage,
-    which set what they hit alight (item 0x87).
+  - **its gun** (+0x308, 0x453FC0; `agent_tick` 0x3C0128, corrected 2026-10-22: it
+    fires from V2, not only V5). At V2–V4, at an enemy within 25 u all round in a clear
+    line from its gun's joint 8, its aim jittered ±0.05 u each way, it fires a bullet
+    (class 0x1855, `enemy_bullet_spawn` 0x35D8E8) at 25 u/s for 0.03 of the row's damage
+    (flags 0x10000): first 27 frames after it came out, then every 30 frames at V2 and
+    15 at V3–V4. V2 and V3 give each agent 50 rounds (+0x15E); V4 a shared 120
+    (0x1E22B0), refilled by each agent spawned. A bullet (0x35D9C0) flies straight for
+    at most 180 frames while within 80 u of the hero, testing each step's line; a hit is
+    a 0.6 u ball of its damage (1.0 u on a moby), pushed by its velocity × 3.
+  - From V5, in state 7 (hovering by the hero) only, while a shared 40 rounds last:
+    every 80–120 frames, at an enemy within 25 u seen from its gun's joint 6 or 7, the
+    shared small missile (0x3441D0) of a quarter of the row's damage, starting at 1–3
+    u/s and gaining 0.5–0.9 a frame to 12–17 u/s, living 100 frames. The Suck Cannon's
+    V5 shots are the same comet as V2–V4's agents, with its own damage, which set what
+    they hit alight (item 0x87).
+  - Its bangles (+0x7C): 1 at V1, 9 at V2–V4, 5 from V5.
 
 ### Infector (0x3688E8, blob 0x3DE4F0) [code, UYA NTSC, 2026-10-22]
 
@@ -1029,8 +1347,19 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   pushed 1, with damage flag 0x8000000, which infects what it hits.
 - **Infected** (the target's damage record +0x2F set): the infection lasts the row's
   damage / the target's health × 600 frames (+0x38 of the record); the infector gains XP
-  for each infection, as for a kill. What an infected enemy does (turns on the others) is
-  in each enemy's own code, not read. Never infected: classes 0x188A and 0x1886 (the
+  for each infection, as for a kill.
+- **What an infected enemy does** [code, 2026-10-22]: an enemy's damage record is at its
+  pvars +0x30, so the flag is its pvars +0x5F, which the enemies' shared code reads.
+  Each frame enemies sign up in a roster by team (`enemy_roster_add` 0x4538E0, up to 64,
+  swapped in by 0x453930 from the hero's update): a healthy one as team 3, looking for
+  the hero and team 1 (signed up by 0x3320A0, probably the Rangers); an infected one as
+  team 5, looking for team 3, the other enemies. The shared target finder
+  (`enemy_find_target` 0x4539A8, every 8 frames, staggered) scores distance + angle off
+  its facing × distance within ranges in each enemy's pvars (+0x2C0–0x2DC); the hero
+  scores −20, but 999999 for an infected enemy, which so never targets him. Its shots
+  carry flag 0x10000 instead of 1, so they hit enemies as the hero's guns do. Healthy
+  enemies never look for team 5: in the shared code they don't fight back, though an
+  enemy's own reaction to a hit (not read) might. Never infected: classes 0x188A and 0x1886 (the
   Infecto-Bomb), the hero, and some big enemies (0x19DF, 0x19F1, and nine more, which give
   no XP).
 - **V5 and up** (the Infecto-Bomb, class 0x1886, 0x389F58): on the row's rate a press
@@ -1275,22 +1604,29 @@ profiles' `gun` section):
   flash and growth, hitting each target once; the Lava Gun's strength spring, a round
   every 10 ticks, 35 points falling at 21.6 u/s², their splash and the nozzle's ball; the
   Annihilator's 5-tick pick and drop, the enemy near the barrel, the 60 u/s missile
-  turning after its target and its blast's second damage; the Flux Rifle's 400 u/s shot
-  for 19 ticks, its muzzle ball and the scoped bend.
+  turning after its target and its blast's second damage, from V2 to V4 its mines and
+  from V5 its seven seekers; the Flux Rifle's 400 u/s shot for 19 ticks, its muzzle ball
+  and the scoped bend, and with each scoped shot the beam from the view's eye (30 u a
+  tick for 26 ticks, stopped by its first hit; from V2 up to six tests a tick, each
+  passing over what the one before hit; balls of 0.6, 0.8 and 2.5 u: `ShotKind::Beam`).
 - **Aim:** the lock-on target; else, in the lock-strafe and first-person cameras and the
   look, the point the view centres on, bent from his facing by at most 80° (8° within
   4 u); else the gun's own assist (`gun_aim_target`'s cubic cone and score; none in
   lock-strafe); else his facing.
 - **Damage:** one pending hit per target a tick, the strongest, a weaker one adding its
-  mods; shock arcs to the first other living target within 8 u for a quarter of the gun's
-  damage; acid burns past the queue, and the burn that kills credits the gun; a kill gives
+  mods; shock arcs to the first other living enemy in sight within 8 u, striking it 10
+  ticks later for a quarter of the gun's damage (`Arcs`); acid burns past the queue, and the burn that kills credits the gun; a kill gives
   the target's `KillXp` to the gun that did it.
 - **The hero's side** (`GunHand`, set each tick before he moves): no double jump while
   firing; the held gun's setting-off turn and the steady turn (the N60 trace's law, to
   10⁻⁵); no speed-up past 45° while a held gun fires; with a gun, letting go brakes a tick
   at 30 u/s² and idles; in the lock-strafe and first-person cameras a gun makes him
   strafe, and firing in lock-strafe triples the strafe turn; lock-on only with the gun's
-  lock-on mod (`LockOn::allowed`).
+  lock-on mod (`LockOn::allowed`). The gun arm rises against a wall close ahead, or
+  follows the lock-strafe camera's pitch (`GunArm`, "The raised gun arm"), and then he
+  fires the arms-only animation; the gun's aim point (`GunHand::target`, from its assist
+  while he isn't locked on) turns his head and upper body (`rac_rig`'s joint springs,
+  "The head and upper body turn to the gun's target").
 - **[placeholder] or [simplified]:**
   - The muzzle is a fixed point from his feet and the N60's barrels are guessed. `firing` lasts the
     gun's `fire_ticks` after a shot (40 for the Shock Blaster, at least the trace's 35;
@@ -1298,20 +1634,19 @@ profiles' `gun` section):
   - A target takes no gun hit for 8 ticks after one: the games leave that to each
     enemy's code, and without it the stream would hit every tick.
   - The states a gun fires in are guessed, and there is no state 29: the look with a gun
-    out is the aiming state. No raised gun arm, no head and upper-body turn to the target,
-    no twist in the fire direction.
-  - The view's aim point is the first thing on the camera's centre line within 128 u; the
-    writer of 0x1A6230 isn't read.
+    out is the aiming state. No twist in the fire direction.
+  - The view's aim point is where the camera's 30 u centre line meets something
+    (`fps_cam_find_target`); the camera's own target and its weight aren't kept.
   - The Annihilator's turn (6° a tick), its near-enemy point, and the Nitro charge's
     300-tick limit; the first ammo is the maximum (row +0x8E isn't tabulated).
   - The Lava Gun's acid from V2 is the vendor's [text]; the Nitro Launcher's acid is on
     and does nothing, as read.
-  - The first six guns' assist, the shock arc and lock-on take any hurtbox with hit points
-    left, not only enemies (class category 5); the other fourteen's searches take only
-    enemies (`rac_combat::Hostile`), as the game's do. XP counts whole points.
-  - Not in yet: the V5-and-up extras (the Annihilator's bomblets, the Liquid Nitrogen
-    Gun's freezing), the Flux Rifle's piercing (not found in code), the Nitro's aim at the
-    ground with action 4, camera shake, the other guns and DL's.
+  - The first six guns' assist and lock-on take any hurtbox with hit points left, not
+    only enemies (class category 5); the shock arc and the other fourteen's searches take
+    only enemies (`rac_combat::Hostile`), as the game's do. XP counts whole points.
+  - Not in yet: the Liquid Nitrogen Gun's freezing, the Nitro's aim at the ground with
+    action 4, camera shake, the Flux beam's colour by level and class 0x1CF7 stopping
+    it, the Nitro Eruptor's 15 bullets, and DL's guns.
 - **The other fourteen** (2026-10-22; `weapons/seekers.rs`, `thrown.rs`, `grab.rs`,
   `hand.rs`), each as its section above reads it, from V5 on firing as V4 with V5's
   numbers:
@@ -1387,8 +1722,9 @@ profiles' `gun` section):
     not nine trailing links, and a target takes one hit an attack (the game's queue
     allows one a frame). In the demo an infected enemy turns on the nearest other enemy
     it sees, which fights back, and a ducked one is gone until it comes back: the demo's
-    own, since in UYA each enemy's own code decides. Not in: the agents' cannon (V5 and
-    up, 0x3C0128), the Vortex Cannon's comets, ducks drawing enemy fire, the Lava Gun's
+    own, since in UYA each enemy's own code decides. Not in: the agents' gun (V2–V4
+    bullets, V5 missiles; 0x3C0128) and their walking speeds by state, the Vortex
+    Cannon's comets, ducks drawing enemy fire, the Lava Gun's
     and the Decimator's V5 (0x38A648 only calls 0x36D5A0), the Nitro Eruptor's 5° launch
     turn, the Suck Cannon's ricochets and burning, the turrets' and holo shields' XP for
     hits, and the shield's state 0x31 and other ends.
@@ -1404,9 +1740,11 @@ profiles' `gun` section):
   "The gadget WAD"), moved once from where the game puts it on joint 56 into the grip,
   so UYA's hero holds it as the game does and every other model the same way. Each
   level's model is its row's class with the bangles its update shows (`GunHand::level`,
-  `RigGuns`). Baked at rest: its own draw, idle and recoil sequences aren't played
-  [simplified]. Without a disc the guns are blocky placeholders [placeholder]. The open
-  model aims procedurally.
+  `RigGuns`). Baked at rest: its own draw, idle and recoil sequences ("The gun's own
+  animation") aren't played [simplified]. The joint springs (`rac_rig/src/springs.rs`)
+  turn the waist, chest and clavicles for the raised arm and towards the gun's aim point,
+  as `hero_gun_arm_raise` and `hero_head_look` set them, at 60 Hz. Without a disc the
+  guns are blocky placeholders [placeholder]. The open model aims procedurally.
 - **Pickups** (`rac_combat::pickups`, P1.10, 2026-10-22): a hero reaches pickups within
   8.7 u across and 3 u up or down from his feet [code]. Ammo follows "Ammo pickups, crates
   and the vendor": taken only for a gun with room, on landing or bouncing, or as it lands
@@ -1434,7 +1772,8 @@ profiles' `gun` section):
   crouch (R1) shows the second ring and 14 ticks after; letting go closes it over up to
   8 ticks, then chooses. Not followed: the paused ring (the option on), the camera items
   0x24–0x26, the game's other conditions on opening (game mode, states 0x58 and others,
-  `0x1A71C8`/`0x1A71CD`), and the lock-strafe camera's own widget (0x41BE10, not read).
+  `0x1A71C8`/`0x1A71CD`). (0x41BE10, once taken for the lock-strafe camera's own
+  widget, is Clank's four-slot ring, opened in its place while he plays Clank.)
 - **HUD** (`rac_demo::hud`, `assets/hud.ron`, P1.12, 2026-10-22): when its parts show
   follows "The HUD" (`hud/clock.rs`): the gun while one is out and 10 frames after;
   health 720 frames after a kill (any `Destroyed`, crates included [simplified]) and 360
@@ -1447,10 +1786,11 @@ profiles' `gun` section):
   frames [code]. The layout, the pips, the gun's name and the icons are the demo's own
   [placeholder]. Not followed: L3's show-all, the upgrade sequence with the world stopped,
   at most one level-up every 60 frames.
-- **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob
-  and the pick), `rac_combat/tests/weapons.rs` (a test for each of the fourteen and most
+- **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob,
+  the pick and the Flux beam), `rac_combat/tests/weapons.rs` (a test for each of the fourteen and most
   V5 variants, and one that fires each at V1 and V5 until its shots run out),
-  `rac_hero/tests/gun.rs`, `rac_demo/tests/enemies.rs` (infected enemies fighting) and
+  `rac_hero/tests/gun.rs` (the raised arm too), `rac_rig`'s springs,
+  `rac_demo/tests/enemies.rs` (infected enemies fighting) and
   `openrac`'s `gun_models` (a disc test: every gun's model and bangles).
 - **Seen in the running demo** (Xvfb, 2026-10-21; the demo gives every gun at V3): the
   Shock Blaster's spray of rays, one shot a press; the N60 knocking out a dummy, its ammo
@@ -1464,20 +1804,19 @@ profiles' `gun` section):
    45° while a held gun fires (from a standstill), the lock-strafe pitch's arms-only
    firing, and a target for the upper body's turn and the aim (Veldin's two attackers,
    left in place). `uyantsc-veldin-fire.sh` gives a gun by writing three bytes.
-2. **Still open in the archetypes:** the Flux Rifle's piercing from V2 and the
-   Annihilator's V2–V4 mines are in neither the shots' nor the guns' code read
-   (2026-10-20); look for them in the code that reads the moby's +0x7C, or in the
-   damage-record flags the shots carry (0x100000 on the Flux's scoped hitscan from V4).
-   Also the writer of the camera's aim point (`fps_aim_pos`, 0x1A6230), and the shock
-   arc's own function (0x34C5F8).
+2. **Still open in the archetypes:** what the damage-record flags mean (0x10000,
+   0x100000 on the Flux beam from V4, 0x1010000 and others), and the Flux beam's draw
+   (its colour table and the four sprites, `effects.md`).
 3. **Projectiles in traces:** bullets, charges and missiles are mobys spawned per shot,
    so a fixed layout region can't follow them; capturing their speeds and the Nitro's
    arc needs `pine-probe` to read the moby list (or the class's newest moby) each frame.
-4. **The other guns' remaining code:** the agents' running and cannon (0x3BD298,
-   0x3C0128), the Plasma Storm's arc (0x30A3D0), the Decimator and Lava Gun's V5, the
-   whip's nine rope links (classes 0x183A and 0x183C, in Veldin's core) and the Shield
-   Charger's bubble (0xA5C; 0x1192 at V5) for the rig, and how an infected enemy fights
-   (each enemy's own code; Veldin's attackers would show it).
+4. **The other guns' remaining code:** the rest of the agent's update (0x3BD298; its
+   gun and walking are read), the Plasma Storm's arc (0x30A3D0), the Decimator and Lava
+   Gun's V5. In the kit still to follow what is read: the agents' gun and walking
+   speeds, the Nitro Eruptor's 15 bullets (both the enemy bullet, class 0x1855), the
+   gun's own sequences on the held gun ("The gun's own animation"), the whip's nine rope
+   links (classes 0x183A and 0x183C) and the Shield Charger's bubble (0xA5C; 0x1192 at
+   V5) on the rig, and the aim indicators ("Aim indicators", PLAN P1.12).
 5. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
 
 How this was read, to carry on: import or reuse the Veldin project (copy

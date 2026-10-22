@@ -103,6 +103,19 @@ pub struct Burn {
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
 pub struct Burns(pub Vec<Burn>);
 
+/// A shock arc on its way (`shock_arc_add`, 0x34C5F8): it reaches its target over
+/// [`ShockRules::reach_ticks`](def::ShockRules) and strikes when it gets there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Arc {
+    pub player: usize,
+    pub hit: Hit,
+    pub ticks_left: u32,
+}
+
+/// The shock arcs reaching their targets.
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct Arcs(pub Vec<Arc>);
+
 /// A hit waiting in the damage queue.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Queued {
@@ -149,6 +162,7 @@ pub(crate) fn fire_guns(
     scene: Res<CollisionScene>,
     mut rng: ResMut<SimRng>,
     mut burns: ResMut<Burns>,
+    mut shock_arcs: ResMut<Arcs>,
     cameras: Query<(&FollowCamera, &SimTransform)>,
     mut heroes: Query<(
         &Hero,
@@ -241,7 +255,20 @@ pub(crate) fn fire_guns(
         }
     }
 
-    // Each shocked hit arcs to the first other living target near it.
+    // Arcs reaching their targets strike as they get there, if the target is still about.
+    shock_arcs.0.retain_mut(|arc| {
+        arc.ticks_left = arc.ticks_left.saturating_sub(1);
+        if arc.ticks_left > 0 {
+            return true;
+        }
+        if list.iter().any(|t| t.entity == arc.hit.target && t.alive) {
+            queue(&mut pending, arc.player, arc.hit);
+        }
+        false
+    });
+
+    // Each shocked hit arcs to the first other living enemy near it in sight, which it
+    // reaches a few ticks later.
     let shock = armory.rules.shock;
     let arcs: Vec<(usize, Hit, Vec3, Vec3)> = pending
         .iter()
@@ -251,7 +278,9 @@ pub(crate) fn fire_guns(
             let to = list.iter().find(|target| {
                 target.entity != *entity
                     && target.alive
+                    && target.enemy
                     && target.centre.distance(from.centre) <= shock.range
+                    && aim::in_sight(&scene.0, from.centre, target.centre)
             })?;
             let damage = gun_damage
                 .iter()
@@ -268,13 +297,17 @@ pub(crate) fn fire_guns(
             Some((queued.player, arc, from.centre, to.centre))
         })
         .collect();
-    for (player, arc, from, to) in arcs {
+    for (player, hit, from, to) in arcs {
         events.write(GunEvent {
             player,
-            weapon: arc.weapon,
+            weapon: hit.weapon,
             kind: GunEventKind::Arc { from, to },
         });
-        queue(&mut pending, player, arc);
+        shock_arcs.0.push(Arc {
+            player,
+            hit,
+            ticks_left: shock.reach_ticks,
+        });
     }
     pending.sort_by_key(|(entity, _)| *entity);
 

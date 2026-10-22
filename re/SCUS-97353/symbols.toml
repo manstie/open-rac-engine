@@ -334,7 +334,7 @@ name = "atan2"
 address = 0x0040C490
 kind = "function"
 confidence = "medium"
-note = "Polynomial atan2(y, x) with an octant table at 0x1D9D40; 0 for (0, 0)."
+note = "Polynomial atan2 with an octant table at 0x1D9D40; 0 for (0, 0). It takes x first (f12 x, f13 y) and returns the angle of (x, y), so Ghidra shows atan2(dx, dy) for a bearing."
 
 [[symbol]]
 name = "angle_between"
@@ -1129,7 +1129,7 @@ name = "hero_body_twist"
 address = 0x004EF060
 kind = "function"
 confidence = "medium"
-note = "Procedural joint offsets on top of the animation. Strafing sideways (stick past 0.15, not back) sets the first slot's yaw to strafe_heading minus the hero's yaw and the second slot's to minus that, springs 0.037 and 0.025 with damping 0.27; which joints the slots are isn't read."
+note = "Procedural joint offsets on top of the animation. Strafing sideways (stick past 0.15, not back) sets the first slot's yaw to strafe_heading minus the hero's yaw and the second slot's to minus that, springs 0.037 and 0.025 with damping 0.27, on hero_joint_springs' records 0 (the root) and others."
 
 [[symbol]]
 name = "hero_lock_on"
@@ -3417,7 +3417,7 @@ name = "fps_aim_pos"
 address = 0x001A6230
 kind = "data"
 confidence = "medium"
-note = "libuya's FpsCamVars.aim_pos: the point the free-look camera aims at (the offsets line up with fps.active at 0x1A6290). Its writer isn't found yet."
+note = "libuya's FpsCamVars.aim_pos: the point the free-look camera aims at (the offsets line up with fps.active at 0x1A6290). Written by fps_cam_find_target (0x411918): the hit of a 30 u line from the camera, or its end."
 
 [[symbol]]
 name = "aiming_fire_wait"
@@ -4173,3 +4173,868 @@ address = 0x001A5810
 kind = "data"
 confidence = "medium"
 note = "9 x 0x40 joint matrices for the item mobys."
+
+# The hero's joint springs, the guns' aim indicators, own animation, effects and the last
+# of their code: read 2026-10-22 by static analysis (weapons.md, "The hero's joint
+# springs", "Aim indicators", "The gun's own animation"; effects.md).
+
+[[symbol]]
+name = "hero_joint_springs"
+address = 0x002F4580
+kind = "data"
+confidence = "high"
+note = "43 records of 0xB0: +0x40 angles, +0x50 rates, +0x60 target angles (x, y, z in the joint's axes; zeroed each frame), +0xA0 the moby's point, +0xA2 which moby (0, 2-4, 6 the hero, 1 Clank, 7 another), +0xA4 gain, +0xA8 damping, +0xAC 1.0. The hero's: 1 waist (point 10, joint 2), 2 upper chest (11, joint 6), 3 neck (4, joint 7), 8/9 clavicles (13/12, joints 72/52), 12 eyes (21, joint 18)."
+
+[[symbol]]
+name = "hero_joint_spring_step"
+address = 0x004DC480
+kind = "function"
+confidence = "high"
+note = "(record): eases its three angles to their targets on spring_angle with its gain and damping, hands the moby the turn (x, y, z order, 0x443FD8) for its point's joint, then zeroes the targets."
+
+[[symbol]]
+name = "hero_joint_springs_update"
+address = 0x004DC790
+kind = "function"
+confidence = "high"
+note = "Steps all 43 of hero_joint_springs."
+
+[[symbol]]
+name = "hero_eyes_follow"
+address = 0x004DC908
+kind = "function"
+confidence = "medium"
+note = "Spring 12 (the eyes' parent) takes the neck's targets: pitch / 2.8 within -10..17 deg, yaw x 0.25 within +-8.5 deg; also the blink timer."
+
+[[symbol]]
+name = "hero_idle_glance"
+address = 0x004E2A30
+kind = "function"
+confidence = "medium"
+note = "Idle glances on the neck and waist springs at random targets and times; with a gun firing or a gun target, zeroes them (gains 0.03, 0.2)."
+
+[[symbol]]
+name = "hero_slope_lean"
+address = 0x004EEC00
+kind = "function"
+confidence = "medium"
+note = "On a slope (0x1A4F48), not firing a held gun: the waist's x by the ground's tilt (up to 21 deg; 7 deg with a gun), the neck half of it back, the clavicles against it when not raised; the tail and legs too."
+
+[[symbol]]
+name = "spring_angle"
+address = 0x004455F0
+kind = "function"
+confidence = "high"
+note = "(target, gain, damping, cap, &angle, &rate, mode): rate kept within the gap, += gain x gap - damping x rate, kept within the gap again; angle += rate. Mode 2 picks the way round."
+
+[[symbol]]
+name = "spring_rate_step"
+address = 0x00445010
+kind = "function"
+confidence = "high"
+note = "(gap, gain, damping, cap, &rate): the spring's rate step, clamped to the gap (and the cap if above 0)."
+
+[[symbol]]
+name = "hero_point_in_front"
+address = 0x0050D060
+kind = "function"
+confidence = "medium"
+note = "(distance, angle, height, out, flag): a point at distance along his facing turned by angle, at height."
+
+[[symbol]]
+name = "hero_point_local"
+address = 0x0050D110
+kind = "function"
+confidence = "medium"
+note = "(x forward, y left, z up, out, add position): a point in his frame."
+
+[[symbol]]
+name = "vec_distance_xy"
+address = 0x0040BFE8
+kind = "function"
+confidence = "high"
+note = "Distance in x and y."
+
+[[symbol]]
+name = "reticle_marker_add"
+address = 0x003F4D78
+kind = "function"
+confidence = "high"
+note = "(scale, angle, step, sx, sy, w, h, player, owner, rgba, world point or 0, texture, kind): queues a screen marker, 14 a frame, alpha capped at 0x40."
+
+[[symbol]]
+name = "reticle_markers_draw"
+address = 0x003F4FE0
+kind = "function"
+confidence = "high"
+note = "lock_reticle, then each queued marker for the player; keeps and shrinks them while 0x1D6698 is set."
+
+[[symbol]]
+name = "reticle_marker_draw"
+address = 0x003F43E0
+kind = "function"
+confidence = "high"
+note = "One marker: kind 0 repeated and turned, 1 four mirrored quarters, 2 one centred sprite."
+
+[[symbol]]
+name = "reticle_markers_clear"
+address = 0x003F4D68
+kind = "function"
+confidence = "high"
+note = "Empties the marker list each frame."
+
+[[symbol]]
+name = "crosshair_colour"
+address = 0x004C7588
+kind = "function"
+confidence = "high"
+note = "(threshold, deg/s): green-white pulse fading in over 20 counts; red 0x600000FF while the free-look target's weight is above the threshold."
+
+[[symbol]]
+name = "world_to_screen"
+address = 0x003FE7B0
+kind = "function"
+confidence = "high"
+note = "Projects a world point to the screen."
+
+[[symbol]]
+name = "hud_sprite"
+address = 0x00404740
+kind = "function"
+confidence = "high"
+note = "Draws a screen-space textured, alpha-blended strip with a pivot and flips."
+
+[[symbol]]
+name = "hud_arc"
+address = 0x00404F68
+kind = "function"
+confidence = "medium"
+note = "An arc of quads between two radii (the lock reticle's health arc)."
+
+[[symbol]]
+name = "fx_tex0"
+address = 0x00401CD0
+kind = "function"
+confidence = "high"
+note = "(n): GS TEX0 of effect texture n (table 0x1E7D00), uploaded on first use each frame; negative n are built-ins and frame buffers (-7 a copy of the frame)."
+
+[[symbol]]
+name = "fx_textures_init"
+address = 0x004225E8
+kind = "function"
+confidence = "high"
+note = "Copies the core header's effect textures (+0x58 count, +0x5C entries, data from core + [+0x68]) to 0x1E7D00."
+
+[[symbol]]
+name = "colour_lerp"
+address = 0x0040D020
+kind = "function"
+confidence = "high"
+note = "(t, a, b) = a(1 - t) + b t per channel."
+
+[[symbol]]
+name = "vec_distance"
+address = 0x0040BFB0
+kind = "function"
+confidence = "high"
+note = "Distance in x, y and z."
+
+[[symbol]]
+name = "moby_damage_record"
+address = 0x00440728
+kind = "function"
+confidence = "high"
+note = "(moby): its damage record (moby +0x68 -> first word), when +0x34 has bit 0x20."
+
+[[symbol]]
+name = "frame_draw_callback_add"
+address = 0x00402768
+kind = "function"
+confidence = "medium"
+note = "Up to 4 (function, moby) pairs drawn with the frame."
+
+[[symbol]]
+name = "flux_scope_draw"
+address = 0x00345D48
+kind = "function"
+confidence = "medium"
+note = "The scope's overlay: texture 0x46 as four mirrored quarters into the frame's alpha, a shading quarter (0x42), then the frame copy through it. 0x345D00 is its callback."
+
+[[symbol]]
+name = "hydra_marks_draw"
+address = 0x003213A8
+kind = "function"
+confidence = "high"
+note = "The Spitting Hydra's marks: texture 0x1F, green 0x7F40FF40, the newest 0x7F2040FF, within 60 deg of the view."
+
+[[symbol]]
+name = "hero_set_character"
+address = 0x004E9628
+kind = "function"
+confidence = "medium"
+note = "Sets 0x1A71C4 (0 Ratchet, 1 Clank)."
+
+[[symbol]]
+name = "clank_ring_init"
+address = 0x0041BE10
+kind = "function"
+confidence = "medium"
+note = "Clank's four-slot ring, opened in place of the quick-select ring while he plays Clank; update 0x41BE58, draw 0x41C340."
+
+[[symbol]]
+name = "reticle_markers"
+address = 0x001E5200
+kind = "data"
+confidence = "high"
+note = "14 x 0x40 screen markers; count at 0x1E5580."
+
+[[symbol]]
+name = "crosshair_alpha_count"
+address = 0x001A62B8
+kind = "data"
+confidence = "high"
+note = "The crosshair's fade-in count (to 20)."
+
+[[symbol]]
+name = "crosshair_pulse"
+address = 0x001A62B4
+kind = "data"
+confidence = "high"
+note = "The crosshair's pulse phase."
+
+[[symbol]]
+name = "lock_reticle_target"
+address = 0x001A6040
+kind = "data"
+confidence = "high"
+note = "The target the lock reticle shows (faded out before a change)."
+
+[[symbol]]
+name = "lock_reticle_fade"
+address = 0x001A6044
+kind = "data"
+confidence = "high"
+note = "0..1, 0.1 a frame."
+
+[[symbol]]
+name = "lock_reticle_spin"
+address = 0x001A6048
+kind = "data"
+confidence = "high"
+note = "45 deg/s."
+
+[[symbol]]
+name = "lock_reticle_params"
+address = 0x001D6008
+kind = "data"
+confidence = "high"
+note = "350 (size scale), 128 and 16 (size limits, px), 6 (fade per second), then the rings' scales."
+
+[[symbol]]
+name = "fx_textures"
+address = 0x001E7D00
+kind = "data"
+confidence = "high"
+note = "Effect texture slots, 16 bytes each; count 0x1DFA00, data base 0x1DFA04."
+
+[[symbol]]
+name = "fps_target"
+address = 0x001A61AC
+kind = "data"
+confidence = "medium"
+note = "fps_cam +0x8C: the free-look camera's target."
+
+[[symbol]]
+name = "fps_target_weight"
+address = 0x001A61D0
+kind = "data"
+confidence = "medium"
+note = "fps_cam +0xB0: 1 for a target its ray hits, else (cos off - cos 15) / (1 - cos 15)."
+
+[[symbol]]
+name = "flux_scope_fov"
+address = 0x001DD2F8
+kind = "data"
+confidence = "medium"
+note = "The scope's field of view."
+
+[[symbol]]
+name = "flux_scope_min_fov"
+address = 0x001E1A80
+kind = "data"
+confidence = "medium"
+note = "20 deg at V1-V2, 10 from V3."
+
+[[symbol]]
+name = "moby_anim_advance"
+address = 0x004389D8
+kind = "function"
+confidence = "high"
+note = "Advances a moby's animation by speed (+0x48) x rate (sequence +0x18, or the keyframe's 1/ticks); +0x60 bit 0 on a keyframe step, bit 1 when the sequence wraps (all loop); trigger sounds."
+
+[[symbol]]
+name = "moby_anim_cut"
+address = 0x00441BA0
+kind = "function"
+confidence = "high"
+note = "(moby, sequence, keyframe): switches without a blend."
+
+[[symbol]]
+name = "moby_anim_blend_flags"
+address = 0x00441E00
+kind = "function"
+confidence = "high"
+note = "moby_anim_blend with a flags argument."
+
+[[symbol]]
+name = "moby_init"
+address = 0x00435F98
+kind = "function"
+confidence = "medium"
+note = "Fills a new moby for its class: scale from class +0x24, speed 1, sequence 0, colour from class +0x40."
+
+[[symbol]]
+name = "hand_slots_update"
+address = 0x004E93B8
+kind = "function"
+confidence = "high"
+note = "Per item slot: in hand, blends a finished sequence 0 to 1 over 2 ticks; leaving, removes the slot (the hand's at once)."
+
+[[symbol]]
+name = "hand_slot_remove"
+address = 0x004E8698
+kind = "function"
+confidence = "high"
+note = "(slot, frame): removes the slot's mobys; the next spawn waits until the frame counter passes frame (about 3 frames)."
+
+[[symbol]]
+name = "hero_items_frame"
+address = 0x004E9558
+kind = "function"
+confidence = "medium"
+note = "Spawns and places the item mobys, then hand_slots_update."
+
+[[symbol]]
+name = "moby_set_colour"
+address = 0x00438908
+kind = "function"
+confidence = "high"
+note = "(moby, r, g, b) -> +0x3C..+0x3E."
+
+[[symbol]]
+name = "moby_follow_parent"
+address = 0x00452E70
+kind = "function"
+confidence = "medium"
+note = "(child, parent): copies position, angles and lights."
+
+[[symbol]]
+name = "moby_joint_matrix"
+address = 0x00437600
+kind = "function"
+confidence = "high"
+note = "(moby, joint, out): a joint's world matrix."
+
+[[symbol]]
+name = "ground_height_below"
+address = 0x00443140
+kind = "function"
+confidence = "medium"
+note = "(up, point, flags, ignore): a line test down; the hit's height."
+
+[[symbol]]
+name = "whip_rope_spawn"
+address = 0x003572B0
+kind = "function"
+confidence = "high"
+note = "Nine links: 0x183A for 1-8, 0x183C the tip; class scale x 0.2, alpha 0x3C."
+
+[[symbol]]
+name = "whip_rope_ends"
+address = 0x00357678
+kind = "function"
+confidence = "high"
+note = "Each piece's end: joint 0 + stretch along its x axis, at least 0.15 u above the ground."
+
+[[symbol]]
+name = "whip_rope_lag"
+address = 0x003574D0
+kind = "function"
+confidence = "medium"
+note = "Turns each stored end towards the new one by 0.1 + the whip's +0x1C."
+
+[[symbol]]
+name = "whip_link_place"
+address = 0x00357778
+kind = "function"
+confidence = "high"
+note = "Link k at piece k-1's lagged end, turned away from its joint 0; flat in the combo, links 1, 2, 5 trailing the hand's travel."
+
+[[symbol]]
+name = "whip_rope_hit"
+address = 0x00357F10
+kind = "function"
+confidence = "high"
+note = "Places the links and hits along them."
+
+[[symbol]]
+name = "shield_update"
+address = 0x003410E8
+kind = "function"
+confidence = "high"
+note = "The Shield Charger's shield (classes 0xA5C, 0x1192): placed 0.75 u up; zaps; colour flash; registers shield_draw."
+
+[[symbol]]
+name = "shield_draw"
+address = 0x00341C10
+kind = "function"
+confidence = "high"
+note = "Draw callback: crackles 0x341DA0, the shell 0x342098, orbit trails 0x342478, V3+ glow 0x409A50."
+
+[[symbol]]
+name = "shield_holds"
+address = 0x00342FB0
+kind = "function"
+confidence = "high"
+note = "The conditions under which the shield stays up."
+
+[[symbol]]
+name = "draw_callback2_add"
+address = 0x00402498
+kind = "function"
+confidence = "high"
+note = "(fn, arg): a one-frame draw callback, second list of 64."
+
+[[symbol]]
+name = "particle_alloc"
+address = 0x0045E438
+kind = "function"
+confidence = "high"
+note = "(type): a zeroed 0x40-byte particle from the 0x800-slot pool."
+
+[[symbol]]
+name = "particle_free"
+address = 0x0045E580
+kind = "function"
+confidence = "medium"
+note = "Frees a particle."
+
+[[symbol]]
+name = "particle_update_all"
+address = 0x0045E788
+kind = "function"
+confidence = "high"
+note = "Runs each particle through particle_update_table[type]."
+
+[[symbol]]
+name = "particle_draw_all"
+address = 0x0045E810
+kind = "function"
+confidence = "medium"
+note = "Sorts and draws the particles as camera-facing sprites with the textures at 0x220AC0."
+
+[[symbol]]
+name = "particle_types_init"
+address = 0x0045F4D0
+kind = "function"
+confidence = "high"
+note = "Fills particle_update_table."
+
+[[symbol]]
+name = "particle_spawn_sprite"
+address = 0x0046DCB8
+kind = "function"
+confidence = "high"
+note = "Type 0x61: size and alpha lerped over its life, velocity and gravity; the last argument picks the type's texture list entry."
+
+[[symbol]]
+name = "particle_spawn_glare"
+address = 0x0046CF70
+kind = "function"
+confidence = "medium"
+note = "Type 0x5A: a glare along a direction."
+
+[[symbol]]
+name = "particle_spawn_burst"
+address = 0x0046D570
+kind = "function"
+confidence = "medium"
+note = "Type 0x5C: a burst of parts."
+
+[[symbol]]
+name = "particle_textures_init"
+address = 0x004224C8
+kind = "function"
+confidence = "high"
+note = "Core header +0x50/+0x54 particle textures (data from core + [+0x64]) to 0x220AC0; +0x6C definitions (each type's texture list) to 0x221118/0x221370."
+
+[[symbol]]
+name = "fx_quad_setup"
+address = 0x004075A8
+kind = "function"
+confidence = "high"
+note = "(quad, texture, blend index into 0x2C5450, FIX)."
+
+[[symbol]]
+name = "fx_quad_draw"
+address = 0x00405A58
+kind = "function"
+confidence = "medium"
+note = "Draws a quad with a matrix."
+
+[[symbol]]
+name = "fx_billboard"
+address = 0x004082B0
+kind = "function"
+confidence = "medium"
+note = "A camera-facing quad: width, height, roll, position, texture, colour, blend."
+
+[[symbol]]
+name = "fx_beam"
+address = 0x004084B0
+kind = "function"
+confidence = "medium"
+note = "A camera-facing beam between two points: width, texture, blend, four colours."
+
+[[symbol]]
+name = "fx_ring_fan"
+address = 0x00409A50
+kind = "function"
+confidence = "medium"
+note = "Fans and rings of 22-vertex strips."
+
+[[symbol]]
+name = "fx_strip"
+address = 0x004066DC
+kind = "function"
+confidence = "medium"
+note = "A raw strip of n vertices."
+
+[[symbol]]
+name = "fx_screen_rect"
+address = 0x00403708
+kind = "function"
+confidence = "medium"
+note = "A flat-coloured screen rectangle (full-screen flashes)."
+
+[[symbol]]
+name = "draw_callback_add"
+address = 0x004026A0
+kind = "function"
+confidence = "high"
+note = "(fn, arg): one of 64 draw callbacks for the frame."
+
+[[symbol]]
+name = "draw_callbacks_run"
+address = 0x004026F0
+kind = "function"
+confidence = "high"
+note = "Runs the frame's draw callbacks."
+
+[[symbol]]
+name = "light_add"
+address = 0x00421DE0
+kind = "function"
+confidence = "high"
+note = "(radius, ?, position, colour): one of 8 light slots, or -1."
+
+[[symbol]]
+name = "light_remove"
+address = 0x00421FE0
+kind = "function"
+confidence = "high"
+note = "(slot)."
+
+[[symbol]]
+name = "rumble_start"
+address = 0x003F0118
+kind = "function"
+confidence = "medium"
+note = "(pattern, player): up to eight 16-byte steps ended by -1."
+
+[[symbol]]
+name = "camera_shake_apply"
+address = 0x003F2A98
+kind = "function"
+confidence = "medium"
+note = "Moves the camera by amplitude x cos(2 x frames left) x (t/T)^2 along one axis (kind 2 a roll)."
+
+[[symbol]]
+name = "explosion_spawn"
+address = 0x0032FE90
+kind = "function"
+confidence = "high"
+note = "Class 0x13A1 (no model), about 30 arguments: particles 0x55, 0x61, 0x5A, 0x17, shake 0.075, a flash."
+
+[[symbol]]
+name = "lightning_bolt_spawn"
+address = 0x0034DAA0
+kind = "function"
+confidence = "high"
+note = "Class 0x1195 (no model): the Hydra's, Shield Charger's, Holo Shield's and Rift Inducer's bolts."
+
+[[symbol]]
+name = "particle_pool"
+address = 0x001E02F8
+kind = "data"
+confidence = "high"
+note = "Pointer to 0x800 particles of 0x40 bytes."
+
+[[symbol]]
+name = "particle_update_table"
+address = 0x00220EC0
+kind = "data"
+confidence = "high"
+note = "One update per particle type (0-0x80)."
+
+[[symbol]]
+name = "particle_textures"
+address = 0x00220AC0
+kind = "data"
+confidence = "high"
+note = "8 bytes each; count at 0x1E030C."
+
+[[symbol]]
+name = "fx_blend_table"
+address = 0x002C5450
+kind = "data"
+confidence = "high"
+note = "Five ints an entry (GS A, B, C, D, FIX): 0 normal alpha, 1 additive, 4 brightens."
+
+[[symbol]]
+name = "light_slots"
+address = 0x001F1BC0
+kind = "data"
+confidence = "medium"
+note = "8 lights."
+
+[[symbol]]
+name = "camera_shake"
+address = 0x001E2AE0
+kind = "data"
+confidence = "high"
+note = "{amplitude, current, frames, total}, three channels 0x10 apart."
+
+[[symbol]]
+name = "agent_update"
+address = 0x003BD298
+kind = "function"
+confidence = "high"
+note = "Agent of Doom: states 0 idle, 1 wander, 3 follow, 5 chase, 6-8 and 0x10 the hero's slots, 8 jump down."
+
+[[symbol]]
+name = "agent_tick"
+address = 0x003C0128
+kind = "function"
+confidence = "high"
+note = "Target upkeep and search (30 u, 5 deg of level), claims 60 frames; V2-V4 bullets, V5 missiles; 1 when it ended."
+
+[[symbol]]
+name = "agent_spawn"
+address = 0x003C0F78
+kind = "function"
+confidence = "high"
+note = "Speeds +0x310 6.5-8, +0x314 5.5-6.5; rounds 50 each (V2-V3), a shared 120 (V4) or 40 (V5)."
+
+[[symbol]]
+name = "agent_end"
+address = 0x003C2140
+kind = "function"
+confidence = "high"
+note = "V1 2 u blast; V2-V4 comet; V5 0x3914C0."
+
+[[symbol]]
+name = "agent_drop_check"
+address = 0x003C1BA8
+kind = "function"
+confidence = "medium"
+note = "0 go on, 1 jump down, 2 no way."
+
+[[symbol]]
+name = "target_search_level"
+address = 0x0044CD90
+kind = "function"
+confidence = "medium"
+note = "(reference yaw, range, max yaw, max elevation, position, enemies only)."
+
+[[symbol]]
+name = "walker_set_params"
+address = 0x00458A70
+kind = "function"
+confidence = "high"
+note = "(acceleration a frame^2, top speed a frame, turn acceleration, top turn)."
+
+[[symbol]]
+name = "angle_approach"
+address = 0x00445758
+kind = "function"
+confidence = "high"
+note = "Turns an angle towards a goal, speeding up and easing to a stop."
+
+[[symbol]]
+name = "anim_frame_reached"
+address = 0x0044AF40
+kind = "function"
+confidence = "high"
+note = "Whether the moby's animation passed a frame."
+
+[[symbol]]
+name = "target_claim"
+address = 0x004C4640
+kind = "function"
+confidence = "high"
+note = "Claims a target for some frames in the hero's claim list (0x24FA60)."
+
+[[symbol]]
+name = "target_claimed_free"
+address = 0x004C46A8
+kind = "function"
+confidence = "high"
+note = "Whether no one has claimed the target."
+
+[[symbol]]
+name = "enemy_bullet_spawn"
+address = 0x0035D8E8
+kind = "function"
+confidence = "high"
+note = "Class 0x1855 bullets: the agents' and the Nitro Eruptor's."
+
+[[symbol]]
+name = "enemy_bullet_update"
+address = 0x0035D9C0
+kind = "function"
+confidence = "high"
+note = "Straight for at most 180 frames within 80 u of the hero; a hit is a 0.6 u (1.0 on a moby) ball."
+
+[[symbol]]
+name = "small_missile_spawn"
+address = 0x003441D0
+kind = "function"
+confidence = "medium"
+note = "Class 0xA82: the Decimator's seekers, the V5 agents' and Megaturret's missiles."
+
+[[symbol]]
+name = "coil_arc_add"
+address = 0x0030A148
+kind = "function"
+confidence = "high"
+note = "One of 30 arcs at 0x26FDB0."
+
+[[symbol]]
+name = "coil_arcs_update"
+address = 0x0030A3D0
+kind = "function"
+confidence = "high"
+note = "Arcs reach their target over their time, then strike for the Plasma Coil's +0x70 and stay 20 frames."
+
+[[symbol]]
+name = "shock_arc_add"
+address = 0x0034C5F8
+kind = "function"
+confidence = "high"
+note = "One of 48 arcs at 0x27FBA0: the first targetable living enemy of ball_damage's 8 u list; two arcs, reaching over 10 frames."
+
+[[symbol]]
+name = "shock_arcs_update"
+address = 0x0034C870
+kind = "function"
+confidence = "high"
+note = "Strikes when the reach ends (flags 0x410000), then 30 frames; crackles."
+
+[[symbol]]
+name = "shock_mod_tick"
+address = 0x0034BA90
+kind = "function"
+confidence = "high"
+note = "Ticks the shock slots."
+
+[[symbol]]
+name = "eruptor_blast_update"
+address = 0x0038A7B8
+kind = "function"
+confidence = "high"
+note = "Class 0x1888: the Nitro Eruptor's blast; its 15 bullets."
+
+[[symbol]]
+name = "bouncer_bomblet_spawn"
+address = 0x0031E2D8
+kind = "function"
+confidence = "high"
+note = "(position, velocity, index, heavy, annihilator): the Bouncer's bomblets and the Annihilator's V2-V4 mines."
+
+[[symbol]]
+name = "flux_scope_beam_spawn"
+address = 0x0037C818
+kind = "function"
+confidence = "high"
+note = "Class 0x186F: the scoped beam from the camera."
+
+[[symbol]]
+name = "flux_scope_beam_update"
+address = 0x0037CB68
+kind = "function"
+confidence = "high"
+note = "From V2 up to 6 line tests a frame, each skipping the last hit: it pierces."
+
+[[symbol]]
+name = "enemy_roster_add"
+address = 0x004538E0
+kind = "function"
+confidence = "high"
+note = "(moby, team): healthy enemies 3, infected 5, 0x3320A0's 1."
+
+[[symbol]]
+name = "enemy_roster_swap"
+address = 0x00453930
+kind = "function"
+confidence = "high"
+note = "Swaps the roster in, from the hero's update."
+
+[[symbol]]
+name = "enemy_find_target"
+address = 0x004539A8
+kind = "function"
+confidence = "high"
+note = "Every 8 frames: the best of the teams an enemy looks for; an infected one never takes the hero."
+
+[[symbol]]
+name = "enemy_target_score"
+address = 0x00453408
+kind = "function"
+confidence = "high"
+note = "distance + angle off facing x distance; the hero -20, 999999 to an infected enemy."
+
+[[symbol]]
+name = "target_claims"
+address = 0x0024FA60
+kind = "data"
+confidence = "high"
+note = "32 x {target, owner, frames}."
+
+[[symbol]]
+name = "agents_shared_rounds"
+address = 0x001E22B0
+kind = "data"
+confidence = "high"
+note = "The V4 agents' 120 shared rounds (40 at V5)."
+
+[[symbol]]
+name = "enemy_roster"
+address = 0x001F0068
+kind = "data"
+confidence = "high"
+note = "Up to 64 {moby, team}."
+
+[[symbol]]
+name = "coil_arcs"
+address = 0x0026FDB0
+kind = "data"
+confidence = "high"
+note = "30 x 0xA0."
+
+[[symbol]]
+name = "shock_arcs"
+address = 0x0027FBA0
+kind = "data"
+confidence = "high"
+note = "48 x 0xD0."

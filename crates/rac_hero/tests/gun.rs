@@ -5,8 +5,8 @@
 
 use bevy::prelude::*;
 use rac_hero::{
-    BodyPlacement, CameraSetting, Collider, GunHand, HeroMotion, HeroProfile, HeroState, LockOn,
-    ParryWorld,
+    BodyPlacement, CameraSetting, Collider, GunArm, GunHand, GunPose, HeroMotion, HeroProfile,
+    HeroState, Hold, LockOn, ParryWorld,
     controller::{TICK, step},
     lock_on,
 };
@@ -312,5 +312,82 @@ fn lock_on_waits_for_the_weapons_code_to_allow_it() {
             &rig.world,
         );
         assert_eq!(lock.target.is_some(), locks, "allowed {allowed}");
+    }
+}
+
+/// A gun held in one hand, out and not firing.
+fn held_gun() -> GunHand {
+    GunHand {
+        out: true,
+        item: Some(0x2F),
+        pose: GunPose {
+            hold: Hold::OneHand,
+            ..default()
+        },
+        ..default()
+    }
+}
+
+#[test]
+fn a_wall_close_ahead_raises_the_gun_arm_the_nearer_the_more() {
+    // "The raised gun arm": a ray 0.57 u up from just inside his radius to 1.3 u ahead;
+    // a hit at d from his feet raises the arm by 70° × 1.25 × (1.3 − (d − 0.45)) / 1.3,
+    // kept within 30° and 70°.
+    let raised_by = |gap: f32| {
+        let mut rig = Rig::new(held_gun());
+        // A wall across his path, its near face `gap` ahead of his feet (ahead is −z).
+        let wall = BodyPlacement::fixed(
+            Collider::Cuboid {
+                half_extents: Vec3::new(5.0, 3.0, 0.5),
+            },
+            Vec3::new(0.0, 3.0, -gap - 0.5),
+            Quat::IDENTITY,
+        );
+        let floor = BodyPlacement::fixed(
+            Collider::Cuboid {
+                half_extents: Vec3::new(100.0, 0.5, 100.0),
+            },
+            Vec3::new(0.0, -0.5, 0.0),
+            Quat::IDENTITY,
+        );
+        rig.world = ParryWorld::new(&[floor, wall]);
+        rig.tick(&idle());
+        rig.hero.gun_arm
+    };
+    let far = raised_by(2.0);
+    assert!(!far.raised && far.pitch == 0.0, "{far:?}");
+    for gap in [0.6_f32, 0.9, 1.2] {
+        let arm = raised_by(gap);
+        let d = Vec2::new(gap, 0.57).length() - 0.45;
+        let expected = (70.0 * 1.25 * (1.3 - d) / 1.3).clamp(30.0, 70.0);
+        assert!(arm.raised, "{gap}");
+        assert!(
+            (arm.pitch.to_degrees() - expected).abs() < 0.01,
+            "{gap}: {} against {expected}",
+            arm.pitch.to_degrees()
+        );
+    }
+    assert!(raised_by(0.6).pitch > raised_by(1.2).pitch);
+
+    // The wrench, or a glove held by no grip, raises nothing.
+    let mut rig = Rig::new(GunHand::default());
+    rig.tick(&idle());
+    assert_eq!(rig.hero.gun_arm, GunArm::default());
+}
+
+#[test]
+fn in_the_lock_strafe_camera_the_gun_arm_follows_its_pitch() {
+    let mut rig = Rig::new(held_gun());
+    rig.hero.camera_setting = CameraSetting::LockStrafe;
+    for (pitch, expected) in [
+        (20.0_f32, 20.0),
+        (-30.0, -30.0),
+        (85.0, 80.0),
+        (-60.0, -45.0),
+    ] {
+        rig.hero.camera_pitch = pitch.to_radians();
+        rig.tick(&idle());
+        assert!(!rig.hero.gun_arm.raised);
+        assert!((rig.hero.gun_arm.pitch.to_degrees() - expected).abs() < 1e-3);
     }
 }

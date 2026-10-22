@@ -149,8 +149,9 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
             scale: Vec3::new(0.35, 0.05, 0.35),
             ..ball(0.0, &looks.disc)
         },
-        // The spit and the bolts are drawn as their arcs ([`show_gun_events`]).
-        ShotKind::Spit { .. } | ShotKind::Bolt { .. } => Look {
+        // The spit and the bolts are drawn as their arcs, the Flux Rifle's beam as its
+        // ray ([`show_gun_events`]).
+        ShotKind::Spit { .. } | ShotKind::Bolt { .. } | ShotKind::Beam { .. } => Look {
             scale: Vec3::ZERO,
             ..ball(0.0, &looks.arc)
         },
@@ -159,6 +160,7 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
         ShotKind::Turret(_) => ball(0.35, &looks.turret),
         ShotKind::Pellet => ball(0.06, &looks.bullet),
         ShotKind::Guided { .. } => ball(0.1, &looks.missile),
+        ShotKind::Seeker { .. } => ball(0.08, &looks.missile),
         // A wall standing up from where it landed, as wide and high as the kit's.
         ShotKind::Barrier(state) => {
             let (half_width, height) = match fire {

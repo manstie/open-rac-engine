@@ -1126,6 +1126,27 @@ pub struct GunProfile {
     /// scales the strafe turn's gain and cap by `fire_turn_scale`.
     pub fire_turn_scale: f32,
     pub fire_turn_ticks: u32,
+    /// The gun arm raised against a wall ahead.
+    pub raise: GunRaise,
+}
+
+/// The gun arm raised against a wall close ahead (`weapons.md`, "The raised gun arm"): a
+/// ray `height` up (`firing_height` while the gun fires) from `radius − start_inside`
+/// ahead of his feet to `reach` ahead. If it hits at `d` from his feet, the arm turns up
+/// by `most × scale × (reach − (d − radius)) / reach`, kept within `least` and `most`.
+/// In the lock-strafe camera the arm follows the camera's pitch instead, from `strafe_down`
+/// below level to `strafe_up` above, unless the wall raises it further. Degrees.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GunRaise {
+    pub height: f32,
+    pub firing_height: f32,
+    pub start_inside: f32,
+    pub reach: f32,
+    pub scale: f32,
+    pub least: f32,
+    pub most: f32,
+    pub strafe_up: f32,
+    pub strafe_down: f32,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").

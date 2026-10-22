@@ -12,8 +12,11 @@
 //!   and walks back, ignoring heroes for a moment.
 //! - The guns' afflictions ([`afflict`]): infected, it leaves the heroes alone for a while
 //!   and turns on the nearest other enemy it sees, which fights back ([`struck_by`]); a
-//!   duck, it is gone until it comes back. In UYA what an infected enemy does is in each
-//!   enemy's own code, not read, so the demo's fighting is its own [placeholder].
+//!   duck, it is gone until it comes back. UYA's enemies share the first part
+//!   (`weapons.md`, "What an infected enemy does": an infected one hunts the others and
+//!   never a hero), but there healthy ones never hunt an infected one; whether a hit makes
+//!   one fight back is in each enemy's own code, not read, so that is the demo's own
+//!   [placeholder].
 
 use bevy::math::ops;
 use bevy::prelude::*;

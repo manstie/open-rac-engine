@@ -92,10 +92,12 @@ pub struct GunRules {
 /// The shock mod: each hit arcs to another enemy near the target.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ShockRules {
-    /// The arc jumps to the first other living target within this.
+    /// The arc jumps to the first other living enemy in sight within this.
     pub range: f32,
     /// The arc does this share of the gun's damage.
     pub share: f32,
+    /// It reaches its target, and strikes, this many ticks after the hit.
+    pub reach_ticks: u32,
 }
 
 /// One gun.
@@ -291,6 +293,24 @@ pub enum FireMode {
     Whip(Whip),
 }
 
+impl FireMode {
+    /// The aim assist the gun picks its target with at `level`, if it has one of its own.
+    pub fn assist(&self, level: u8) -> Option<AimAssist> {
+        match self {
+            FireMode::Projectile(fire) => fire.assist,
+            FireMode::Lobbed(fire) => Some(fire.assist),
+            FireMode::Homing(fire) => Some(fire.assist),
+            FireMode::Coil(fire) => Some(fire.assist),
+            FireMode::Disc(fire) => fire.assist.at(level),
+            FireMode::Volley(fire) => Some(fire.assist),
+            FireMode::Hydra(fire) => Some(fire.assist),
+            FireMode::Rift(fire) => Some(fire.assist),
+            FireMode::Suck(fire) => Some(fire.assist),
+            _ => None,
+        }
+    }
+}
+
 /// When a gun may fire again.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Timing {
@@ -383,9 +403,30 @@ pub struct Projectile {
     /// In the look, the aim bends to the nearest target within `scope.0` u and `scope.1`
     /// degrees of it.
     pub scope: Option<(f32, f32)>,
+    /// Scoped in the look, a beam goes with each shot from the view's eye along the aim.
+    #[serde(default)]
+    pub scope_beam: Option<ScopeBeam>,
     pub push: f32,
     /// From this level, the N90 Hurricane's timing and bullets.
     pub hurricane: Option<Hurricane>,
+}
+
+/// The Flux Rifle's scoped beam (class 0x186F: `flux_scope_beam_spawn` 0x37C818, its update
+/// 0x37CB68). Its head flies `step` u a tick for `ticks` ticks, testing the line of each
+/// step, and its first hit stops it. Below `pierce_from` one test, whose hit takes a ball
+/// of the gun's damage; from it up to `tests` a tick, each passing over only what the one
+/// before hit, so it reaches the target behind the first. Each hit's ball is `radius` u
+/// and pushes along the aim × `push`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScopeBeam {
+    pub step: f32,
+    pub ticks: u32,
+    pub pierce_from: u8,
+    pub tests: u32,
+    pub radius: ByLevel<f32>,
+    pub push: ByLevel<f32>,
+    /// How far ahead the beam is drawn (`GunEventKind::Ray`).
+    pub shown: f32,
 }
 
 /// The N90 Hurricane (0x322E68, bullets 0x384068, class 0x1881, their flight 0x384338): a
@@ -501,6 +542,13 @@ pub struct Homing {
     pub push: f32,
     /// Its blast does the splash damage within this of where it hits.
     pub blast_radius: f32,
+    /// The mines its blast scatters, by level: the Bouncer's bomblets, marked as the
+    /// Annihilator's (V2–V4; none from V5).
+    #[serde(default)]
+    pub mines: ByLevel<Mines>,
+    /// From V5 (the Decimator), the seekers its blast sends instead.
+    #[serde(default)]
+    pub seekers: Option<Seekers>,
 }
 
 /// A throw at a point (`lob_velocity`, 0x4C3888): the lock-on target's middle, else a
@@ -567,6 +615,38 @@ pub struct Storm {
     pub reach: f32,
     pub arcs: usize,
     pub again_ticks: u32,
+}
+
+/// The mines the Annihilator's missile scatters as it bursts (`bouncer_bomblet_spawn`,
+/// 0x31E2D8, from 0x396A20): `count` bomblets, each `share` of the missile's damage,
+/// falling under `gravity`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Mines {
+    pub count: u32,
+    pub share: f32,
+    pub gravity: f32,
+    pub bomblet: Bomblet,
+}
+
+/// The Decimator's seekers (the small missile, class 0xA82, `small_missile_spawn`
+/// 0x3441D0): `count` of them, each `share` of the missile's damage, leaving fanned up to
+/// `spread_degrees` either side of the way back towards the hero (the game's camera),
+/// starting at a speed between `speed` and gaining `accel` u/s a tick to their `top`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Seekers {
+    pub from_level: u8,
+    pub count: u32,
+    pub share: f32,
+    pub spread_degrees: f32,
+    pub speed: (f32, f32),
+    pub accel: (f32, f32),
+    pub top: (f32, f32),
+    /// How they find and turn after an enemy, how long they fly and their blast aren't
+    /// read: the nearest living enemy within `range`, `turn_degrees` a tick.
+    pub range: f32,
+    pub turn_degrees: f32,
+    pub lifetime: u32,
+    pub blast_radius: f32,
 }
 
 /// The Bouncer (0x31C890, canister 0x31D0B0, bomblets 0x31E488).
