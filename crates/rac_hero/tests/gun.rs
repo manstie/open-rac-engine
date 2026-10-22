@@ -258,9 +258,9 @@ fn a_wrench_attack_puts_the_gun_away() {
 }
 
 #[test]
-fn while_the_quick_select_ring_is_open_the_stick_doesnt_move_him() {
-    // The kit's ring doesn't pause the game, so the stick that picks a gun in it mustn't
-    // walk him: his moves read it as centred.
+fn while_the_quick_select_ring_holds_his_input_he_takes_none() {
+    // The kit's ring doesn't pause the game, so the stick and buttons that work it
+    // mustn't move him, as UYA blocks the pad's gameplay input once its ring is up.
     let selecting = GunHand {
         selecting: true,
         ..default()
@@ -272,10 +272,8 @@ fn while_the_quick_select_ring_is_open_the_stick_doesnt_move_him() {
     assert_eq!(rig.hero.speed, 0.0);
     assert_eq!(rig.hero.position, start);
     assert_eq!(rig.hero.yaw, 0.0);
-    // His buttons still work: he jumps straight up.
-    rig.tick(&input(Some(RIGHT), &[], &[Action::Jump]));
-    assert!(matches!(rig.hero.state, HeroState::Jump(_)));
-    assert_eq!(rig.hero.velocity.with_y(0.0), Vec3::ZERO);
+    rig.tick(&input(Some(RIGHT), &[Action::Jump], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::Idle);
 
     // Running when it opens, he stops as if the stick were let go.
     let mut rig = Rig::new(gun(false, false));

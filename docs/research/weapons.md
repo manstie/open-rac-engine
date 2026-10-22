@@ -290,14 +290,21 @@ Single player only: multiplayer is another program, not read.
 - **Slots:** eight, from ring 1 (0x1D4C60) or ring 2 (0x1D4C80); slot 0 at the top, then
   clockwise every 45°. Holding R1 shows ring 2, and for 14 frames after letting go.
 - **Picking:** nothing is selected when it opens, and a stick already pushed is ignored
-  until it drops under 0.5 or 30 frames pass. Then the left stick past 0.9 of full picks
+  until it drops under 0.5, a d-pad button is pressed or 30 frames pass, which also
+  clears the selection (`quick_select_ring_update`, 2026-10-22). Then the left stick past 0.9 of full picks
   the slot it points to, and keeps the slot picked within 33.75° of its centre; the
   cardinal slots are 27° wide and the diagonals 63°; pointing at an empty slot takes the
   filled neighbour the stick leans to, if any. Between the dead zone and 0.9 nothing
-  changes. With the stick centred, the d-pad steps between slots by a neighbour table
-  (first press: left 6, right 2, up 0, down 4).
+  changes. With the stick short of 0.9, the d-pad steps between slots by a neighbour
+  table (first press: left 6, right 2, up 0, down 4; then by slot 0–7, left/right/up/down:
+  7/1/0/4, 0/2/0/2, 6/2/1/3, 4/2/2/4, 5/3/0/4, 6/4/6/4, 6/2/7/5, 6/0/0/6, `quick_select_slots`
+  +0x08–0x14 in Veldin's image [data, 2026-10-22]). Picking needs the hold check passed
+  and Triangle held, so the selection stays put while the ring closes.
 - **Choosing:** only letting go of Triangle chooses, up to 8 frames later as the ring
-  closes; X and Circle do nothing. A gun is asked for in his hand (`hand_item_request`),
+  closes: its opening counter (+0x70) climbs to 8 while Triangle is held, falls a frame at
+  a time after, and the choice comes when it reaches 0 (at once if it is 0); X and Circle
+  do nothing. Off, it opens on the press with the input delay of 15, or 27 while
+  `quick_switch_recent` runs (20 frames from a tap, cleared by a switch made). A gun is asked for in his hand (`hand_item_request`),
   so `hero_item_switch` brings it out and makes it the equipped gun, and it goes to the
   front of the recent guns; the camera options (items 0x24–0x26) set the camera instead.
   Nothing selected chooses nothing. A gun with no ammo can be chosen; the ring shows its
@@ -556,6 +563,8 @@ The gun moby's update reads its row through item 0x27.
 - **First person:** in the look state (1) the gun puts the hero in state 29, its aiming
   state, where R1 fires as well as Circle.
 - The moby's +0x7C (2 at V2, 3 from V3) is set from the level; its use isn't read.
+- **V5 and up** (the Shock Cannon, 0x385948, 2026-10-22): the same firing, charge and
+  balls; 23 random rays (0x386FB0 tests each) and the three down, 26 in all.
 
 ### N60 Storm (0x3A5928, bullets 0x35B390) [code, UYA NTSC, 2026-10-16]
 
@@ -581,6 +590,11 @@ The gun moby's update reads its row through item 0x27.
     and ends the bullet. It passes through the N60 itself and the shooter;
   - the impact throws sparks, more from V2 and more again from V3 (0x35BDC8).
 - **Mods:** lock-on from V3, shock from V4 [code]. The moby's +0x7C is 1 at V2, 3 at V3.
+- **V5 and up** (the N90 Hurricane, 0x322E68, 2026-10-22): a shot every 10 frames held;
+  its bullets (0x384068, class 0x1881, flight 0x384338) leave at a random 60–80 u/s and
+  live the frames 30 u takes plus 30 (52–60). The line of each step: the world bounces it
+  (velocity reflected), the 8th bounce ending it; an enemy (category 5, or class 0x1F6)
+  ends it, taking the row's damage, the shock check and a 1 u ball.
 
 ### Nitro Launcher (0x36E360, charge 0x361218, blast 0x35E718) [code, UYA NTSC, 2026-10-16]
 
@@ -608,6 +622,12 @@ The gun moby's update reads its row through item 0x27.
   also gets the acid mod's check (0x31AC38). The camera shakes by 0.4 − 0.02 × the
   distance to it, within 20 u.
 - **Mods:** acid from V2 (set as each blast spawns), lock-on from V3 [code].
+- **V5 and up** (the Nitro Eruptor, 0x3893E8, 2026-10-22): the same charge (0x361880),
+  lobbed by its own arc (0x389A18) and turned 5° about his up one way or the other; the
+  charge marked as the Eruptor's ends in another blast (0x38A668, class 0x1888, update
+  0x38A7B8): 18 frames, then for 30 frames a ball growing from 3 to 11 u in which
+  everything (not the hero) takes the row's damage every frame (flags 0x1030000, pushed
+  1.5 away) and the acid check.
 
 ### Lava Gun (0x303F88, stream 0x304A18) [code, UYA NTSC, 2026-10-16]
 
@@ -655,6 +675,8 @@ The gun moby's update reads its row through item 0x27.
     of the model show, as on the Shock Blaster and N60) [guess];
   - its model is drawn 2.5 times larger, 4 times from V5.
 - **Mods:** shock from V3, lock-on from V4 [code].
+- **V5 and up** (the Decimator): its update (0x38A648) only calls the V1–V4 one
+  (0x36D5A0).
 
 ### Flux Rifle (0x345350, shot 0x3463A0) [code, UYA NTSC, 2026-10-16]
 
@@ -679,6 +701,530 @@ The gun moby's update reads its row through item 0x27.
 - **Rate** (0x3444B0): a shot every 1 / (+0x50) = 1 s. Scoped, the zoom follows the
   buttons' pressure (pad +0x134 and +0x13C), and a ray from the camera along the scope
   (0x1E2E40, 128 u) marks a target with a reticle every fourth frame.
+
+### Where each gun's code is [data, UYA NTSC, 2026-10-22]
+
+A gun in hand is a moby of its row's +0x10 class, and `class_update_table` (0x2F6984,
+216 entries of 12 bytes: a pointer, the class, its update) gives that class's update,
+which is the gun's code. Read from Veldin's image:
+
+| Gun | Classes (V1–V4; V5 up) | Update |
+|---|---|---|
+| Infector | 0x1861; 0x1886 | 0x3688E8; 0x389F58 |
+| Spitting Hydra | 0x184E; 0x1B4F | 0x31FB90 |
+| Disc Blade Gun | 0x1866; 0x1C44 | 0x36EFC0 |
+| Agents of Doom | 0x1852 | 0x35C9F0 |
+| Rift Inducer | 0x1C67; 0x186A | 0x372990 |
+| Holo Shield Glove | 0x1868; 0x1C65 | 0x3717A8 |
+| Plasma Whip | 0x1843 (+0x14 too) | 0x356110 |
+| Suck Cannon | 0x185B; 0x1892 | 0x3619C8 |
+| Qwack-O-Ray | 0x1870; 0x1C63 | 0x37DEB0 |
+| RY3NO | 0x1871; 0x1DE1 | 0x3805B0 |
+| Plasma Coil | 0xC4A; 0x5CA | 0x315638; 0x306F68 |
+| Bouncer | 0xE14; 0xE9E | 0x31C890 |
+| Miniturret Glove | 0xC5A; 0xA65 | 0x346078; 0x343088 |
+| Shield Charger | 0xA5C | 0x3410E8 |
+
+The six guns already read: Shock Blaster 0x36A790 (V5 0x385948), N60 0x3A5928 (V5
+0x322E68), Annihilator 0x36D5A0 (V5 0x38A648), Flux Rifle 0x3444B0, Nitro Launcher
+0x36E360 (V5 0x3893E8), Lava Gun 0x303F88. The rows also give each gun's hold and
+firing animations (+0x18, +0x24–+0x2C): the gloves (Agents of Doom, Holo Shield,
+Miniturret) hold nothing and play 41, arms 61; the Suck Cannon 46; the Qwack-O-Ray,
+Plasma Coil and Shield Charger one-handed 51 (arms 57; the Shield Charger's arms 52); the
+Plasma Whip none; the rest two-handed 49 (crouched 65), the Bouncer 103 as the Shock
+Blaster does.
+
+### Plasma Whip (0x356110) [code, UYA NTSC, 2026-10-22]
+
+The whip is a melee weapon: with it in hand (item 0x7F) the hero's own attack states play
+as with the wrench, and the whip's object hits along its rope. (Earlier notes called item
+0x7F the multiplayer wrench; it is the whip, by its row's name.)
+- **Attacks** (`hero_attack_start`, 0x501678): Circle starts the wrench's moves, in the
+  same windows: on the ground the combo (state 19, its three swings and their chain), in
+  the air the jump attack (20), and with R1 held, or crouched, the throw (21). Square
+  still swings the wrench.
+- **Ammo:** entering any of the three states takes a round (`hero_change_state`: each
+  swing and the jump attack call `ammo_use(held, 1)`; the throw's release does). Without
+  ammo the state change is refused and he stays as he was.
+- **The rope:** the whip in his hand (class 0x1843) leads nine links (one of class
+  0x183A, then eight of 0x183C), each placed at its own end pushed out along its axis by
+  the rope's stretch (the whip's +0x14) and turned to point back at the one before, kept
+  0.15 u off the ground. So the rope is about 9 × the stretch long. In a combo swing the
+  first links lag behind the hand's sweep (by 4/i of the hand's travel for link i under
+  5), so the rope trails as he swings. The stretch moves towards a goal by at most a step
+  a frame (`approach`, 0x4450C0):
+
+  | When | Stretch (step) | Second value, +0x1C (step) |
+  |---|---|---|
+  | At rest | 0.2 | 0 |
+  | Combo, first 7 frames | 0.25 | 0.5 |
+  | Combo after (swings 1, 2) | 0.9 (0.2) | 0.9 (0.3) |
+  | Combo after (swing 3) | 0.6 (0.2) | 0.8 (0.3) |
+  | Jump attack, frames 7–20 | 0.7 (0.1) | 0.7 (0.1) |
+  | Jump attack after | 0.8 | 0.8 |
+  | Thrown | 0.5 (1/30) | 0.9 (1/30) |
+
+  So swings 1 and 2 reach about 8 u, swing 3 5.4 u and the jump attack 7 u.
+- **The hit** (0x357F10): in the combo once the state is over 6 frames old, in the jump
+  attack over 20, and while the thrown end is out, every frame each link's line, from the
+  joint of the link before to its own far joint, is tested (`coll_line`, 0x357DC0), the
+  last one carried on to 1.5 times its length. Whatever it crosses takes the row's damage
+  (+0x6C), pushed 0.75 along the whip's facing and 1 up, with flags 0x110000 at V1–V2 and
+  0x210000 from V3. A hit on something that isn't an enemy sparks (0x359F28); each hit
+  plays sound 6. Each frame's hits go through the damage queue, so a target takes at most
+  one a frame; nothing marks a target as hit for the rest of the swing.
+- **The throw** (0x4F1CE0, at the wrench's release frame): instead of the wrench, a moby of
+  the thrown wrench's class (0x47, run by `wrench_update`) flies out as the thrown wrench
+  does ("The thrown wrench" in `hero-controller.md`), and the whip's end follows it; the
+  rope hits along its length while it is out.
+- **V4** (level 3 and up): at the jump attack's 20th frame a shock wave (class 0x1890,
+  0x393690) sets off from the whip along his facing at 0.75 u a frame (45 u/s). It lives
+  40 frames. From its 11th frame, every third frame, a ray 10 u down from where it was 6
+  frames before finds the ground, and a 2 u ball there takes half the row's damage, pushed
+  0.5 (flags 0x210000).
+- **V5 and up** (the Quantum Whip): in swings 1 and 2 at frame 10 and swing 3 at frame 30,
+  a cutting wave (class 0x1CB8, 0x3D6578) leaves along his facing, turned −20° for swing 2
+  and +10° for swing 3. Its flight (0x3D6740) runs on at 0.5 u a frame (30 u/s) for 40
+  frames; each frame the line between its joints 0 and 6 (about 3 u across it) strikes
+  what it crosses for the row's damage, pushed by its velocity × 1.75 (flags 0x210000).
+  The game strikes every frame it crosses; the kit strikes each target once.
+- **Looks:** the rope glows orange at V1–V2 and blue at V3–V4 (0xBF4020, 0x2040BF), with a
+  light of radius 5.5 at the whip; its sparks and trails are many small effects.
+
+### Plasma Coil (0x315638, ball 0x30BF18) [code, UYA NTSC, 2026-10-22]
+
+- **Firing:** while Circle is held, with the gun out more than 22 frames, at most five
+  balls alive (0x271B70) and the cooldown run out, it takes a round and starts the coil
+  spinning: the spin rises 0.1 a frame from 0.1 and the ball leaves when it passes 1, the
+  10th frame after it starts. Starting sets a cooldown of 0.5 s, so held it fires every
+  0.5 s. After the shot the spin falls 0.01 a frame; the next start spins up from where
+  it is. In the look (state 1)
+  it puts him in the aiming state (29), as the other guns do. From V3 the update sets the
+  item's lock-on bit itself.
+- **Aim:** the lock-on target; else the gun's assist with 20 u, far 10° by 10° and near
+  45° by 45°. The ball goes along the hero's aim (the camera's with the lock-strafe
+  camera), at the target (its centre raised by its height) when there is one, or at
+  anything targetable within 1 u of the muzzle; with the lock-strafe or first-person
+  camera it bends to a target within 35 u and 80° (0x4C7010), as the Flux Rifle's scope
+  does.
+- **The ball** (class 0xA9B, spawned by 0x30D168) flies straight at row +0x4C = 15 u/s,
+  for at most 160 frames (40 u):
+  - each frame a 0.45 u ball round it looks for anything targetable (not another coil
+    ball, not the hero): the ball sticks to it, and it takes the row's damage (+0x6C),
+    pushed by the ball's velocity / 30, flags 0x410000, and the acid mod's check;
+  - else the line of its step, or a 0.1 u ball, against the world: it sticks there, 0.1 u
+    off the surface;
+  - 15 frames after sticking, arcs leave it for up to 3 other targets within 10 u all
+    round (`gun_aim_target` with a full cone), not the one it is stuck to; each arc
+    reaches its target over 10 frames, and then that target takes row +0x70 (the same as
+    the damage on every coil row), pushed by (target − ball) / 30, and the acid check.
+    Up to 12 arcs are alive at once (0x1E17A4). Then the ball goes.
+  - Out of time in the air, it fizzles with no blast.
+- **Mods:** lock-on from V3 [code]; acid from V2 [text]: the hits run the acid check
+  (bank 0: 2 a second for 4 s; V3–V4 5 a second), but no code read sets the coil's acid
+  bit. V4's "more power" is the row's damage.
+- **V5 and up** (the Plasma Storm, class 0x5CA, 0x306F68): it spins up as the coil does
+  (its spin constants, 0x1DC62C on, aren't read) on the row's rate, and throws a ball
+  (0x3098F8, class 0x9A9, update 0x309480) along the aim at 1/3 u a frame (20 u/s):
+  - it flies 120 frames (+0x34), moving by its velocity (0x309AA0); what its sphere meets
+    (the world, or a moby that isn't another storm ball) puts it at the contact and
+    reflects it, keeping 0.85 of the speed into the surface, and a moby met takes the
+    row's damage (flags 0x410000, pushed by its velocity a frame / 30) and the acid check;
+  - each frame it finds up to 15 targets within 15 u all round (0x44CF68) that it can see
+    and hasn't arced to in the last 120 frames (0x4C46A8, 0x4C4640), and sends each an arc
+    (0x30A148: one of 30 shared slots, reaching its target over 10 frames; at most 15 from
+    one ball at once). The arcs' update (0x30A3D0) isn't read: the kit has them strike as
+    the coil's do;
+  - then for 40 frames it shrinks, jittering, sending no arcs, and goes once its arcs
+    are done.
+
+### Bouncer (0x31C890, canister 0x31D0B0, bomblets 0x31E488) [code, UYA NTSC, 2026-10-22]
+
+- **Firing:** while Circle is held, with the gun out more than 22 frames and the cooldown
+  run out, it takes a round and fires a canister, and sets a cooldown of 1 / (+0x50) =
+  3.33 s. In the look it puts him in the aiming state, which waits 40 frames before it
+  fires. From V3 the update sets the item's lock-on bit itself.
+- **Aim** (`lob_velocity`, 0x4C3888, shared with the gloves, the Holo Shield and the
+  Infecto-Bomb): the canister leaves from 0.28 u right and 0.85 u below the gun's origin
+  in its frame, aimed at the lock-on target (its centre raised by its height), else at a
+  point 10 u along his aim at the height of his feet. It crosses the ground at 0.25 u a
+  frame (15 u/s), its upward speed solved to land on the point under 0.00405 u a frame²
+  (14.6 u/s²). With the camera aiming (a button held in the lock-strafe camera) the point
+  is where the camera's aim crosses his ground plane, kept between 1.6 and 10 u.
+- **The canister** (class 0xE64) falls under the same gravity, its sweep 0.3 u round. It
+  bursts at once if anything targetable comes within 0.8 u (the sweep plus 0.5, not the
+  hero). Off the world it bounces, a random 3–7° kick to its spin; after the fourth
+  bounce it rolls, its speed × 0.9 a frame, and bursts 30 frames later.
+- **The burst** (0x31D6C0): 17 bomblets (class 0xECE), each at a random bearing, 50–90°
+  up from the ground's plane, at a random 4–9 u/s.
+- **A bomblet** falls under the same gravity, its sweep 0.125 u round, and lives a random
+  240–360 frames:
+  - each bounce turns its ground velocity towards the nearest living enemy (class
+    category 5) within 7 u, keeping its speed (at least 4 u/s) and its bounce;
+  - it is armed after 70 frames, plus its index (so 70–86): then a 2 u ball round it
+    looks for the first target with hit points left, which takes the row's damage
+    (+0x6C), halved for some big enemies' classes (0x19DF, 0x19F1, 0x1BC5 and eight
+    more), pushed by the bomblet's velocity, and the acid check; it bursts on that hit;
+  - at the end of its life, or on some surfaces, it bursts with no damage.
+- **Mods:** lock-on from V3 [code]; acid from V2 [text], as the Plasma Coil's (2 a second
+  for 4 s; V3–V4 3 for 6 s).
+- **V5 and up** (the Heavy Bouncer, class 0xE9E, the same update; in the kit): the canister's sweep
+  0.5 u; the bomblets leave 40–75° up at 4–12 u/s, their sweep 0.25 u, and their ball
+  7 u. The Annihilator's V5 missile scatters the same bomblets (0x31E2D8 from 0x396A20),
+  for a tenth of its damage.
+
+### Miniturret Glove (0x346078, turret 0x32AFB0) [code, data, UYA NTSC, 2026-10-22]
+
+- **Throwing:** a Circle press takes a round and plays the throw (`hero_fire_anim`); 20
+  frames later the turret leaves the hand, and 10 frames after that the glove can throw
+  again. In the look it waits 40 frames in the aiming state, as the Bouncer does. The
+  throw is lobbed as the Bouncer's canister is (`lob_velocity`): at the lock-on target
+  or 11 u ahead, kept between 1.5 and 11 u, 15 u/s across, under 0.0030556 u a frame²
+  (11 u/s²).
+- **The turret** (class 0x1366) falls under 11 u/s² and lands where its sweep meets the
+  ground (off another turret it bounces back faster, × 1.1). It takes a slot among the
+  turrets (0x276EE0; when none is free it goes), unfolds over 6 frames of its animation,
+  then:
+  - looks all round within 15 u (35 u with 0x1DB030 set) for a target
+    (`gun_aim_target`);
+  - turns its barrel to it, the turn's share growing 0.0262 a frame (about 38 frames,
+    eased), and fires once past 0.9, every 1 / (+0x50) s (6 a second, 10 frames; 1.5 at
+    V5), at the target's centre;
+  - each shot (a slot in 0x277110, up to 100) flies straight at row +0x4C = 30 u/s until
+    its step's line hits something; a target (not the hero, not a turret) takes the row's
+    damage (+0x6C), pushed along the shot, flags 0x10000, or 0x10010000 from V3 (the ice
+    shots), and the shock mod's check for item 0x15 (whose bit no code read sets);
+  - a target that dies or goes sends it looking again.
+- **Its end:** after row +0x54's shots (20 at V1, 30 from V2), 1200 frames (20 s) after
+  landing or its last shot, or more than 30 u from the hero, it bursts (0x4488B8, with 0.5
+  and 13, not read) and goes.
+- **V5 and up** (the Megaturret Glove, class 0xA65 (0x343088) and turret 0x1367,
+  0x32DE00): the glove throws as the Miniturret's does (1.5–11 u, 15 u/s across,
+  0.00306 u a frame²), the throw leaving 20 frames after the press, with at most 6 out.
+  The turret:
+  - finds a target all round (0x32ECC0, 0x44CF68) and turns to it (0x32EEE8);
+  - fires a guided missile (0x32EFE8) when its count (+0x5C, set to 0.4167 s after each)
+    has run out, from its two barrels in turn: the shared small missile (0x3441D0, class
+    0xA82, flight 0x343330) of the row's damage, starting at 2 u/s and gaining 0.5 u/s a
+    frame to 15 u/s, after its target, living 270 frames; its sphere (0.25 u) or step
+    meeting something sets it off, everything within 1 u taking the damage (flags
+    0x110000). After its shots (+0x60) it bursts (state 8, 0x4488B8) as the Miniturret;
+  - every 180 frames (then 180–240), with the hero more than 20 u away and an enemy
+    within 20 u of him, it picks a point 3–6.5 u round him and walks there (states 10,
+    11; its path 0x32E950, 0x407010).
+  The same small missile serves the agents' cannon (0x3C0128) and the Annihilator's V5
+  bomblets (0x396A20).
+
+### Shield Charger (0x3410E8, firing 0x340DD0) [code, UYA NTSC, 2026-10-22]
+
+- **Firing** (`shield_charger_fire`, 0x340DD0, from the hero's item code at 0x4E8830):
+  with no shield up, it takes a round of item 0x16 and raises the shield, a moby of the
+  gun's class (0xA5C; 0x1192 from V5) kept 0.75 u above his feet; with one up it only
+  plays a refusal.
+- **Its points** (0x4C5830, `shield_points` 0x1E11C0): 225 at V1, then 75 more a level
+  (300, 375, 450, 525, 600, 675, 750 at Omega).
+- **Taking hits** (0x4C57B0, from the hero's damage, 0x4E9AD8): a hit's damage comes off
+  the points, and only what's left over once they run out reaches the hero; then for 15
+  frames every hit is taken by the shield for nothing.
+- **It goes** when its points run out, or he is in state 0x31, or other hero conditions
+  (0x342FB0: the hero's +0xAA class, 0x1A71C4, state type 0x14, 0x1A7430).
+- **V1–V4:** every 0.5 s (the first at once) a 0.9 u ball round its centre finds the
+  living enemies (class category 5) touching it; each takes the row's damage (+0x6C),
+  pushed straight out, flags 0x10000.
+- **V5 and up** (the Tesla Barrier): in place of the zaps, a frame at a time, while
+  fewer than four bolts are out, one living enemy within 4 u that has none gets a
+  lightning bolt (0x34DAA0, the row's damage as it goes) for a random 20–60 frames. After
+  its 40th bolt (0x1DD29C) the shield goes. A shield of the V1–V4 class still up once the
+  gun is V5 is replaced by a V5 one, for nothing, when its points run out.
+- Its colour runs from blue to red as its points go (0x202090 to 0xA02020 at V1, other
+  pairs at V2–V5).
+
+### Holo Shield Glove (0x3717A8, shield 0x376B88) [code, UYA NTSC, 2026-10-22]
+
+- **Throwing:** a Circle press (or R1 in the aiming state) with fewer than four shields
+  out (0x1E1150) takes a round and plays the throw; 20 frames later the shield leaves
+  the hand (0x376960), and 60 frames after that the glove can throw again. Lobbed as the
+  Miniturret is (11 u/s², 15 u/s across), at a point 1.5–5 u ahead (8 u in the aiming
+  state). The glove's bangles: 1 at V2, 3 at V3, 7 at V4.
+- **The shield** (class 0x186D) falls until the line of its step meets something. Where it
+  lands, a 1 u ball takes 5 damage, pushed by its velocity × 3 (flags 0x10000); landing on
+  a moby that isn't an enemy, it rides along with it. It takes a slot, unfolds (its
+  scale growing 0.06 and 0.04 a frame to 2 and 1.2) and stands:
+  - it stands 900 frames (15 s), until its hits run out, or until he is more than 35 u
+    away; then it folds over 20 frames and goes;
+  - its hits: 10 × 0.75 = 7 (+0x26), less each hit by the hit's own count (+0x54 of its
+    record); each hit it takes gives the glove XP (row +0x68 × 32 / 150);
+  - each hit plays a 30-frame reaction; from V3 (V3 and V4), at its 15th frame, a
+    lightning bolt (0x34DAA0) strikes the first living enemy within 7.5 u; from V5 (the
+    Ultrashield), every 10th frame of it, a pulse (0x372338, class 0x1869) of a quarter
+    of the row's damage goes at the first enemy within 16 u that it can see (0x4C46A8).
+    Its flight (0x371F48) gains 0.4167 u a frame each frame (25 u/s a frame); the line
+    of its step strikes the first thing it meets (flags 0x10000, pushed 0.0667 along its
+    way); its damage fades to nothing over frames 32–38, when it goes;
+  - from V2, while it has hits left and the hero's health is under its maximum
+    (0x142668), it drains: 0x37BB28 links it to every moby within 6 u of it (up to 12
+    links, drawn as wavering beams), and 0x37BDC0, while a living enemy (not of classes
+    0x1AE6, 0x1A17, 0x1B27) is linked, gives a linked enemy 1 damage (flags 0x10000) each
+    time a shared timer of 180 frames runs out (it counts down once a frame for each
+    linked enemy), and, with the hero linked and within 5 u, every 45 frames gives him a
+    point of health (its +0x54, 1), capped at his maximum, and when he took it the shield
+    loses that many hits.
+- How it stops enemy shots is in the shots' own code (it is a moby that blocks them).
+
+### Agents of Doom (0x35C9F0, pod 0x35CEC8, agent 0x3BD298) [code, UYA NTSC, 2026-10-22]
+
+- **Throwing:** a Circle press (or R1 in the aiming state) with fewer than eight agents
+  about (`agents_alive`, 0x1DD728) plays the throw; 20 frames later it takes a round and
+  the pod (class 0x1853) leaves the hand, lobbed as the Miniturret is, 1.5–4.5 u ahead
+  (11 u with the first-person camera). 10 frames on the glove is ready, but a throw
+  waits 45 frames from the last.
+- **The pod** lands and lets out four agents (class 0x1ADA, 0x3C0F78), 0.25–0.75 u to
+  his front, back, left and right of where it is, each only while fewer than eight are
+  about. From V4 four agents come at once to the hero instead of a pod (they fly in;
+  four slots at 0x1E2280).
+- **An agent** (class 0x1ADA; spawned by 0x3C0F78, its update 0x3BD298, about 1500
+  lines, read in part):
+  - as it comes out it looks for an enemy within 25 u and 20° (0x44CD90) and, with one,
+    chases it (state 5); otherwise it idles by the hero (state 0) while he is within 4 u,
+    wanders to random points 2–6 u round him (state 1), and follows him (state 3) once
+    farther. From V4 they jet in to slots round him (states 6–8, 0x10). Its run speed is
+    a random 5.5–6.5 (+0x314). It finds a way by casting rays fanned 10° apart up to
+    160° either side (0x3C1620, 12 u at least). Some classes are never its target
+    (0x1A17, 0x1B27, 0x1AE6, 0x107E, 0x1D87). It keeps with the hero (checks at 30, 35
+    and 59 u).
+  - it ends (0x3C2140) when it comes within 2 u of its target's feet, when a 1 u ball
+    0.3 u above its feet touches the target, 420 frames into a chase (+0x344), or 2000
+    frames after it came out (+0x144): at V1 a 2 u blast of the row's damage, no push
+    (flags 0x1010000); at V2–V4 it fires a comet (0x395480, class 0x1893, its update
+    0x394068: a random 10–15 u/s halved, along his facing or at the lock-on target,
+    living 680 frames), and whatever the comet meets is struck by a 2 u blast of the
+    row's damage, pushed 1 (flags 0x10000); from V5 the Agents of Dread's blast (class
+    0x188F, 0x3914C0): a ball growing to 8 u over 20 frames, which each frame strikes
+    what it holds for the row's damage, pushed 2 out, and sets it alight (0x31AC38 by
+    item 0x57). The agent then goes.
+  - V2–V4 also give it a gun moby (+0x308, 0x453FC0). Its firing (0x3C0128, 2026-10-22)
+    only happens from V5, in state 7 (by the hero), while a shared count (0x1E22B0) of
+    shots lasts: every 80–120 frames, at an enemy within 25 u (0x44CD90) seen from its
+    gun's joint, the shared small missile (0x3441D0) of a quarter of the row's damage,
+    starting at 1–3 u/s and gaining 0.5–0.9 a frame to 12–17 u/s, living 100 frames. The
+    Suck Cannon's V5 shots are the same comet as V2–V4's agents, with its own damage,
+    which set what they hit alight (item 0x87).
+
+### Infector (0x3688E8, blob 0x3DE4F0) [code, UYA NTSC, 2026-10-22]
+
+- **Firing:** a Circle press (or R1 held in the aiming state), with the gun out more than
+  22 frames and 45 frames since the last, takes a round and throws a blob (class 0x1E05,
+  0x3DE3A8) from 0.75 u below the gun's origin in its frame, at 12 u/s along his facing
+  (the camera's aim in the aiming state and with the lock-strafe or first-person camera).
+  The gun's bangles: 1 at V2, 3 at V3, 7 from V4.
+- **The blob** falls under 0.00405 u a frame² (14.6 u/s²), loses 0.5% of its speed a
+  frame, and bounces (sweep 0.075 u, the bounce keeping 0.89); each bounce turns its ground
+  velocity towards the nearest enemy within 5 u, as the Bouncer's bomblets do. It lives a
+  random 300–500 frames, and stops once slower than 0.5 u/s.
+- **Infecting:** each frame a 1 u ball round it:
+  - infects any enemy (class category 5) it touches with 2 health or less, and flies on;
+  - touching any other target with health, it bursts.
+  It also bursts when its life ends, when it stops, or on some surfaces. The burst
+  infects every enemy within 1 u not yet infected, then a 1.5 u blast does 1 damage,
+  pushed 1, with damage flag 0x8000000, which infects what it hits.
+- **Infected** (the target's damage record +0x2F set): the infection lasts the row's
+  damage / the target's health × 600 frames (+0x38 of the record); the infector gains XP
+  for each infection, as for a kill. What an infected enemy does (turns on the others) is
+  in each enemy's own code, not read. Never infected: classes 0x188A and 0x1886 (the
+  Infecto-Bomb), the hero, and some big enemies (0x19DF, 0x19F1, and nine more, which give
+  no XP).
+- **V5 and up** (the Infecto-Bomb, class 0x1886, 0x389F58): on the row's rate a press
+  takes a round and lobs a bomb (0x38EE78, class 0x188A) with `lob_velocity` at the
+  target (the lock-on, else the assist's within 11.1 u), at most 12 u away, crossing the
+  ground at 15 u/s under 0.00333 u a frame² (12 u/s²). The bomb (0x38E3A0) falls until
+  its collision step meets something, and there bursts (0x38F678, class 0x188B, update
+  0x38EF90): on its first frame every enemy within 5 u (not the hero, not the bombs, not
+  one already infected) is infected for the row's damage / its health × 600 frames, its
+  XP paid at once, and a 2.5 u ball does 1 damage (flags 0x8000000).
+
+### Spitting Hydra (0x31FB90) [code, UYA NTSC, 2026-10-22]
+
+- **Its numbers by level:** the most targets 3, 4, 5, 6 (V1–V4) and 7 (V5 up); the
+  spit's flight 30, 30, 35, 35 and 40 frames; the bangles 1, 3, 7 from V2.
+- **Holding Circle** (with ammo, not mid-spit) counts up to 150 frames and plays the
+  charge. Every 12 frames held (15 at V3–V4, 10 from V5, and at 150) it looks along his
+  facing (the camera's aim in the aiming state and the lock-strafe camera) for targets
+  within 32 u and 20° (`gun_aim_target`, at most 8), and marks them, one at a time, up
+  to the level's most.
+- **Letting go:**
+  - before 20 frames: it fizzles (a sound; seven such taps bring up a hint);
+  - with targets marked: it plays the firing animation (`hero_fire_anim`) and a lightning
+    bolt (0x34DAA0) strikes each, and a 1 u ball there takes the row's damage (+0x6C),
+    pushed 0.5 along the line from the hero, flags 0x410000; this takes no round (only the
+    spit calls `ammo_use`);
+  - with none: once its spit timer reaches the flight time it takes a round and spits.
+- **The bolt on a marked target** (class 0x1195, 0x34DAA0; its update 0x34DD38 and strike
+  0x34DFD0): it holds between the gun and the target for its life (0x1DD48C: 15 frames
+  here), and as it goes the target, if still there, takes half the Hydra's damage again
+  (flags 0x410000, pushed 0.5 along it). The same bolt serves the Holo Shield (the shield's
+  row damage), the Rift Ripper (a tenth of the rift's) and the Tesla Barrier (the Shield
+  Charger's), by its source's class.
+- **The spit** isn't bolts that fly: it is the level's number of lightning arcs
+  (0x321108 sets their ends, 0x321210 redraws them). Each reaches from the gun to a point
+  32 u along the aim, jittered up to 0.2 u on each axis, bowing out round the aim on the
+  way (rolled −107°, 0°, 107°… at V1–V2; from −80° by 52.5° at V3–V4; from −60° by 30°
+  from V5). Its timer counts down from the flight time; when it reads 27 (frame 3, 3, 8,
+  8, 13 after the spit at V1–V5), 0x321580 strikes once for each arc within 60 u: the line
+  from the gun to its end is tested with a damage record (the row's damage, pushed 0.7
+  along it, flags 0x410000), so the first thing it meets takes it, and if it met anything a
+  blast of 1 u (2 u from V5) round the arc's end does the row's damage too. An arc that
+  meets nothing does nothing.
+
+### Disc Blade Gun (0x36EFC0, disc 0x36FA78) [code, UYA NTSC, 2026-10-22]
+
+- **Firing:** while Circle is held (or R1 in the aiming state), with the gun out more
+  than 22 frames, every 30 frames, a round a disc (class 0x1867, 0x36F720). Its target is
+  the gun's assist: 20 u (35 from V4), far 30.5° by 30.5°, near 45° by 45° (50 u, 20° by
+  10° with 0x1DB030 set). The disc leaves along his facing turned 90° to one side (60.5°
+  with a target), at row +0x4C = 0.35 u a frame (21 u/s); from V5 at 42 u/s, from two
+  muzzles in turn. With the lock-strafe camera it goes along the camera's aim, bent to a
+  target within 30 u and 80° (0x4C7010).
+- **Flight:** it spins and curves 2° a frame; with a target it flies straight at it each
+  frame. It goes after 200 frames (400 from V4), or 81 u from the hero.
+- **Hits:** each frame the line of its step against the world and a 1 u ball round it
+  against targets; a target takes the row's damage (+0x6C), pushed by its velocity × 3,
+  flags 0x10000:
+  - V1: the first target it hits ends it; walls bounce it (velocity reflected);
+  - V2: as V1, and each bounce turns it at an enemy within 10 u;
+  - V3 and up: it bounces off enemies too, hitting each, and each bounce turns it at a
+    new enemy within 10 u that it can see;
+  - V4: its end is a 4 u blast of half the damage (0x32FE90);
+  - V5 and up (the Multi-Disc Gun): bouncing off an enemy while fewer than 15 discs are
+    out (0x1DD9E0), its nth split has odds of 1 in 2^((n − 1) / 2) of a new disc of the
+    row's damage carrying the count, its velocity a frame given a random 0.1–0.2 on each
+    axis (always up) and its speed back; a second roll at the same odds keeps it going,
+    else it ends.
+
+### Rift Inducer (0x372990, rift 0x373990) [code, UYA NTSC, 2026-10-22]
+
+- **Firing:** a Circle press (or R1 held in the aiming state), 30 frames since the last,
+  takes a round and launches a rift (class 0x186B, 0x373738, size 0.5) from the gun's
+  muzzle at a random 60–80 u/s along his facing (the camera's aim in the aiming state and
+  the lock-strafe camera), at the lock-on target or the gun's assist (35 u, far 2°, near
+  3°). From V3 the update sets the item's lock-on bit itself.
+- **In flight** it loses 8% of its speed a frame, so it goes about 14 u, and opens after
+  36 frames or where the line of its step meets something (a 1 u ball there is knocked,
+  for 0 damage, by its velocity × 3).
+- **Open** (state 2), for 600 frames (10 s), or until he is more than 30 u away:
+  - its pull grows 0.005 a frame to 0.75;
+  - it looks within its size + 9 u (9.5 u) for an enemy, or a damageable moby, not of a
+    few classes (0x1F8, 0x1699, 0x165C, 0x1612, 0x16FA, 0x16CB), whose health is at
+    most twice the row's damage × its size, so at most the row's damage: it takes that
+    one (0x3738B0), springs it in to its middle by the pull (0x445208), its parts
+    spinning, and swallows it. One at a time; one dragged more than 50 u away is let go;
+  - enemies with more health are left alone [code, as read].
+- **V5 and up** (the Rift Ripper): each frame, each enemy within its size + 4.5 u has a 1
+  in 18 chance of a lightning bolt (0x34DAA0) of a tenth of the rift's damage.
+- The row's second damage (5) isn't read here.
+
+### Suck Cannon (0x3619C8) [code, UYA NTSC, 2026-10-22]
+
+The gun uses no ammo: what it sucks in is its ammo.
+- **It holds** 10 things at V1, 12 at V2, 15 at V3 and 20 from V4 (`suck_capacity`,
+  0x1DD7D0). Its bangles: 1, 3, then 0x13.
+- **Sucking:** while Circle is held (the gun out more than 15 frames), a vortex of ten
+  1 u links runs from the muzzle along his aim (the camera's in the look), shortened where
+  a ray meets the world (0x363E98). Every fourth frame, while it has room, balls of 1.2,
+  1.4, 1.7 and 1.9 u at its first four links look for an enemy or a damageable moby (not
+  classes 0x1F7, 0x1F8): it takes a 1-damage hit with flag 0x8000000, and an enemy whose
+  record allows it (+0xF) and has more than 1 health left takes it, then it is held
+  (0x363088); crates are taken too (0x362440).
+- **Firing:** let go with something held, the gun turns to firing; then each Circle press,
+  30 frames apart, fires one held thing (0x3623E8) at 40 u/s along his aim, at the gun's
+  assist target (35 u, far 7° by 8°, near 45° by 35°; with the lock-strafe camera the
+  camera's aim and its target) as a shot (0x382830) carrying the row's damage; from V5
+  another shot (0x395480). Empty, it goes back to sucking.
+- **The shot** (class 0x1872, spawned by 0x382830, its update 0x381B98) carries the row's
+  damage and flags 0x10000 (0x110000 from V2). It flies straight at 40 u/s, and with a
+  target is also pulled 0.3 u a frame at the target's middle. Each frame the line of its
+  step (or failing that a 0.2 u ball round it) is tested with a damage record (pushed by
+  its velocity):
+  - meeting the world: at V1, or if what it holds is of class 500 or 0x1FF, a 1 u blast
+    there of its damage, pushed by its velocity a frame × 3, and it goes; from V2 it
+    bounces off (its velocity reflected), which is the ricochet;
+  - meeting a moby other than the hero: a 1 u blast there, pushed × 2, and it goes;
+  - after 150 frames it bursts where it is in a 0.6 u blast.
+  Its end plays debris or an explosion by what it held (0x32FE90 is the explosion's look).
+- The V3 burning and the Vortex Cannon's comets aren't read.
+
+### Qwack-O-Ray (0x37DEB0, beam target 0x37D7D8) [code, UYA NTSC, 2026-10-22]
+
+The gun uses no ammo.
+- **The beam:** while Circle is held (in the aiming state after its 40-frame wait), a
+  beam from the muzzle along his aim (the camera's in the look) picks an enemy each frame
+  (0x37D7D8): one within 2.5 u, within 60° of his facing and 2 u of his height, or else
+  the nearest within 12 u whose bearing is within 30° of the beam's, with nothing in the
+  way (classes 0x1BC3, 0x189B, 0x1D3E, 0x1A90 are never picked).
+- **Turning a target into a duck:** a new target is held at least 30 frames. Its duck
+  meter starts at its health (its record's +0 over +4), and falls by the row's damage a
+  second (50 at V1, `qwack_damage`, 0x1DDBC8) while the beam is on it; at 0 the enemy
+  becomes a duck (0x3D2480 at V1–V3, 0x39E5D8 at V4, the Qwack-O-Blitzer's 0x3D8840 from
+  V5). Letting go or losing the target starts again.
+- **The enemy is gone:** the duck's spawn removes the enemy (0x436220) and a duck moby
+  stands where it was, facing away from the hero.
+- **V1–V3 ducks** (class 0x1BC3, spawn 0x3D2480, update 0x3D1728): it waddles about,
+  idling with three animations picked at random (20%, 20%, 60%) and walking off, turned
+  up to 45° either way, for 400–600 or 180–360 frames at a time. With the hero within 2 u
+  it slows and turns. It lives 1400 frames, then goes in a puff of feathers (0x3D2870);
+  damage of the player's (mask 0x8010000) ends it sooner.
+- **Eggs from V2** (0x3D22B0): at frame 15 of its third idle animation a V2 or V3 duck
+  lays an egg 0.75 u up, 160–200° off its facing, 10–50° up, at 2–5 u/s. The function
+  also sets a 60–120 frame count on the duck that its update doesn't read.
+- **The egg** (class 0x1C59, spawn 0x3D4768, flight 0x3D48B8): it falls under 0.00405 u
+  a frame² (14.6 u/s²), its speed kept 0.995 a frame, bouncing. It lives 360–500 frames
+  and then pops harmlessly. Once armed, an enemy (not a duck) within 2 u sets it off:
+  that one enemy takes the row's full damage (flags 0x1030000), pushed 1 along the egg's
+  way. **From V3** each bounce turns its ground velocity at the nearest enemy within 7 u.
+- **V4 ducks** (class 0x189B, spawn 0x39E5D8, update 0x39DB60): it waddles the same, but
+  each time an idle animation ends a 60% roll looks for the nearest enemy anywhere
+  (0x44CD90, range 999) and runs at it, laying an egg every 60–120 frames (0x39EF18).
+  It has no time limit. Where its run ends, when it is hurt, or when it falls off, it
+  blows up (0x39E8A0): enemies within 3 u take a fifth of the row's damage (flags
+  0x1010000).
+- **The Qwack-O-Blitzer's duck** (class 0x1D3E, spawn 0x3D8840, update 0x3D7998, each
+  frame 0x3D8420): it flies. It waits until a shared 60-frame count runs out, then keeps
+  by the hero: at 10 u/s when more than 50 u off, else 3–6 u/s, and 6–8 u/s on its way
+  back. Each frame it looks for an enemy within 30 u, in view (0x44CD90, 1.05 rad), and
+  flies at it at 13 u/s (0.2167 u a frame). Within 0.75 u it pecks every frame, a 2 u
+  ball taking a fifth of the row's damage (flags 0x110000), and looks again. After its
+  11th peck it blows up (0x3D9008) as the V4 duck does. A count of 3000 set at its spawn
+  isn't read in its update.
+
+### RY3NO (0x3805B0) [code, UYA NTSC, 2026-10-22]
+
+- **Targets** each frame: `gun_aim_target` along his aim (the camera's with the
+  lock-strafe camera) within 48 u (60 u at V5), far 25° by 25°, near 45° by 45°, at most
+  8 (16 from V2), each marked on screen.
+- **Firing:** while Circle is held, the gun out more than 22 frames and the cooldown
+  run out, one round fires a volley of 8 missiles (16 from V2) from the muzzle; each
+  takes the next marked target in turn (0x4C4820), else the lock-on target, or anything
+  within 1 u of the muzzle; at V1 the missile is 0x382E18, from V2 0x3DAEA8 (with 2, 5 and
+  0.6 among its arguments). The cooldown is 1 / (+0x50) = 1 s, 1.3 s from V2. In the look
+  it waits 40 frames in the aiming state.
+- **Each missile** leaves from the muzzle along the line to its target's middle (or his
+  aim). V1's (class 0x1873, 0x382E18, update 0x383370) flies at row +0x4C = 50 u/s;
+  later levels' (class 0x1DCE, 0x3DAEA8, update 0x3DB4D0) at 0.8 of that, after waiting
+  a random 0–30 frames at the gun. Each frame it spirals round that line: its heading is
+  tilted off it a random 4–10° (50–70° from V5), and rolled round it by an angle that
+  starts random and turns a random 6–10° a frame either way. Within 5 u of its target it
+  also steps its speed straight at the target's middle. Its step's line is tested with a
+  damage record (the row's damage, pushed along its heading tipped 1.5 up, flags
+  0x1030000), ignoring the hero:
+  - meeting a target or the world it bursts. V1's blast (0x383CC0): every moby within 4 u
+    but the one it hit takes the splash (row +0x70), pushed 4 out and 6 up (0x4445E0,
+    flags 0x1010000). Later levels' (0x3DC180): every moby within 4 u (1 u from V5) takes
+    the row's damage, flags 0x110000; an enemy it would kill instead gives its bolts there
+    and then and dies by 0x3154D8; with nothing in it, a 1.25 u blast of the damage
+    (0x3DBDA0);
+  - after 300 frames (120 from V5), or more than 60 u from the hero, it goes with no blast.
+- **V5** (the RYNOCIRATOR): the volley has no targets and all go at a point 10 u ahead
+  and 3 u up; the first also sets off a big blast of its own (class 0x1DF6, 0x3DD390, not
+  read further).
 
 ### Gun aim assist (0x44D930, 0x44CF68) [code, UYA NTSC, 2026-10-16]
 
@@ -705,11 +1251,12 @@ Rift Inducer and others; callers of 0x44D930) pick a target this way:
 `rac_combat::weapons`, with the guns' numbers in `crates/rac_combat/assets/uya_weapons.ron`
 (each labelled with its section here), and the hero's side in `rac_hero` (`gun.rs` and the
 profiles' `gun` section):
-- **Definitions** (`Armory`): the six guns read in code, with all eight levels' damage,
-  second damage, maximum ammo and XP thresholds, the levels their mods come on, the Lava
-  Gun's acid table, and a fire mode each: hitscan (the Shock Blaster), projectile (the
-  N60's bullets and the Flux Rifle's shot), lobbed (the Nitro Launcher), stream (the Lava
-  Gun) and homing (the Annihilator). Shared rules: the 17-tick draw, the quick switch's 20
+- **Definitions** (`Armory`): all twenty guns, with every level's damage, second damage,
+  maximum ammo, XP thresholds and round price (the RY3NO's five), the levels their mods
+  come on, the acid tables, the V5 names (from the image's text [data]) and a fire mode
+  each: hitscan (the Shock Blaster), projectile (the N60's bullets and the Flux Rifle's
+  shot), lobbed (the Nitro Launcher), stream (the Lava Gun) and homing (the Annihilator),
+  and one per gun for the other fourteen (below). Shared rules: the 17-tick draw, the quick switch's 20
   ticks round three of eight recent guns, Mega as the bought level, the view's bend, the
   shock arc's 8 u and quarter, and 30 acid slots.
 - **Owning** (`Arsenal`): giving, ammo used and added up to the maximum, XP up each level's
@@ -759,11 +1306,92 @@ profiles' `gun` section):
     300-tick limit; the first ammo is the maximum (row +0x8E isn't tabulated).
   - The Lava Gun's acid from V2 is the vendor's [text]; the Nitro Launcher's acid is on
     and does nothing, as read.
-  - The assist, the shock arc and lock-on take any hurtbox with hit points left, not only
-    enemies (class category 5); XP counts whole points.
+  - The first six guns' assist, the shock arc and lock-on take any hurtbox with hit points
+    left, not only enemies (class category 5); the other fourteen's searches take only
+    enemies (`rac_combat::Hostile`), as the game's do. XP counts whole points.
   - Not in yet: the V5-and-up extras (the Annihilator's bomblets, the Liquid Nitrogen
     Gun's freezing), the Flux Rifle's piercing (not found in code), the Nitro's aim at the
-    ground with action 4, camera shake, the quick-select ring, the other guns and DL's.
+    ground with action 4, camera shake, the other guns and DL's.
+- **The other fourteen** (2026-10-22; `weapons/seekers.rs`, `thrown.rs`, `grab.rs`,
+  `hand.rs`), each as its section above reads it, from V5 on firing as V4 with V5's
+  numbers:
+  - the Plasma Coil's 10-tick spin, 0.5 s cooldown and five balls, the ball sticking to a
+    target (its damage) or the world, and 15 ticks later arcs to the three best-scoring
+    enemies within 10 u all round, each striking after 10 ticks (the second damage);
+  - the Disc Blade Gun's disc every 30 ticks, leaving 90° (60.5° with a target) to
+    alternate sides, flying at its target or curving 2° a tick back, bouncing off walls,
+    from V2 retargeting on each bounce, from V3 through enemies, from V4 a 4 u blast of
+    half its damage at its end;
+  - the RY3NO marking the enemies its assist finds and firing a volley of 8 (16 from V2)
+    missiles a round, each at the next mark, its cooldown 1.3 times longer from V2;
+  - the Spitting Hydra marking an enemy every 12, 15 or 10 ticks held up to its level's
+    most, striking each mark on letting go without a round, fizzling under 20 ticks, or
+    spitting a fan of bolts for a round;
+  - the Bouncer's canister on `lob_velocity`'s throw, bursting near a target or 30 ticks
+    into its roll after four bounces into 17 bomblets, which home on a bounce and burst on
+    the first target with hit points once armed;
+  - the Infector's blob, slowing, bouncing towards enemies, infecting weak ones (2 hit
+    points or less) as it flies and bursting on anything else, its burst infecting
+    enemies within 1.5 u and its blast doing 1; an infection lasts damage / health × 600
+    ticks and gives the gun the target's XP;
+  - the gloves' throws (`deploy`: the round on the press, the agents' as the pod leaves;
+    20 ticks to leave the hand; the wait before the next); the Miniturret landing,
+    unfolding 6 ticks, turning to the enemy it finds within 15 u and shooting it at 6 a
+    second, 20 or 30 shots, bursting idle after 1200 ticks or 30 u from him; the holo
+    shield landing (5 damage in 1 u), standing 900 ticks as a wall that takes 7 hits
+    (`block_shot`, which the demo's enemy shots call), from V3 sending a bolt at an enemy
+    within 7.5 u 15 ticks after a hit, from V2 healing him; the agents' pod letting out
+    four (from V4 four come to him), each running at the nearest enemy it can see and
+    blowing up in 2 u when it touches it;
+  - the Rift Inducer's rift at 60–80 u/s keeping 0.92 a tick, opening after 36 ticks or
+    where it meets something, then for 600 ticks taking one target at a time within 9.5 u
+    whose hit points are at most its damage and swallowing it (`Affliction::Swallowed`,
+    a kill);
+  - the Suck Cannon sucking in, every 4 ticks held, what its four balls along the vortex
+    touch up to its capacity (`Arsenal::sucked`, the HUD's count), and firing one back
+    out a press, 30 ticks apart, at 40 u/s;
+  - the Qwack-O-Ray's beam picking an enemy close in front or the nearest within 12 u and
+    30°, keeping it 30 ticks, and making it a duck once the damage a second has used up
+    its hit points (`Affliction::Duck`);
+  - the Shield Charger's shield of 225 + 75 a level points round him, taking hits first
+    with its 15-tick grace (`rac_hero::Shield`, in `hurt_hero`), zapping touching enemies
+    every half second;
+  - the Plasma Whip: with it in hand the fire button starts the wrench's combo, jump
+    attack and throw in their windows (`rac_hero::WhipHand`), each for a round, keeping
+    the whip in hand; the rope hits along its reach (9.5 links of the stretch: 8.6, 5.7
+    and 7.6 u) from the 7th tick of a swing and the 21st of the jump attack, and the
+    thrown end hits along the line from his hand; from V4 the jump attack's shock wave,
+    and from V4 (the Quantum Whip) the cutting waves its swings send, striking each
+    target once;
+  - the shots in flight, as read: the Hydra's spit and bolts, the RY3NO's missiles, the
+    Suck Cannon's shot, the Holo Shield's drain and heal, and the agents' ends (V1's
+    blast, V2–V4's comet, V5's growing blast);
+  - the Qwack-O-Ray's ducks: the enemy is gone and a duck stands where it was, waddling
+    and turning up to 45° now and then, laying eggs from V2 that bounce, seek an enemy
+    from V3 and burst on one; the V4 duck runs at the nearest enemy when a look finds
+    one and blows up there; the Qwack-O-Blitzer's duck flies by the hero and after an
+    enemy it sees, pecking it, then blows up;
+  - from V5 each variant's own code: the Tesla Barrier's bolts at up to four enemies
+    within 4 u, 40 in all; the Rift Ripper's bolts; the Multi-Disc's splits, rarer the
+    more discs are about; the Ultrashield's pulses after a hit; the Plasma Storm's
+    bouncing ball arcing to enemies within 15 u; the Infecto-Bomb infecting all in its
+    burst; the Megaturret's guided missiles and its walk back to the hero; the Heavy
+    Bouncer's bigger bomblets; the Shock Cannon's 23 rays; the N90 Hurricane's 10-tick
+    repeat, 30 u reach and 7 bounces; the Nitro Eruptor's blast growing to 11 u.
+  - **[placeholder] or [simplified]:** the agents' running, sight and life, the holo
+    shield's size, the bounces' keep for the Bouncer, the turrets' slots, the rift's pull
+    time, which enemies the Suck Cannon can take (UYA asks each enemy's record), the
+    duck's XP, the ducks' falling (the game keeps them to the ground), the Megaturret
+    missiles' turn and its walk speed, and the Plasma Storm's arcs, which strike as the
+    coil's (0x30A3D0 not read). The whip's rope is a straight line along the wrench's,
+    not nine trailing links, and a target takes one hit an attack (the game's queue
+    allows one a frame). In the demo an infected enemy turns on the nearest other enemy
+    it sees, which fights back, and a ducked one is gone until it comes back: the demo's
+    own, since in UYA each enemy's own code decides. Not in: the agents' cannon (V5 and
+    up, 0x3C0128), the Vortex Cannon's comets, ducks drawing enemy fire, the Lava Gun's
+    and the Decimator's V5 (0x38A648 only calls 0x36D5A0), the Nitro Eruptor's 5° launch
+    turn, the Suck Cannon's ricochets and burning, the turrets' and holo shields' XP for
+    hits, and the shield's state 0x31 and other ends.
 - **On the rig** (`rac_rig`, 2026-10-21): `GunHand` names the gun in hand, its hold and
   firing animations (`GunPose`: rows +0x18, +0x24, +0x2C [data]) and counts its shots.
   Standing, the gun's whole-body sequence plays (`RigMove::Fire`), from the start each
@@ -771,27 +1399,59 @@ profiles' `gun` section):
   (`RigMove::FireArms`), blending in at 0.2 a tick and out at 0.07. The wrench hides while
   a gun is out, and the gun's model sits in the right fist (`RigGuns`; `model::gun_grip`:
   barrel along the forearm, top on the thumb's side, which points it within 4° of ahead in
-  UYA's sequences 49, 51 and 103, a disc test). The models are blocky placeholders
-  [placeholder]; the real ones are in the gadget WAD (`moby-format.md`), read by
-  `rac_formats::gadget` but not yet worn. The open model aims procedurally.
-- **Pickups** (`rac_combat::pickups`, P1.10): an ammo pickup carries rounds for one gun
-  and flies only to a hero who owns it with room, the nearest; rounds that don't fit fall
-  for a partner. Ammo crates and the demo's enemies scatter ammo for the breaker's gun in
-  hand if it has room, else a random owned gun with room [placeholder: UYA's crates pick a
-  random owned gun not full, 1 pickup or 2, never the Flux Rifle; its enemies drop none].
-  Rounds per pickup (+0x88) and the vendor's price a round (+0x84) are [data]; the
-  vendor's pad, selling a round every 3 ticks, is the kit's own.
-- **Quick select** (`weapons/ring.rs`): two rings of eight, filled as `quick_select_add`
-  does [code]; holding the button past the quick switch opens the ring, the move stick
-  past 64 counts picks a slot (slot 0 ahead, clockwise), letting go chooses and brings the
-  gun out, next and previous weapon turn the ring. It doesn't pause, so co-op stays in
-  step: `GunHand::selecting` stands him still. The game's own rules ("The quick-select
-  ring") are read but not yet followed [placeholder].
-- **HUD** (`rac_demo::hud`, `assets/hud.ron`, P1.12): health, bolts, the gun panel
-  (procedural icon, name, tier, ammo, XP bar), low and empty ammo warnings, a level-up
-  notice and the ring; always shown [placeholder: the game's timings are in "The HUD"].
+  UYA's sequences 49, 51 and 103, a disc test). With a UYA disc the hand holds the
+  gun's own class from the gadget WAD (`openrac/src/gun_models.rs`; `moby-format.md`,
+  "The gadget WAD"), moved once from where the game puts it on joint 56 into the grip,
+  so UYA's hero holds it as the game does and every other model the same way. Each
+  level's model is its row's class with the bangles its update shows (`GunHand::level`,
+  `RigGuns`). Baked at rest: its own draw, idle and recoil sequences aren't played
+  [simplified]. Without a disc the guns are blocky placeholders [placeholder]. The open
+  model aims procedurally.
+- **Pickups** (`rac_combat::pickups`, P1.10, 2026-10-22): a hero reaches pickups within
+  8.7 u across and 3 u up or down from his feet [code]. Ammo follows "Ammo pickups, crates
+  and the vendor": taken only for a gun with room, on landing or bouncing, or as it lands
+  if he came in reach while it flew; at once 2 u below where it was thrown; its rounds go
+  in capped (the rest lost) and it flies in for show from rest at 24 u/s² up to 64 u/s to
+  0.7 u above his feet, carried along with him, shrinking over its last 30 ticks; never
+  expires [code]. In co-op the nearest hero with room takes it. Ammo crates throw 1
+  pickup, or 2 once in 5, for one gun of the breaker's, not full if any, never the Flux
+  Rifle (`crate_ammo`) [code]; bolt crates pay their bolts a quarter more or less in
+  coins of 30000 down to 1 [code], all of them, where UYA drops a few and banks the rest
+  [simplified]. The demo's enemies drop no ammo, as UYA's don't. The crates' bolts (44, one
+  of Veldin's sizes) [data]; how pickups pop out and bounce, and how bolts and nanotech
+  fly in and expire, are the kit's [placeholder]. Rounds per pickup (+0x88) and the
+  vendor's price a round (+0x84) are [data]; the vendor's pad, selling a round every 3
+  ticks, is the kit's own.
+- **Quick select** (`weapons/ring.rs`, 2026-10-22): two rings of eight, filled as
+  `quick_select_add` does [code], worked as "The quick-select ring" reads with QUICK
+  SELECT PAUSE off, so co-op stays in step: the ring opens on the press over the running
+  world; 15 ticks on (27 after a tap that switched nothing) the hero takes no input until
+  it has closed (`GunHand::selecting`); the stick picks after the hold check and its
+  lock-out, past 0.9, kept within 33.75°, straight slots 27° wide, an empty slot leaning
+  to a filled neighbour; the kit's next and previous weapon buttons (the pad's d-pad left
+  and right) step by the game's neighbour table (`quick_select_slots`, read from Veldin's
+  image [data]), d-pad up and down having no button in the kit's input [simplified];
+  crouch (R1) shows the second ring and 14 ticks after; letting go closes it over up to
+  8 ticks, then chooses. Not followed: the paused ring (the option on), the camera items
+  0x24–0x26, the game's other conditions on opening (game mode, states 0x58 and others,
+  `0x1A71C8`/`0x1A71CD`), and the lock-strafe camera's own widget (0x41BE10, not read).
+- **HUD** (`rac_demo::hud`, `assets/hud.ron`, P1.12, 2026-10-22): when its parts show
+  follows "The HUD" (`hud/clock.rs`): the gun while one is out and 10 frames after;
+  health 720 frames after a kill (any `Destroyed`, crates included [simplified]) and 360
+  after damage, nanotech, more maximum health or the ring opening, staying up and
+  pulsing dark red under 15%; bolts 180 frames after a change or the ring, the count
+  trailing with a +N or −N tally that fades in over 15 frames and rolls in 61 frames
+  after the last change; ammo pulsing dark red under 15%, every 40 frames; the next two
+  recent guns smaller and fainter beneath the gun; the ring fading in and out with its
+  opening, its pick's level as V1–V8 and its ammo red at 0; the level-up message for 180
+  frames [code]. The layout, the pips, the gun's name and the icons are the demo's own
+  [placeholder]. Not followed: L3's show-all, the upgrade sequence with the world stopped,
+  at most one level-up every 60 frames.
 - **Tests:** `rac_combat`'s unit tests (the definitions, the arsenal, the assist, the lob
-  and the pick), `rac_combat/tests/weapons.rs` (17) and `rac_hero/tests/gun.rs` (8).
+  and the pick), `rac_combat/tests/weapons.rs` (a test for each of the fourteen and most
+  V5 variants, and one that fires each at V1 and V5 until its shots run out),
+  `rac_hero/tests/gun.rs`, `rac_demo/tests/enemies.rs` (infected enemies fighting) and
+  `openrac`'s `gun_models` (a disc test: every gun's model and bangles).
 - **Seen in the running demo** (Xvfb, 2026-10-21; the demo gives every gun at V3): the
   Shock Blaster's spray of rays, one shot a press; the N60 knocking out a dummy, its ammo
   and XP counting; the Lava Gun's stream arcing onto a dummy.
@@ -813,9 +1473,11 @@ profiles' `gun` section):
 3. **Projectiles in traces:** bullets, charges and missiles are mobys spawned per shot,
    so a fixed layout region can't follow them; capturing their speeds and the Nitro's
    arc needs `pine-probe` to read the moby list (or the class's newest moby) each frame.
-4. **The other guns**, as above; their entry points are in `symbols.toml` and their row
-   readers were found by listing the users of `weapon_table` and the item byte each reads
-   (0x1425C0 + item).
+4. **The other guns' remaining code:** the agents' running and cannon (0x3BD298,
+   0x3C0128), the Plasma Storm's arc (0x30A3D0), the Decimator and Lava Gun's V5, the
+   whip's nine rope links (classes 0x183A and 0x183C, in Veldin's core) and the Shield
+   Charger's bubble (0xA5C; 0x1192 at V5) for the rig, and how an infected enemy fights
+   (each enemy's own code; Veldin's attackers would show it).
 5. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
 
 How this was read, to carry on: import or reuse the Veldin project (copy

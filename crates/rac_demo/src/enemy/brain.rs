@@ -10,6 +10,10 @@
 //!   on whoever hit it. The last hit makes it **Dead**; a while later it comes back at home.
 //! - It gives up on a hero who gets far enough away, or once it strays too far from home,
 //!   and walks back, ignoring heroes for a moment.
+//! - The guns' afflictions ([`afflict`]): infected, it leaves the heroes alone for a while
+//!   and turns on the nearest other enemy it sees, which fights back ([`struck_by`]); a
+//!   duck, it is gone until it comes back. In UYA what an infected enemy does is in each
+//!   enemy's own code, not read, so the demo's fighting is its own [placeholder].
 
 use bevy::math::ops;
 use bevy::prelude::*;
@@ -17,6 +21,8 @@ use rac_hero::CollisionWorld;
 use rac_hero::profile::BodyProfile;
 use rac_sim::SimRng;
 use std::f32::consts::{PI, TAU};
+
+use rac_combat::Affliction;
 
 use super::def::{Attack, EnemyDef, HeroHit, Shoot};
 use super::shot::ShotMotion;
@@ -71,6 +77,9 @@ pub struct EnemyMotion {
     pub ticks: u32,
     /// The player of the hero it is after.
     pub target: Option<usize>,
+    /// The enemy it fights, ahead of any hero: the one it turned on while infected, or the
+    /// infected one that hit it.
+    pub foe: Option<Entity>,
     /// Where it starts and comes back to, and the points it walks between.
     pub home: Vec3,
     pub home_yaw: f32,
@@ -85,11 +94,17 @@ pub struct EnemyMotion {
     pub calm: u32,
     /// The players the current attack has hit, a bit each, so it hits each once.
     pub hit_players: u32,
+    /// The current attack hit its foe.
+    pub hit_foe: bool,
     /// The shooter's strafing side, +1 to its right and −1 to its left, and the ticks
     /// before it picks again.
     pub strafe_side: f32,
     pub strafe_ticks: u32,
     pub on_ground: bool,
+    /// Ticks left of the Infector's infection.
+    pub infected: u32,
+    /// The Qwack-O-Ray made it a duck.
+    pub duck: bool,
 }
 
 impl EnemyMotion {
@@ -102,6 +117,7 @@ impl EnemyMotion {
             state: EnemyState::Idle,
             ticks: 0,
             target: None,
+            foe: None,
             home,
             home_yaw: yaw,
             patrol,
@@ -110,10 +126,18 @@ impl EnemyMotion {
             cooldown: 0,
             calm: 0,
             hit_players: 0,
+            hit_foe: false,
             strafe_side: 1.0,
             strafe_ticks: 0,
             on_ground: true,
+            infected: 0,
+            duck: false,
         }
+    }
+
+    /// Infected or a duck: it leaves the heroes alone.
+    pub fn is_tame(&self) -> bool {
+        self.infected > 0 || self.duck
     }
 
     pub fn facing(&self) -> Vec3 {
@@ -167,6 +191,44 @@ pub struct HeroView {
     pub alive: bool,
 }
 
+/// What an enemy knows of another.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnemyView {
+    pub entity: Entity,
+    /// Its feet.
+    pub position: Vec3,
+    pub radius: f32,
+    pub height: f32,
+    /// Alive and not a duck.
+    pub alive: bool,
+    pub infected: bool,
+}
+
+impl EnemyView {
+    pub fn of(entity: Entity, enemy: &EnemyMotion, def: &EnemyDef) -> Self {
+        Self {
+            entity,
+            position: enemy.position,
+            radius: def.radius,
+            height: def.height,
+            alive: enemy.is_alive() && !enemy.duck,
+            infected: enemy.infected > 0,
+        }
+    }
+
+    pub fn centre(&self) -> Vec3 {
+        self.position + Vec3::Y * (self.height / 2.0)
+    }
+
+    /// How far `point` is outside its body, an upright capsule; negative inside.
+    pub fn distance(&self, point: Vec3) -> f32 {
+        let half = self.height / 2.0;
+        let low = self.position + Vec3::Y * self.radius.min(half);
+        let high = self.position + Vec3::Y * (self.height - self.radius).max(half);
+        distance_to_segment(point, low, high) - self.radius
+    }
+}
+
 /// The heroes' bodies, for hits: a capsule round the segment from `bottom` to `top` above
 /// the feet (the movement profile's [`BodyProfile`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -202,8 +264,11 @@ impl HeroShape {
 pub struct Surroundings<'a> {
     pub heroes: &'a [HeroView],
     pub hero_shape: HeroShape,
-    /// The other living enemies' feet and radii, which it keeps clear of.
-    pub crowd: &'a [(Vec3, f32)],
+    /// This enemy, as the others know it.
+    pub me: Entity,
+    /// Every enemy, this one among them: it keeps clear of the others and, infected, fights
+    /// them.
+    pub enemies: &'a [EnemyView],
     /// u/s².
     pub gravity: f32,
     pub world: &'a dyn CollisionWorld,
@@ -218,10 +283,21 @@ pub struct HeroStrike {
     pub knockback: Vec3,
 }
 
+/// An attack that reached another enemy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EnemyStrike {
+    pub target: Entity,
+    pub by: Entity,
+    pub damage: f32,
+    /// u/s.
+    pub push: Vec3,
+}
+
 /// What a step did that the game acts on.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Outcome {
     pub hits: Vec<HeroStrike>,
+    pub foe_hits: Vec<EnemyStrike>,
     pub shots: Vec<ShotMotion>,
     /// It vanished from view, dead.
     pub vanished: bool,
@@ -229,15 +305,54 @@ pub struct Outcome {
     pub respawned: bool,
 }
 
-/// A hit from `player`, pushing it at `push` (u/s): it reels and turns on him.
+/// A hit from `player`, pushing it at `push` (u/s): it reels and, unless it is tame, turns
+/// on him.
 pub fn struck(enemy: &mut EnemyMotion, player: usize, push: Vec3) {
     if !enemy.is_alive() {
         return;
     }
+    if !enemy.is_tame() {
+        enemy.target = Some(player);
+        enemy.foe = None;
+        enemy.calm = 0;
+    }
+    reel(enemy, push);
+}
+
+/// A hit from the enemy `by`: it reels and, unless it is tame, fights that one.
+pub fn struck_by(enemy: &mut EnemyMotion, by: Entity, push: Vec3) {
+    if !enemy.is_alive() {
+        return;
+    }
+    if !enemy.is_tame() {
+        enemy.foe = Some(by);
+        enemy.calm = 0;
+    }
+    reel(enemy, push);
+}
+
+fn reel(enemy: &mut EnemyMotion, push: Vec3) {
     enemy.velocity = Vec3::new(push.x, enemy.velocity.y, push.z);
-    enemy.target = Some(player);
-    enemy.calm = 0;
     enemy.enter(EnemyState::Hurt);
+}
+
+/// A gun's affliction: infected for a while or a duck, it drops the hero or enemy it was
+/// after.
+/// Swallowed or sucked in, it is killed as by any other hit.
+pub fn afflict(enemy: &mut EnemyMotion, affliction: Affliction) {
+    if !enemy.is_alive() {
+        return;
+    }
+    match affliction {
+        Affliction::Infected { ticks } => enemy.infected = enemy.infected.max(ticks),
+        Affliction::Duck => enemy.duck = true,
+        Affliction::Swallowed { .. } | Affliction::Sucked => return,
+    }
+    enemy.target = None;
+    enemy.foe = None;
+    if matches!(enemy.state, EnemyState::Aggro | EnemyState::Attack) {
+        enemy.enter(EnemyState::Patrol);
+    }
 }
 
 /// Its hit points ran out: it dies where it stands, keeping the last hit's push. Returns
@@ -247,6 +362,7 @@ pub fn killed(enemy: &mut EnemyMotion) -> bool {
         return false;
     }
     enemy.target = None;
+    enemy.foe = None;
     enemy.enter(EnemyState::Dead);
     true
 }
@@ -273,6 +389,10 @@ pub fn step(
     let mut outcome = Outcome::default();
     enemy.cooldown = enemy.cooldown.saturating_sub(1);
     enemy.calm = enemy.calm.saturating_sub(1);
+    enemy.infected = enemy.infected.saturating_sub(1);
+    if foe(enemy, around).is_none() {
+        enemy.foe = None;
+    }
     let state = enemy.state;
     // The velocity across the ground it wants, or `None` when the state set it outright.
     let wish = match state {
@@ -313,8 +433,7 @@ pub fn step(
 }
 
 fn idle(enemy: &mut EnemyMotion, def: &EnemyDef, around: &Surroundings) -> Option<Vec3> {
-    if let Some(player) = notice(enemy, def, around) {
-        enemy.target = Some(player);
+    if notice(enemy, def, around) {
         enemy.enter(EnemyState::Aggro);
     } else if enemy.patrol.is_empty() {
         // A guard with no round stands at home, facing the way it was put.
@@ -335,8 +454,7 @@ fn patrol(
     around: &Surroundings,
     rng: &mut SimRng,
 ) -> Option<Vec3> {
-    if let Some(player) = notice(enemy, def, around) {
-        enemy.target = Some(player);
+    if notice(enemy, def, around) {
         enemy.enter(EnemyState::Aggro);
         return Some(Vec3::ZERO);
     }
@@ -363,11 +481,11 @@ fn aggro(
     around: &Surroundings,
     rng: &mut SimRng,
 ) -> Option<Vec3> {
-    let Some(hero) = target(enemy, around) else {
+    let Some(prey) = prey(enemy, around) else {
         give_up(enemy, def);
         return Some(Vec3::ZERO);
     };
-    let to = flat(hero.position - enemy.position);
+    let to = flat(prey.feet - enemy.position);
     let distance = to.length();
     if distance > def.senses.lose || flat(enemy.position - enemy.home).length() > def.senses.leash {
         give_up(enemy, def);
@@ -393,11 +511,10 @@ fn aggro(
         Attack::Shoot(shoot) => {
             turn_toward(enemy, yaw_of(to), def);
             let off = angle_off(enemy.yaw, to);
-            let centre = around.hero_shape.centre(hero.position);
             if enemy.cooldown == 0
                 && distance <= shoot.range
                 && off <= shoot.face_degrees.to_radians()
-                && clear_line(around.world, muzzle(enemy, &shoot), centre)
+                && clear_line(around.world, muzzle(enemy, &shoot), prey.centre)
             {
                 start_attack(enemy);
                 return Some(Vec3::ZERO);
@@ -421,6 +538,7 @@ fn aggro(
 
 fn start_attack(enemy: &mut EnemyMotion) {
     enemy.hit_players = 0;
+    enemy.hit_foe = false;
     enemy.enter(EnemyState::Attack);
 }
 
@@ -432,11 +550,11 @@ fn attack(
     outcome: &mut Outcome,
 ) -> Option<Vec3> {
     let (wind_up, strike, recover) = phases(def);
-    let hero = target(enemy, around).copied();
+    let prey = prey(enemy, around);
     let ticks = enemy.ticks;
     if ticks < wind_up {
-        if let Some(hero) = hero {
-            turn_toward(enemy, yaw_of(flat(hero.position - enemy.position)), def);
+        if let Some(prey) = prey {
+            turn_toward(enemy, yaw_of(flat(prey.feet - enemy.position)), def);
         }
         return Some(Vec3::ZERO);
     }
@@ -446,6 +564,19 @@ fn attack(
                 let facing = enemy.facing();
                 enemy.velocity = facing * lunge.lunge_speed + Vec3::Y * enemy.velocity.y;
                 let front = enemy.position + facing * def.radius + Vec3::Y * (def.height / 2.0);
+                // With a foe it strikes only that one.
+                if let Some(foe) = foe(enemy, around) {
+                    if !enemy.hit_foe && foe.distance(front) <= lunge.reach {
+                        enemy.hit_foe = true;
+                        outcome.foe_hits.push(EnemyStrike {
+                            target: foe.entity,
+                            by: around.me,
+                            damage: lunge.hit.damage as f32,
+                            push: flat(knockback(facing, &lunge.hit)),
+                        });
+                    }
+                    return None;
+                }
                 for hero in around.heroes.iter().filter(|hero| hero.alive) {
                     let bit = 1u32.checked_shl(hero.player as u32).unwrap_or(0);
                     if enemy.hit_players & bit != 0
@@ -466,7 +597,7 @@ fn attack(
                 let fired = ticks - wind_up;
                 let every = shoot.shot_every.max(1);
                 if fired.is_multiple_of(every) && fired / every < shoot.shots {
-                    outcome.shots.push(fire(enemy, &shoot, hero, around));
+                    outcome.shots.push(fire(enemy, &shoot, prey, around));
                 }
                 return Some(Vec3::ZERO);
             }
@@ -483,25 +614,26 @@ fn attack(
     Some(Vec3::ZERO)
 }
 
-/// A shot along its facing, tilted up or down to the hero's middle: a hero who outruns
-/// its turn is missed.
+/// A shot along its facing, tilted up or down to its prey's middle: a hero or foe who
+/// outruns its turn is missed. One at a foe passes the heroes.
 fn fire(
     enemy: &EnemyMotion,
     shoot: &Shoot,
-    hero: Option<HeroView>,
+    prey: Option<Prey>,
     around: &Surroundings,
 ) -> ShotMotion {
     let facing = enemy.facing();
     let from = muzzle(enemy, shoot);
-    let direction = match hero {
-        Some(hero) => {
-            let centre = around.hero_shape.centre(hero.position);
-            let along = flat(centre - from).length().max(0.1);
-            (facing * along + Vec3::Y * (centre.y - from.y)).normalize()
+    let direction = match prey {
+        Some(prey) => {
+            let along = flat(prey.centre - from).length().max(0.1);
+            (facing * along + Vec3::Y * (prey.centre.y - from.y)).normalize()
         }
         None => facing,
     };
-    ShotMotion::new(from, direction * shoot.shot.speed, &shoot.shot)
+    let mut shot = ShotMotion::new(from, direction * shoot.shot.speed, &shoot.shot);
+    shot.turned = prey.is_some_and(|prey| prey.foe).then_some(around.me);
+    shot
 }
 
 fn muzzle(enemy: &EnemyMotion, shoot: &Shoot) -> Vec3 {
@@ -515,6 +647,7 @@ pub(crate) fn knockback(direction: Vec3, hit: &HeroHit) -> Vec3 {
 
 fn give_up(enemy: &mut EnemyMotion, def: &EnemyDef) {
     enemy.target = None;
+    enemy.foe = None;
     enemy.calm = def.senses.calm_ticks;
     enemy.enter(EnemyState::Patrol);
 }
@@ -533,11 +666,72 @@ fn target<'a>(enemy: &EnemyMotion, around: &'a Surroundings) -> Option<&'a HeroV
         .find(|hero| hero.player == player && hero.alive)
 }
 
-/// The nearest living hero it sees or hears, unless it is calm.
-fn notice(enemy: &EnemyMotion, def: &EnemyDef, around: &Surroundings) -> Option<usize> {
-    if enemy.calm > 0 {
-        return None;
+/// What it is after: its foe while it has one, else its hero.
+#[derive(Debug, Clone, Copy)]
+struct Prey {
+    feet: Vec3,
+    centre: Vec3,
+    foe: bool,
+}
+
+fn prey(enemy: &EnemyMotion, around: &Surroundings) -> Option<Prey> {
+    if let Some(foe) = foe(enemy, around) {
+        return Some(Prey {
+            feet: foe.position,
+            centre: foe.centre(),
+            foe: true,
+        });
     }
+    target(enemy, around).map(|hero| Prey {
+        feet: hero.position,
+        centre: around.hero_shape.centre(hero.position),
+        foe: false,
+    })
+}
+
+/// The enemy it fights, while that one is still its foe: alive, and infected if this one
+/// isn't or the other way round. An infected enemy fights those that aren't, and they
+/// fight back; its infection over, they are no longer foes.
+fn foe<'a>(enemy: &EnemyMotion, around: &'a Surroundings) -> Option<&'a EnemyView> {
+    let foe = enemy.foe?;
+    let infected = enemy.infected > 0;
+    around
+        .enemies
+        .iter()
+        .find(|other| other.entity == foe && other.alive && other.infected != infected)
+}
+
+/// Whether it noticed something to go after, which it then is: infected, the nearest
+/// other enemy it sees that isn't, near enough home; otherwise a hero.
+fn notice(enemy: &mut EnemyMotion, def: &EnemyDef, around: &Surroundings) -> bool {
+    if enemy.calm > 0 || enemy.duck {
+        return false;
+    }
+    if enemy.infected > 0 {
+        enemy.foe = notice_foe(enemy, def, around);
+        return enemy.foe.is_some();
+    }
+    enemy.target = notice_hero(enemy, def, around);
+    enemy.target.is_some()
+}
+
+fn notice_foe(enemy: &EnemyMotion, def: &EnemyDef, around: &Surroundings) -> Option<Entity> {
+    let eye = enemy.eye(def);
+    around
+        .enemies
+        .iter()
+        .filter(|other| other.entity != around.me && other.alive && !other.infected)
+        .filter(|other| flat(other.position - enemy.home).length() <= def.senses.leash)
+        .map(|other| (other.centre().distance(eye), other))
+        .filter(|&(distance, other)| {
+            distance <= def.senses.sight && clear_line(around.world, eye, other.centre())
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, other)| other.entity)
+}
+
+/// The nearest living hero it sees or hears.
+fn notice_hero(enemy: &EnemyMotion, def: &EnemyDef, around: &Surroundings) -> Option<usize> {
     let eye = enemy.eye(def);
     let mut nearest: Option<(usize, f32)> = None;
     for hero in around.heroes.iter().filter(|hero| hero.alive) {
@@ -631,8 +825,13 @@ fn crowd_push(enemy: &EnemyMotion, def: &EnemyDef, around: &Surroundings) -> Vec
         .iter()
         .filter(|hero| hero.alive)
         .map(|hero| (hero.position, around.hero_shape.radius));
+    let enemies = around
+        .enemies
+        .iter()
+        .filter(|other| other.entity != around.me && other.alive)
+        .map(|other| (other.position, other.radius));
     let mut push = Vec3::ZERO;
-    for (at, radius) in around.crowd.iter().copied().chain(heroes) {
+    for (at, radius) in enemies.chain(heroes) {
         let away = flat(enemy.position - at);
         let distance = away.length();
         let overlap = def.radius + radius - distance;

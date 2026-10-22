@@ -168,9 +168,10 @@ each contain Bevy, and an unrestricted clippy-plus-tests run once froze the owne
 
 **Running the app off-screen:** start `Xvfb :97 -screen 0 1280x800x24 -nolisten tcp`, run
 the app with `DISPLAY=:97 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` (Mesa's
-software Vulkan), drive it with `xdotool`, and take screenshots with `xwd -root -display
-:97` and `ffmpeg`. Stop Xvfb and the app afterwards. A plain `cargo run` opens a window on
-the owner's desktop.
+software Vulkan), drive it with `xdotool` (focus its window first, `xdotool search --name
+"Open Ratchet" windowfocus --sync`, or keys never reach it), and take screenshots with
+`xwd -root -display :97` and `ffmpeg`. Stop Xvfb and the app afterwards. A plain `cargo
+run` opens a window on the owner's desktop.
 
 ## Workspace conventions
 

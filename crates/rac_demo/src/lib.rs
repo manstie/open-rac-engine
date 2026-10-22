@@ -31,7 +31,7 @@ use rac_sim::{SimSet, SimTick, SimTransform};
 
 pub use drops::PickupLooks;
 pub use enemy::def::{Bestiary, EnemyKind};
-pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, enemy_bundle};
+pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, FoeHits, enemy_bundle};
 pub use guns::demo_arsenal;
 pub use hud::{HudLayout, HudPlugin, PlayerHud, spawn_hud};
 pub use level::{

@@ -14,14 +14,18 @@ use rac_sim::SimRng;
 use std::f32::consts::TAU;
 
 use super::{
-    GunEventKind,
-    aim::{GunTarget, assist_target, bend, first_target, view_point},
+    Affliction, GunEventKind,
+    aim::{GunTarget, assist_target, assist_targets, bend, first_target, view_point},
     arsenal::{Arsenal, Hand},
     def::{
-        Armory, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Stream, Timing, WeaponDef,
-        WeaponId,
+        AimAssist, Armory, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Stream, Timing,
+        WeaponDef, WeaponId,
     },
-    shots::{self, Shot, ShotKind},
+    grab, hand,
+    ring::RingInput,
+    seekers,
+    shots::{self, Shot, ShotKind, TICK},
+    thrown,
 };
 
 /// One hit a gun did this tick, before the damage queue keeps each target's strongest.
@@ -46,6 +50,20 @@ pub struct Outcome {
     pub hand: GunHand,
     /// The gun he would lock on with has its lock-on mod.
     pub lock_on: bool,
+    /// What the guns did to targets beyond their damage.
+    pub afflictions: Vec<Afflict>,
+    /// The Shield Charger raised a shield of these points round him.
+    pub shield: Option<f32>,
+    /// Health the guns gave him back (the Holo Shield's, from V2).
+    pub heal: u32,
+}
+
+/// A gun afflicted a target ([`Affliction`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Afflict {
+    pub target: Entity,
+    pub weapon: WeaponId,
+    pub affliction: Affliction,
 }
 
 impl Outcome {
@@ -73,34 +91,45 @@ pub struct GunInput<'a> {
     pub world: &'a dyn CollisionWorld,
     /// In a fixed order, as every peer builds it.
     pub targets: &'a [GunTarget],
+    /// He has less health than he can have.
+    pub hurt: bool,
 }
 
 /// The gun in hand's own state, started afresh each time a gun comes out.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Trigger {
-    cooldown: u32,
+    pub(super) cooldown: u32,
     /// Ticks to the next shot while the button is held ([`Timing::Repeat`]).
-    repeat: u32,
+    pub(super) repeat: u32,
     /// Ticks the fire button has been held.
-    held: u32,
+    pub(super) held: u32,
     /// This hold has fired its shot (the Shock Blaster's charging levels).
-    fired: bool,
+    pub(super) fired: bool,
     /// The Shock Blaster's shot on its way: ticks to its hit, and its damage scale.
-    pending: Option<(u32, f32)>,
-    after_hit: u32,
+    pub(super) pending: Option<(u32, f32)>,
+    pub(super) after_hit: u32,
     /// Ticks in the look, which some guns wait out.
-    look: u32,
+    pub(super) look: u32,
     /// The Lava Gun's stream strength, its spring's rate, and ticks to its next round.
-    strength: f32,
-    strength_rate: f32,
-    ammo_ticks: u32,
-    barrel: usize,
+    pub(super) strength: f32,
+    pub(super) strength_rate: f32,
+    pub(super) ammo_ticks: u32,
+    pub(super) barrel: usize,
     /// The Annihilator's target, the best candidate, how long that has been best, and how
     /// long another than the target has been.
-    picked: Option<Entity>,
-    candidate: Option<Entity>,
-    candidate_ticks: u32,
-    other_ticks: u32,
+    pub(super) picked: Option<Entity>,
+    pub(super) candidate: Option<Entity>,
+    pub(super) candidate_ticks: u32,
+    pub(super) other_ticks: u32,
+    /// Ticks until what a press started leaves the hand: the Plasma Coil's ball once its
+    /// coil has spun up, a glove's throw.
+    pub(super) launch: Option<u32>,
+    /// The targets the Spitting Hydra has marked, and those the RY3NO marks this tick.
+    pub(super) marked: Vec<Entity>,
+    /// The Qwack-O-Ray's target, the ticks it has been on it, and its duck meter.
+    pub(super) beam: Option<(Entity, u32, f32)>,
+    /// The Suck Cannon fires what it holds rather than sucking.
+    pub(super) expelling: bool,
 }
 
 /// The states a gun fires in. The game's list isn't read: these are the ones where he has
@@ -130,8 +159,20 @@ pub fn step(
 ) -> Outcome {
     let mut out = Outcome::default();
     let hero = gun_input.hero;
+    // The Plasma Whip's attacks keep it in his hand.
+    let busy = (hero.state.is_attacking() && !hero.whip_attack()) || hero.state == HeroState::Dead;
+    // The whip's attacks his moves started since last tick, each taking a round.
+    let whip_attacks = hero.whip_attacks.wrapping_sub(arsenal.whip_seen);
+    arsenal.whip_seen = hero.whip_attacks;
+    // The ring reads the pad as it is. Once it holds the hero's input, his guns see none.
+    quick_select(arsenal, armory, gun_input.input, busy);
+    let blocked = arsenal.quick.blocks_input();
+    let still = PlayerInput::default();
+    let gun_input = &GunInput {
+        input: if blocked { &still } else { gun_input.input },
+        ..*gun_input
+    };
     let input = gun_input.input;
-    let busy = hero.state.is_attacking() || hero.state == HeroState::Dead;
 
     // A wrench attack puts the gun away: the controller clears his hand as it starts one.
     if (busy || (arsenal.shown_out && !hero.gun.out)) && arsenal.hand != Hand::Wrench {
@@ -181,6 +222,48 @@ pub fn step(
             FireMode::Lobbed(fire) => lobbed(arsenal, armory, &gun, fire, gun_input, &mut out),
             FireMode::Stream(fire) => stream(arsenal, armory, &gun, fire, gun_input, &mut out),
             FireMode::Homing(fire) => homing(arsenal, armory, &gun, fire, gun_input, &mut out),
+            FireMode::Coil(fire) => seekers::coil(arsenal, armory, &gun, fire, gun_input, &mut out),
+            FireMode::Cluster(fire) => {
+                thrown::cluster(arsenal, armory, &gun, fire, gun_input, &mut out);
+            }
+            FireMode::Infect(fire) => {
+                thrown::infect(arsenal, armory, &gun, fire, gun_input, rng, &mut out);
+            }
+            FireMode::Disc(fire) => seekers::disc(arsenal, armory, &gun, fire, gun_input, &mut out),
+            FireMode::Volley(fire) => {
+                seekers::volley(arsenal, armory, &gun, fire, gun_input, rng, &mut out);
+            }
+            FireMode::Hydra(fire) => {
+                seekers::hydra(arsenal, armory, &gun, fire, gun_input, rng, &mut out);
+            }
+            FireMode::Rift(fire) => {
+                grab::rift(arsenal, armory, &gun, fire, gun_input, rng, &mut out)
+            }
+            FireMode::Suck(fire) => grab::suck(arsenal, armory, &gun, fire, gun_input, &mut out),
+            FireMode::Beam(fire) => grab::beam(arsenal, armory, &gun, fire, gun_input, &mut out),
+            FireMode::Turret(fire) => {
+                thrown::turret(arsenal, armory, &gun, fire, gun_input, &mut out);
+            }
+            FireMode::Barrier(fire) => {
+                thrown::barrier(arsenal, armory, &gun, fire, gun_input, &mut out);
+            }
+            FireMode::Agents(fire) => {
+                thrown::agents(arsenal, armory, &gun, fire, gun_input, &mut out);
+            }
+            FireMode::Shield(fire) => {
+                hand::shield(arsenal, armory, &gun, fire, gun_input, &mut out)
+            }
+            FireMode::Whip(fire) => {
+                hand::whip(
+                    arsenal,
+                    armory,
+                    &gun,
+                    fire,
+                    gun_input,
+                    whip_attacks,
+                    &mut out,
+                );
+            }
         }
         // A held gun stops firing when the button is let go.
         if def.held && !input.held(Action::Fire) {
@@ -199,22 +282,30 @@ pub fn step(
         &mut arsenal.shots,
         &mut arsenal.shot_serial,
         armory,
-        gun_input.world,
-        gun_input.targets,
+        gun_input,
+        rng,
         &mut out,
     );
+    hand::shield_tick(arsenal, armory, gun_input, rng, &mut out);
 
     let in_hand = arsenal.hand.gun().and_then(|weapon| armory.get(weapon));
     let firing = in_hand.is_some() && arsenal.fire_ticks > 0;
+    let level = arsenal
+        .hand
+        .gun()
+        .and_then(|weapon| arsenal.gun(weapon))
+        .map_or(0, |gun| gun.level);
     out.hand = GunHand {
         out: in_hand.is_some(),
         firing,
         firing_held: firing && in_hand.is_some_and(|def| def.held),
         steady: in_hand.is_some_and(|def| def.steady),
         item: in_hand.map(|def| def.item),
+        level,
         pose: in_hand.map(|def| def.pose).unwrap_or_default(),
         shots: arsenal.shots_fired,
-        selecting: arsenal.quick.open.is_some(),
+        selecting: blocked,
+        whip: in_hand.and_then(|def| hand::whip_hand(arsenal, armory, def, level)),
     };
     arsenal.shown_out = out.hand.out;
     out.lock_on = arsenal
@@ -225,11 +316,52 @@ pub fn step(
     out
 }
 
-/// The buttons that change what is in his hand. While he is `busy` (attacking or dead)
-/// only the quick-select ring follows its buttons, and what is chosen in it doesn't come
-/// out.
-fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput, busy: bool) {
+/// The quick-select button (`weapons.md`, "The quick-select ring"): pressed, it opens the
+/// ring; let go soon after, it switches guns, but not while he attacks; held, the ring
+/// picks a gun, and letting go chooses it there, which comes out unless he is `busy`.
+fn quick_select(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput, busy: bool) {
     let rules = &armory.rules;
+    arsenal.quick_tapped = arsenal.quick_tapped.saturating_sub(1);
+    if input.pressed(Action::QuickSelect) {
+        arsenal.quick_held = Some(0);
+        if !busy && arsenal.quick.open.is_none() && !arsenal.quick.is_empty() {
+            let delay = if arsenal.quick_tapped > 0 {
+                rules.ring.input_delay_after_tap_ticks
+            } else {
+                rules.ring.input_delay_ticks
+            };
+            arsenal.quick.open(delay, &rules.ring);
+        }
+    } else if input.held(Action::QuickSelect) {
+        if let Some(ticks) = &mut arsenal.quick_held {
+            *ticks = ticks.saturating_add(1);
+        }
+    } else if let Some(ticks) = arsenal.quick_held.take()
+        && ticks < rules.quick_switch_ticks
+        && !busy
+    {
+        // A tap that switches no gun makes the ring opened soon after hold his input
+        // later (`quick_switch_recent`).
+        arsenal.quick_tapped = rules.quick_switch_ticks;
+        if arsenal.quick_switch(armory) {
+            arsenal.quick_tapped = 0;
+        }
+    }
+    let ring = RingInput {
+        held: arsenal.quick_held,
+        move_stick: input.move_stick,
+        ring_two: input.held(Action::Crouch),
+        left: input.pressed(Action::PrevWeapon),
+        right: input.pressed(Action::NextWeapon),
+    };
+    if let Some(weapon) = arsenal.quick.update(&ring, &rules.ring) {
+        arsenal.pick(weapon, busy, armory);
+    }
+}
+
+/// The buttons that bring a gun out and change it. While he is `busy` (attacking or dead)
+/// they do nothing, and while the ring is open the weapon buttons work it instead.
+fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput, busy: bool) {
     // The fire button, and lock-on with the gun's lock-on mod, bring the gun out.
     if !busy
         && arsenal.hand == Hand::Wrench
@@ -240,40 +372,7 @@ fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput, busy: bo
             arsenal.draw(equipped, armory);
         }
     }
-    // Quick select tapped (let go soon after its press) switches guns, but not while he
-    // attacks; held, it opens the ring, and letting go chooses there.
-    if input.pressed(Action::QuickSelect) {
-        arsenal.quick_held = Some(0);
-    } else if input.held(Action::QuickSelect) {
-        if let Some(ticks) = &mut arsenal.quick_held {
-            *ticks = ticks.saturating_add(1);
-        }
-    } else if let Some(ticks) = arsenal.quick_held.take() {
-        if arsenal.quick.open.is_some() {
-            if let Some(weapon) = arsenal.quick.close() {
-                arsenal.pick(weapon, busy, armory);
-            }
-        } else if ticks < rules.quick_switch_ticks && !busy {
-            arsenal.quick_switch(armory);
-        }
-    }
-    if arsenal.quick.open.is_none()
-        && arsenal
-            .quick_held
-            .is_some_and(|ticks| ticks >= rules.quick_switch_ticks)
-        && !arsenal.quick.is_empty()
-    {
-        arsenal.quick.open();
-    }
-    if arsenal.quick.open.is_some() {
-        // The move stick points at a slot, and the weapon buttons turn to the other ring.
-        arsenal.quick.point(input.move_stick, &rules.ring);
-        if input.pressed(Action::NextWeapon) {
-            arsenal.quick.turn(true);
-        } else if input.pressed(Action::PrevWeapon) {
-            arsenal.quick.turn(false);
-        }
-    } else if !busy {
+    if arsenal.quick.open.is_none() && !busy {
         if input.pressed(Action::NextWeapon) {
             arsenal.cycle(true, armory);
         } else if input.pressed(Action::PrevWeapon) {
@@ -283,22 +382,22 @@ fn buttons(arsenal: &mut Arsenal, armory: &Armory, input: &PlayerInput, busy: bo
 }
 
 /// The gun in hand this tick, and where it points.
-struct Gun<'a> {
-    weapon: WeaponId,
-    def: &'a WeaponDef,
-    level: u8,
-    damage: f32,
-    splash: f32,
-    mods: Mods,
-    muzzle: Vec3,
+pub(super) struct Gun<'a> {
+    pub(super) weapon: WeaponId,
+    pub(super) def: &'a WeaponDef,
+    pub(super) level: u8,
+    pub(super) damage: f32,
+    pub(super) splash: f32,
+    pub(super) mods: Mods,
+    pub(super) muzzle: Vec3,
     /// His facing, which is the fire direction (`hero_fire_dir`).
-    facing: Vec3,
+    pub(super) facing: Vec3,
     /// It may fire this tick: out long enough, in a state that fires, past any wait.
-    ready: bool,
+    pub(super) ready: bool,
     /// The lock-on target's middle, while it lives.
-    lock: Option<(Entity, Vec3)>,
+    pub(super) lock: Option<(Entity, Vec3)>,
     /// Where the view centres, while guns shoot there.
-    view_point: Option<Vec3>,
+    pub(super) view_point: Option<Vec3>,
 }
 
 impl<'a> Gun<'a> {
@@ -355,7 +454,7 @@ impl<'a> Gun<'a> {
 
     /// The fire direction bent towards where the view centres (`aim_bend_to_point`), or
     /// the facing.
-    fn view_aim(&self, from: Vec3, armory: &Armory) -> Vec3 {
+    pub(super) fn view_aim(&self, from: Vec3, armory: &Armory) -> Vec3 {
         let Some(point) = self.view_point else {
             return self.facing;
         };
@@ -376,7 +475,48 @@ impl<'a> Gun<'a> {
         }
     }
 
-    fn shot(&self, serial: u32, position: Vec3, velocity: Vec3, kind: ShotKind) -> Shot {
+    /// What a gun that aims for itself shoots at from `from` (`weapons.md`, "Gun aim
+    /// assist"): the lock-on target while it lives; with the lock-strafe camera, where the
+    /// view centres; otherwise the enemy its assist picks, else where the view centres.
+    pub(super) fn seek(
+        &self,
+        from: Vec3,
+        assist: &AimAssist,
+        gun_input: &GunInput,
+        armory: &Armory,
+    ) -> (Option<Entity>, Vec3) {
+        if let Some((entity, at)) = self.lock {
+            return (Some(entity), (at - from).normalize_or(self.facing));
+        }
+        let strafing = gun_input
+            .view
+            .is_some_and(|view| view.setting == CameraSetting::LockStrafe);
+        let picked = (!strafing)
+            .then(|| {
+                assist_targets(
+                    gun_input.targets,
+                    from,
+                    self.facing,
+                    assist,
+                    gun_input.world,
+                    |target| target.enemy,
+                    1,
+                )
+            })
+            .and_then(|picked| picked.first().copied());
+        match picked {
+            Some(index) => {
+                let target = &gun_input.targets[index];
+                (
+                    Some(target.entity),
+                    (target.centre - from).normalize_or(self.facing),
+                )
+            }
+            None => (None, self.view_aim(from, armory)),
+        }
+    }
+
+    pub(super) fn shot(&self, serial: u32, position: Vec3, velocity: Vec3, kind: ShotKind) -> Shot {
         Shot {
             serial,
             weapon: self.weapon,
@@ -391,7 +531,7 @@ impl<'a> Gun<'a> {
         }
     }
 
-    fn hit(&self, target: Entity, damage: f32, push: Vec3) -> Hit {
+    pub(super) fn hit(&self, target: Entity, damage: f32, push: Vec3) -> Hit {
         Hit {
             target,
             weapon: self.weapon,
@@ -404,10 +544,21 @@ impl<'a> Gun<'a> {
 }
 
 /// Takes a round and starts the firing animation; false if it is out of ammo.
-fn take_shot(arsenal: &mut Arsenal, armory: &Armory, gun: &Gun, out: &mut Outcome) -> bool {
+pub(super) fn take_shot(
+    arsenal: &mut Arsenal,
+    armory: &Armory,
+    gun: &Gun,
+    out: &mut Outcome,
+) -> bool {
     if !arsenal.use_ammo(gun.weapon, 1, armory) {
         return false;
     }
+    fire_anim(arsenal, gun, out);
+    true
+}
+
+/// Starts the firing animation (`hero_fire_anim`, 0x4E6A08) without a round.
+pub(super) fn fire_anim(arsenal: &mut Arsenal, gun: &Gun, out: &mut Outcome) {
     arsenal.fire_ticks = gun.def.fire_ticks;
     out.event(
         gun.weapon,
@@ -416,16 +567,19 @@ fn take_shot(arsenal: &mut Arsenal, armory: &Armory, gun: &Gun, out: &mut Outcom
             direction: gun.facing,
         },
     );
-    true
 }
 
 /// A held gun out of ammo stops firing at once (`hero_fire_stop`).
-fn run_dry(arsenal: &mut Arsenal) {
+pub(super) fn run_dry(arsenal: &mut Arsenal) {
     arsenal.fire_ticks = 0;
 }
 
 /// Every target touching a ball of `radius` round `at`.
-fn ball(targets: &[GunTarget], at: Vec3, radius: f32) -> impl Iterator<Item = &GunTarget> {
+pub(super) fn ball(
+    targets: &[GunTarget],
+    at: Vec3,
+    radius: f32,
+) -> impl Iterator<Item = &GunTarget> {
     targets
         .iter()
         .filter(move |target| target.centre.distance(at) <= radius + target.radius)
@@ -526,7 +680,7 @@ fn hitscan_hit(
     let mut rays = Vec::new();
     // Rays within the spread of the aim, turned any way round it.
     let side = aim.any_orthonormal_vector();
-    for _ in 0..fire.random_rays {
+    for _ in 0..fire.random_rays.at(gun.level).unwrap_or(0) {
         let off = rng.unit_f32() * fire.spread_degrees.to_radians();
         let roll = rng.unit_f32() * TAU;
         let axis = Quat::from_axis_angle(aim, roll) * side;
@@ -602,9 +756,14 @@ fn projectile(
         run_dry(arsenal);
         return;
     }
+    let hurricane = fire
+        .hurricane
+        .filter(|hurricane| gun.level >= hurricane.from_level);
     let trigger = &mut arsenal.trigger;
     match fire.timing {
-        Timing::Repeat(ticks) => trigger.repeat = ticks,
+        Timing::Repeat(ticks) => {
+            trigger.repeat = hurricane.map_or(ticks, |hurricane| hurricane.repeat_ticks);
+        }
         timing => trigger.cooldown = timing.ticks(),
     }
     let barrel = fire
@@ -670,9 +829,16 @@ fn projectile(
     } else {
         low
     };
-    let kind = ShotKind::Bullet {
-        lifetime: fire.lifetime.at(gun.level).unwrap_or(0),
-        bounces: fire.bounce_from.is_some_and(|from| gun.level >= from),
+    let bounces = fire.bounce_from.is_some_and(|from| gun.level >= from);
+    let kind = match hurricane {
+        Some(hurricane) => ShotKind::Bullet {
+            lifetime: (hurricane.reach / (speed * TICK)) as u32 + hurricane.extra_ticks,
+            bounces: hurricane.bounces,
+        },
+        None => ShotKind::Bullet {
+            lifetime: fire.lifetime.at(gun.level).unwrap_or(0),
+            bounces: if bounces { u32::MAX } else { 0 },
+        },
     };
     let serial = arsenal.next_serial();
     arsenal
@@ -972,6 +1138,8 @@ mod tests {
             centre: Vec3::ZERO,
             radius: 0.5,
             alive: true,
+            health: None,
+            enemy: true,
         });
         let mut trigger = Trigger::default();
         for _ in 0..4 {

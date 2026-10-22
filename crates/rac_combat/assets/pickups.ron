@@ -1,8 +1,9 @@
 // How pickups move, and what crates and the vendor give (PLAN.md P1.10): the bolts,
-// nanotech and ammo that crates and dead enemies leave. They pop out, bounce, and fly to a
-// hero who comes near, as UYA's do; the numbers are guesses to tune by play [placeholder].
-// The rounds an ammo pickup holds and the vendor's price a round are each gun's
-// (uya_weapons.ron's pickup_rounds and round_price).
+// nanotech and ammo that crates and dead enemies leave. Sources are sections of
+// docs/research/weapons.md, labelled as in uya_weapons.ron; how they pop out and bounce,
+// and how bolts and nanotech fly in, are guesses to tune by play [placeholder]. The rounds
+// an ammo pickup holds and the vendor's price a round are each gun's (uya_weapons.ron's
+// pickup_rounds and round_price).
 //
 // Units: u, u/s and u/s², ticks at 60 Hz.
 (
@@ -13,18 +14,31 @@
     ground_brake: 8.0,
     pop_speed: (1.5, 3.5),
     pop_lift: (5.0, 7.5),
+    // "Ammo pickups, crates and the vendor": pickup_radius and pickup_height without the
+    // Bolt Grabber V2, from his feet [code].
+    reach: 8.7,
+    reach_height: 3.0,
     magnet_delay_ticks: 24, // long enough to see them land
-    magnet_radius: 6.0,
     fly_speed: 4.0,
     fly_accel: 60.0,
     collect_radius: 0.6,
     life_ticks: 1800,
     blink_ticks: 180,
-    // UYA's crates aren't read [placeholder].
+    // "Ammo pickups, crates and the vendor" [code]: taken at once 2 u below where it was
+    // thrown; flying in from rest, 0.00667 u a frame faster each frame up to 1.0667 u a
+    // frame, to 0.7 u above his feet, shrinking over its last 30 frames.
+    ammo: (
+        fall: 2.0,
+        accel: 24.0,
+        top_speed: 64.0,
+        height: 0.7,
+        shrink_ticks: 30,
+    ),
     crates: (
-        bolts: (4, 7),
-        bolt_value: 5,
-        ammo_pickups: 2,
+        // Veldin's bolt crates hold 11, 44 or 61 [data].
+        bolts: 44,
+        // `ammo_crate_pick`: 2 pickups once in 5 [code].
+        two_pickups_in: 5,
     ),
     // A round every 3 ticks: the N60's 150 in 7.5 s [placeholder].
     vendor: (round_ticks: 3),

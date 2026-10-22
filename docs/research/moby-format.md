@@ -664,8 +664,20 @@ its disc test checks the six guns below.
   | Lava Gun | 0x5C9 | 2 | 21 | 7/4/0 | 0.0480 |
 
   From V5 the rows name another class in the same WAD: the Shock Blaster's 0x1882, the
-  N60's 0x184F, the Annihilator's 0x1887, the Nitro Launcher's 0x1885; the Flux Rifle
-  keeps 0xC04. Entries 11, 12, 28, 40, 41 and 45–47 hold class 0 and look like copies of
+  N60's 0x184F, the Annihilator's 0x1887, the Nitro Launcher's 0x1885, the Lava Gun's
+  0xC59 (rows 0xB0–0xB3); the Flux Rifle keeps 0xC04 [data, 2026-10-22].
+- **Each gun's sequences** [data, 2026-10-22]: 0 grows the gun from nothing over 11
+  keyframes (5 for the Nitro Launcher's V5 class; the Lava Gun's starts at about half
+  size), 1 holds it at rest (its bind pose; 1–5 keyframes), 2 is a recoil of 3–36
+  keyframes. Which the game plays when isn't read.
+- **Bangles by level** [code for the writes, 2026-10-22]: the V1 classes have bangles
+  (the Shock Blaster, Annihilator, Flux Rifle and Nitro Launcher 3, the N60 2; the Lava
+  Gun and the V5 classes none), and each gun's update writes its moby's +0x7C by level:
+  the Shock Blaster 2 at V2 and 3 from V3 (0x36A790); the N60 1 at V2 and 3 at V3
+  (0x3A5928); the Annihilator, Flux Rifle and Nitro Launcher 1, 3 and 7 at V2, V3 and V4
+  (0x36D5A0, 0x3444B0, 0x36E360). The Spitting Hydra, Disc Blade Gun and Qwack-O-Ray do
+  the same. That UYA's moby +0x7C is the bangle mask (DL's is +0x74) is inferred: the
+  masks fill exactly each class's bangles, and the parts they add sit on the gun. Entries 11, 12, 28, 40, 41 and 45–47 hold class 0 and look like copies of
   the hero's class header and skeleton with two 256² textures; nothing was seen loading
   them.
 - **On the hero** (`hero_place_item_mobys`, 0x4E7FD8): each of his seven item slots'
@@ -674,6 +686,10 @@ its disc test checks the six guns below.
   for the wrench and every gun; 2 joint 99 for the boots (their second moby 93), 4 joint
   7, 5 joint 5 for the back, 6 joint 54 for the Miniturret glove. The gun's class origin
   sits on the joint with the joint's axes and its own scale: its grip is its origin.
+  Placed so on Veldin's hero at rest, all eleven classes reach 0.6–1.2 u ahead of the
+  hand along the barrel the kit's grip reasons, and stand on top of the fist [verified
+  2026-10-22, `openrac` disc test `uyas_guns_sit_in_the_fist_barrel_ahead`, and seen in
+  the running app].
   With 0x1DBD70 set (not read) a held gun's angles average its hand's last 2–7 frames
   (0x4E7BA8).
 

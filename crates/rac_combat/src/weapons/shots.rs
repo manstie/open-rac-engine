@@ -1,22 +1,26 @@
 //! Shots in flight, each moved and tested once a tick (`weapons.md`, "Each gun"): the
 //! N60's and Flux Rifle's shots, the Nitro Launcher's charges and blasts, the Lava Gun's
-//! stream and the Annihilator's missiles.
+//! stream and the Annihilator's missiles here; what the other guns fire, throw or put down
+//! in [`super::seekers`], [`super::thrown`], [`super::grab`] and [`super::hand`].
 
 use bevy::prelude::*;
 use rac_hero::CollisionWorld;
+use rac_sim::SimRng;
 
 use super::{
     GunEventKind,
     aim::{GunTarget, first_target},
     def::{Armory, FireMode, Homing, Lobbed, Mods, Projectile, Stream, WeaponId},
-    fire::{Hit, Outcome},
+    ducks,
+    fire::{GunInput, Hit, Outcome},
+    grab, hand, seekers, thrown,
 };
 
 /// Seconds per tick.
-const TICK: f32 = 1.0 / 60.0;
+pub(super) const TICK: f32 = 1.0 / 60.0;
 
 /// How far off a surface a bouncing shot is put back, so it doesn't hit it again at once.
-const BOUNCE_GAP: f32 = 0.01;
+pub(super) const BOUNCE_GAP: f32 = 0.01;
 
 /// A shot in flight.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,20 +42,157 @@ pub struct Shot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShotKind {
-    /// Flies straight for `lifetime` ticks, bouncing off the world if `bounces`.
-    Bullet { lifetime: u32, bounces: bool },
+    /// Flies straight for `lifetime` ticks, bouncing off the world `bounces` more times.
+    Bullet { lifetime: u32, bounces: u32 },
     /// Thrown in an arc; `fuse` counts down once it has bounced.
     Charge { fuse: Option<u32> },
     /// Grows to hit what it touches, each target once.
     Blast { radius: f32, struck: Vec<Entity> },
     /// One point of a stream, falling.
     Stream,
-    /// Turns after `target` while it lives.
+    /// Turns after `target` while it lives: the Annihilator's.
     Missile { target: Option<Entity> },
+    /// The RY3NO's missile.
+    Rocket(RocketState),
+    /// The Plasma Coil's ball; once it sticks, to a target or the world, the ticks since.
+    Ball {
+        stuck: Option<(Option<Entity>, u32)>,
+    },
+    /// An arc from where a coil ball stuck, reaching `target` as it ends.
+    Arc { target: Entity },
+    /// The Plasma Storm's ball: the targets it has arced to, and when.
+    Storm { arced: Vec<(Entity, u32)> },
+    /// The Bouncer's canister: its bounces, and the ticks it has rolled since the last.
+    Canister { bounces: u32, rolled: Option<u32> },
+    /// One of the canister's bomblets: its number, and the ticks it lives.
+    Bomblet { index: u32, life: u32 },
+    /// The Infector's blob: the ticks it lives, and the enemies it has infected.
+    Blob { life: u32, infected: Vec<Entity> },
+    /// The Infecto-Bomb, falling.
+    Bomb,
+    /// The Disc Blade Gun's disc: what it flies at, which way it curves (radians a tick),
+    /// and the target it last bounced off.
+    Disc {
+        target: Option<Entity>,
+        curve: f32,
+        last: Option<Entity>,
+        /// The Multi-Disc Gun's splits it came of.
+        splits: u32,
+    },
+    /// The Spitting Hydra's spit: arcs from the gun reaching for `ends`, for `life`
+    /// ticks.
+    Spit { life: u32, ends: Vec<Vec3> },
+    /// A lightning bolt (0x34DAA0) on `target`, striking it as it goes in `left` ticks,
+    /// pushed `push` along it.
+    Bolt {
+        target: Entity,
+        left: u32,
+        push: f32,
+    },
+    /// The Rift Inducer's rift, flying until it opens.
+    Rift(RiftState),
+    /// Something the Suck Cannon fires back out, pulled at `target`.
+    Thing { target: Option<Entity> },
+    /// A Miniturret.
+    Turret(TurretState),
+    /// A turret's shot.
+    Pellet,
+    /// A Megaturret's missile at `target`.
+    Guided { target: Option<Entity> },
+    /// A holo shield.
+    Barrier(BarrierState),
+    /// The Agents of Doom's pod, falling until it lands and lets them out.
+    Pod,
+    /// One of the agents, running at `target` for `chase` ticks so far.
+    Agent { target: Option<Entity>, chase: u32 },
+    /// The comet an agent ends in from V2, flying `life` ticks.
+    Comet { life: u32 },
+    /// The Plasma Whip's shock wave along the ground.
+    Wave,
+    /// The Quantum Whip's cutting wave, and what it has struck.
+    Cut { struck: Vec<Entity> },
+    /// An Ultrashield's pulse at `target`.
+    Pulse { target: Entity },
+    /// A duck the Qwack-O-Ray made.
+    Duck(DuckState),
+    /// A duck's egg, living `life` ticks.
+    Egg { life: u32 },
+}
+
+/// A duck: the way it faces, the ticks before it turns and lays, the enemy it is after,
+/// its pecks so far and the ticks it waits before it starts.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct DuckState {
+    pub yaw: f32,
+    pub turn: u32,
+    pub egg: u32,
+    pub target: Option<Entity>,
+    pub pecks: u32,
+    pub wait: u32,
+}
+
+/// A rift: open for the ticks since, and the target it is pulling in for how long.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct RiftState {
+    pub open: Option<u32>,
+    pub taking: Option<(Entity, u32)>,
+}
+
+/// A RY3NO missile: it spirals round the line it set off along, `tilt` off it, its roll
+/// turning `spin` a tick (radians).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RocketState {
+    pub target: Option<Entity>,
+    pub along: Vec3,
+    pub tilt: f32,
+    pub roll: f32,
+    pub spin: f32,
+    /// Ticks it waits before it flies, and ticks it has left once it does.
+    pub wait: u32,
+    pub life: u32,
+    /// u/s.
+    pub speed: f32,
+}
+
+/// A Miniturret: falling until it lands, then unfolding and shooting what it finds.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct TurretState {
+    /// Ticks since it landed.
+    pub landed: Option<u32>,
+    pub target: Option<Entity>,
+    /// How far its barrel has turned to the target, 0 to 1.
+    pub turn: f32,
+    pub cooldown: u32,
+    pub fired: u32,
+    /// Ticks since it landed or last fired.
+    pub idle: u32,
+    /// The Megaturret: ticks to its next look at walking back, and where it walks to.
+    pub walk_wait: u32,
+    pub walk_to: Option<Vec3>,
+}
+
+/// A holo shield: falling until it lands, then standing as a wall that takes hits.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct BarrierState {
+    /// Ticks since it landed.
+    pub landed: Option<u32>,
+    /// The way it faces, as his yaw when he threw it.
+    pub yaw: f32,
+    pub hits_left: u32,
+    /// Folding away: ticks left.
+    pub folding: Option<u32>,
+    /// Ticks until the bolt a hit sends (V3–V4), or into the reaction that sends the
+    /// Ultrashield's pulses.
+    pub bolt: Option<u32>,
+    pub react: Option<u32>,
+    /// Ticks to the next point of health it gives him, and to its next drain of an enemy
+    /// near it (from V2).
+    pub heal: u32,
+    pub drain: u32,
 }
 
 impl Shot {
-    fn hit(&self, target: Entity, damage: f32, push: Vec3) -> Hit {
+    pub(super) fn hit(&self, target: Entity, damage: f32, push: Vec3) -> Hit {
         Hit {
             target,
             weapon: self.weapon,
@@ -63,22 +204,53 @@ impl Shot {
     }
 }
 
-/// Moves every shot a tick, hitting what they meet; shots that end are dropped, and a
-/// charge that bursts leaves a blast behind.
+/// What the shots in flight see.
+pub(super) struct Flight<'a> {
+    pub world: &'a dyn CollisionWorld,
+    pub targets: &'a [GunTarget],
+    /// Where the hero is and the way he faces: some shots keep near him.
+    pub hero: Vec3,
+    pub facing: Vec3,
+    /// He has less health than he can have.
+    pub hurt: bool,
+}
+
+/// Moves every shot a tick, hitting what they meet; shots that end are dropped, and those
+/// that leave others behind (a charge's blast, a canister's bomblets, a pod's agents) add
+/// them.
 pub(crate) fn step(
     shots: &mut Vec<Shot>,
     serial: &mut u32,
     armory: &Armory,
-    world: &dyn CollisionWorld,
-    targets: &[GunTarget],
+    gun_input: &GunInput,
+    rng: &mut SimRng,
     out: &mut Outcome,
 ) {
+    let flight = Flight {
+        world: gun_input.world,
+        targets: gun_input.targets,
+        hero: gun_input.hero.position,
+        facing: Quat::from_rotation_y(gun_input.hero.yaw) * Vec3::NEG_Z,
+        hurt: gun_input.hurt,
+    };
+    let (world, targets) = (flight.world, flight.targets);
+    let mut agents = shots
+        .iter()
+        .filter(|shot| matches!(shot.kind, ShotKind::Agent { .. }))
+        .count();
+    let mut discs = shots
+        .iter()
+        .filter(|shot| matches!(shot.kind, ShotKind::Disc { .. }))
+        .count();
     let mut born = Vec::new();
     shots.retain_mut(|shot| {
         let Some(def) = armory.get(shot.weapon) else {
             return false;
         };
         shot.ticks += 1;
+        if matches!(shot.kind, ShotKind::Bolt { .. }) {
+            return bolt(shot, targets, out);
+        }
         match &def.fire {
             FireMode::Projectile(fire) => bullet(shot, fire, world, targets, out),
             FireMode::Lobbed(fire) if matches!(shot.kind, ShotKind::Blast { .. }) => {
@@ -101,8 +273,30 @@ pub(crate) fn step(
                 keep
             }
             FireMode::Stream(fire) => stream_point(shot, fire, world, targets, out),
-            FireMode::Homing(fire) => missile(shot, fire, world, targets, out),
-            FireMode::Hitscan(_) => false,
+            FireMode::Homing(fire) => missile(shot, &Seek::homing(fire), world, targets, out),
+            FireMode::Volley(fire) => seekers::rocket(shot, fire, &flight, out),
+            FireMode::Coil(fire) => seekers::coil_shot(shot, fire, &flight, out, &mut born),
+            FireMode::Disc(fire) => {
+                seekers::disc_shot(shot, fire, &flight, rng, out, &mut born, &mut discs)
+            }
+            FireMode::Hydra(fire) => seekers::spit(shot, fire, &flight, out),
+            FireMode::Cluster(fire) => {
+                thrown::cluster_shot(shot, fire, &flight, rng, out, &mut born)
+            }
+            FireMode::Infect(fire) => thrown::blob(shot, fire, &flight, out),
+            FireMode::Turret(fire) => thrown::turret_shot(shot, fire, &flight, rng, out, &mut born),
+            FireMode::Barrier(fire) => thrown::barrier_shot(shot, fire, &flight, out, &mut born),
+            FireMode::Agents(fire) => {
+                thrown::agents_shot(shot, fire, &flight, out, &mut born, &mut agents)
+            }
+            FireMode::Rift(fire) => grab::rift_shot(shot, fire, &flight, rng, out, &mut born),
+            FireMode::Suck(fire) => grab::thing(shot, fire, &flight, out),
+            FireMode::Whip(fire) if matches!(shot.kind, ShotKind::Cut { .. }) => {
+                hand::cut(shot, fire, &flight, out)
+            }
+            FireMode::Whip(fire) => hand::wave(shot, fire, &flight, out),
+            FireMode::Beam(fire) => ducks::duck_shot(shot, fire, &flight, rng, out, &mut born),
+            FireMode::Hitscan(_) | FireMode::Shield(_) => false,
         }
     });
     for mut shot in born {
@@ -114,14 +308,30 @@ pub(crate) fn step(
 
 /// What a step from `from` by `motion` meets first: a target (by index) or the world,
 /// with how far along.
-enum Meets {
+pub(super) enum Meets {
     Target(usize, f32),
     World(f32, Vec3),
     Nothing,
 }
 
-fn meets(world: &dyn CollisionWorld, targets: &[GunTarget], from: Vec3, motion: Vec3) -> Meets {
-    let target = first_target(targets, from, from + motion, |_| true);
+pub(super) fn meets(
+    world: &dyn CollisionWorld,
+    targets: &[GunTarget],
+    from: Vec3,
+    motion: Vec3,
+) -> Meets {
+    meets_where(world, targets, from, motion, |_| true)
+}
+
+/// [`meets`], among the targets that are `wanted`.
+pub(super) fn meets_where(
+    world: &dyn CollisionWorld,
+    targets: &[GunTarget],
+    from: Vec3,
+    motion: Vec3,
+    wanted: impl Fn(&GunTarget) -> bool,
+) -> Meets {
+    let target = first_target(targets, from, from + motion, wanted);
     let solid = world.cast_ray(from, motion);
     match (target, solid) {
         (Some((index, t)), Some(hit)) if t <= hit.fraction => Meets::Target(index, t),
@@ -132,7 +342,7 @@ fn meets(world: &dyn CollisionWorld, targets: &[GunTarget], from: Vec3, motion: 
 }
 
 /// Every target within `radius` of `at` but `except`.
-fn in_ball(
+pub(super) fn in_ball(
     targets: &[GunTarget],
     at: Vec3,
     radius: f32,
@@ -152,9 +362,10 @@ fn bullet(
     targets: &[GunTarget],
     out: &mut Outcome,
 ) -> bool {
-    let ShotKind::Bullet { lifetime, bounces } = shot.kind else {
+    let ShotKind::Bullet { lifetime, bounces } = &mut shot.kind else {
         return false;
     };
+    let lifetime = *lifetime;
     let motion = shot.velocity * TICK;
     match meets(world, targets, shot.position, motion) {
         Meets::Target(index, t) => {
@@ -170,7 +381,8 @@ fn bullet(
             out.event(shot.weapon, GunEventKind::Impact { at });
             false
         }
-        Meets::World(t, normal) if bounces => {
+        Meets::World(t, normal) if *bounces > 0 => {
+            *bounces -= 1;
             shot.position += motion * t + normal * BOUNCE_GAP;
             shot.velocity = shot.velocity.reflect(normal);
             shot.ticks < lifetime
@@ -238,6 +450,26 @@ fn blast(shot: &mut Shot, fire: &Lobbed, targets: &[GunTarget], out: &mut Outcom
         return false;
     };
     let ticks = shot.ticks;
+    if let Some(eruption) = blast.eruption.filter(|e| shot.level >= e.from_level) {
+        if ticks <= eruption.wait_ticks {
+            return true;
+        }
+        let grown = (ticks - eruption.wait_ticks) as f32 / eruption.grow_ticks.max(1) as f32;
+        let (from, to) = eruption.radius;
+        *radius = from + (to - from) * grown.min(1.0);
+        for target in in_ball(targets, shot.position, *radius, None) {
+            let away = (target.centre - shot.position).normalize_or_zero() * eruption.push;
+            out.hits.push(Hit {
+                target: target.entity,
+                weapon: shot.weapon,
+                damage: shot.damage,
+                push: away,
+                shock: shot.mods.shock,
+                acid: shot.mods.acid,
+            });
+        }
+        return ticks < eruption.wait_ticks + eruption.grow_ticks;
+    }
     if ticks <= blast.flash_ticks {
         return true;
     }
@@ -304,11 +536,34 @@ fn stream_point(
     }
 }
 
+/// How a missile turns after its target and bursts.
+pub(super) struct Seek {
+    speed: f32,
+    lifetime: u32,
+    homing_ticks: u32,
+    turn_degrees: f32,
+    push: f32,
+    blast_radius: f32,
+}
+
+impl Seek {
+    fn homing(fire: &Homing) -> Self {
+        Self {
+            speed: fire.speed,
+            lifetime: fire.lifetime,
+            homing_ticks: fire.homing_ticks,
+            turn_degrees: fire.turn_degrees,
+            push: fire.push,
+            blast_radius: fire.blast_radius,
+        }
+    }
+}
+
 /// The Annihilator's missile (0x396A20): it turns after its target while that lives, and
 /// bursts on the first thing it meets, its blast doing the splash damage round it.
 fn missile(
     shot: &mut Shot,
-    fire: &Homing,
+    fire: &Seek,
     world: &dyn CollisionWorld,
     targets: &[GunTarget],
     out: &mut Outcome,
@@ -354,5 +609,33 @@ fn missile(
         }
     }
     out.event(shot.weapon, GunEventKind::Impact { at });
+    false
+}
+
+/// A lightning bolt (0x34DD38, its strike 0x34DFD0): it holds on its target, and as it goes
+/// the target, if it still lives, takes the bolt's damage, pushed along it.
+fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
+    let ShotKind::Bolt { target, left, push } = &mut shot.kind else {
+        return false;
+    };
+    let Some(struck) = targets
+        .iter()
+        .find(|candidate| candidate.entity == *target && candidate.alive)
+    else {
+        return false;
+    };
+    out.event(
+        shot.weapon,
+        GunEventKind::Arc {
+            from: shot.position,
+            to: struck.centre,
+        },
+    );
+    *left = left.saturating_sub(1);
+    if *left > 0 {
+        return true;
+    }
+    let push = (struck.centre - shot.position).normalize_or_zero() * *push;
+    out.hits.push(shot.hit(struck.entity, shot.damage, push));
     false
 }

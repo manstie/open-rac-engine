@@ -156,8 +156,8 @@ const HERO_CONTROLS: &str = "Move: WASD / left stick. Look: mouse / right stick.
     Wrench: F / Square, again in time for the combo. Crouch first: throw it.\n\
     Gun: left mouse / Circle brings it out and fires. Switch: Q, E or wheel / d-pad;\n\
     tap Tab / Triangle for the last guns; hold it and point the stick for the ring (Q, E:\n\
-    the other ring). Lock on (gamepad, not in lock-strafe, with the gun's lock-on mod):\n\
-    L2 and R2 together.";
+    step round it; Ctrl / R1: the other ring). Lock on (gamepad, not in lock-strafe, with\n\
+    the gun's lock-on mod): L2 and R2 together.";
 
 const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: WASD / left stick. Look: mouse / right stick.\n\
     Up: Space / Cross. Down: Ctrl / R1. Faster: right mouse / L2 or R2.\n\

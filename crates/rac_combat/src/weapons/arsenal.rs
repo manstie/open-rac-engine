@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use super::{
     def::{Armory, Mods, WeaponId},
     fire::Trigger,
+    hand::ShieldUp,
     ring::QuickSelect,
     shots::Shot,
 };
@@ -78,8 +79,17 @@ pub struct Arsenal {
     pub(crate) shots_fired: u8,
     /// Ticks since the quick-select button was pressed, while it is held.
     pub(crate) quick_held: Option<u32>,
+    /// Ticks since a tap of the quick-select button that switched no gun, counting down
+    /// (`quick_switch_recent`, 0x1A7462).
+    pub(crate) quick_tapped: u32,
     /// His moves were last told a gun is in his hand.
     pub(crate) shown_out: bool,
+    /// What the Suck Cannon holds, which is what it fires (`weapons.md`, "Suck Cannon").
+    pub sucked: u32,
+    /// The Shield Charger's shield up round him.
+    pub(crate) shield: Option<ShieldUp>,
+    /// His moves' count of the Plasma Whip's attacks, as last seen.
+    pub(crate) whip_seen: u32,
 }
 
 impl Arsenal {
@@ -254,7 +264,8 @@ impl Arsenal {
 
     /// Chooses `weapon` in the quick-select ring: it becomes the one the fire button brings
     /// out and the most recent, and comes out at once, even from the wrench, unless he is
-    /// `busy` attacking. Choosing a gun out of ammo is allowed [placeholder].
+    /// `busy` attacking. A gun out of ammo can be chosen (`weapons.md`, "The quick-select
+    /// ring").
     pub(crate) fn pick(&mut self, weapon: WeaponId, busy: bool, armory: &Armory) {
         self.choose(weapon, armory);
         if !busy && self.hand == Hand::Wrench && self.equipped == Some(weapon) {
@@ -301,14 +312,14 @@ impl Arsenal {
 
     /// The quick switch (`hero_quick_switch`, 0x5037C0): with the wrench out, the gun the
     /// fire button brings out; otherwise the next of the most recent guns, turning them
-    /// round by one, past any out of ammo.
-    pub(crate) fn quick_switch(&mut self, armory: &Armory) {
+    /// round by one, past any out of ammo. Returns whether it brought a gun out.
+    pub(crate) fn quick_switch(&mut self, armory: &Armory) -> bool {
         let Some(equipped) = self.equipped else {
-            return;
+            return false;
         };
         if self.hand == Hand::Wrench {
             self.draw(equipped, armory);
-            return;
+            return true;
         }
         let few = self.recent.len().min(armory.rules.quick_switch_guns);
         for _ in 1..few {
@@ -317,9 +328,10 @@ impl Arsenal {
             if self.has_ammo(next, armory) {
                 self.equipped = Some(next);
                 self.draw(next, armory);
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// The next (or previous) owned gun after the equipped one, in the order they were

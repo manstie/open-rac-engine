@@ -1427,6 +1427,43 @@ pub struct FreeLookProfile {
     /// A sphere this big swept over the offset's last unit stops the camera at walls
     /// (UYA).
     pub end_sphere_radius: Option<f32>,
+    /// The aim assist on the stick's turn, if the game has one.
+    #[serde(default)]
+    pub assist: Option<FreeLookAssist>,
+}
+
+/// The free look's aim assist (UYA 0x411918 and 0x410B08; `camera.md`, "The free-look
+/// camera", items 2 and 4 to 6). Turns are radians a tick, as the free look's.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct FreeLookAssist {
+    /// A target is one within `range` of the camera that the view's ray passes within
+    /// `hit_radius` of, weighing 1; else one within `range` and `cone_degrees` of the
+    /// view, weighing from 1 dead ahead to 0 at the cone's edge.
+    pub range: f32,
+    pub hit_radius: f32,
+    pub cone_degrees: f32,
+    /// With a target, the stick's turn speeds are cut by these times its weight: the yaw's,
+    /// the quick turn's and the pitch's.
+    pub yaw_cut: f32,
+    pub quick_cut: f32,
+    pub pitch_cut: f32,
+    /// With a target, the quick turn waits this many ticks past its threshold, and speeds
+    /// up at this share of its rate.
+    pub quick_after_ticks: u32,
+    pub quick_accel_share: f32,
+    /// A push past `snap_stick` towards the target is held `snap_ticks`, until the turn
+    /// would pass the target.
+    pub snap_stick: f32,
+    pub snap_ticks: u32,
+    /// While either stick is pushed, his motion against the target's (u a tick, at most
+    /// `strafe_cap`) over its distance turns the view this much times the target's weight:
+    /// across at `strafe_yaw` (at most `strafe_turn_most` a tick), up and down at
+    /// `strafe_pitch`, faded out from `strafe_fade.1` to nothing at `strafe_fade.0`.
+    pub strafe_yaw: f32,
+    pub strafe_pitch: f32,
+    pub strafe_cap: f32,
+    pub strafe_turn_most: f32,
+    pub strafe_fade: (f32, f32),
 }
 
 /// Degrees.

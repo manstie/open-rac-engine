@@ -1111,6 +1111,29 @@
             offset_accel: 0.0055556,
             offset_speed: 0.3333333,
             end_sphere_radius: Some(0.2), // [verified]
+            // "The free-look camera", items 2 and 4 to 6, and its constants in Veldin's
+            // image [code]: 30 u and 15°; cuts of 0.5 and 0.6 (none on the quick turn); the
+            // quick turn from the 10th tick with a target, at a third of its rate; the snap
+            // past 0.85 for 7 ticks; the strafe's 0.666 and 0.85 over at most 0.1333 u a
+            // tick, 1.5° a tick, the pitch faded from 12 u to 4. The ray's hit is the
+            // target's middle within 1 u [placeholder: the game tests its collision].
+            assist: Some((
+                range: 30.0,
+                hit_radius: 1.0,
+                cone_degrees: 15.0,
+                yaw_cut: 0.5,
+                quick_cut: 0.0,
+                pitch_cut: 0.6,
+                quick_after_ticks: 10,
+                quick_accel_share: 0.333,
+                snap_stick: 0.85,
+                snap_ticks: 7,
+                strafe_yaw: 0.666,
+                strafe_pitch: 0.85,
+                strafe_cap: 0.1333333,
+                strafe_turn_most: 0.0261799,
+                strafe_fade: (4.0, 12.0),
+            )),
         ),
         blends: (
             look_lead_ticks: 7, // [verified]

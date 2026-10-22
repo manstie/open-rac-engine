@@ -612,8 +612,15 @@ impl Scene {
     }
 
     fn tick(&mut self, input: &PlayerInput) -> (Vec3, Quat) {
-        self.camera
-            .tick(&self.hero, input, None, &[], &self.profile, &self.world)
+        self.camera.tick(
+            &self.hero,
+            input,
+            None,
+            &[],
+            &[],
+            &self.profile,
+            &self.world,
+        )
     }
 
     fn blend(&self) -> Option<Blend> {

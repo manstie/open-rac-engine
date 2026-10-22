@@ -42,7 +42,7 @@ pub use controller::{
     Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
     StrikeShape, ThrownWrench,
 };
-pub use gun::{GunHand, GunPose, Hold};
+pub use gun::{GunHand, GunPose, Hold, Shield, WhipHand};
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;
 pub use rail::{GrindRail, RailKind};
@@ -312,21 +312,19 @@ fn move_heroes(
     }
 }
 
-/// Picks, keeps and drops each hero's [`LockOn`] target among the [`AimTarget`]s.
-fn lock_on_targets(
-    inputs: Res<PlayerInputs>,
-    tuning: Res<HeroTuning>,
-    scene: Res<CollisionScene>,
-    cameras: Query<&FollowCamera>,
-    targets: Query<(
-        Entity,
-        &AimTarget,
-        Option<&Transform>,
-        Option<&SimTransform>,
-    )>,
-    mut heroes: Query<(&Hero, &HeroBody, &mut LockOn)>,
-) {
-    let mut target_list: Vec<(Entity, Vec3)> = targets
+/// An [`AimTarget`] and where its entity is.
+pub(crate) type TargetItem = (
+    Entity,
+    &'static AimTarget,
+    Option<&'static Transform>,
+    Option<&'static SimTransform>,
+);
+
+/// Every [`AimTarget`]'s middle, in entity order so every peer sees them alike.
+pub(crate) fn aim_targets<F: bevy::ecs::query::QueryFilter>(
+    targets: &Query<TargetItem, F>,
+) -> Vec<(Entity, Vec3)> {
+    let mut list: Vec<(Entity, Vec3)> = targets
         .iter()
         .filter_map(|(entity, target, transform, simulated)| {
             let at = match simulated {
@@ -336,7 +334,20 @@ fn lock_on_targets(
             Some((entity, at + Vec3::Y * target.height))
         })
         .collect();
-    target_list.sort_by_key(|(entity, _)| *entity);
+    list.sort_by_key(|(entity, _)| *entity);
+    list
+}
+
+/// Picks, keeps and drops each hero's [`LockOn`] target among the [`AimTarget`]s.
+fn lock_on_targets(
+    inputs: Res<PlayerInputs>,
+    tuning: Res<HeroTuning>,
+    scene: Res<CollisionScene>,
+    cameras: Query<&FollowCamera>,
+    targets: Query<TargetItem>,
+    mut heroes: Query<(&Hero, &HeroBody, &mut LockOn)>,
+) {
+    let target_list = aim_targets(&targets);
     for (hero, body, mut lock) in &mut heroes {
         let camera = cameras.iter().find(|camera| camera.player == hero.player);
         // The lock-strafe camera doesn't lock on (`hero-controller.md`, "Lock-on").
@@ -367,6 +378,11 @@ fn hurt_hero(
     profile: &HeroProfile,
 ) {
     if !body.can_be_hurt() {
+        return;
+    }
+    // A shield takes the hit first (the Shield Charger's, 0x4C57B0).
+    let damage = body.shield.absorb(damage);
+    if damage == 0 {
         return;
     }
     health.current = health.current.saturating_sub(damage);

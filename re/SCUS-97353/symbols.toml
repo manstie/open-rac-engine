@@ -645,18 +645,18 @@ confidence = "high"
 note = "Releases the thrown wrench from the hand at animation frame 33."
 
 [[symbol]]
-name = "mp_wrench_throw"
+name = "whip_throw"
 address = 0x004F1CE0
 kind = "function"
 confidence = "medium"
-note = "The multiplayer form of wrench_throw."
+note = "The Plasma Whip's throw (item 0x7F): takes a round and sends out a moby of the thrown wrench's class (0x47) that the whip's end follows."
 
 [[symbol]]
-name = "mp_wrench_update"
+name = "plasma_whip_update"
 address = 0x00356110
 kind = "function"
-confidence = "medium"
-note = "The multiplayer wrench's object (item 0x7F); it runs the same attack rules."
+confidence = "high"
+note = "The Plasma Whip's object (item 0x7F, class 0x1843): starts the wrench's attack states on Circle, sets the rope's stretch, and hits along its nine links (0x357F10)."
 
 [[symbol]]
 name = "hero_auto_aim"

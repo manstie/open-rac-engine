@@ -7,8 +7,7 @@ use rac_hero::GunPose;
 use rac_hero::profile::Spring;
 use serde::{Deserialize, Serialize};
 
-/// UYA NTSC-U's six guns whose code is read: the Shock Blaster, N60 Storm, Nitro Launcher,
-/// Lava Gun, Annihilator and Flux Rifle.
+/// UYA NTSC-U's twenty guns.
 pub const UYA_RON: &str = include_str!("../../assets/uya_weapons.ron");
 
 /// A weapon by its place in [`Armory::weapons`].
@@ -57,6 +56,10 @@ impl Default for Armory {
     }
 }
 
+fn yes() -> bool {
+    true
+}
+
 /// What every gun of a game shares.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GunRules {
@@ -81,8 +84,7 @@ pub struct GunRules {
     pub shock: ShockRules,
     /// How many targets can burn with acid at once.
     pub acid_slots: usize,
-    /// The quick-select ring's own rules: the kit's until the game's are read, so the
-    /// bundled files leave them out [placeholder].
+    /// How the quick-select ring is worked; UYA's when a file leaves it out.
     #[serde(default)]
     pub ring: super::ring::RingRules,
 }
@@ -107,6 +109,10 @@ pub struct WeaponDef {
     /// The rounds one of its ammo pickups holds (`crate::pickups`); 0: it has none.
     #[serde(default)]
     pub pickup_rounds: u32,
+    /// Ammo crates throw out its ammo. UYA's never do for the Flux Rifle, Shield Charger,
+    /// Agents of Doom and RY3NO (`ammo_crate_gun_allowed`, 0x440E38).
+    #[serde(default = "yes")]
+    pub crate_ammo: bool,
     /// Fired by holding the button (row +0x30): his walk changes while it fires.
     pub held: bool,
     /// While it fires his walk turns on the profile's steady firing turn.
@@ -240,7 +246,8 @@ pub struct Effects {
     pub impact: Option<String>,
 }
 
-/// How a gun fires: the five modes of PLAN.md P1.9.
+/// How a gun fires: the five archetypes of PLAN.md P1.9, and the modes of UYA's other
+/// guns (`weapons.md`, "Each gun").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FireMode {
     /// Rays that hit at once: the Shock Blaster.
@@ -253,6 +260,35 @@ pub enum FireMode {
     Stream(Stream),
     /// Missiles that turn after a target: the Annihilator.
     Homing(Homing),
+    /// A slow ball that sticks to what it hits and arcs to targets near it: the Plasma
+    /// Coil.
+    Coil(Coil),
+    /// A canister that bursts into bomblets: the Bouncer.
+    Cluster(Cluster),
+    /// A bouncing blob that infects enemies: the Infector.
+    Infect(Infect),
+    /// A disc that seeks and bounces: the Disc Blade Gun.
+    Disc(Disc),
+    /// A volley of missiles at marked targets: the RY3NO.
+    Volley(Volley),
+    /// Targets marked while held, struck on letting go: the Spitting Hydra.
+    Hydra(Hydra),
+    /// A hole that swallows weak enemies: the Rift Inducer.
+    Rift(Rift),
+    /// What it sucks in is what it fires: the Suck Cannon.
+    Suck(Suck),
+    /// A beam that turns an enemy into a duck: the Qwack-O-Ray.
+    Beam(Beam),
+    /// Thrown turrets that shoot: the Miniturret Glove.
+    Turret(Turret),
+    /// Thrown walls: the Holo Shield Glove.
+    Barrier(Barrier),
+    /// Thrown pods of agents that run at enemies and blow up: the Agents of Doom.
+    Agents(Agents),
+    /// A shield round the hero: the Shield Charger.
+    Shield(ShieldCharger),
+    /// The wrench's moves with a rope: the Plasma Whip.
+    Whip(Whip),
 }
 
 /// When a gun may fire again.
@@ -301,8 +337,9 @@ pub struct Hitscan {
     /// A ball at the gun hits what it touches.
     pub ball_radius: f32,
     pub ray_length: f32,
-    /// Rays at random within `spread_degrees` of the aim, turned any way round it...
-    pub random_rays: u32,
+    /// Rays at random within `spread_degrees` of the aim, turned any way round it, by
+    /// level...
+    pub random_rays: ByLevel<u32>,
     pub spread_degrees: f32,
     /// ...and rays `down_degrees` below it, `down_spread_degrees` apart.
     pub down_rays: u32,
@@ -347,6 +384,20 @@ pub struct Projectile {
     /// degrees of it.
     pub scope: Option<(f32, f32)>,
     pub push: f32,
+    /// From this level, the N90 Hurricane's timing and bullets.
+    pub hurricane: Option<Hurricane>,
+}
+
+/// The N90 Hurricane (0x322E68, bullets 0x384068, class 0x1881, their flight 0x384338): a
+/// shot every `repeat_ticks` held; a bullet lives the ticks it takes to fly `reach` u plus
+/// `extra_ticks`, and its bounce after `bounces` ends it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Hurricane {
+    pub from_level: u8,
+    pub repeat_ticks: u32,
+    pub reach: f32,
+    pub extra_ticks: u32,
+    pub bounces: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -384,6 +435,20 @@ pub struct Blast {
     pub grow_ticks: u32,
     pub radius_from: f32,
     pub radius_to: ByLevel<f32>,
+    pub push: f32,
+    /// From this level, the Nitro Eruptor's blast instead.
+    pub eruption: Option<Eruption>,
+}
+
+/// The Nitro Eruptor's blast (0x38A668, class 0x1888, its update 0x38A7B8): after
+/// `wait_ticks`, for `grow_ticks` a ball growing from `radius.0` to `radius.1` strikes
+/// everything in it every tick, pushed `push` away.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Eruption {
+    pub from_level: u8,
+    pub wait_ticks: u32,
+    pub grow_ticks: u32,
+    pub radius: (f32, f32),
     pub push: f32,
 }
 
@@ -438,6 +503,682 @@ pub struct Homing {
     pub blast_radius: f32,
 }
 
+/// A throw at a point (`lob_velocity`, 0x4C3888): the lock-on target's middle, else a
+/// point `most` ahead at the height of his feet, kept between `least` and `most` away, the
+/// throw crossing the ground at `ground_speed` with its upward speed solved for `gravity`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Throw {
+    pub least: f32,
+    pub most: f32,
+    /// In the look, `most` is this instead.
+    pub most_aimed: f32,
+    pub ground_speed: f32,
+    pub gravity: f32,
+}
+
+/// How a thrown thing bounces: off the world `keep` of its speed comes back, and, if
+/// `home_range` is set, its ground speed turns at the nearest living enemy within it, at
+/// least `home_speed`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Bounce {
+    pub keep: f32,
+    pub home_range: Option<f32>,
+    pub home_speed: f32,
+}
+
+/// The Plasma Coil (0x315638, ball 0x30BF18).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Coil {
+    /// Held, it fires every `cooldown_ticks`; the ball leaves `spin_ticks` after.
+    pub cooldown_ticks: u32,
+    pub spin_ticks: u32,
+    /// At most this many balls at once.
+    pub most: usize,
+    pub assist: AimAssist,
+    /// Anything this near the muzzle is aimed at.
+    pub muzzle_reach: f32,
+    pub speed: f32,
+    pub lifetime: u32,
+    /// The ball's reach for targets.
+    pub radius: f32,
+    /// Stuck, it arcs `stick_ticks` later to up to `arcs` other targets within `arc_range`,
+    /// each arc taking `arc_ticks` to reach its target.
+    pub stick_ticks: u32,
+    pub arcs: usize,
+    pub arc_range: f32,
+    pub arc_ticks: u32,
+    pub push: f32,
+    /// From this level, the Plasma Storm's ball in place of the coil's.
+    pub storm: Option<Storm>,
+}
+
+/// The Plasma Storm's ball (0x3098F8, class 0x9A9, its update 0x309480): it flies at
+/// `speed` for `fly_ticks`, bouncing off the world and targets keeping `bounce_keep`, a
+/// target it touches taking the damage; each tick it arcs to the targets within `reach`
+/// that it can see (0x30A148), each again only after `again_ticks`, at most `arcs` at a
+/// time; then it fades for `fade_ticks` and goes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Storm {
+    pub from_level: u8,
+    pub speed: f32,
+    pub fly_ticks: u32,
+    pub fade_ticks: u32,
+    pub bounce_keep: f32,
+    pub reach: f32,
+    pub arcs: usize,
+    pub again_ticks: u32,
+}
+
+/// The Bouncer (0x31C890, canister 0x31D0B0, bomblets 0x31E488).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Cluster {
+    pub rate: f32,
+    pub throw: Throw,
+    pub gravity: f32,
+    /// The canister bursts on a target within `radius + reach`; after `bounces` bounces it
+    /// rolls, keeping `roll_keep` of its speed a tick, and bursts `roll_ticks` later.
+    pub radius: f32,
+    pub reach: f32,
+    pub bounces: u32,
+    pub bounce: Bounce,
+    pub roll_keep: f32,
+    pub roll_ticks: u32,
+    /// Ticks it may fly before it bursts anyway.
+    pub lifetime: u32,
+    pub bomblets: u32,
+    pub bomblet: Bomblet,
+    /// From this level, the Heavy Bouncer's canister sweep and bomblets.
+    pub heavy: Option<Heavy>,
+}
+
+/// The Heavy Bouncer (class 0xE9E, the same update as the Bouncer's).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Heavy {
+    pub from_level: u8,
+    pub radius: f32,
+    pub bomblet: Bomblet,
+}
+
+impl Cluster {
+    /// The canister's sweep and its bomblets at `level`.
+    pub fn at(&self, level: u8) -> (f32, &Bomblet) {
+        match &self.heavy {
+            Some(heavy) if level >= heavy.from_level => (heavy.radius, &heavy.bomblet),
+            _ => (self.radius, &self.bomblet),
+        }
+    }
+}
+
+/// One of the Bouncer's bomblets.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Bomblet {
+    /// Up from the ground, in degrees, and its speed, each at random between the two.
+    pub up_degrees: (f32, f32),
+    pub speed: (f32, f32),
+    pub radius: f32,
+    pub bounce: Bounce,
+    /// Ticks it lives, at random between the two.
+    pub life: (u32, u32),
+    /// Armed this many ticks after the burst, plus its number, it bursts on the first
+    /// target with hit points within `hit_radius`.
+    pub armed_ticks: u32,
+    pub hit_radius: f32,
+}
+
+/// The Infector (0x3688E8, blob 0x3DE4F0).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Infect {
+    pub cooldown_ticks: u32,
+    /// It leaves this far below the muzzle.
+    pub below: f32,
+    pub speed: f32,
+    pub gravity: f32,
+    /// The share of its speed it keeps each tick.
+    pub drag: f32,
+    pub radius: f32,
+    pub bounce: Bounce,
+    /// Ticks it lives, at random between the two; slower than `rest_speed` it bursts.
+    pub life: (u32, u32),
+    pub rest_speed: f32,
+    /// What it touches: an enemy with `weak_health` or less is infected as it flies on;
+    /// any other target with hit points bursts it.
+    pub touch: f32,
+    pub weak_health: f32,
+    /// The burst infects the enemies within `burst_radius`, and a blast of `blast_damage`
+    /// within `blast_radius`.
+    pub burst_radius: f32,
+    pub blast_radius: f32,
+    pub blast_damage: f32,
+    pub blast_push: f32,
+    /// An infection lasts the gun's damage / the enemy's hit points × this many ticks.
+    pub infect_ticks: f32,
+    /// From this level, the Infecto-Bomb in place of the blob.
+    pub bomb: Option<InfectBomb>,
+}
+
+/// The Infecto-Bomb (0x389F58, bomb class 0x188A 0x38E3A0, burst class 0x188B 0x38EF90):
+/// lobbed (`lob_velocity`), it bursts where it first meets something, infecting every
+/// enemy within `burst_radius`, and a blast of the blob's damage within `blast_radius`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct InfectBomb {
+    pub from_level: u8,
+    pub throw: Throw,
+    pub burst_radius: f32,
+    pub blast_radius: f32,
+}
+
+/// The Disc Blade Gun (0x36EFC0, disc 0x36FA78).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Disc {
+    pub cooldown_ticks: u32,
+    pub assist: ByLevel<AimAssist>,
+    pub speed: f32,
+    /// It leaves turned this far to his side, or `side_aimed_degrees` with a target, and
+    /// curves `curve_degrees` a tick.
+    pub side_degrees: f32,
+    pub side_aimed_degrees: f32,
+    pub curve_degrees: f32,
+    pub lifetime: ByLevel<u32>,
+    /// It goes this far from the hero.
+    pub leash: f32,
+    pub radius: f32,
+    pub push: f32,
+    /// From these levels each bounce turns it at an enemy within `retarget_range`, and it
+    /// bounces off enemies too.
+    pub retarget_from: Option<u8>,
+    pub through_from: Option<u8>,
+    pub retarget_range: f32,
+    /// From this level its end is a blast of `share` of its damage within `radius`.
+    pub end_blast: Option<EndBlast>,
+    /// From this level (the Multi-Disc Gun) a bounce off an enemy may split it.
+    pub split: Option<Split>,
+}
+
+/// The Multi-Disc Gun's split (0x36FA78): bouncing off an enemy while fewer than `most`
+/// discs are out, its nth split has odds of 1 in 2^((n − 1) / 2) of a new disc, `jitter`
+/// added to each axis of its velocity a frame; the same odds again keep it going, else
+/// it ends.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Split {
+    pub from_level: u8,
+    pub most: usize,
+    pub jitter: (f32, f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct EndBlast {
+    pub from_level: u8,
+    pub radius: f32,
+    pub share: f32,
+}
+
+/// The RY3NO (0x3805B0): a volley of missiles at the targets it marks (V1's 0x382E18,
+/// later levels' 0x3DAEA8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Volley {
+    /// Shots a second; slower by `slow` from `slow_from`.
+    pub rate: f32,
+    pub slow_from: Option<u8>,
+    pub slow: f32,
+    pub missiles: ByLevel<u32>,
+    pub assist: AimAssist,
+    /// u/s, times the level's share.
+    pub speed: f32,
+    pub speed_share: ByLevel<f32>,
+    pub lifetime: ByLevel<u32>,
+    /// Each missile spirals round the line it sets off along: tilted off it a random
+    /// `tilt` (degrees, by level), its roll turning a random `spin` degrees a tick either
+    /// way.
+    pub tilt: ByLevel<(f32, f32)>,
+    pub spin: (f32, f32),
+    /// Each waits up to this many ticks (random) before it flies.
+    pub wait: ByLevel<u32>,
+    /// Within this of its target's place it also steps straight at it.
+    pub home_within: f32,
+    /// It goes, with no blast, when its time is up or it is this far from the hero.
+    pub leash: f32,
+    /// What it flies into takes the damage, pushed along its flight tipped up by this.
+    pub push_up: f32,
+    pub blast: ByLevel<RocketBlast>,
+    /// From this level the volley goes at a point `ahead` along his facing and `up`.
+    pub ahead_from: Option<u8>,
+    pub ahead: f32,
+    pub up: f32,
+}
+
+/// A RY3NO missile's burst.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RocketBlast {
+    pub radius: f32,
+    /// V1's does the splash to all but what the missile hit, pushed `push.0` out and
+    /// `push.1` up (0x383CC0); later levels' the damage to all, pushed `push.0` along its
+    /// flight (0x3DC180).
+    pub splash: bool,
+    pub push: (f32, f32),
+}
+
+/// The Spitting Hydra (0x31FB90).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hydra {
+    pub most_targets: ByLevel<usize>,
+    /// While held, it marks a target every this many ticks, and at `max_hold`.
+    pub mark_every: ByLevel<u32>,
+    pub max_hold: u32,
+    /// Let go before this, it fizzles.
+    pub tap_ticks: u32,
+    pub assist: AimAssist,
+    /// Each marked target is struck within `strike_radius` of its middle.
+    pub strike_radius: f32,
+    pub push: f32,
+    /// The bolt that strikes it (0x34DAA0) does this share of the damage again when it
+    /// goes, `bolt_ticks` later.
+    pub bolt_share: f32,
+    pub bolt_ticks: u32,
+    /// With none marked, the spit: the level's most targets of arcs reach for
+    /// `spit_ticks` to points `spit_reach` along his aim, each `spit_jitter` off it
+    /// (0x321108). At `spit_strike` ticks before the end (0x321580) each that's within
+    /// `spit_range` and meets something on the way does the damage to what it meets,
+    /// pushed `spit_push` along it, and a blast of `spit_blast` round its end.
+    pub spit_ticks: ByLevel<u32>,
+    pub spit_reach: f32,
+    pub spit_jitter: f32,
+    pub spit_strike: u32,
+    pub spit_range: f32,
+    pub spit_push: f32,
+    pub spit_blast: ByLevel<f32>,
+}
+
+/// The Rift Inducer (0x372990, rift 0x373990).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Rift {
+    pub cooldown_ticks: u32,
+    pub assist: AimAssist,
+    pub speed: (f32, f32),
+    /// The share of its speed it keeps each tick.
+    pub keep: f32,
+    pub fly_ticks: u32,
+    /// What it meets as it flies is knocked by its velocity a frame times this.
+    pub knock: f32,
+    pub open_ticks: u32,
+    pub leash: f32,
+    /// Open, it takes an enemy within `reach` whose hit points are at most `size` × 2 × the
+    /// gun's damage, pulling it in over `pull_ticks`.
+    pub reach: f32,
+    pub size: f32,
+    pub pull_ticks: u32,
+    /// From this level, the Rift Ripper's bolts.
+    pub ripper: Option<Ripper>,
+}
+
+/// The Rift Ripper (0x373990 from V5): open, each tick each enemy within its size +
+/// `reach` has a 1 in `odds` chance of a bolt (0x34DAA0) striking it for `share` of the
+/// rift's damage as it goes after `bolt_ticks`, pushed `push`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Ripper {
+    pub from_level: u8,
+    pub reach: f32,
+    pub odds: u32,
+    pub share: f32,
+    pub bolt_ticks: u32,
+    pub push: f32,
+}
+
+/// The Suck Cannon (0x3619C8), and what it fires (0x382830, its flight 0x381B98).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Suck {
+    pub capacity: ByLevel<u32>,
+    /// Every `grab_every` ticks held, balls along its vortex (how far, how big), which runs
+    /// `vortex` along its aim, take what they touch: an enemy with at most
+    /// `most_hitpoints`, or anything else with hit points; a bigger enemy takes
+    /// `grab_damage`.
+    pub grab_every: u32,
+    pub vortex: f32,
+    pub grabs: Vec<(f32, f32)>,
+    pub most_hitpoints: f32,
+    pub grab_damage: f32,
+    pub cooldown_ticks: u32,
+    pub assist: AimAssist,
+    /// u/s; with a target it is also pulled `pull` u/s at it.
+    pub speed: f32,
+    pub pull: f32,
+    /// After this it bursts in a blast of `end_radius`.
+    pub lifetime: u32,
+    pub end_radius: f32,
+    /// The line of its step, or a ball of `sweep` round it, meeting a target bursts it in
+    /// a blast of `radius` pushed by its velocity a frame times `target_push`; meeting the
+    /// world, `world_push`, or from `ricochet_from` it bounces off.
+    pub sweep: f32,
+    pub radius: f32,
+    pub target_push: f32,
+    pub world_push: f32,
+    pub ricochet_from: Option<u8>,
+}
+
+/// The Qwack-O-Ray (0x37DEB0, beam 0x37D7D8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Beam {
+    pub range: f32,
+    pub cone_degrees: f32,
+    /// Or one within `near`, `near_degrees` of his facing and `near_height` of his feet.
+    pub near: f32,
+    pub near_degrees: f32,
+    pub near_height: f32,
+    /// A new target is held at least this long.
+    pub hold_ticks: u32,
+    /// What its target becomes, by level: the enemy is gone and a duck stands there.
+    pub duck: ByLevel<Duck>,
+    /// The eggs the ducks lay (class 0x1C59, 0x3D4768, its flight 0x3D48B8).
+    pub egg: Egg,
+}
+
+/// A duck (V1–V3 class 0x1BC3, 0x3D2480, 0x3D1728; V4 class 0x189B, 0x39E5D8, 0x39DB60;
+/// the Qwack-O-Blitzer's class 0x1D3E, 0x3D8840, 0x3D7998).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Duck {
+    /// It waddles about at `speed`, turning a new way every `turn_every` ticks, until it
+    /// goes in a puff after `ticks`; with `eggs` it lays them as it goes.
+    Waddle {
+        speed: f32,
+        turn_every: (u32, u32),
+        ticks: u32,
+        eggs: bool,
+    },
+    /// It waddles, and every `look_every` ticks a `look_chance` sends it running at
+    /// `speed` at the nearest enemy, laying eggs; within `reach` of it, it blows up, a ball
+    /// of `radius` taking `share` of the damage.
+    Soldier {
+        waddle: f32,
+        speed: f32,
+        turn_every: (u32, u32),
+        look_every: u32,
+        look_chance: f32,
+        reach: f32,
+        radius: f32,
+        share: f32,
+    },
+    /// It flies with the hero, after `wait` ticks, and at an enemy within `sight` in view
+    /// at `speed`; within `reach` it pecks, a ball of `peck_radius` taking `share` of the
+    /// damage each tick, and after `pecks` it blows up, a ball of `radius` taking `share`.
+    Blitzer {
+        wait: u32,
+        sight: f32,
+        speed: f32,
+        /// Back to the hero, and about him.
+        back_speed: f32,
+        near_speed: f32,
+        /// Where it keeps: this high over him, this far behind.
+        over: f32,
+        behind: f32,
+        reach: f32,
+        peck_radius: f32,
+        pecks: u32,
+        radius: f32,
+        share: f32,
+    },
+}
+
+/// A duck's egg: laid every `every` ticks behind it, `back_degrees` either side of
+/// straight back, `up_degrees` up, at `speed`; it falls under `gravity`, bouncing, and
+/// lives `life`. An enemy within `reach` sets it off for the gun's damage, pushed `push`.
+/// From `seek_from` each bounce turns it at the nearest enemy within `seek_range`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Egg {
+    pub every: (u32, u32),
+    pub back_degrees: f32,
+    pub up_degrees: (f32, f32),
+    pub speed: (f32, f32),
+    pub height: f32,
+    pub gravity: f32,
+    pub bounce_keep: f32,
+    pub life: (u32, u32),
+    pub reach: f32,
+    pub push: f32,
+    pub seek_from: Option<u8>,
+    pub seek_range: f32,
+    pub seek_speed: f32,
+}
+
+/// The Miniturret Glove (0x346078, turret 0x32AFB0).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Turret {
+    pub deploy: Deploy,
+    pub gravity: f32,
+    /// Standing, it unfolds for `unfold_ticks`, then looks within `range` all round.
+    pub unfold_ticks: u32,
+    pub range: f32,
+    pub barrel_height: f32,
+    /// Its turn to a target: a share growing this much a tick, firing past `fire_share`.
+    pub turn_step: f32,
+    pub fire_share: f32,
+    pub rate: ByLevel<f32>,
+    pub shots: ByLevel<u32>,
+    pub speed: f32,
+    pub life_ticks: u32,
+    pub leash: f32,
+    pub push: f32,
+    /// From this level, the Megaturret's missiles and its walk back to the hero.
+    pub mega: Option<Mega>,
+}
+
+/// The Megaturret (class 0x1367, 0x32DE00): every `every_ticks` it fires a guided missile
+/// (0x3441D0, class 0xA82, its flight 0x343330) from `speed.0` gaining `accel` u/s a tick
+/// to `speed.1`, turning up to `turn_degrees` a tick after its target, living
+/// `missile_ticks`; what it meets sets it off, a ball of `blast_radius` taking the damage.
+/// When the hero is more than `beyond` away with an enemy within `beyond` of him, every
+/// `walk_every` ticks it walks at `walk_speed` to a point `round` from him.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Mega {
+    pub from_level: u8,
+    pub every_ticks: u32,
+    pub speed: (f32, f32),
+    pub accel: f32,
+    pub turn_degrees: f32,
+    pub missile_ticks: u32,
+    pub blast_radius: f32,
+    pub beyond: f32,
+    pub walk_every: (u32, u32),
+    pub round: (f32, f32),
+    pub walk_speed: f32,
+}
+
+/// How a glove throws: `throw_ticks` after the press it leaves, and the glove is ready
+/// `ready_ticks` later, at least `gap_ticks` since the last; at most `most` out at once.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Deploy {
+    pub throw: Throw,
+    pub throw_ticks: u32,
+    pub ready_ticks: u32,
+    pub gap_ticks: u32,
+    pub most: usize,
+}
+
+/// The Holo Shield Glove (0x3717A8, shield 0x376B88).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Barrier {
+    pub deploy: Deploy,
+    pub gravity: f32,
+    /// Where it lands, a ball of `land_radius` takes `land_damage`.
+    pub land_radius: f32,
+    pub land_damage: f32,
+    pub land_push: f32,
+    pub stand_ticks: u32,
+    pub fold_ticks: u32,
+    pub leash: f32,
+    pub hits: u32,
+    /// The wall it stands as: half its width, its height.
+    pub half_width: f32,
+    pub height: f32,
+    /// From this level each hit sends a bolt (0x34DAA0) at the first living enemy within
+    /// `bolt_range`, `bolt_after` ticks later, which strikes for the gun's damage as it
+    /// goes `bolt_ticks` after, pushed `bolt_push`.
+    pub bolt_from: Option<u8>,
+    pub bolt_range: f32,
+    pub bolt_after: u32,
+    pub bolt_ticks: u32,
+    pub bolt_push: f32,
+    /// From this level, in place of the bolt, its pulses.
+    pub pulse: Option<Pulse>,
+    /// From this level, while it has hits left and he is hurt, it links to everything
+    /// within `drain_reach` (0x37BB28). While an enemy is linked (0x37BDC0): every
+    /// `drain_every` ticks a linked enemy takes `drain_damage`, and with him linked and
+    /// within `heal_reach`, every `heal_every` ticks he gains a point of health for one
+    /// of its hits.
+    pub heal_from: Option<u8>,
+    pub drain_reach: f32,
+    pub drain_every: u32,
+    pub drain_damage: f32,
+    pub heal_reach: f32,
+    pub heal_every: u32,
+}
+
+/// The Ultrashield's pulses (0x372338, class 0x1869, its flight 0x371F48): every `every`
+/// ticks of a hit's `react_ticks`, one leaves at the first enemy within `range` it can
+/// see, for `share` of the damage, gaining `accel` u/s a tick; it strikes the first thing
+/// it meets, pushed `push` along its way, and fades over its last ticks from `fade_from`
+/// to `ticks`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Pulse {
+    pub from_level: u8,
+    pub react_ticks: u32,
+    pub every: u32,
+    pub range: f32,
+    pub share: f32,
+    pub accel: f32,
+    pub fade_from: u32,
+    pub ticks: u32,
+    pub push: f32,
+}
+
+/// The Agents of Doom (0x35C9F0, pod 0x35CEC8, agent 0x3BD298).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Agents {
+    pub deploy: Deploy,
+    pub gravity: f32,
+    pub per_pod: u32,
+    /// From this level they come to the hero at once instead of from a pod.
+    pub direct_from: Option<u8>,
+    /// Out from where they are let out, along his facing and sideways.
+    pub spread: f32,
+    pub speed: f32,
+    pub sight: f32,
+    /// It ends when a ball of `touch`, `touch_height` above its feet, touches its target,
+    /// when it is within `reach` of the target's feet, or `chase_ticks` into the chase;
+    /// with no target it comes back to within `follow` of the hero.
+    pub touch: f32,
+    pub touch_height: f32,
+    pub reach: f32,
+    pub chase_ticks: u32,
+    pub follow: f32,
+    /// It also ends `life_ticks` after it comes out, or this far from the hero.
+    pub life_ticks: u32,
+    pub leash: f32,
+    /// How it ends, by level (0x3C2140).
+    pub end: ByLevel<AgentEnd>,
+}
+
+/// How an agent ends (0x3C2140).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AgentEnd {
+    /// A blast of the gun's damage within `radius`, pushed `push` out.
+    Blast { radius: f32, push: f32 },
+    /// A comet (0x395480, class 0x1893, its flight 0x394068) at a random `speed` u/s at
+    /// the target, else along his facing, living `life` ticks; what it meets is struck by
+    /// a blast of the gun's damage within `radius`, pushed `push` out.
+    Comet {
+        speed: (f32, f32),
+        life: u32,
+        radius: f32,
+        push: f32,
+    },
+    /// The Agents of Dread's blast (0x3914C0, class 0x188F): it grows to `radius` over
+    /// `ticks`, striking what it reaches, pushed `push` out.
+    Grow { radius: f32, ticks: u32, push: f32 },
+}
+
+/// The Shield Charger (0x3410E8, firing 0x340DD0).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShieldCharger {
+    /// Its points at each level.
+    pub points: ByLevel<f32>,
+    /// While it is up, every `zap_ticks` a ball of `zap_radius`, `height` above his feet,
+    /// strikes the enemies touching it.
+    pub height: f32,
+    pub zap_ticks: u32,
+    pub zap_radius: f32,
+    pub push: f32,
+    /// From this level, in place of the zaps, the Tesla Barrier's bolts.
+    pub tesla: Option<Tesla>,
+}
+
+/// The Tesla Barrier (0x3410E8 from V5): a tick at a time, while fewer than `most` bolts
+/// are out, a new one (0x34DAA0) strikes an enemy within `reach` that has none, for the
+/// damage as it goes after a random `bolt_ticks`, pushed `push`; after `bolts` bolts the
+/// shield goes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Tesla {
+    pub from_level: u8,
+    pub most: usize,
+    pub reach: f32,
+    pub bolt_ticks: (u32, u32),
+    pub push: f32,
+    pub bolts: u32,
+}
+
+/// The Plasma Whip (0x356110): the wrench's moves on the fire button, hitting along a
+/// rope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Whip {
+    /// The rope: `links` links, each the stretch long (swings 1 and 2, swing 3, the jump
+    /// attack, the throw).
+    pub links: u32,
+    pub stretch: (f32, f32, f32, f32),
+    /// It hits from these ticks into the combo and the jump attack.
+    pub combo_from: u32,
+    pub jump_from: u32,
+    pub push: f32,
+    pub lift: f32,
+    /// From this level the jump attack's shock wave.
+    pub wave: Option<Wave>,
+    /// From this level the combo's cutting waves.
+    pub cut: Option<Cut>,
+}
+
+/// The Quantum Whip's cutting wave (class 0x1CB8, 0x3D6578, its flight 0x3D6740).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Cut {
+    pub from_level: u8,
+    /// It leaves `at_ticks` into swings 1, 2 and 3, along his facing turned by `turns`
+    /// degrees, at `speed`, living `ticks`.
+    pub at_ticks: [u32; 3],
+    pub turns: [f32; 3],
+    pub speed: f32,
+    pub ticks: u32,
+    /// Each tick the line across it, `width` long, strikes what it crosses for the damage,
+    /// pushed by its velocity a frame times `push`.
+    pub width: f32,
+    pub push: f32,
+}
+
+/// The Plasma Whip's shock wave (class 0x1890, 0x393690).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Wave {
+    pub from_level: u8,
+    /// It leaves `at_tick` into the jump attack, along his facing at `speed`, living
+    /// `ticks`; from `first` every `every` ticks a ray `probe` down from where it was
+    /// `behind` ticks before finds the ground, and a ball of `radius` there takes `share`
+    /// of the damage.
+    pub at_tick: u32,
+    pub speed: f32,
+    pub ticks: u32,
+    pub first: u32,
+    pub every: u32,
+    pub behind: u32,
+    pub probe: f32,
+    pub radius: f32,
+    pub share: f32,
+    pub push: f32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,16 +1195,37 @@ mod tests {
                 "Nitro Launcher",
                 "Lava Gun",
                 "Annihilator",
-                "Flux Rifle"
+                "Flux Rifle",
+                "Infector",
+                "Spitting Hydra",
+                "Disc Blade Gun",
+                "Agents of Doom",
+                "Rift Inducer",
+                "Holo Shield Glove",
+                "Plasma Whip",
+                "Suck Cannon",
+                "Qwack-O-Ray",
+                "RY3NO",
+                "Plasma Coil",
+                "Bouncer",
+                "Miniturret Glove",
+                "Shield Charger",
             ]
         );
         for weapon in &armory.weapons {
-            assert_eq!(weapon.levels.len(), 8, "{}", weapon.name);
+            // The RY3NO has V1 to V5 only.
+            let levels = if weapon.name == "RY3NO" { 5 } else { 8 };
+            assert_eq!(weapon.levels.len(), levels, "{}", weapon.name);
             // V5 and Omega end their chains; Mega is bought.
             assert_eq!(weapon.level(4).xp, 0, "{}", weapon.name);
             assert_eq!(weapon.level(7).xp, 0, "{}", weapon.name);
         }
         assert_eq!(armory.find("Flux Rifle"), Some(WeaponId(5)));
+        // Each game item is one gun.
+        let mut items: Vec<u16> = armory.weapons.iter().map(|w| w.item).collect();
+        items.sort_unstable();
+        items.dedup();
+        assert_eq!(items.len(), armory.weapons.len());
     }
 
     #[test]

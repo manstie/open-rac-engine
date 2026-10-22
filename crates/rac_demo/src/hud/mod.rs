@@ -1,13 +1,13 @@
 //! The demo's HUD (PLAN.md P1.12) and its quick-select ring on screen (P1.9): a hero's
-//! nanotech and bolts; the gun in his hand, or dimmed the one the fire button brings out,
-//! with its name at its level, its tier, ammo and XP; warnings when its ammo runs low or
-//! out, a flash when ammo goes up, a notice when a gun levels up; and the ring while it is
-//! open.
+//! nanotech and bolts; the gun in his hand with its name at its level, its tier, ammo and
+//! XP, and the next two of his recent guns; a flash when ammo goes up, a notice when a gun
+//! levels up; and the ring while it is open.
 //!
 //! The HUD only shows the simulation, so it runs in `Update`. Each frame plain functions
-//! work out a [`HudView`] from a hero's components ([`hud_view`]), and the screen follows
-//! it. The layout, timings and each gun's icon come from `assets/hud.ron` ([`HudLayout`]);
-//! the icons are coloured shapes with letters, the demo's own.
+//! work out a [`HudView`] from a hero's components ([`hud_view`]), its [`HudClock`] says
+//! which parts show by UYA's timings (`weapons.md`, "The HUD"), and the screen follows.
+//! The layout, timings and each gun's icon come from `assets/hud.ron` ([`HudLayout`]); the
+//! layout and icons, coloured shapes with letters, are the demo's own.
 //!
 //! Each player's HUD is a tree of its own under a [`PlayerHud`] root covering the screen
 //! ([`spawn_hud`]), so a second player's can be given its share of the screen later.
@@ -15,9 +15,11 @@
 use std::collections::BTreeMap;
 use std::f32::consts::{FRAC_PI_4, TAU};
 
+pub mod clock;
+
 use bevy::{math::ops, prelude::*};
 use rac_combat::{
-    Armory, Arsenal, GunEvent, GunEventKind, WeaponId,
+    Armory, Arsenal, Destroyed, GunEvent, GunEventKind, WeaponId,
     weapons::{
         FireMode, Hand, WeaponDef,
         ring::{RINGS, SLOTS},
@@ -27,9 +29,10 @@ use rac_hero::{Health, Hero};
 use serde::{Deserialize, Serialize};
 
 use crate::{Bolts, DemoEntity};
+pub use clock::{BoltCount, HudClock, HudTimings, Seen, Showing};
 
 /// The bundled layout.
-pub const HUD_RON: &str = include_str!("../assets/hud.ron");
+pub const HUD_RON: &str = include_str!("../../assets/hud.ron");
 
 /// The levels' names, V1 to Omega.
 const TIERS: [&str; 8] = ["V1", "V2", "V3", "V4", "V5", "Mega", "Giga", "Omega"];
@@ -52,17 +55,18 @@ pub struct HudLayout {
     pub small_size: f32,
     /// Behind each group of parts.
     pub panel: Rgba,
-    /// How bright the gun the fire button brings out is drawn while the wrench is out.
+    /// How bright a gun out of ammo is drawn in the ring, and the gun shown a moment after
+    /// it goes away.
     pub dimmed: f32,
+    /// When the parts show, UYA's.
+    #[serde(default)]
+    pub timings: HudTimings,
     pub health: HealthLayout,
     pub bolts: BoltsLayout,
     pub gun: GunLayout,
-    /// At or below this share of its most, a gun's ammo is low.
-    pub low_ammo: f32,
-    pub low_colour: Rgb,
+    /// What low health and low ammo pulse to, and an empty gun's count in the ring.
+    pub pulse_colour: Rgb,
     pub empty_colour: Rgb,
-    /// Blinks a second of the ammo warning.
-    pub warning_blink: f32,
     /// Ammo going up lights the count for this long.
     pub ammo_flash_seconds: f32,
     pub ammo_flash_colour: Rgb,
@@ -86,9 +90,6 @@ pub struct HealthLayout {
     pub most_pips: u32,
     pub full: Rgb,
     pub lost: Rgb,
-    /// At or below this much health the pips turn `low_colour`.
-    pub low: u32,
-    pub low_colour: Rgb,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,6 +97,9 @@ pub struct BoltsLayout {
     pub icon: f32,
     pub colour: Rgb,
     pub size: f32,
+    /// The tally of changes not yet rolled in: gains and losses.
+    pub gain: Rgb,
+    pub loss: Rgb,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +111,9 @@ pub struct GunLayout {
     pub xp: (f32, f32),
     pub xp_colour: Rgb,
     pub xp_back: Rgb,
+    /// The next two recent guns beneath: their icons' size and brightness.
+    pub recent: f32,
+    pub recent_alpha: f32,
 }
 
 /// The quick-select ring round the middle of the screen.
@@ -168,12 +175,24 @@ impl HudLayout {
     /// How `def` is drawn: its own colour and letters, in its fire mode's shape. A gun
     /// missing from the layout is grey, with its name's initials.
     pub fn icon(&self, def: &WeaponDef) -> (Shape, Rgb, String) {
+        // The other guns take the shape of the archetype nearest how they fire.
         let by_mode = match def.fire {
-            FireMode::Hitscan(_) => self.shapes.hitscan,
-            FireMode::Projectile(_) => self.shapes.projectile,
-            FireMode::Lobbed(_) => self.shapes.lobbed,
-            FireMode::Stream(_) => self.shapes.stream,
-            FireMode::Homing(_) => self.shapes.homing,
+            FireMode::Hitscan(_) | FireMode::Beam(_) => self.shapes.hitscan,
+            FireMode::Projectile(_) | FireMode::Rift(_) => self.shapes.projectile,
+            FireMode::Lobbed(_)
+            | FireMode::Cluster(_)
+            | FireMode::Infect(_)
+            | FireMode::Turret(_)
+            | FireMode::Barrier(_)
+            | FireMode::Agents(_) => self.shapes.lobbed,
+            FireMode::Stream(_) | FireMode::Suck(_) | FireMode::Shield(_) | FireMode::Whip(_) => {
+                self.shapes.stream
+            }
+            FireMode::Homing(_)
+            | FireMode::Coil(_)
+            | FireMode::Disc(_)
+            | FireMode::Volley(_)
+            | FireMode::Hydra(_) => self.shapes.homing,
         };
         match self.icons.get(&def.name) {
             Some(icon) => (
@@ -234,6 +253,7 @@ pub struct GunView {
     pub weapon: WeaponId,
     /// Its name at its level (`WeaponDef::name_at`).
     pub name: String,
+    pub level: u8,
     pub tier: &'static str,
     /// In his hand or coming out; otherwise the wrench is out and this is the gun the fire
     /// button brings out, drawn dimmed.
@@ -253,6 +273,8 @@ pub struct RingView {
     /// Slot 0 at the top, the rest clockwise.
     pub slots: [Option<GunView>; SLOTS],
     pub highlighted: Option<usize>,
+    /// How far open it is, 0 to 1: it fades in as it opens and out as it closes.
+    pub shown: f32,
 }
 
 /// Everything one player's HUD shows.
@@ -261,7 +283,10 @@ pub struct HudView {
     /// Health now and its most.
     pub health: Option<(u32, u32)>,
     pub bolts: Option<u32>,
+    /// The gun in his hand or coming out, else the one the fire button brings out.
     pub gun: Option<GunView>,
+    /// The next two of his recent guns, after the one shown.
+    pub recent: [Option<WeaponId>; 2],
     pub ring: Option<RingView>,
 }
 
@@ -297,16 +322,18 @@ pub fn gun_view(
 ) -> Option<GunView> {
     let def = armory.get(weapon)?;
     let gun = arsenal.gun(weapon)?;
-    let most = def.level(gun.level).ammo;
+    // The Suck Cannon's ammo is what it holds.
+    let (now, most) = match &def.fire {
+        FireMode::Suck(fire) => (arsenal.sucked, fire.capacity.at(gun.level).unwrap_or(0)),
+        _ => (gun.ammo, def.level(gun.level).ammo),
+    };
     Some(GunView {
         weapon,
         name: def.name_at(gun.level).to_owned(),
+        level: gun.level,
         tier: tier(gun.level),
         in_hand,
-        ammo: (most > 0).then_some(Ammo {
-            now: gun.ammo,
-            most,
-        }),
+        ammo: (most > 0).then_some(Ammo { now, most }),
         xp: xp_progress(def, gun.level, gun.xp, armory.rules.bought_level),
     })
 }
@@ -332,7 +359,13 @@ pub fn ring_view(arsenal: &Arsenal, armory: &Armory) -> Option<RingView> {
         slots: arsenal.quick.rings[ring]
             .map(|slot| slot.and_then(|weapon| gun_view(arsenal, armory, weapon, true))),
         highlighted: open.highlighted,
+        shown: f32::from(open.shown) / f32::from(armory.rules.ring.open_ticks.max(1)),
     })
+}
+
+/// The next two of his recent guns after the one shown (`recent_guns[1]` and `[2]`).
+pub fn recent_view(arsenal: &Arsenal) -> [Option<WeaponId>; 2] {
+    [1, 2].map(|index| arsenal.recent.get(index).copied())
 }
 
 /// What one hero's HUD shows.
@@ -346,8 +379,14 @@ pub fn hud_view(
         health: health.map(|health| (health.current, health.max)),
         bolts: bolts.map(|bolts| bolts.0),
         gun: arsenal.and_then(|arsenal| shown_gun(arsenal, armory)),
+        recent: arsenal.map_or([None; 2], recent_view),
         ring: arsenal.and_then(|arsenal| ring_view(arsenal, armory)),
     }
+}
+
+/// A level as the ring labels it: V1 to V8.
+pub fn ring_tier(level: u8) -> String {
+    format!("V{}", u32::from(level) + 1)
 }
 
 /// The health pips to draw and how many are lit: a pip a point up to `most_pips`; past
@@ -359,6 +398,27 @@ pub fn health_pips(current: u32, max: u32, most_pips: u32) -> (u32, u32) {
     }
     let lit = (u64::from(current.min(max)) * u64::from(pips)).div_ceil(u64::from(max));
     (pips, lit as u32)
+}
+
+/// How strongly an ammo count pulses now: by `pulse` under `low_share` of its most.
+pub fn ammo_pulse(ammo: Ammo, low_share: f32, pulse: f32) -> f32 {
+    if (ammo.now as f32) < ammo.most as f32 * low_share {
+        pulse
+    } else {
+        0.0
+    }
+}
+
+/// The tally beside the bolt count: +N or −N, empty for none.
+pub fn tally(count: BoltCount) -> String {
+    match count.tally {
+        0 => String::new(),
+        gain if gain > 0 => format!("+{}", grouped(gain as u32)),
+        loss => format!(
+            "\u{2212}{}",
+            grouped(loss.unsigned_abs().min(u64::from(u32::MAX)) as u32)
+        ),
+    }
 }
 
 /// Whether the ammo shown went up since it was last seen: the same gun, with more.
@@ -390,7 +450,7 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudLayout>()
-            .add_systems(Update, (note_level_ups, draw_huds).chain());
+            .add_systems(Update, (note_level_ups, note_kills, draw_huds).chain());
     }
 }
 
@@ -404,6 +464,10 @@ pub struct PlayerHud {
     flash: f32,
     /// A level up on screen, and its seconds left.
     notice: Option<(String, f32)>,
+    /// When the parts show.
+    clock: HudClock,
+    /// He killed something since the last frame.
+    killed: bool,
 }
 
 impl PlayerHud {
@@ -413,6 +477,8 @@ impl PlayerHud {
             seen_ammo: None,
             flash: 0.0,
             notice: None,
+            clock: HudClock::default(),
+            killed: false,
         }
     }
 }
@@ -431,6 +497,7 @@ enum Part {
     HealthCount,
     Bolts,
     BoltsCount,
+    BoltsTally,
     Gun,
     GunShape,
     GunMark,
@@ -438,9 +505,12 @@ enum Part {
     Ammo,
     XpBar,
     XpFill,
-    Warning,
+    Recent,
+    RecentShape(usize),
+    RecentMark(usize),
     Notice,
     Ring,
+    RingBack,
     RingLabel,
     Slot(usize),
     SlotShape(usize),
@@ -590,6 +660,10 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
                             part(Part::BoltsCount),
                             label("0", layout.bolts.size, rgb(layout.bolts.colour)),
                         ));
+                        bolts.spawn((
+                            part(Part::BoltsTally),
+                            label("", layout.small_size, rgb(layout.bolts.gain)),
+                        ));
                     });
 
                 let gun = &layout.gun;
@@ -637,7 +711,25 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
                                     });
                             });
                     });
-                column.spawn((part(Part::Warning), label("", layout.text_size, text)));
+                column
+                    .spawn((
+                        part(Part::Recent),
+                        Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: px(6),
+                            ..default()
+                        },
+                    ))
+                    .with_children(|row| {
+                        for index in 0..2 {
+                            icon_box(
+                                row,
+                                gun.recent,
+                                part(Part::RecentShape(index)),
+                                part(Part::RecentMark(index)),
+                            );
+                        }
+                    });
                 column.spawn((part(Part::Notice), label("", layout.text_size, text)));
             });
 
@@ -657,6 +749,7 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
             .with_children(|centre| {
                 let reach = ring.radius + ring.slot * 0.8;
                 centre.spawn((
+                    part(Part::RingBack),
                     Node {
                         position_type: PositionType::Absolute,
                         left: px(-reach),
@@ -738,10 +831,20 @@ fn note_level_ups(
     }
 }
 
+/// Marks each player who killed something, which keeps his health up a while.
+fn note_kills(mut kills: MessageReader<Destroyed>, mut huds: Query<&mut PlayerHud>) {
+    for kill in kills.read() {
+        for mut hud in huds.iter_mut().filter(|hud| hud.player == kill.player) {
+            hud.killed = true;
+        }
+    }
+}
+
 /// One player's view this frame, with the HUD's own timers.
 struct Shown {
     player: usize,
     view: HudView,
+    showing: Showing,
     /// The ammo flash's share left, 1 to 0.
     flash: f32,
     notice: Option<(String, f32)>,
@@ -776,6 +879,14 @@ fn draw_huds(
             continue;
         };
         let view = hud_view(arsenal, &armory, health, bolts);
+        let seen = Seen {
+            gun_out: arsenal.is_some_and(|arsenal| arsenal.hand != Hand::Wrench),
+            health: view.health,
+            bolts: view.bolts,
+            ring: view.ring.is_some(),
+            killed: std::mem::take(&mut hud.killed),
+        };
+        let showing = hud.clock.tick(seen, seconds, &layout.timings);
         let ammo = view
             .gun
             .as_ref()
@@ -796,11 +907,11 @@ fn draw_huds(
         shown.push(Shown {
             player: hud.player,
             view,
+            showing,
             flash: hud.flash / layout.ammo_flash_seconds.max(1e-3),
             notice: hud.notice.clone(),
         });
     }
-    let blink_on = (time.elapsed_secs() * layout.warning_blink).fract() < 0.65;
 
     for (part, mut node, mut visibility, mut background, mut border, mut transform, text, colour) in
         &mut parts
@@ -814,29 +925,43 @@ fn draw_huds(
             colour,
         };
         let view = &shown.view;
+        let showing = &shown.showing;
+        let pulsing = |colour: Rgb| {
+            let pulse = showing.health_pulse.unwrap_or(0.0);
+            rgb(colour).mix(&rgb(layout.pulse_colour), pulse)
+        };
         match part.part {
-            Part::Health => look.show(view.health.is_some()),
+            Part::Health => look.show(showing.health),
             Part::Pip(pip) => {
                 let (current, max) = view.health.unwrap_or((0, 0));
                 let health = &layout.health;
                 let (pips, lit) = health_pips(current, max, health.most_pips);
                 look.show(pip < pips);
                 let colour = if pip >= lit {
-                    health.lost
-                } else if current <= health.low {
-                    health.low_colour
+                    rgb(health.lost)
                 } else {
-                    health.full
+                    pulsing(health.full)
                 };
-                background.set_if_neq(BackgroundColor(rgb(colour)));
+                background.set_if_neq(BackgroundColor(colour));
             }
             Part::HealthCount => {
                 let (current, max) = view.health.unwrap_or((0, 0));
                 look.text(&format!("{current}/{max}"));
+                look.colour(pulsing(layout.text));
             }
-            Part::Bolts => look.show(view.bolts.is_some()),
-            Part::BoltsCount => look.text(&grouped(view.bolts.unwrap_or(0))),
-            Part::Gun => look.show(view.gun.is_some()),
+            Part::Bolts => look.show(showing.bolts),
+            Part::BoltsCount => look.text(&grouped(showing.count.shown)),
+            Part::BoltsTally => {
+                let count = showing.count;
+                look.text(&tally(count));
+                let colour = if count.tally < 0 {
+                    layout.bolts.loss
+                } else {
+                    layout.bolts.gain
+                };
+                look.colour(rgb(colour).with_alpha(count.tally_alpha));
+            }
+            Part::Gun => look.show(showing.gun && view.gun.is_some()),
             Part::GunShape | Part::GunMark => {
                 let Some(gun) = &view.gun else {
                     continue;
@@ -873,12 +998,10 @@ fn draw_huds(
                 };
                 look.show(true);
                 look.text(&format!("{}/{}", ammo.now, ammo.most));
-                let warned = match ammo.warning(layout.low_ammo) {
-                    AmmoWarning::None => layout.text,
-                    AmmoWarning::Low => layout.low_colour,
-                    AmmoWarning::Empty => layout.empty_colour,
-                };
-                let colour = rgb(warned).mix(&rgb(layout.ammo_flash_colour), shown.flash);
+                let pulse = ammo_pulse(ammo, layout.timings.low_share, showing.pulse);
+                let colour = rgb(layout.text)
+                    .mix(&rgb(layout.pulse_colour), pulse)
+                    .mix(&rgb(layout.ammo_flash_colour), shown.flash);
                 let alpha = if gun.in_hand { 1.0 } else { layout.dimmed };
                 look.colour(colour.with_alpha(alpha));
             }
@@ -890,20 +1013,28 @@ fn draw_huds(
                     node.width = width;
                 }
             }
-            Part::Warning => {
-                let warning = view
-                    .gun
-                    .as_ref()
-                    .and_then(|gun| gun.ammo)
-                    .map_or(AmmoWarning::None, |ammo| ammo.warning(layout.low_ammo));
-                let (words, colour) = match warning {
-                    AmmoWarning::None => ("", layout.text),
-                    AmmoWarning::Low => ("Low ammo", layout.low_colour),
-                    AmmoWarning::Empty => ("Out of ammo", layout.empty_colour),
+            Part::Recent => look.show(showing.gun && view.gun.is_some()),
+            Part::RecentShape(index) | Part::RecentMark(index) => {
+                let Some(weapon) = view.recent[index] else {
+                    look.show(false);
+                    continue;
                 };
-                look.show(warning != AmmoWarning::None && blink_on);
-                look.text(words);
-                look.colour(rgb(colour));
+                look.show(true);
+                let icon = IconLook::of(&layout, &armory, weapon);
+                let alpha = layout.gun.recent_alpha;
+                if matches!(part.part, Part::RecentShape(_)) {
+                    icon.paint(
+                        layout.gun.recent,
+                        alpha,
+                        &mut node,
+                        &mut background,
+                        &mut border,
+                        &mut transform,
+                    );
+                } else {
+                    look.text(&icon.mark);
+                    look.colour(icon.mark_colour().with_alpha(alpha));
+                }
             }
             Part::Notice => match &shown.notice {
                 Some((words, left)) => {
@@ -915,6 +1046,13 @@ fn draw_huds(
                 None => look.show(false),
             },
             Part::Ring => look.show(view.ring.is_some()),
+            Part::RingBack => {
+                let Some(ring) = &view.ring else {
+                    continue;
+                };
+                let [r, g, b, a] = layout.ring.back;
+                background.set_if_neq(BackgroundColor(rgba([r, g, b, a * ring.shown])));
+            }
             Part::RingLabel => {
                 let Some(ring) = &view.ring else {
                     continue;
@@ -926,9 +1064,21 @@ fn draw_huds(
                         let ammo = gun.ammo.map_or(String::new(), |ammo| {
                             format!("\n{}/{}", ammo.now, ammo.most)
                         });
-                        format!("\n{} {}{ammo}", gun.name, gun.tier)
+                        format!("\n{} {}{ammo}", gun.name, ring_tier(gun.level))
                     });
                 look.text(&format!("Ring {} of {}{chosen}", ring.ring + 1, ring.rings));
+                // Red while the gun picked is out of ammo.
+                let empty = ring
+                    .highlighted
+                    .and_then(|slot| ring.slots[slot].as_ref())
+                    .and_then(|gun| gun.ammo)
+                    .is_some_and(|ammo| ammo.now == 0);
+                let colour = if empty {
+                    layout.empty_colour
+                } else {
+                    layout.text
+                };
+                look.colour(rgb(colour).with_alpha(ring.shown));
             }
             Part::Slot(slot) => {
                 let Some(ring) = &view.ring else {
@@ -940,7 +1090,9 @@ fn draw_huds(
                 } else {
                     layout.ring.edge
                 };
-                border.set_if_neq(BorderColor::all(rgb(edge)));
+                border.set_if_neq(BorderColor::all(rgb(edge).with_alpha(ring.shown)));
+                let [r, g, b, a] = layout.ring.slot_back;
+                background.set_if_neq(BackgroundColor(rgba([r, g, b, a * ring.shown])));
                 let scale = if lit {
                     layout.ring.highlight_scale
                 } else {
@@ -963,7 +1115,7 @@ fn draw_huds(
                     layout.dimmed
                 } else {
                     1.0
-                };
+                } * view.ring.as_ref().map_or(1.0, |ring| ring.shown);
                 let icon = IconLook::of(&layout, &armory, gun.weapon);
                 if matches!(part.part, Part::SlotShape(_)) {
                     icon.paint(
@@ -1085,5 +1237,93 @@ impl IconLook {
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(BorderColor::all(edge));
         transform.set_if_neq(UiTransform::from_rotation(Rot2::radians(turn)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arsenal(armory: &Armory, names: &[&str]) -> Arsenal {
+        let mut arsenal = Arsenal::default();
+        for name in names {
+            arsenal.give(armory.find(name).unwrap(), armory);
+        }
+        arsenal
+    }
+
+    #[test]
+    fn the_bundled_layout_parses_with_uyas_timings() {
+        let layout: HudLayout = ron::from_str(HUD_RON).unwrap();
+        let timings = layout.timings;
+        let uya = HudTimings::default();
+        for (bundled, game) in [
+            (timings.gun_after, uya.gun_after),
+            (timings.health_after_kill, uya.health_after_kill),
+            (timings.health_after_change, uya.health_after_change),
+            (timings.bolts_after, uya.bolts_after),
+            (timings.pulse, uya.pulse),
+            (timings.tally_wait, uya.tally_wait),
+        ] {
+            assert!((bundled - game).abs() < 1e-3, "{bundled} against {game}");
+        }
+        assert_eq!(timings.low_share, 0.15);
+    }
+
+    #[test]
+    fn the_bolt_tally_reads_plus_or_minus_with_thousands_apart() {
+        let count = |tally| BoltCount {
+            shown: 0,
+            tally,
+            tally_alpha: 1.0,
+        };
+        assert_eq!(tally(count(0)), "");
+        assert_eq!(tally(count(1250)), "+1,250");
+        assert_eq!(tally(count(-40)), "\u{2212}40");
+    }
+
+    #[test]
+    fn ammo_pulses_only_under_15_percent_and_the_ring_labels_v1_to_v8() {
+        let low = Ammo { now: 2, most: 40 };
+        let fine = Ammo { now: 6, most: 40 };
+        assert_eq!(ammo_pulse(low, 0.15, 0.7), 0.7);
+        assert_eq!(ammo_pulse(fine, 0.15, 0.7), 0.0);
+        assert_eq!(ring_tier(0), "V1");
+        assert_eq!(ring_tier(7), "V8");
+        assert_eq!(tier(7), "Omega");
+    }
+
+    #[test]
+    fn the_hud_shows_the_next_two_recent_guns_and_the_ring_as_it_opens() {
+        let armory = Armory::uya();
+        let mut arsenal = arsenal(&armory, &["N60 Storm", "Lava Gun", "Annihilator"]);
+        assert_eq!(recent_view(&arsenal), [None, None]);
+        let lava = armory.find("Lava Gun").unwrap();
+        let annihilator = armory.find("Annihilator").unwrap();
+        arsenal.choose(lava, &armory);
+        arsenal.choose(annihilator, &armory);
+        let n60 = armory.find("N60 Storm").unwrap();
+        assert_eq!(recent_view(&arsenal), [Some(lava), Some(n60)]);
+
+        assert_eq!(ring_view(&arsenal, &armory), None);
+        let rules = armory.rules.ring;
+        arsenal.quick.open = Some(rac_combat::weapons::ring::OpenRing {
+            highlighted: Some(1),
+            shown: 4,
+            ..Default::default()
+        });
+        let ring = ring_view(&arsenal, &armory).unwrap();
+        assert_eq!(ring.shown, 4.0 / f32::from(rules.open_ticks));
+        assert_eq!(ring.slots[1].as_ref().map(|gun| gun.weapon), Some(lava));
+        assert_eq!(ring.highlighted, Some(1));
+    }
+
+    #[test]
+    fn health_pips_stand_for_points_then_shares() {
+        assert_eq!(health_pips(7, 10, 20), (10, 7));
+        assert_eq!(health_pips(0, 10, 20), (10, 0));
+        // 40 points on 20 pips: a pip lit while any of its two points is left.
+        assert_eq!(health_pips(3, 40, 20), (20, 2));
+        assert_eq!(health_pips(5, 0, 20), (0, 0));
     }
 }

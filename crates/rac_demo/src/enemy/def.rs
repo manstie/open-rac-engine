@@ -177,10 +177,6 @@ pub struct DropTable {
     /// The chance of a nanotech orb, which heals `nanotech`.
     pub nanotech_chance: f32,
     pub nanotech: u32,
-    /// The chance of an ammo pickup for a gun of the hero who killed it
-    /// (`rac_combat::pickups::ammo_for`).
-    #[serde(default)]
-    pub ammo_chance: f32,
 }
 
 #[cfg(test)]

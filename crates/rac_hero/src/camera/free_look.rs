@@ -7,14 +7,20 @@
 //! go; the mouse turns it directly. The camera sits at the hero's eye in first person, or
 //! `offset` behind it along the view in lock-strafe, both from last tick's eye, as in the
 //! games, so it is rigid behind him with no lag or drag.
+//!
+//! With UYA's aim assist (`FreeLookAssist`; `camera.md`, "The free-look camera", items 2
+//! and 4 to 6), a target near the middle of the view slows the stick's turn, delays and
+//! softens the quick turn, catches a hard push towards it for a few ticks, and is kept in
+//! view while he moves. It is the stick's: a player turning with the mouse aims for
+//! himself, as with lock-on (PLAN.md §5, 2026-10-22).
 
-use super::{approach, ease_to, look_rotation, view_direction, wrap};
+use super::{approach, ease_to, look_rotation, view_angles, view_direction, wrap};
 use crate::{
     collision::CollisionWorld,
     controller::{HeroMotion, HeroState, JumpKind},
-    profile::FreeLookProfile,
+    profile::{FreeLookAssist, FreeLookProfile},
 };
-use bevy::prelude::*;
+use bevy::{math::ops, prelude::*};
 use std::f32::consts::FRAC_PI_2;
 
 /// The games' camera mode for the hero (`hero_camera_mode`).
@@ -26,6 +32,29 @@ pub(super) enum EyeMode {
     FirstPerson,
 }
 
+/// What the aim assist sees this tick.
+pub(super) struct Aim<'a> {
+    /// The targets' middles, in a fixed order.
+    pub targets: &'a [(Entity, Vec3)],
+    /// His velocity (u/s) and the tick's length, for keeping a target in view.
+    pub velocity: Vec3,
+    pub tick: f32,
+    /// Either stick is pushed.
+    pub pushed: bool,
+    pub world: &'a dyn CollisionWorld,
+}
+
+/// The aim assist's target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Aimed {
+    entity: Entity,
+    at: Vec3,
+    /// How far it moved since last tick, while it was the target then too.
+    moved: Vec3,
+    /// 1 dead ahead or under the view's ray, 0 at the cone's edge.
+    weight: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct FreeLook {
     pub mode: EyeMode,
@@ -35,8 +64,18 @@ pub(super) struct FreeLook {
     /// Radians a tick; positive turns right and looks up.
     yaw_speed: f32,
     pitch_speed: f32,
-    /// Ticks running with the stick past the quick turn's threshold.
+    /// Ticks running with the stick past the quick turn's threshold, and whether the
+    /// quick turn is on.
     quick_ticks: u32,
+    quick: bool,
+    /// The aim assist's target, and the push towards it held for `snap_ticks` more.
+    target: Option<Aimed>,
+    snap_ticks: u32,
+    snap_input: f32,
+    /// The mouse turned the view last, rather than the stick: no aim assist.
+    mouse_aims: bool,
+    /// Where the camera was last placed, which the assist looks from.
+    camera: Vec3,
     /// Radians the view may look down and up.
     down_limit: f32,
     up_limit: f32,
@@ -62,6 +101,12 @@ impl FreeLook {
             yaw_speed: 0.0,
             pitch_speed: 0.0,
             quick_ticks: 0,
+            quick: false,
+            target: None,
+            snap_ticks: 0,
+            snap_input: 0.0,
+            mouse_aims: false,
+            camera: hero.position + Vec3::Y * profile.eye_lock_strafe,
             down_limit: 0.0,
             up_limit: 0.0,
             eye_height: profile.eye_lock_strafe,
@@ -83,6 +128,8 @@ impl FreeLook {
         self.yaw_speed = 0.0;
         self.pitch_speed = 0.0;
         self.quick_ticks = 0;
+        self.quick = false;
+        self.snap_ticks = 0;
         self.pitch = self.pitch.clamp(-self.down_limit, self.up_limit);
         self.set_limits(profile);
     }
@@ -119,8 +166,16 @@ impl FreeLook {
     }
 
     /// One tick of turning. `stick` is the look stick after the pad's dead zone (x right,
-    /// y up), `mouse` the mouse's turn in radians, `speed` the camera-speed option.
-    pub fn turn(&mut self, stick: Vec2, mouse: Vec2, speed: f32, profile: &FreeLookProfile) {
+    /// y up), `mouse` the mouse's turn in radians, `speed` the camera-speed option, `aim`
+    /// what the aim assist sees, if the game has one.
+    pub fn turn(
+        &mut self,
+        stick: Vec2,
+        mouse: Vec2,
+        speed: f32,
+        profile: &FreeLookProfile,
+        aim: Option<&Aim>,
+    ) {
         if self.mode != EyeMode::Off {
             let rest = profile.up_limit_rest_degrees.to_radians();
             self.up_limit = approach(
@@ -129,6 +184,17 @@ impl FreeLook {
                 profile.up_limit_ease_degrees.to_radians(),
             );
         }
+        if mouse != Vec2::ZERO {
+            self.mouse_aims = true;
+        } else if stick != Vec2::ZERO {
+            self.mouse_aims = false;
+        }
+        let assist = profile.assist.as_ref().filter(|_| !self.mouse_aims);
+        self.target = match (assist, aim) {
+            (Some(assist), Some(aim)) => self.pick(assist, aim),
+            _ => None,
+        };
+        let b = self.target.map_or(0.0, |target| target.weight);
         let k = 0.25 + speed / 64.0;
         let shape = |axis: f32| {
             if profile.squared {
@@ -137,24 +203,109 @@ impl FreeLook {
                 axis
             }
         };
-        let (x, y) = (shape(stick.x), shape(stick.y));
+        let (pushed, y) = (shape(stick.x), shape(stick.y));
+        self.snap_ticks = self.snap_ticks.saturating_sub(1);
 
-        self.quick_ticks = if x.abs() > profile.quick_stick {
-            self.quick_ticks + 1
-        } else {
-            0
+        // A hard push towards the target is held a few ticks (the snap).
+        let mut x = pushed;
+        if self.snap_ticks > 0 && x.abs() < self.snap_input.abs() {
+            if self.towards(self.yaw_speed) {
+                x = self.snap_input;
+            } else {
+                self.snap_ticks = 0;
+            }
+        }
+        let quick_after = match (assist, self.target) {
+            (Some(assist), Some(_)) => assist.quick_after_ticks,
+            _ => profile.quick_after_ticks.max(1),
         };
-        let (target, rate) = if self.quick_ticks >= profile.quick_after_ticks.max(1) {
-            (profile.quick_speed.copysign(x), profile.quick_accel)
+        if x.abs() > profile.quick_stick {
+            self.quick_ticks += 1;
+            self.quick |= self.quick_ticks >= quick_after;
         } else {
-            (profile.yaw_speed * x, profile.yaw_accel * x.abs())
+            self.quick_ticks = 0;
+            self.quick = false;
+        }
+        if let Some(assist) = assist {
+            if pushed.abs() >= assist.snap_stick {
+                if self.towards(x) {
+                    self.snap_input = x;
+                    self.snap_ticks = assist.snap_ticks;
+                }
+            } else if self.snap_ticks > 0 && !self.towards(self.yaw_speed) {
+                self.snap_ticks = 0;
+            }
+        }
+
+        let (mut yaw_target, mut yaw_rate) = if self.quick {
+            let share = match (assist, self.target) {
+                (Some(assist), Some(_)) => assist.quick_accel_share,
+                _ => 1.0,
+            };
+            (profile.quick_speed.copysign(x), profile.quick_accel * share)
+        } else {
+            let rate = profile.yaw_accel * x.abs();
+            // A held snap turns at twice the rate.
+            let rate = if pushed.abs() < x.abs() {
+                2.0 * rate
+            } else {
+                rate
+            };
+            (profile.yaw_speed * x, rate)
         };
-        self.yaw_speed = speed_towards(self.yaw_speed, target * k, rate * k);
-        self.pitch_speed = speed_towards(
-            self.pitch_speed,
-            profile.pitch_speed * y * k,
-            profile.pitch_accel * y.abs() * k,
-        );
+        yaw_target *= k;
+        yaw_rate *= k;
+        let mut pitch_target = profile.pitch_speed * y * k;
+        let mut pitch_rate = profile.pitch_accel * y.abs() * k;
+
+        if let (Some(assist), Some(target)) = (assist, self.target) {
+            let cut = if self.quick {
+                assist.quick_cut
+            } else {
+                assist.yaw_cut
+            };
+            yaw_target *= 1.0 - cut * b;
+            pitch_target *= 1.0 - assist.pitch_cut * b;
+            if pushed.abs() < assist.snap_stick && self.snap_ticks > 0 {
+                // The snap ends as it would turn past the target, turning onto it.
+                let left = -self.off(target.at);
+                let next = approach(self.yaw_speed, yaw_target, yaw_rate)
+                    .clamp(-yaw_target.abs(), yaw_target.abs());
+                if left.abs() < next.abs() {
+                    self.snap_ticks = 0;
+                    yaw_target = left;
+                }
+            }
+            if !self.quick
+                && let Some(aim) = aim.filter(|aim| aim.pushed)
+            {
+                // Keeping it in view: his motion against the target's, across and up the
+                // view, over its distance.
+                let mut moved = aim.velocity * aim.tick - target.moved;
+                if moved.length() > assist.strafe_cap {
+                    moved = moved.normalize() * assist.strafe_cap;
+                }
+                let distance = target.at.distance(self.camera).max(f32::EPSILON);
+                let rotation = look_rotation(view_direction(self.yaw, self.pitch));
+                let left = rotation * Vec3::NEG_X;
+                let up = rotation * Vec3::Y;
+                let across = (moved.dot(left) / distance * assist.strafe_yaw * b)
+                    .clamp(-assist.strafe_turn_most, assist.strafe_turn_most);
+                yaw_target += across;
+                yaw_rate += across.abs();
+                let (near, far) = assist.strafe_fade;
+                let fade = if distance < far {
+                    ((distance - near) / (far - near)).max(0.0)
+                } else {
+                    1.0
+                };
+                let lift = -moved.dot(up) / distance * assist.strafe_pitch * fade * b;
+                pitch_target += lift;
+                pitch_rate += lift.abs();
+            }
+        }
+        self.yaw_speed = speed_towards(self.yaw_speed, yaw_target, yaw_rate);
+        self.pitch_speed = speed_towards(self.pitch_speed, pitch_target, pitch_rate);
 
         // Turning right lowers the yaw.
         self.yaw = wrap(self.yaw - self.yaw_speed - mouse.x);
@@ -162,8 +313,87 @@ impl FreeLook {
             (self.pitch + self.pitch_speed + mouse.y).clamp(-self.down_limit, self.up_limit);
     }
 
+    /// The aim assist's target (UYA 0x411918): what the view's ray hits first, weighing
+    /// 1; else, among those near the view, the lowest of distance × (1 + weight) in sight
+    /// of the camera, weighing from 1 dead ahead to 0 at the cone's edge.
+    fn pick(&self, assist: &FreeLookAssist, aim: &Aim) -> Option<Aimed> {
+        let forward = view_direction(self.yaw, self.pitch);
+        let ray = forward * assist.range;
+        let clear = aim
+            .world
+            .cast_ray(self.camera, ray)
+            .map_or(1.0, |hit| hit.fraction);
+        let along = |at: Vec3| (at - self.camera).dot(forward);
+        let hit = aim
+            .targets
+            .iter()
+            .filter(|(_, at)| {
+                let t = along(*at);
+                t >= 0.0
+                    && t <= clear * assist.range
+                    && (self.camera + forward * t).distance(*at) <= assist.hit_radius
+            })
+            .min_by(|a, b| along(a.1).total_cmp(&along(b.1)));
+        let picked = match hit {
+            Some(&(entity, at)) => Some((entity, at, 1.0)),
+            None => {
+                let edge = ops::cos(assist.cone_degrees.to_radians());
+                // As the game lists them: each better than all before it, best last.
+                let mut better: Vec<(Entity, Vec3, f32)> = Vec::new();
+                let mut best = f32::INFINITY;
+                for &(entity, at) in aim.targets {
+                    let to = at - self.camera;
+                    let distance = to.length();
+                    if distance > assist.range || distance <= f32::EPSILON {
+                        continue;
+                    }
+                    let cos = to.dot(forward) / distance;
+                    if cos < edge {
+                        continue;
+                    }
+                    let weight = (cos - edge) / (1.0 - edge);
+                    let score = distance * (1.0 + weight);
+                    if score < best {
+                        best = score;
+                        better.push((entity, at, weight));
+                    }
+                }
+                better
+                    .into_iter()
+                    .rev()
+                    .find(|(_, at, _)| aim.world.cast_ray(self.camera, *at - self.camera).is_none())
+            }
+        };
+        picked.map(|(entity, at, weight)| Aimed {
+            entity,
+            at,
+            moved: match self.target {
+                Some(last) if last.entity == entity => at - last.at,
+                _ => Vec3::ZERO,
+            },
+            weight,
+        })
+    }
+
+    /// How far round `at` is from the view, from −π to π: positive to its left.
+    fn off(&self, at: Vec3) -> f32 {
+        wrap(view_angles(at - self.camera).0 - self.yaw)
+    }
+
+    /// Whether a turn of this sign (positive right) is towards the target.
+    fn towards(&self, turn: f32) -> bool {
+        self.target
+            .is_some_and(|target| turn * -self.off(target.at) > 0.0)
+    }
+
     /// Where the camera goes and how it turns, from last tick's eye (UYA 0x411538).
     pub fn place(&mut self, profile: &FreeLookProfile, world: &dyn CollisionWorld) -> (Vec3, Quat) {
+        let (position, rotation) = self.placed(profile, world);
+        self.camera = position;
+        (position, rotation)
+    }
+
+    fn placed(&mut self, profile: &FreeLookProfile, world: &dyn CollisionWorld) -> (Vec3, Quat) {
         let forward = view_direction(self.yaw, self.pitch);
         let rotation = look_rotation(forward);
         let eye = self.eye;
@@ -293,14 +523,14 @@ mod tests {
         let profile = uya();
         let mut free = lock_strafe(&profile);
         let k = 1.03125;
-        free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile, None);
         assert!(
             (free.yaw_speed - 0.005818 * k).abs() < 1e-6,
             "{}",
             free.yaw_speed
         );
         for _ in 0..40 {
-            free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile);
+            free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile, None);
         }
         assert!(
             (free.yaw_speed - 0.10472 * k).abs() < 1e-5,
@@ -308,7 +538,7 @@ mod tests {
             free.yaw_speed
         );
         let yaw = free.yaw;
-        free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile, None);
         assert_eq!(free.yaw_speed, 0.0);
         assert_eq!(free.yaw, yaw);
     }
@@ -321,14 +551,14 @@ mod tests {
         let x = 0.2105;
         let profile = uya();
         let mut free = lock_strafe(&profile);
-        free.turn(Vec2::new(x, 0.0), Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::new(x, 0.0), Vec2::ZERO, 50.0, &profile, None);
         assert!((free.yaw_speed - 0.001939 * x * x * k).abs() < 1e-8);
         let profile = HeroProfile::dl().camera.free_look;
         let mut free = lock_strafe(&profile);
-        free.turn(Vec2::new(x, 0.0), Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::new(x, 0.0), Vec2::ZERO, 50.0, &profile, None);
         assert!((free.yaw_speed - 0.0019393 * x * k).abs() < 1e-8);
         for _ in 0..100 {
-            free.turn(Vec2::new(x, 0.0), Vec2::ZERO, 50.0, &profile);
+            free.turn(Vec2::new(x, 0.0), Vec2::ZERO, 50.0, &profile, None);
         }
         assert!((free.yaw_speed - 0.05236 * x * k).abs() < 1e-6);
     }
@@ -338,9 +568,9 @@ mod tests {
         let profile = HeroProfile::dl().camera.free_look;
         let mut free = lock_strafe(&profile);
         let k = 1.03125;
-        free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile, None);
         assert!((free.yaw_speed - 0.0019393 * k).abs() < 1e-6);
-        free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::new(1.0, 0.0), Vec2::ZERO, 50.0, &profile, None);
         assert!((free.yaw_speed - (0.0019393 + 0.0034907) * k).abs() < 1e-6);
     }
 
@@ -349,11 +579,11 @@ mod tests {
         let profile = uya();
         let mut free = lock_strafe(&profile);
         for _ in 0..200 {
-            free.turn(Vec2::new(0.0, 1.0), Vec2::ZERO, 50.0, &profile);
+            free.turn(Vec2::new(0.0, 1.0), Vec2::ZERO, 50.0, &profile, None);
         }
         assert!((free.pitch - 60f32.to_radians()).abs() < 1e-5);
         for _ in 0..200 {
-            free.turn(Vec2::new(0.0, -1.0), Vec2::ZERO, 50.0, &profile);
+            free.turn(Vec2::new(0.0, -1.0), Vec2::ZERO, 50.0, &profile, None);
         }
         assert!((free.pitch + 70f32.to_radians()).abs() < 1e-5);
     }
@@ -363,10 +593,10 @@ mod tests {
         let profile = uya();
         let mut free = lock_strafe(&profile);
         free.set_mode(EyeMode::FirstPerson, &profile);
-        free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile);
+        free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile, None);
         assert!((free.up_limit - 87f32.to_radians()).abs() < 1e-5);
         for _ in 0..20 {
-            free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile);
+            free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile, None);
         }
         assert!((free.up_limit - 60f32.to_radians()).abs() < 1e-5);
     }
@@ -465,5 +695,223 @@ mod tests {
         free.update_eye(&hero, &profile, &world);
         // 0.45 × 70 / 90 = 0.35 u ahead, down −z.
         assert!((free.eye.z + 0.35).abs() < 1e-5, "{}", free.eye);
+    }
+
+    /// Targets by their middles, numbered from 1.
+    fn targets(at: &[Vec3]) -> Vec<(Entity, Vec3)> {
+        at.iter()
+            .enumerate()
+            .map(|(i, &at)| (Entity::from_raw_u32(i as u32 + 1).unwrap(), at))
+            .collect()
+    }
+
+    fn aim<'a>(targets: &'a [(Entity, Vec3)], world: &'a ParryWorld) -> Aim<'a> {
+        Aim {
+            targets,
+            velocity: Vec3::ZERO,
+            tick: crate::controller::TICK,
+            pushed: true,
+            world,
+        }
+    }
+
+    /// The camera's eye, 2 u up in lock-strafe, from a hero at the origin.
+    const EYE: Vec3 = Vec3::new(0.0, 2.0, 0.0);
+
+    #[test]
+    fn a_target_under_the_views_ray_halves_the_sticks_turn() {
+        let profile = uya();
+        let world = ParryWorld::default();
+        let ahead = targets(&[EYE + Vec3::new(0.0, 0.0, -10.0)]);
+        let mut free = lock_strafe(&profile);
+        let stick = Vec2::new(0.8, 0.0);
+        for _ in 0..12 {
+            free.turn(
+                stick,
+                Vec2::ZERO,
+                50.0,
+                &profile,
+                Some(&aim(&ahead, &world)),
+            );
+            assert_eq!(
+                free.target.map(|t| t.weight),
+                Some(1.0),
+                "under the view's ray"
+            );
+        }
+        let k = 0.25 + 50.0 / 64.0;
+        let full = profile.yaw_speed * 0.64 * k;
+        assert!(
+            (free.yaw_speed - full * 0.5).abs() < 1e-6,
+            "{}",
+            free.yaw_speed
+        );
+        // Turned on past the cone's 15°, it is let go and the turn speeds up again.
+        for _ in 0..40 {
+            free.turn(
+                stick,
+                Vec2::ZERO,
+                50.0,
+                &profile,
+                Some(&aim(&ahead, &world)),
+            );
+        }
+        assert!(free.target.is_none());
+        assert!((free.yaw_speed - full).abs() < 1e-6, "{}", free.yaw_speed);
+    }
+
+    #[test]
+    fn with_a_target_the_quick_turn_waits_10_ticks_and_speeds_up_at_a_third() {
+        let profile = uya();
+        let world = ParryWorld::default();
+        let assist = profile.assist.unwrap();
+        // Off to the left within the cone, so the turn right leaves it slowly.
+        let near = targets(&[EYE + Vec3::new(-1.0, 0.0, -20.0)]);
+        let mut free = lock_strafe(&profile);
+        let full = Vec2::new(1.0, 0.0);
+        for tick in 1..assist.quick_after_ticks {
+            free.turn(full, Vec2::ZERO, 50.0, &profile, Some(&aim(&near, &world)));
+            assert!(!free.quick, "tick {tick}");
+        }
+        let before = free.yaw_speed;
+        free.turn(full, Vec2::ZERO, 50.0, &profile, Some(&aim(&near, &world)));
+        assert!(free.quick);
+        let k = 0.25 + 50.0 / 64.0;
+        let step = free.yaw_speed - before;
+        assert!((step - profile.quick_accel * assist.quick_accel_share * k).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_hard_push_towards_a_target_is_held_until_the_view_is_on_it() {
+        let profile = uya();
+        let world = ParryWorld::default();
+        // 10° to the right, 10 u off.
+        let angle = 10f32.to_radians();
+        let right = targets(&[EYE + Vec3::new(angle.sin(), 0.0, -angle.cos()) * 10.0]);
+        let mut free = lock_strafe(&profile);
+        free.turn(
+            Vec2::new(0.95, 0.0),
+            Vec2::ZERO,
+            50.0,
+            &profile,
+            Some(&aim(&right, &world)),
+        );
+        assert_eq!(free.snap_ticks, 7);
+        // Let go: the push is held, and the turn stops on the target.
+        let mut ticks = 0;
+        while free.snap_ticks > 0 && ticks < 20 {
+            free.turn(
+                Vec2::ZERO,
+                Vec2::ZERO,
+                50.0,
+                &profile,
+                Some(&aim(&right, &world)),
+            );
+            ticks += 1;
+        }
+        assert!(free.yaw < 0.0, "turned right: {}", free.yaw);
+        assert!(
+            free.yaw >= -angle - 1e-3,
+            "not past it: {}",
+            free.yaw.to_degrees()
+        );
+        // Without a target, letting go stops it at once.
+        let mut alone = lock_strafe(&profile);
+        alone.turn(
+            Vec2::new(0.95, 0.0),
+            Vec2::ZERO,
+            50.0,
+            &profile,
+            Some(&aim(&[], &world)),
+        );
+        alone.turn(
+            Vec2::ZERO,
+            Vec2::ZERO,
+            50.0,
+            &profile,
+            Some(&aim(&[], &world)),
+        );
+        assert_eq!(alone.yaw_speed, 0.0);
+    }
+
+    #[test]
+    fn strafing_turns_the_view_to_keep_a_target_in_it() {
+        let profile = uya();
+        let world = ParryWorld::default();
+        let ahead = targets(&[EYE + Vec3::new(0.0, 0.0, -8.0)]);
+        let mut free = lock_strafe(&profile);
+        // Running left, the target drifts right: the view follows it right.
+        let mut moving = aim(&ahead, &world);
+        moving.velocity = Vec3::new(-7.0, 0.0, 0.0);
+        for _ in 0..10 {
+            free.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile, Some(&moving));
+        }
+        assert!(free.yaw_speed > 0.0 && free.yaw < 0.0, "{}", free.yaw_speed);
+        // Not with the sticks let go.
+        let mut still = lock_strafe(&profile);
+        let mut idle = aim(&ahead, &world);
+        idle.velocity = moving.velocity;
+        idle.pushed = false;
+        still.turn(Vec2::ZERO, Vec2::ZERO, 50.0, &profile, Some(&idle));
+        assert_eq!(still.yaw_speed, 0.0);
+    }
+
+    #[test]
+    fn the_target_is_the_lowest_distance_by_weight_in_sight_and_not_for_the_mouse() {
+        let profile = uya();
+        let assist = profile.assist.unwrap();
+        // Two targets off the ray: the further dead-ahead one scores worse than a nearer
+        // one off to the side; behind a wall, the nearer one is passed over.
+        let side = EYE + Vec3::new(-1.5, 0.0, -9.0);
+        let centre = EYE + Vec3::new(0.0, 1.2, -12.0);
+        // As the game lists them, only those better than all before are kept: the centre
+        // one comes first, so both are.
+        let list = targets(&[centre, side]);
+        let open = ParryWorld::default();
+        let free = lock_strafe(&profile);
+        let picked = free.pick(&assist, &aim(&list, &open)).unwrap();
+        assert_eq!(picked.at, side);
+        let wall = ParryWorld::new(&[crate::collision::BodyPlacement::fixed(
+            crate::collision::Collider::Cuboid {
+                half_extents: Vec3::new(0.5, 3.0, 0.5),
+            },
+            EYE + Vec3::new(-1.2, 0.0, -7.0),
+            Quat::IDENTITY,
+        )]);
+        let picked = free.pick(&assist, &aim(&list, &wall)).unwrap();
+        assert_eq!(picked.at, centre);
+        // Out of range or the cone, nothing.
+        let far = targets(&[
+            EYE + Vec3::new(0.0, 0.0, -31.0),
+            EYE + Vec3::new(5.0, 0.0, -5.0),
+        ]);
+        assert!(free.pick(&assist, &aim(&far, &open)).is_none());
+        // Once the mouse turns the view, the stick gets no help until it is used again.
+        let ahead = targets(&[EYE + Vec3::new(0.0, 0.0, -10.0)]);
+        let mut free = lock_strafe(&profile);
+        free.turn(
+            Vec2::ZERO,
+            Vec2::new(0.001, 0.0),
+            50.0,
+            &profile,
+            Some(&aim(&ahead, &open)),
+        );
+        assert!(free.target.is_none());
+        free.turn(
+            Vec2::ZERO,
+            Vec2::ZERO,
+            50.0,
+            &profile,
+            Some(&aim(&ahead, &open)),
+        );
+        assert!(free.target.is_none());
+        free.turn(
+            Vec2::new(0.3, 0.0),
+            Vec2::ZERO,
+            50.0,
+            &profile,
+            Some(&aim(&ahead, &open)),
+        );
+        assert!(free.target.is_some());
     }
 }

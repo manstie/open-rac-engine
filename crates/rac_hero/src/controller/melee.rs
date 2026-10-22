@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     collision::CollisionWorld,
-    gun::GunHand,
+    gun::{GunHand, WhipHand},
     profile::{AimProfile, AttackProfile, HeroProfile, Push, TurnSpring},
     stick::Stick,
 };
@@ -32,6 +32,8 @@ pub struct Strike {
     /// The push the game hands the target: a direction scaled by the attack's strength.
     pub push: Vec3,
     pub shape: StrikeShape,
+    /// The gun in his hand struck, not the wrench: the Plasma Whip's rope.
+    pub gun: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -105,6 +107,8 @@ pub struct ThrownWrench {
     pub returning: bool,
     /// Which way it was thrown.
     pub direction: Vec3,
+    /// It is the Plasma Whip's end, which the rope follows.
+    pub whip: bool,
     /// u/s, and how fast that changes, u/s².
     speed: f32,
     accel: f32,
@@ -135,6 +139,8 @@ pub(super) struct Attack {
     last_line: Option<(Vec3, Vec3)>,
     /// It has clanked off a wall, which it does once.
     clanked: bool,
+    /// The Plasma Whip started it.
+    whip: bool,
 }
 
 const JUMP_ATTACK: usize = 4;
@@ -158,6 +164,7 @@ impl Default for Attack {
             catch_due: false,
             last_line: None,
             clanked: false,
+            whip: false,
         }
     }
 }
@@ -177,6 +184,15 @@ impl HeroMotion {
     /// Which way the attack under way is going, if it has an aim.
     pub fn attack_aim(&self) -> Option<f32> {
         (self.attack.locked || self.attack.target.is_some()).then_some(self.attack.aim_yaw)
+    }
+
+    /// The attack under way is the Plasma Whip's.
+    pub fn whip_attack(&self) -> bool {
+        self.attack.whip
+            && matches!(
+                self.state,
+                HeroState::Combo(_) | HeroState::JumpAttack | HeroState::Throw
+            )
     }
 
     /// Where the wrench is during a swing or jump attack, hand to tip, in the world.
@@ -227,7 +243,16 @@ pub(super) fn try_attack(
         return;
     }
     let crouch = input.held(Action::Crouch);
-    let press = hero.melee_press;
+    // With the Plasma Whip in hand and a round for it, the fire button starts the same
+    // attacks (`weapons.md`, "Plasma Whip"); the newer of the two presses counts.
+    let whip = hero.gun.whip.is_some_and(|whip| whip.loaded)
+        && !hero.fire_press.used
+        && (hero.melee_press.used || hero.fire_press.ticks <= hero.melee_press.ticks);
+    let press = if whip {
+        hero.fire_press
+    } else {
+        hero.melee_press
+    };
     let t = hero.ticks;
     let next = match hero.state {
         HeroState::Idle | HeroState::Walk | HeroState::Skid => press
@@ -300,7 +325,7 @@ pub(super) fn try_attack(
         _ => None,
     };
     if let Some(next) = next {
-        start_attack(hero, next, stick, wish, profile, world);
+        start_attack(hero, next, whip, stick, wish, profile, world);
     }
 }
 
@@ -313,13 +338,19 @@ fn press_window(frame: f32, buffer_from: f32) -> u32 {
 fn start_attack(
     hero: &mut HeroMotion,
     next: Next,
+    whip: bool,
     stick: &Stick,
     wish: Vec3,
     profile: &HeroProfile,
     world: &dyn CollisionWorld,
 ) {
     let melee = &profile.melee;
-    hero.melee_press.used = true;
+    if whip {
+        hero.fire_press.used = true;
+        hero.whip_attacks = hero.whip_attacks.wrapping_add(1);
+    } else {
+        hero.melee_press.used = true;
+    }
     let leaving = hero.state;
     let last = hero.attack;
     let (row_index, state) = match next {
@@ -342,8 +373,11 @@ fn start_attack(
         Next::Throw => (THROW, HeroState::Throw),
     };
     let current = row(profile, row_index);
-    // Square brings out the wrench (`weapons.md`, "Switching and firing").
-    hero.gun = GunHand::default();
+    // Square brings out the wrench (`weapons.md`, "Switching and firing"); the whip's
+    // attacks keep it in hand.
+    if !whip {
+        hero.gun = GunHand::default();
+    }
     hero.attack_serial += 1;
     hero.attack = Attack {
         row: row_index,
@@ -352,6 +386,7 @@ fn start_attack(
         blend: current.blend_ticks,
         serial: hero.attack_serial,
         aim_yaw: hero.yaw,
+        whip,
         ..default()
     };
     let aim_profile = match next {
@@ -909,6 +944,7 @@ fn throw_motion(
             speed: thrown.speed,
             accel: 0.0,
             serial: hero.attack_serial,
+            whip: attack.whip,
         });
     }
 }
@@ -998,11 +1034,16 @@ pub(super) fn thrown_tick(
 pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
     hero.strikes.clear();
     let melee = &profile.melee;
+    let whip = hero.gun.whip.filter(|_| hero.attack.whip);
     if swings(hero.state) {
         let current = row(profile, hero.attack.row);
         if let Some((hand, tip)) = swing_line(hero, current) {
             let attack = hero.attack;
             let last = hero.attack.last_line.replace((hand, tip));
+            if let Some(whip) = whip {
+                whip_strike(hero, &whip, last.unwrap_or((hand, tip)), (hand, tip));
+                return;
+            }
             let frame = attack.frame;
             let live = !attack.blending(hero.ticks)
                 && frame >= current.hit_from
@@ -1026,6 +1067,7 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
                         to: (hand, tip),
                         head_radius: current.head_radius,
                     },
+                    gun: false,
                 });
             }
         }
@@ -1041,6 +1083,7 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
                     centre: hero.position + Vec3::Y * grind.ball_above,
                     radius: grind.ball_radius,
                 },
+                gun: false,
             });
         }
         let jump = &melee.jump;
@@ -1058,11 +1101,30 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
                     centre: hero.position - Vec3::Y * jump.slam_below,
                     radius: jump.slam_radius,
                 },
+                gun: false,
             });
         }
     }
     if let Some(wrench) = hero.thrown {
         let thrown = &melee.thrown;
+        if wrench.whip {
+            // The rope runs from his hand to its end, hitting along its length.
+            if let Some(whip) = hero.gun.whip {
+                let hand = hero.position + relative(hero, thrown.hand);
+                hero.strikes.push(Strike {
+                    serial: wrench.serial,
+                    damage: whip.damage,
+                    push: wrench.direction * whip.push + Vec3::Y * whip.lift,
+                    shape: StrikeShape::Sweep {
+                        from: (hand, wrench.position),
+                        to: (hand, wrench.position),
+                        head_radius: 0.0,
+                    },
+                    gun: true,
+                });
+            }
+            return;
+        }
         let push = if wrench.returning {
             -wrench.direction * thrown.knockback_back
         } else {
@@ -1076,8 +1138,39 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
                 centre: wrench.position,
                 radius: thrown.radius,
             },
+            gun: false,
         });
     }
+}
+
+/// The Plasma Whip's rope in a swing or the jump attack (0x357F10): from the hand along
+/// the wrench's line, its reach long, swept from last tick's; it hits once the attack is
+/// a few ticks old, at every frame of its animation.
+fn whip_strike(hero: &mut HeroMotion, whip: &WhipHand, last: (Vec3, Vec3), now: (Vec3, Vec3)) {
+    let (reach, from) = match hero.state {
+        HeroState::JumpAttack => (whip.reach[2], whip.jump_from),
+        _ if hero.attack.row == 2 => (whip.reach[1], whip.combo_from),
+        _ => (whip.reach[0], whip.combo_from),
+    };
+    if hero.ticks < from {
+        return;
+    }
+    let rope = |(hand, tip): (Vec3, Vec3)| {
+        let along = (tip - hand).normalize_or(hero.facing());
+        (hand, hand + along * reach)
+    };
+    let to = rope(now);
+    hero.strikes.push(Strike {
+        serial: hero.attack.serial,
+        damage: whip.damage,
+        push: hero.facing() * whip.push + Vec3::Y * whip.lift,
+        shape: StrikeShape::Sweep {
+            from: rope(last),
+            to,
+            head_radius: 0.0,
+        },
+        gun: true,
+    });
 }
 
 /// The wrench clanking off a wall it swings into (UYA's wrench object, 0x338088), and the
@@ -1086,7 +1179,8 @@ pub(super) fn update_strikes(hero: &mut HeroMotion, profile: &HeroProfile) {
 pub(super) fn clank(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
     hero.clank = None;
     let jump_attack = hero.state == HeroState::JumpAttack;
-    if !matches!(hero.state, HeroState::Combo(_)) && !jump_attack {
+    // The clank is the wrench object's: the whip has none.
+    if (!matches!(hero.state, HeroState::Combo(_)) && !jump_attack) || hero.attack.whip {
         return;
     }
     let Some((_, tip)) = hero.attack.last_line else {
@@ -1122,6 +1216,7 @@ pub(super) fn clank(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn Co
                         centre: point,
                         radius: 0.0,
                     },
+                    gun: false,
                 });
             }
         }

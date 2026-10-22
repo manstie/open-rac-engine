@@ -134,8 +134,9 @@ pub struct HeroRig {
     back: back::BackDirector,
     /// Where a gun's grip sits in his fist, in the model's space, as last posed.
     grip: Transform,
-    /// The gun model in his hand, and which gun it is.
-    gun: Option<(u16, Entity)>,
+    /// The gun model in his hand: which gun, the level its model shows from, and the
+    /// entity.
+    gun: Option<(u16, u8, Entity)>,
 }
 
 /// The model of the gun in a hero's hand.
@@ -537,12 +538,18 @@ fn hold_guns(
     mut commands: Commands,
 ) {
     for (root, mut rig) in &mut rigs {
-        let item = heroes.get(rig.hero).ok().and_then(|body| body.0.gun.item);
-        if rig.gun.map(|(shown, _)| shown) != item {
-            if let Some((_, entity)) = rig.gun.take() {
+        let hand = heroes.get(rig.hero).ok().map(|body| body.0.gun);
+        let wanted = hand.and_then(|hand| {
+            let item = hand.item?;
+            let (from, surfaces) = guns.get(item, hand.level)?;
+            Some((item, from, surfaces))
+        });
+        if rig.gun.map(|(item, from, _)| (item, from)) != wanted.map(|(item, from, _)| (item, from))
+        {
+            if let Some((.., entity)) = rig.gun.take() {
                 commands.entity(entity).despawn();
             }
-            let Some((item, surfaces)) = item.and_then(|item| Some((item, guns.get(item)?))) else {
+            let Some((item, from, surfaces)) = wanted else {
                 continue;
             };
             let gun = commands
@@ -566,8 +573,8 @@ fn hold_guns(
                 })
                 .id();
             commands.entity(root).add_child(gun);
-            rig.gun = Some((item, gun));
-        } else if let Some((_, entity)) = rig.gun
+            rig.gun = Some((item, from, gun));
+        } else if let Some((.., entity)) = rig.gun
             && let Ok(mut transform) = held.get_mut(entity)
         {
             *transform = rig.grip;

@@ -1,5 +1,5 @@
-// The guns of Ratchet & Clank: Up Your Arsenal (NTSC-U, SCUS-97353) whose code is read:
-// the hero kit's default weapons.
+// The guns of Ratchet & Clank: Up Your Arsenal (NTSC-U, SCUS-97353): the hero kit's
+// default weapons.
 //
 // Units: u, u/s and u/s², ticks at 60 Hz. Sources are sections of
 // docs/research/weapons.md, with its labels: [code] read in the game's code, [data] read
@@ -28,6 +28,23 @@
         // quarter of the gun's damage for the guns here.
         shock: (range: 8.0, share: 0.25),
         acid_slots: 30,
+        // "The quick-select ring" [code], as with QUICK SELECT PAUSE off: the hero's input
+        // held 15 ticks after the press (27 after a tap that switched nothing); picking
+        // after the hold check; a 30-tick lock-out for a stick already pushed; picks past
+        // 0.9 of full, kept within 33.75°, straight slots 27° of 45°; 8 ticks to open and
+        // to close; R1 keeps the second ring up 15 ticks.
+        ring: (
+            input_delay_ticks: 15,
+            input_delay_after_tap_ticks: 27,
+            hold_ticks: 6,
+            lock_out_ticks: 30,
+            pick: 0.9,
+            release: 0.5,
+            keep_degrees: 33.75,
+            cardinal_share: 0.6,
+            open_ticks: 8,
+            ring_two_ticks: 15,
+        ),
     ),
     weapons: [
         // "Shock Blaster (0x36A790)" [code; firing verified on UYA NTSC].
@@ -65,7 +82,7 @@
                 after_hit_ticks: 20,
                 ball_radius: 1.5,
                 ray_length: 32.0,
-                random_rays: 20,
+                random_rays: [(0, 20), (4, 23)], // the Shock Cannon's 0x385948
                 spread_degrees: 17.0,
                 down_rays: 3,
                 down_degrees: 15.0,
@@ -112,6 +129,13 @@
                 assist: Some((range: 35.0, near: (45.0, 45.0), far: (3.0, 6.0))),
                 scope: None,
                 push: 0.3, // [placeholder]
+                hurricane: Some((
+                    from_level: 4,
+                    repeat_ticks: 10,
+                    reach: 30.0,
+                    extra_ticks: 30,
+                    bounces: 7,
+                )),
             )),
             effects: (fire: Some("n60.fire"), impact: Some("n60.hit")),
         ),
@@ -162,6 +186,14 @@
                     radius_from: 2.0,
                     radius_to: [(0, 6.0), (3, 7.0)],
                     push: 1.5,
+                    // The Nitro Eruptor (0x38A7B8) [code].
+                    eruption: Some((
+                        from_level: 4,
+                        wait_ticks: 18,
+                        grow_ticks: 30,
+                        radius: (3.0, 11.0),
+                        push: 1.5,
+                    )),
                 ),
             )),
             effects: (fire: Some("nitro.fire"), impact: Some("nitro.blast")),
@@ -261,6 +293,7 @@
             upgraded_name: "Splitter Rifle",
             item: 0x6F,
             pickup_rounds: 1,
+            crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
             held: false,
             steady: false,
             ready_ticks: 23, // [placeholder]: not read for this gun
@@ -293,6 +326,790 @@
                 push: 1.0, // [placeholder]
             )),
             effects: (fire: Some("flux.fire"), impact: Some("flux.hit")),
+        ),
+        // UYA's other fourteen guns, read in code at the level of their firing and their
+        // shots ("Where each gun's code is" and the sections after it). Their V5 variants'
+        // own code isn't read: from V5 they fire as V4 does with V5's numbers. Gun rows'
+        // +0x18 to +0x2C give the poses, +0x30 `held`, +0x88 `pickup_rounds` [data].
+        // "Infector (0x3688E8, blob 0x3DE4F0)" [code].
+        (
+            name: "Infector",
+            upgraded_name: "Infecto-Bomb",
+            item: 0x37,
+            pickup_rounds: 2,
+            held: true,
+            steady: false,
+            ready_ticks: 23, // out more than 22 frames
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            levels: [
+                (damage: 9.0, ammo: 15, xp: 400, round_price: 20),
+                (damage: 12.0, ammo: 15, xp: 800, round_price: 20),
+                (damage: 16.0, ammo: 18, xp: 2000, round_price: 20),
+                (damage: 20.0, ammo: 18, xp: 3800, round_price: 20),
+                (damage: 30.0, ammo: 20, xp: 0, round_price: 20),
+                (damage: 200.0, ammo: 20, xp: 10000, round_price: 20),
+                (damage: 250.0, ammo: 25, xp: 25000, round_price: 20),
+                (damage: 300.0, ammo: 30, xp: 0, round_price: 20),
+            ],
+            mods: (),
+            fire: Infect((
+                cooldown_ticks: 45,
+                below: 0.75,
+                speed: 12.0,
+                gravity: 14.58, // 0.00405 u a frame²
+                drag: 0.995,
+                radius: 0.075,
+                bounce: (keep: 0.89, home_range: Some(5.0), home_speed: 0.0),
+                life: (300, 500),
+                rest_speed: 0.5,
+                touch: 1.0,
+                weak_health: 2.0,
+                burst_radius: 1.0,
+                blast_radius: 1.5,
+                blast_damage: 1.0,
+                blast_push: 1.0,
+                infect_ticks: 600.0,
+                // The Infecto-Bomb [code; the least of its throw is the kit's].
+                bomb: Some((
+                    from_level: 4,
+                    throw: (least: 1.5, most: 12.0, most_aimed: 12.0, ground_speed: 15.0, gravity: 12.0),
+                    burst_radius: 5.0,
+                    blast_radius: 2.5,
+                )),
+            )),
+            effects: (fire: Some("infector.fire"), impact: Some("infector.burst")),
+        ),
+        // "Spitting Hydra (0x31FB90)" [code].
+        (
+            name: "Spitting Hydra",
+            upgraded_name: "Tempest",
+            item: 0x47,
+            pickup_rounds: 2,
+            held: false,
+            steady: false,
+            ready_ticks: 23, // [placeholder]: not read for this gun
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            levels: [
+                (damage: 10.0, splash: 5.0, ammo: 15, xp: 300, round_price: 5),
+                (damage: 12.0, splash: 5.0, ammo: 15, xp: 900, round_price: 5),
+                (damage: 14.0, splash: 5.0, ammo: 15, xp: 1800, round_price: 5),
+                (damage: 16.0, splash: 5.0, ammo: 15, xp: 3000, round_price: 5),
+                (damage: 20.0, splash: 5.0, ammo: 15, xp: 0, round_price: 5),
+                (damage: 160.0, splash: 5.0, ammo: 15, xp: 15000, round_price: 5),
+                (damage: 270.0, splash: 5.0, ammo: 18, xp: 37500, round_price: 5),
+                (damage: 300.0, splash: 5.0, ammo: 20, xp: 0, round_price: 5),
+            ],
+            mods: (),
+            fire: Hydra((
+                most_targets: [(0, 3), (1, 4), (2, 5), (3, 6), (4, 7)],
+                mark_every: [(0, 12), (2, 15), (4, 10)],
+                max_hold: 150,
+                tap_ticks: 20,
+                assist: (range: 32.0, near: (20.0, 20.0), far: (20.0, 20.0)),
+                strike_radius: 1.0,
+                push: 0.5,
+                bolt_share: 0.5, // 0x34DFD0 [code]
+                bolt_ticks: 15, // [data]: 0x1DD48C; when in its life it strikes isn't read
+                // The spit (0x321108, 0x321580) [code].
+                spit_ticks: [(0, 30), (2, 35), (4, 40)],
+                spit_reach: 32.0,
+                spit_jitter: 0.2,
+                spit_strike: 27,
+                spit_range: 60.0,
+                spit_push: 0.7,
+                spit_blast: [(0, 1.0), (4, 2.0)],
+            )),
+            effects: (fire: Some("hydra.fire"), impact: Some("hydra.strike")),
+        ),
+        // "Disc Blade Gun (0x36EFC0, disc 0x36FA78)" [code].
+        (
+            name: "Disc Blade Gun",
+            upgraded_name: "Multi-Disc Gun",
+            item: 0x4F,
+            pickup_rounds: 2,
+            held: false,
+            steady: false,
+            ready_ticks: 23,
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            levels: [
+                (damage: 25.0, ammo: 25, xp: 700, round_price: 10),
+                (damage: 30.0, ammo: 25, xp: 2100, round_price: 10),
+                (damage: 35.0, ammo: 25, xp: 6100, round_price: 10),
+                (damage: 40.0, ammo: 25, xp: 12100, round_price: 10),
+                (damage: 45.0, ammo: 25, xp: 0, round_price: 10),
+                (damage: 55.0, ammo: 25, xp: 10000, round_price: 10),
+                (damage: 70.0, ammo: 28, xp: 25000, round_price: 10),
+                (damage: 105.0, ammo: 30, xp: 0, round_price: 10),
+            ],
+            mods: (),
+            fire: Disc((
+                cooldown_ticks: 30,
+                assist: [
+                    (0, (range: 20.0, near: (45.0, 45.0), far: (30.5, 30.5))),
+                    (3, (range: 35.0, near: (45.0, 45.0), far: (30.5, 30.5))),
+                ],
+                speed: 21.0, // +0x4C, 0.35 u a frame
+                side_degrees: 90.0,
+                side_aimed_degrees: 60.5,
+                curve_degrees: 2.0,
+                lifetime: [(0, 200), (3, 400)],
+                leash: 81.0,
+                radius: 1.0,
+                push: 3.0, // its velocity a frame × 3
+                retarget_from: Some(1),
+                through_from: Some(2),
+                retarget_range: 10.0,
+                end_blast: Some((from_level: 3, radius: 4.0, share: 0.5)),
+                split: Some((from_level: 4, most: 15, jitter: (0.1, 0.2))),
+            )),
+            effects: (fire: Some("disc.fire"), impact: Some("disc.hit")),
+        ),
+        // "Agents of Doom (0x35C9F0, pod 0x35CEC8, agent 0x3BD298)" [code; the agents' AI
+        // read in part].
+        (
+            name: "Agents of Doom",
+            upgraded_name: "Agents of Dread",
+            item: 0x57,
+            pickup_rounds: 1,
+            crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
+            held: false,
+            steady: false,
+            ready_ticks: 23, // [placeholder]
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (standing: Some(41), arms: Some(61), crouched: Some(41)),
+            levels: [
+                (damage: 12.0, ammo: 6, xp: 400, round_price: 75),
+                (damage: 16.0, ammo: 6, xp: 1000, round_price: 75),
+                (damage: 22.0, ammo: 8, xp: 3000, round_price: 75),
+                (damage: 25.0, ammo: 8, xp: 6000, round_price: 75),
+                (damage: 30.0, ammo: 8, xp: 0, round_price: 75),
+                (damage: 40.0, ammo: 8, xp: 7500, round_price: 75),
+                (damage: 50.0, ammo: 10, xp: 20000, round_price: 75),
+                (damage: 60.0, ammo: 12, xp: 0, round_price: 75),
+            ],
+            mods: (),
+            fire: Agents((
+                deploy: (
+                    throw: (least: 1.5, most: 4.5, most_aimed: 11.0, ground_speed: 15.0, gravity: 11.0),
+                    throw_ticks: 20,
+                    ready_ticks: 10,
+                    gap_ticks: 45,
+                    most: 8,
+                ),
+                gravity: 11.0,
+                per_pod: 4,
+                direct_from: Some(3),
+                spread: 0.5, // 0.25 to 0.75
+                // The agent (0x3C0F78, 0x3BD298) [code].
+                speed: 6.0, // a random 5.5 to 6.5 (+0x314)
+                sight: 25.0,
+                touch: 1.0,
+                touch_height: 0.3,
+                reach: 2.0,
+                chase_ticks: 420,
+                follow: 4.0,
+                life_ticks: 2000,
+                leash: 59.0,
+                end: [
+                    (0, Blast(radius: 2.0, push: 0.0)),
+                    (1, Comet(speed: (5.0, 7.5), life: 680, radius: 2.0, push: 1.0)),
+                    (4, Grow(radius: 8.0, ticks: 20, push: 2.0)),
+                ],
+            )),
+            effects: (fire: Some("agents.throw"), impact: Some("agents.blast")),
+        ),
+        // "Rift Inducer (0x372990, rift 0x373990)" [code].
+        (
+            name: "Rift Inducer",
+            upgraded_name: "Rift Ripper",
+            item: 0x5F,
+            pickup_rounds: 1,
+            held: false,
+            steady: false,
+            ready_ticks: 23, // [placeholder]
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            levels: [
+                (damage: 50.0, splash: 5.0, ammo: 8, xp: 800, round_price: 100),
+                (damage: 65.0, splash: 5.0, ammo: 8, xp: 2400, round_price: 100),
+                (damage: 75.0, splash: 5.0, ammo: 10, xp: 6400, round_price: 100),
+                (damage: 85.0, splash: 5.0, ammo: 10, xp: 12400, round_price: 100),
+                (damage: 100.0, splash: 5.0, ammo: 12, xp: 0, round_price: 100),
+                (damage: 200.0, splash: 5.0, ammo: 12, xp: 15000, round_price: 100),
+                (damage: 250.0, splash: 5.0, ammo: 14, xp: 37500, round_price: 100),
+                (damage: 300.0, splash: 5.0, ammo: 16, xp: 0, round_price: 100),
+            ],
+            mods: (lock_on: Some(2)), // V3 [code]
+            fire: Rift((
+                cooldown_ticks: 30,
+                assist: (range: 35.0, near: (3.0, 3.0), far: (2.0, 2.0)),
+                speed: (60.0, 80.0),
+                keep: 0.92,
+                fly_ticks: 36,
+                knock: 3.0,
+                open_ticks: 600,
+                leash: 30.0,
+                reach: 9.0,
+                size: 0.5,
+                pull_ticks: 30, // [placeholder]: its spring's pull isn't modelled
+                // The Rift Ripper [code]; its bolt's life and push are the Hydra's.
+                ripper: Some((
+                    from_level: 4,
+                    reach: 4.5,
+                    odds: 18,
+                    share: 0.1,
+                    bolt_ticks: 15,
+                    push: 0.5,
+                )),
+            )),
+            effects: (fire: Some("rift.fire"), impact: Some("rift.close")),
+        ),
+        // "Holo Shield Glove (0x3717A8, shield 0x376B88)" [code].
+        (
+            name: "Holo Shield Glove",
+            upgraded_name: "Ultrashield Launcher",
+            item: 0x67,
+            pickup_rounds: 1,
+            held: false,
+            steady: false,
+            ready_ticks: 23, // [placeholder]
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (standing: Some(41), arms: Some(61), crouched: Some(41)),
+            levels: [
+                (damage: 10.0, splash: 5.0, ammo: 8, xp: 150, round_price: 20),
+                (damage: 15.0, splash: 5.0, ammo: 8, xp: 450, round_price: 20),
+                (damage: 20.0, splash: 5.0, ammo: 10, xp: 1350, round_price: 20),
+                (damage: 25.0, splash: 5.0, ammo: 10, xp: 2700, round_price: 20),
+                (damage: 30.0, splash: 5.0, ammo: 12, xp: 0, round_price: 20),
+                (damage: 50.0, splash: 5.0, ammo: 12, xp: 5000, round_price: 20),
+                (damage: 75.0, splash: 5.0, ammo: 12, xp: 12500, round_price: 20),
+                (damage: 100.0, splash: 5.0, ammo: 14, xp: 0, round_price: 20),
+            ],
+            mods: (),
+            fire: Barrier((
+                deploy: (
+                    throw: (least: 1.5, most: 5.0, most_aimed: 8.0, ground_speed: 15.0, gravity: 11.0),
+                    throw_ticks: 20,
+                    ready_ticks: 60,
+                    gap_ticks: 0,
+                    most: 4,
+                ),
+                gravity: 11.0,
+                land_radius: 1.0,
+                land_damage: 5.0,
+                land_push: 3.0, // its velocity a frame × 3
+                stand_ticks: 900,
+                fold_ticks: 20,
+                leash: 35.0,
+                hits: 7, // 10 × 0.75
+                // [placeholder]: from its scale's 2 by 1.2; its shape isn't read.
+                half_width: 1.5,
+                height: 2.0,
+                bolt_from: Some(2),
+                bolt_range: 7.5,
+                bolt_after: 15,
+                bolt_ticks: 15, // [data]: 0x1DD48C, as the Hydra's
+                bolt_push: 0.5, // 0x34DFD0
+                pulse: Some((
+                    from_level: 4,
+                    react_ticks: 30,
+                    every: 10,
+                    range: 16.0,
+                    share: 0.25,
+                    accel: 25.0, // 0.4167 u a frame more each frame
+                    fade_from: 32,
+                    ticks: 38,
+                    push: 0.0667,
+                )),
+                heal_from: Some(1),
+                drain_reach: 6.0,
+                drain_every: 180,
+                drain_damage: 1.0,
+                heal_reach: 5.0,
+                heal_every: 45,
+            )),
+            effects: (fire: Some("holo.throw"), impact: Some("holo.land")),
+        ),
+        // "Plasma Whip (0x356110)" [code]: his wrench moves on the fire button, which hit
+        // along the rope (`rac_hero::WhipHand`).
+        (
+            name: "Plasma Whip",
+            upgraded_name: "Quantum Whip",
+            item: 0x7F,
+            pickup_rounds: 3,
+            held: false,
+            steady: false,
+            ready_ticks: 0, // [placeholder]
+            fire_ticks: 0,
+            look_wait_ticks: 0,
+            levels: [
+                (damage: 2.0, splash: 2.0, ammo: 25, xp: 200, round_price: 3),
+                (damage: 2.5, splash: 2.5, ammo: 30, xp: 800, round_price: 3),
+                (damage: 3.5, splash: 3.5, ammo: 35, xp: 1800, round_price: 3),
+                (damage: 5.0, splash: 5.0, ammo: 40, xp: 3300, round_price: 3),
+                (damage: 7.0, splash: 7.0, ammo: 50, xp: 0, round_price: 3),
+                (damage: 70.0, splash: 70.0, ammo: 50, xp: 10000, round_price: 3),
+                (damage: 90.0, splash: 90.0, ammo: 55, xp: 25000, round_price: 3),
+                (damage: 120.0, splash: 120.0, ammo: 60, xp: 0, round_price: 3),
+            ],
+            mods: (),
+            fire: Whip((
+                links: 9,
+                // The rope's stretch per link in swings 1 and 2, swing 3, the jump attack
+                // and thrown: each tick's goal, which the game moves towards a step a frame.
+                stretch: (0.9, 0.6, 0.8, 0.5),
+                combo_from: 7, // over 6 frames into the swing
+                jump_from: 21, // over 20
+                push: 0.75,
+                lift: 1.0,
+                wave: Some((
+                    from_level: 3,
+                    at_tick: 20,
+                    speed: 45.0, // 0.75 u a frame
+                    ticks: 40,
+                    first: 11,
+                    every: 3,
+                    behind: 6,
+                    probe: 10.0,
+                    radius: 2.0,
+                    share: 0.5,
+                    push: 0.5,
+                )),
+                // The Quantum Whip's waves (0x3D6578, 0x3D6740) [code].
+                cut: Some((
+                    from_level: 4,
+                    at_ticks: (10, 10, 30),
+                    turns: (0.0, -20.0, 10.0),
+                    speed: 30.0, // 0.5 u a frame
+                    ticks: 40,
+                    width: 3.0, // [data]: between its class's joints 0 and 6, read as 3 u
+                    push: 1.75,
+                )),
+            )),
+            effects: (fire: Some("whip.swing"), impact: Some("whip.hit")),
+        ),
+        // "Suck Cannon (0x3619C8)" [code]: it uses no ammo; what it sucks in is what it
+        // fires.
+        (
+            name: "Suck Cannon",
+            upgraded_name: "Vortex Cannon",
+            item: 0x87,
+            held: true,
+            steady: false,
+            ready_ticks: 16, // out more than 15 frames
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: TwoHands, standing: Some(46)),
+            levels: [
+                (damage: 10.0, splash: 10.0, ammo: 0, xp: 200),
+                (damage: 13.0, splash: 13.0, ammo: 0, xp: 600),
+                (damage: 16.0, splash: 16.0, ammo: 0, xp: 1200),
+                (damage: 22.0, splash: 22.0, ammo: 0, xp: 2000),
+                (damage: 30.0, splash: 30.0, ammo: 0, xp: 0),
+                (damage: 210.0, splash: 210.0, ammo: 0, xp: 5000),
+                (damage: 250.0, splash: 250.0, ammo: 0, xp: 12500),
+                (damage: 300.0, splash: 300.0, ammo: 0, xp: 0),
+            ],
+            mods: (),
+            fire: Suck((
+                capacity: [(0, 10), (1, 12), (2, 15), (3, 20)],
+                grab_every: 4,
+                vortex: 10.0, // ten 1 u links
+                // Balls at its first four links [placeholder: where on each link].
+                grabs: [(1.0, 1.2), (2.0, 1.4), (3.0, 1.7), (4.0, 1.9)],
+                // [placeholder]: the game asks each enemy's record (+0xF) whether it can
+                // be sucked in.
+                most_hitpoints: 10.0,
+                grab_damage: 1.0,
+                cooldown_ticks: 30,
+                assist: (range: 35.0, near: (45.0, 35.0), far: (7.0, 8.0)),
+                // Its shot (0x381B98) [code].
+                speed: 40.0,
+                pull: 18.0, // 0.3 u a frame at its target
+                lifetime: 150,
+                end_radius: 0.6,
+                sweep: 0.2,
+                radius: 1.0,
+                target_push: 2.0,
+                world_push: 3.0,
+                ricochet_from: Some(1),
+            )),
+            effects: (fire: Some("suck.fire"), impact: Some("suck.hit")),
+        ),
+        // "Qwack-O-Ray (0x37DEB0, beam target 0x37D7D8)" [code]: it uses no ammo.
+        (
+            name: "Qwack-O-Ray",
+            upgraded_name: "Qwack-O-Blitzer",
+            item: 0x8F,
+            held: true,
+            steady: false,
+            ready_ticks: 23, // [placeholder]
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 40,
+            pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
+            levels: [
+                (damage: 50.0, ammo: 0, xp: 1000),
+                (damage: 75.0, ammo: 0, xp: 3000),
+                (damage: 100.0, ammo: 0, xp: 8000),
+                (damage: 125.0, ammo: 0, xp: 16000),
+                (damage: 150.0, ammo: 0, xp: 0),
+                (damage: 200.0, ammo: 0, xp: 10000),
+                (damage: 250.0, ammo: 0, xp: 25000),
+                (damage: 300.0, ammo: 0, xp: 0),
+            ],
+            mods: (),
+            fire: Beam((
+                range: 12.0,
+                cone_degrees: 30.0,
+                near: 2.5,
+                near_degrees: 60.0,
+                near_height: 2.0,
+                hold_ticks: 30,
+                // The ducks (0x3D1728, 0x39DB60, 0x3D7998) [code unless marked]. Their
+                // walks are the game's animations, so their speeds are [placeholder].
+                duck: [
+                    (0, Waddle(
+                        speed: 1.5, // [placeholder]
+                        turn_every: (120, 300),
+                        ticks: 1400,
+                        eggs: false,
+                    )),
+                    (1, Waddle(
+                        speed: 1.5, // [placeholder]
+                        turn_every: (120, 300),
+                        ticks: 1400,
+                        eggs: true,
+                    )),
+                    (3, Soldier(
+                        waddle: 1.5, // [placeholder]
+                        speed: 4.0, // [placeholder]
+                        turn_every: (120, 300),
+                        look_every: 60, // [placeholder]: each time its idle animation ends
+                        look_chance: 0.6,
+                        reach: 1.0, // [placeholder]: where its run ends
+                        radius: 3.0,
+                        share: 0.2,
+                    )),
+                    (4, Blitzer(
+                        wait: 60,
+                        sight: 30.0,
+                        speed: 13.0, // 0.2167 u a frame
+                        back_speed: 7.0, // 6 to 8
+                        near_speed: 4.5, // 3 to 6
+                        over: 2.0, // [placeholder]
+                        behind: 1.5, // [placeholder]
+                        reach: 0.75,
+                        peck_radius: 2.0,
+                        pecks: 11,
+                        radius: 3.0,
+                        share: 0.2,
+                    )),
+                ],
+                egg: (
+                    every: (60, 120),
+                    back_degrees: 20.0, // 160 to 200 off its facing
+                    up_degrees: (10.0, 50.0),
+                    speed: (2.0, 5.0),
+                    height: 0.75,
+                    gravity: 14.58, // 0.00405 u a frame²
+                    bounce_keep: 0.5, // [placeholder]
+                    life: (360, 500),
+                    reach: 2.0,
+                    push: 1.0,
+                    seek_from: Some(2),
+                    seek_range: 7.0,
+                    seek_speed: 2.0, // [placeholder]
+                ),
+            )),
+            effects: (fire: Some("qwack.beam"), impact: Some("qwack.duck")),
+        ),
+        // "RY3NO (0x3805B0)" [code]: V1 to V5 only.
+        (
+            name: "RY3NO",
+            upgraded_name: "RYNOCIRATOR",
+            item: 0x97,
+            crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
+            held: false,
+            steady: false,
+            ready_ticks: 23,
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 40,
+            pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            levels: [
+                (damage: 300.0, splash: 30.0, ammo: 25, xp: 20000, round_price: 1000),
+                (damage: 350.0, splash: 35.0, ammo: 30, xp: 50000, round_price: 1000),
+                (damage: 400.0, splash: 40.0, ammo: 35, xp: 90000, round_price: 1000),
+                (damage: 450.0, splash: 45.0, ammo: 40, xp: 140000, round_price: 1000),
+                (damage: 500.0, splash: 50.0, ammo: 50, xp: 0, round_price: 1000),
+            ],
+            mods: (),
+            fire: Volley((
+                rate: 1.0, // +0x50
+                slow_from: Some(1),
+                slow: 1.3,
+                missiles: [(0, 8), (1, 16)],
+                assist: (range: 48.0, near: (45.0, 45.0), far: (25.0, 25.0)),
+                // The missiles (0x383370; 0x3DB4D0 from V2) [code].
+                speed: 50.0, // +0x4C
+                speed_share: [(0, 1.0), (1, 0.8)],
+                lifetime: [(0, 300), (4, 120)],
+                tilt: [(0, (4.0, 10.0)), (4, (50.0, 70.0))],
+                spin: (6.0, 10.0),
+                wait: [(0, 0), (1, 30)],
+                home_within: 5.0,
+                leash: 60.0,
+                push_up: 1.5,
+                blast: [
+                    (0, (radius: 4.0, splash: true, push: (4.0, 6.0))),
+                    (1, (radius: 4.0, splash: false, push: (1.0, 0.0))),
+                    (4, (radius: 1.0, splash: false, push: (1.0, 0.0))),
+                ],
+                ahead_from: Some(4),
+                ahead: 10.0,
+                up: 3.0,
+            )),
+            effects: (fire: Some("ryno.fire"), impact: Some("ryno.blast")),
+        ),
+        // "Plasma Coil (0x315638, ball 0x30BF18)" [code].
+        (
+            name: "Plasma Coil",
+            upgraded_name: "Plasma Storm",
+            item: 0x10,
+            pickup_rounds: 1,
+            held: true,
+            steady: true,
+            ready_ticks: 23,
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
+            levels: [
+                (damage: 120.0, splash: 120.0, ammo: 15, xp: 8000, round_price: 50),
+                (damage: 150.0, splash: 150.0, ammo: 15, xp: 18000, round_price: 50),
+                (damage: 180.0, splash: 180.0, ammo: 18, xp: 30000, round_price: 50),
+                (damage: 210.0, splash: 210.0, ammo: 18, xp: 44000, round_price: 50),
+                (damage: 150.0, splash: 150.0, ammo: 20, xp: 0, round_price: 50),
+                (damage: 170.0, splash: 170.0, ammo: 20, xp: 15000, round_price: 50),
+                (damage: 190.0, splash: 190.0, ammo: 22, xp: 37500, round_price: 50),
+                (damage: 210.0, splash: 210.0, ammo: 25, xp: 0, round_price: 50),
+            ],
+            // Lock-on from V3 [code]; acid from V2 [text]: its hits run the acid check, but
+            // no code read sets its bit.
+            mods: (lock_on: Some(2), acid: Some(1)),
+            acid: [
+                (0, (per_second: 2.0, seconds: 4.0)),
+                (2, (per_second: 5.0, seconds: 4.0)),
+                (4, (per_second: 2.0, seconds: 4.0)),
+            ],
+            fire: Coil((
+                cooldown_ticks: 30, // 0.5 s
+                spin_ticks: 10,
+                most: 5,
+                assist: (range: 20.0, near: (45.0, 45.0), far: (10.0, 10.0)),
+                muzzle_reach: 1.0,
+                speed: 15.0, // +0x4C
+                lifetime: 160,
+                radius: 0.45,
+                stick_ticks: 15,
+                arcs: 3,
+                arc_range: 10.0,
+                arc_ticks: 10,
+                push: 0.033333, // its velocity a frame / 30
+                // The Plasma Storm (0x306F68, ball 0x309480) [code]; its arcs strike as the
+                // coil's do (their update, 0x30A3D0, isn't read).
+                storm: Some((
+                    from_level: 4,
+                    speed: 20.0, // 1/3 u a frame
+                    fly_ticks: 120,
+                    fade_ticks: 40,
+                    bounce_keep: 0.85,
+                    reach: 15.0,
+                    arcs: 15,
+                    again_ticks: 120,
+                )),
+            )),
+            effects: (fire: Some("coil.fire"), impact: Some("coil.arc")),
+        ),
+        // "Bouncer (0x31C890, canister 0x31D0B0, bomblets 0x31E488)" [code].
+        (
+            name: "Bouncer",
+            upgraded_name: "Heavy Bouncer",
+            item: 0x13,
+            pickup_rounds: 1,
+            held: false,
+            steady: false,
+            ready_ticks: 23,
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 40,
+            pose: (hold: TwoHands, standing: Some(103)),
+            levels: [
+                (damage: 30.0, splash: 15.0, ammo: 10, xp: 2500, round_price: 50),
+                (damage: 35.0, splash: 17.5, ammo: 10, xp: 8500, round_price: 50),
+                (damage: 40.0, splash: 20.0, ammo: 12, xp: 18500, round_price: 50),
+                (damage: 45.0, splash: 22.5, ammo: 12, xp: 30500, round_price: 50),
+                (damage: 50.0, splash: 25.0, ammo: 12, xp: 0, round_price: 50),
+                (damage: 75.0, splash: 37.5, ammo: 12, xp: 10000, round_price: 50),
+                (damage: 90.0, splash: 45.0, ammo: 14, xp: 25000, round_price: 50),
+                (damage: 110.0, splash: 55.0, ammo: 16, xp: 0, round_price: 50),
+            ],
+            mods: (lock_on: Some(2), acid: Some(1)), // as the Plasma Coil's
+            acid: [
+                (0, (per_second: 2.0, seconds: 4.0)),
+                (2, (per_second: 3.0, seconds: 6.0)),
+                (4, (per_second: 2.0, seconds: 4.0)),
+            ],
+            fire: Cluster((
+                rate: 0.3, // +0x50
+                throw: (least: 1.6, most: 10.0, most_aimed: 10.0, ground_speed: 15.0, gravity: 14.58),
+                gravity: 14.58,
+                radius: 0.3,
+                reach: 0.5,
+                bounces: 4,
+                bounce: (keep: 0.6, home_range: None, home_speed: 0.0), // keep [placeholder]
+                roll_keep: 0.9,
+                roll_ticks: 30,
+                lifetime: 600, // [placeholder]
+                bomblets: 17,
+                bomblet: (
+                    up_degrees: (50.0, 90.0),
+                    speed: (4.0, 9.0),
+                    radius: 0.125,
+                    // Keep [placeholder]; the turn at an enemy as read.
+                    bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                    life: (240, 360),
+                    armed_ticks: 70,
+                    hit_radius: 2.0,
+                ),
+                // The Heavy Bouncer [code; keeps as V1's].
+                heavy: Some((
+                    from_level: 4,
+                    radius: 0.5,
+                    bomblet: (
+                        up_degrees: (40.0, 75.0),
+                        speed: (4.0, 12.0),
+                        radius: 0.25,
+                        bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                        life: (240, 360),
+                        armed_ticks: 70,
+                        hit_radius: 7.0,
+                    ),
+                )),
+            )),
+            effects: (fire: Some("bouncer.fire"), impact: Some("bouncer.burst")),
+        ),
+        // "Miniturret Glove (0x346078, turret 0x32AFB0)" [code, data].
+        (
+            name: "Miniturret Glove",
+            upgraded_name: "Megaturret Glove",
+            item: 0x15,
+            pickup_rounds: 1,
+            held: false,
+            steady: false,
+            ready_ticks: 23, // [placeholder]
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 40,
+            pose: (standing: Some(41), arms: Some(61), crouched: Some(41)),
+            levels: [
+                (damage: 1.5, ammo: 10, xp: 400, round_price: 15),
+                (damage: 2.0, ammo: 10, xp: 1000, round_price: 30),
+                (damage: 2.5, ammo: 12, xp: 2000, round_price: 30),
+                (damage: 3.0, ammo: 12, xp: 3500, round_price: 30),
+                (damage: 8.0, ammo: 12, xp: 0, round_price: 30),
+                (damage: 40.0, ammo: 12, xp: 10000, round_price: 30),
+                (damage: 50.0, ammo: 14, xp: 25000, round_price: 30),
+                (damage: 60.0, ammo: 16, xp: 0, round_price: 30),
+            ],
+            // Its shots run the shock check for item 0x15, whose bit no code read sets.
+            mods: (),
+            fire: Turret((
+                deploy: (
+                    throw: (least: 1.5, most: 11.0, most_aimed: 11.0, ground_speed: 15.0, gravity: 11.0),
+                    throw_ticks: 20,
+                    ready_ticks: 10,
+                    gap_ticks: 0,
+                    most: 4, // [placeholder]: the turrets' slots aren't counted
+                ),
+                gravity: 11.0,
+                unfold_ticks: 6,
+                range: 15.0,
+                barrel_height: 0.5, // [placeholder]
+                turn_step: 0.0262,
+                fire_share: 0.9,
+                rate: [(0, 6.0), (4, 1.5)], // +0x50
+                shots: [(0, 20), (1, 30)], // +0x54
+                speed: 30.0, // +0x4C
+                life_ticks: 1200,
+                leash: 30.0,
+                push: 0.5, // [placeholder]
+                // The Megaturret (0x32DE00, missile 0x343330) [code unless marked].
+                mega: Some((
+                    from_level: 4,
+                    every_ticks: 25, // 0.4167 s
+                    speed: (2.0, 15.0),
+                    accel: 0.5,
+                    turn_degrees: 6.0, // [placeholder]: its turn isn't read
+                    missile_ticks: 270,
+                    blast_radius: 1.0,
+                    beyond: 20.0,
+                    walk_every: (180, 240),
+                    round: (3.0, 6.5),
+                    walk_speed: 6.0, // [placeholder]: it walks by its animation
+                )),
+            )),
+            effects: (fire: Some("turret.fire"), impact: Some("turret.hit")),
+        ),
+        // "Shield Charger (0x3410E8, firing 0x340DD0)" [code].
+        (
+            name: "Shield Charger",
+            upgraded_name: "Tesla Barrier",
+            item: 0x16,
+            pickup_rounds: 1,
+            crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
+            held: true,
+            steady: false,
+            ready_ticks: 23, // [placeholder]
+            fire_ticks: 30, // [placeholder]
+            look_wait_ticks: 0,
+            pose: (hold: OneHand, standing: Some(51), arms: Some(52), crouched: Some(57)),
+            levels: [
+                (damage: 3.0, ammo: 3, xp: 2200, round_price: 500),
+                (damage: 5.0, splash: 5.0, ammo: 3, xp: 5000, round_price: 500),
+                (damage: 7.0, splash: 3.5, ammo: 3, xp: 9600, round_price: 500),
+                (damage: 9.0, splash: 4.5, ammo: 4, xp: 16800, round_price: 500),
+                (damage: 12.0, splash: 6.0, ammo: 4, xp: 0, round_price: 500),
+                (damage: 15.0, splash: 7.5, ammo: 4, xp: 12000, round_price: 500),
+                (damage: 20.0, splash: 10.0, ammo: 5, xp: 30000, round_price: 500),
+                (damage: 25.0, splash: 12.5, ammo: 5, xp: 0, round_price: 500),
+            ],
+            mods: (),
+            fire: Shield((
+                points: [
+                    (0, 225.0), (1, 300.0), (2, 375.0), (3, 450.0),
+                    (4, 525.0), (5, 600.0), (6, 675.0), (7, 750.0),
+                ],
+                height: 0.75,
+                zap_ticks: 30, // 0.5 s
+                zap_radius: 0.9,
+                push: 1.0, // [placeholder]
+                // The Tesla Barrier (0x3410E8) [code].
+                tesla: Some((
+                    from_level: 4,
+                    most: 4,
+                    reach: 4.0,
+                    bolt_ticks: (20, 60),
+                    push: 0.5, // [placeholder]: the Hydra's bolt's
+                    bolts: 40,
+                )),
+            )),
+            effects: (fire: Some("shield.raise"), impact: Some("shield.zap")),
         ),
     ],
 )

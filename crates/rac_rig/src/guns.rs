@@ -6,9 +6,11 @@
 //! - A gun is modelled in its own space: the grip at the origin, the barrel along −Z and
 //!   its top along +Y. [`crate::model::gun_grip`] turns it into the fist, the same way
 //!   for every model, so clips from a disc aim any gun as the game aims its own.
-//! - [`open_guns`] are the open placeholders: a blocky gun for each of UYA's six guns the
-//!   kit has, and one for any other gun, made in code. A game may add its own
+//! - [`open_guns`] are the open placeholders: a blocky gun for each of UYA's first six
+//!   guns, nothing for the Shield Charger, and one for any other gun, made in code. A game may add its own
 //!   ([`RigGuns::add`]), such as the guns' models from the user's disc.
+//! - A gun may change its model as it levels up, as UYA's do from V5 (row +0x10): a model
+//!   shows from its level ([`GunData::level`]) until the next model's.
 
 use std::collections::BTreeMap;
 
@@ -23,6 +25,8 @@ use crate::wear::{Paint, RigSurface, Surface};
 pub struct GunData {
     /// The game's item number it shows; `None` stands in for any gun without its own.
     pub item: Option<u16>,
+    /// The gun's level it shows from, 0 for V1 ([`rac_hero::GunHand::level`]).
+    pub level: u8,
     /// In the gun's own space, each in its own material ([`Paint::Own`]); surfaces in
     /// other paints aren't drawn.
     pub surfaces: Vec<Surface>,
@@ -31,11 +35,11 @@ pub struct GunData {
 /// Every gun model the rig can put in a hero's hand.
 #[derive(Resource, Debug, Clone, Default)]
 pub struct RigGuns {
-    guns: BTreeMap<Option<u16>, Vec<RigSurface>>,
+    guns: BTreeMap<(Option<u16>, u8), Vec<RigSurface>>,
 }
 
 impl RigGuns {
-    /// Adds a gun's model, replacing any for the same item.
+    /// Adds a gun's model, replacing any for the same item from the same level.
     pub fn add(&mut self, data: GunData, meshes: &mut Assets<Mesh>) {
         let surfaces = data
             .surfaces
@@ -46,20 +50,25 @@ impl RigGuns {
                 wrench: false,
             })
             .collect();
-        self.guns.insert(data.item, surfaces);
+        self.guns.insert((data.item, data.level), surfaces);
     }
 
-    /// The model for `item`, or the stand-in for guns without their own.
-    pub(crate) fn get(&self, item: u16) -> Option<&[RigSurface]> {
+    /// The model for `item` at `level`, and the level it shows from: its own latest model
+    /// by then, or the stand-in for guns without one.
+    pub(crate) fn get(&self, item: u16, level: u8) -> Option<(u8, &[RigSurface])> {
         self.guns
-            .get(&Some(item))
-            .or_else(|| self.guns.get(&None))
-            .map(Vec::as_slice)
+            .range((Some(item), 0)..=(Some(item), level))
+            .next_back()
+            .or_else(|| self.guns.range((None, 0)..=(None, u8::MAX)).next())
+            .map(|((_, from), surfaces)| (*from, surfaces.as_slice()))
     }
 
     /// Whether `item` has a model of its own.
     pub fn has(&self, item: u16) -> bool {
-        self.guns.contains_key(&Some(item))
+        self.guns
+            .range((Some(item), 0)..=(Some(item), u8::MAX))
+            .next()
+            .is_some()
     }
 }
 
@@ -71,6 +80,8 @@ mod item {
     pub const FLUX_RIFLE: u16 = 0x6F;
     pub const NITRO_LAUNCHER: u16 = 0x77;
     pub const LAVA_GUN: u16 = 0x11;
+    /// The Shield Charger, whose row's class is the shield round him: he holds nothing.
+    pub const SHIELD_CHARGER: u16 = 0x16;
 }
 
 /// What a block of an open gun is drawn in.
@@ -224,6 +235,12 @@ fn open_designs() -> Vec<OpenGun> {
                 (Glow, boxed([0.0, 0.05, -0.525], [0.01, 0.01, 0.006])),
             ],
         },
+        // Nothing in his hand.
+        OpenGun {
+            item: Some(item::SHIELD_CHARGER),
+            colour: Color::WHITE,
+            blocks: Vec::new(),
+        },
         // Any other gun.
         OpenGun {
             item: None,
@@ -280,6 +297,7 @@ pub fn open_guns(materials: &mut Assets<StandardMaterial>) -> Vec<GunData> {
             .collect();
             GunData {
                 item: design.item,
+                level: 0,
                 surfaces,
             }
         })
@@ -308,7 +326,7 @@ mod tests {
 
     #[test]
     fn every_open_gun_points_its_barrel_down_minus_z_from_a_grip_at_the_origin() {
-        for design in open_designs() {
+        for design in open_designs().into_iter().filter(|d| !d.blocks.is_empty()) {
             let points: Vec<Vec3> = design.blocks.iter().flat_map(|(_, p)| p.clone()).collect();
             let front = points.iter().map(|p| p.z).fold(f32::INFINITY, f32::min);
             let back = points.iter().map(|p| p.z).fold(f32::NEG_INFINITY, f32::max);
@@ -337,8 +355,44 @@ mod tests {
         }
         assert!(guns.has(item::N60_STORM));
         assert!(!guns.has(0x37), "the Infector has no open model");
-        let stand_in = guns.get(0x37).unwrap();
+        let (_, stand_in) = guns.get(0x37, 0).unwrap();
         assert_eq!(stand_in.len(), 2, "body and glow");
-        assert_ne!(guns.get(item::N60_STORM), Some(stand_in));
+        assert_ne!(guns.get(item::N60_STORM, 0).unwrap().1, stand_in);
+    }
+
+    #[test]
+    fn a_gun_shows_its_latest_model_by_its_level() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mut guns = RigGuns::default();
+        let mut add = |item, level, triangles: usize| {
+            let mut surface = Surface::new(Paint::Own(Handle::default()), false);
+            for _ in 0..triangles {
+                surface.push_rigid(&[[Vec3::ZERO, Vec3::X, Vec3::Y]], 0);
+            }
+            guns.add(
+                GunData {
+                    item,
+                    level,
+                    surfaces: vec![surface],
+                },
+                &mut meshes,
+            );
+        };
+        add(None, 0, 1);
+        add(Some(item::N60_STORM), 0, 2);
+        add(Some(item::N60_STORM), 4, 3);
+        let from = |guns: &RigGuns, item, level| guns.get(item, level).map(|(from, _)| from);
+        assert_eq!(from(&guns, item::N60_STORM, 0), Some(0));
+        assert_eq!(from(&guns, item::N60_STORM, 3), Some(0));
+        assert_eq!(from(&guns, item::N60_STORM, 4), Some(4));
+        assert_eq!(from(&guns, item::N60_STORM, 7), Some(4));
+        assert!(guns.has(item::N60_STORM));
+        // Another gun gets the stand-in at any level.
+        assert!(!guns.has(item::LAVA_GUN));
+        assert_eq!(from(&guns, item::LAVA_GUN, 5), Some(0));
+        assert_eq!(
+            guns.get(item::LAVA_GUN, 5).unwrap().1,
+            guns.get(0x37, 0).unwrap().1
+        );
     }
 }

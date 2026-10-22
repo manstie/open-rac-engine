@@ -744,8 +744,9 @@ the throw sends the wrench out and back (P1.8).
 ### Starting an attack
 
 - **The wrench must be in the hand, not thrown.** In single player the wrench is hand
-  item 9. The multiplayer wrench is item 0x7F, and its object (0x356110) runs the same
-  checks.
+  item 9. Item 0x7F, which earlier notes took for a multiplayer wrench, is the Plasma
+  Whip: its object (0x356110) starts the same attacks on Circle (`weapons.md`, "Plasma
+  Whip").
 - **Standing, walking or skidding (state types 0 and 1):**
   - Square pressed in the last 10 frames starts the combo.
   - With R1 (crouch) held as well, it throws.

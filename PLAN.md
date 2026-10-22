@@ -31,22 +31,25 @@ session is working on the task now; notes on problems met stay with their task (
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
   DL's code lacks (crouch, wall jump, zip lines, dive) and give it its own flips. He has the follow camera with
-  lock-on, the lock-strafe and first-person cameras and their blends (P1.7), melee
-  for both games (P1.8), and UYA's six read guns with their levels, mods and aim assist
-  (P1.9), held in his hand with their firing animations, a quick-select ring, ammo
-  pickups, crates and a vendor's pad (P1.10), and a HUD (P1.12). He wears the open blocky model or, from the user's
+  lock-on, the lock-strafe and first-person cameras with the free look's aim assist and
+  their blends (P1.7), melee for both games (P1.8), and all twenty of UYA's guns with their
+  levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
+  models, each level's) with their firing animations, UYA's quick-select ring, UYA's ammo
+  pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings (P1.12). He
+  wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
   with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed. The demo has an arena of enemies, a melee charger and a ranged shooter,
-  that drop bolts and nanotech (P1.11).
+  that drop bolts and nanotech and, infected, fight each other (P1.11).
 - **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
   against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
   collision rule the kit needs is read and traced in both games; RE.8 is answered
   (NTSC-U is the native tuning).
   UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
-  level, ammo, XP, mods and what they do, aim assist, the guns behind P1.9's five
-  archetypes, and how firing affects the hero.
+  level, ammo, XP, mods and what they do, aim assist, all twenty guns' firing and shots,
+  their V5 variants included (`weapons.md`, "Next steps" 4 has the few left), and how
+  firing affects the hero.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
@@ -59,9 +62,10 @@ session is working on the task now; notes on problems met stay with their task (
 2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
    first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
    done, the wall jump and ledges traced too).
-3. P1.9: wear the disc's guns (`rac_formats::gadget`) and follow UYA's quick-select rules;
-   P1.10's crate and pickup rules and P1.12's HUD timings, all read in `weapons.md`; then
-   the free look's aim assist (P1.7).
+3. P1.10's nanotech, explosive and doubler crates ("Ammo pickups, crates and the vendor"),
+   then the guns' own sequences on the rig (P1.9: their draw, idle and recoil, by rules
+   still to read), the whip's rope and the Shield Charger's bubble on the rig, and RE.7's
+   open items (`weapons.md`, "Next steps").
 4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 **Wanted from the owner, when convenient:** savestates by moves that need a particular
@@ -303,6 +307,7 @@ None at the moment.
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
 | 2026-10-17 | **The look stick reaches the simulation as stick counts** (`PlayerInput::look_stick`, making the encoding 12 bytes and `.orin` version 2; version 1 files still load), so each camera applies its game's own response: the follow camera's linear turn and springing tilt, the free look's squared (UYA) or linear (DL) speeds and quick turn. The mouse stays a direct turn in every camera (G5), and the follow camera keeps the tilt the mouse sets. The camera setting (third person, lock-strafe, first person) is a player option on `FollowCamera` whose default is the movement profile's. |
 | 2026-10-20 | **What the games carry on the hero as mobys of their own are attachments** (UYA's Clank and heli-pack): a model part on a skeleton of its own, riding a rig joint with its place and turn but not its scale, as the games normalise the joint before placing a moby. Their clips hold each joint's whole transform, and the game hands the rig its rules for choosing them (`BackAnimations`), as for fidgets. The rig's skeleton stays the hero's; the open model keeps its own Clank on the rig's Clank joints. |
+| 2026-10-22 | **The free look's aim assist is the stick's**, as lock-on is the gamepad's (2026-10-15): once the mouse turns the view the assist stops until the stick turns it again. **The quick-select ring plays as UYA's with QUICK SELECT PAUSE off**: it opens over the running world and holds the hero's input after 15 ticks, so co-op stays in step. |
 
 ## 6. Roadmap
 
@@ -437,6 +442,13 @@ committed (names, addresses, layouts, derived constants).
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
   `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
+  - Done 2026-10-22: UYA's other fourteen guns, read in code at the level of their
+    firing and their shots (`weapons.md`, "Where each gun's code is" and the sections
+    after the Flux Rifle). Not read: the V5 variants' own code, the agents' AI, the ducks'
+    and infected enemies' behaviour (each enemy's own code), and the Hydra's spit, the
+    Suck Cannon's and the RY3NO's shots in flight (`weapons.md`, "Next steps" 4).
+  - Item 0x7F, taken for a multiplayer wrench in `hero-controller.md` and
+    `symbols.toml`, is the Plasma Whip; corrected.
   - Read in code 2026-10-21: ammo pickups, crates and the vendor's rounds; the
     quick-select ring; the weapon, health and bolt HUDs (`weapons.md`, those sections).
     Open: placed pickups' rounds, vendor kind 4, multiplayer's ring.
@@ -572,6 +584,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
 - [-] **P1.6** Movement feel reference. Moved to RE.3, RE.5 and RE.6.
 - [x] **P1.7** The hero's camera (`rac_hero/src/camera/`, the profile's `camera` section),
   from RE.4 (`camera.md`):
+  - Done 2026-10-22: the free look's aim assist (`FreeLookAssist`; `camera.md`, "In the
+    kit"): the target, the cuts, the quick turn's wait, the snap and keeping a target in
+    view while he moves; the stick's only (§5, 2026-10-22).
   - **The follow camera** (third person): UYA's drag camera with the follow point's
     height modes (the jump hold, the heli, double-jump and flip rises, the jump attack's
     halfway height), the look point's air gain, the distance and height springs, the
@@ -590,8 +605,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     **`CameraVolume`**, a box with a priority and optional overrides.
   - Standing while strafing, he steps round to the camera once it is 10° off.
   - **Simplified or left out:** the kit also sweeps the camera from the pivot so it never
-    ends behind a wall; the free look's aim assist waits for P1.9 (the strafing a gun
-    forces is in, from `HeroMotion::gun`); the platform carry, the swim and critter rules, volume steering and fields of
+    ends behind a wall; the platform carry, the swim and critter rules, volume steering and fields of
     view, and the modes for states the kit lacks (jets, rocket jumps, jump pads, the
     bounce's mode 11) aren't modelled; the camera setting isn't in input recordings.
   - **Not traced against the kit:** a replay of RE.4's traces through the kit camera
@@ -621,15 +635,39 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Done 2026-10-22: all twenty of UYA's guns (`weapons.md`, "In the kit", "The other
+    fourteen"): their RON entries, a fire mode each in `weapons/{seekers,thrown,grab,
+    hand}.rs`, enemies-only searches (`Hostile`), `Affliction`s (infected, duck,
+    swallowed, sucked) as `Afflicted` messages, the Shield Charger's `rac_hero::Shield`,
+    the Plasma Whip's `WhipHand` swinging the wrench's moves on the fire button, and the
+    holo shields' `block_shot`. The demo's enemies are `Hostile`, fight each other while
+    infected (the demo's own rules: `rac_demo::FoeHits`), are gone while a duck, and have
+    their shots stopped by holo shields; the HUD shows every gun and the Suck Cannon's
+    count.
+  - Done 2026-10-22: the guns follow the game's code where it is read: the fourteen
+    guns' disc models; the Hydra's spit and bolts, the RY3NO's missiles, the Suck
+    Cannon's shot, the Holo Shield's drain, the agents' ends, the Quantum Whip's cut, the
+    Qwack-O-Ray's ducks and eggs, and the V5 variants (`weapons.md`, "In the kit", which
+    lists what is still [placeholder]).
+  - Next for the fourteen: the whip's rope (classes 0x183A and 0x183C) and the Shield
+    Charger's bubble (0xA5C, 0x1192 at V5) on the rig, then the unread code in
+    `weapons.md`'s "Next steps" 4.
   - Done 2026-10-21: the gun on the rig (`weapons.md`, "In the kit", "On the rig"):
     `GunHand` names the gun, its `GunPose` and shots; the standing firing sequences and
-    the crouched arms layer play from the disc; placeholder guns sit in the fist
-    (`RigGuns`, `model::gun_grip`, checked against UYA's firing poses); the open model
-    aims procedurally. The quick-select ring (`weapons/ring.rs`), on placeholder rules.
-  - The gun models are in the gadget WAD; `rac_formats::gadget` reads all six (disc test).
-  - Next step: wear the disc's guns (`Gadget::read_uya` with row +0x10's class, on hand
-    joint 56 with the joint's own axes and the class's scale, as `moby-format.md`, "The
-    gadget WAD", says), then follow UYA's ring rules ("The quick-select ring").
+    the crouched arms layer play from the disc; guns sit in the fist (`RigGuns`,
+    `model::gun_grip`, checked against UYA's firing poses); the open model aims
+    procedurally. The quick-select ring (`weapons/ring.rs`), on placeholder rules.
+  - Done 2026-10-22: with a UYA disc he holds the guns' own models from the gadget WAD
+    (`openrac/src/gun_models.rs`), each level's: V2–V4 show more of the class's bangles,
+    V5 on another class (`moby-format.md`, "The gadget WAD"). Baked at rest; the guns'
+    own draw, idle and recoil sequences aren't played yet.
+  - Done 2026-10-22: the ring follows UYA's rules with QUICK SELECT PAUSE off (so co-op
+    stays in step): it opens on the press, holds his input after 15 ticks, picks after
+    the hold check and the stick's lock-out, steps by the d-pad's neighbour table, shows
+    the second ring with R1 and chooses as it closes (`weapons.md`, "In the kit").
+  - Next step: read which of the guns' own sequences the game plays when (the draw,
+    idle and recoil; the gun's moby update, row +0x10's class), then play them on the
+    held gun as an attachment.
   - UYA's rules and numbers are in `docs/research/weapons.md`; what the kit has of them,
     and its placeholders, in its "In the kit".
   - Done: `rac_combat::weapons`, with UYA's six read guns in RON
@@ -643,22 +681,21 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     the strafing a gun forces. The demo gives every gun at V3 and draws its shots.
   - A Shock Blaster at V2 or up drawn by holding fire used its 20 tries before it could
     fire; the hold counts from when it can, as the kit's own reading.
-  - Not done: the gun on the rig and its firing animations, the raised arm and the upper
-    body's turn to the target (P1.17's rig); the quick-select ring (with P1.12's HUD);
+  - Not done: the raised arm and the upper body's turn to the target (P1.17's rig);
     DL's guns and mods (RE.7), beyond `OwnedGun::extra_mods`; the free look's aim assist
     (P1.7).
-  - Next step: the rig holds the gun in his hand and plays its firing animations from
-    `GunHand` (`weapons.md`, "The hero's side of firing": whole-body sequences 49, 51 and
-    103, the arms-only layers), with the gun's model from the disc (row +0x10's class).
 - [~] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
   nanotech, explosive); health; a vendor stub that sells ammo.
   - Done 2026-10-21 (`rac_combat::pickups`, `assets/pickups.ron`): the drops moved here;
-    ammo pickups, bolt and ammo crates, enemies' ammo drops and a vendor's pad
-    (`weapons.md`, "In the kit", "Pickups"). Rounds and prices are the game's.
-  - Not done: nanotech and explosive crates, the vendor's menu.
-  - Next step: follow UYA's rules ("Ammo pickups, crates and the vendor"): crates pick a
-    random owned gun not full, 1 or 2 pickups, never the Flux Rifle; pickups are taken
-    before they fly, within 8.7 u, and never expire.
+    ammo pickups, bolt and ammo crates and a vendor's pad (`weapons.md`, "In the kit",
+    "Pickups"). Rounds and prices are the game's.
+  - Done 2026-10-22: UYA's rules ("Ammo pickups, crates and the vendor"): the 8.7 by 3 u
+    reach; ammo taken before it flies, on landing, capped, never expiring; ammo crates'
+    1 or 2 pickups for one gun not full, never the Flux Rifle; bolt crates' bolts in
+    coins; enemies drop no ammo.
+  - Not done: nanotech, explosive and doubler crates; the vendor's menu; UYA's cap of a
+    few coins a crate with the rest banked (`bolts_drop`'s bank isn't read).
+  - Next step: the nanotech and explosive crates ("Ammo pickups, crates and the vendor").
   - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
     the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
     the crates and the vendor.
@@ -675,6 +712,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Health and damage go through `rac_combat` (hurtbox, hit points, kill XP), so the
     wrench and guns hit them; they hurt the hero through `HurtHero`. Drops are bolts and
     nanotech (`drops.rs`, `assets/drops.ron`).
+  - Infected by the Infector, one turns on the nearest other enemy it sees, which fights
+    back until the infection ends; their hits on each other go through `FoeHits`.
   - An arena in the greybox level beside the melee yard: three chargers, two shooters, low
     cover and a pillar. Tests: `rac_demo/tests/enemies.rs`.
   - Enemies run after `SimSet::World` and before `SimSet::Hero`. Inside `World`, their
@@ -684,9 +723,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     (in a scripted run, a hero who stood his ground and swung died in about 10 s).
 - [~] **P1.12** UI and HUD, PC first (G5):
   - Started 2026-10-21 (`rac_demo::hud`, `assets/hud.ron`): health, bolts, the gun
-    panel, ammo warnings, the level-up notice and the ring, per player; seen running.
-  - Not done: HUD tests (`rac_demo/tests/hud.rs`), the game's show-and-fade timings
-    (`weapons.md`, "The HUD"), the pause menu and settings.
+    panel, the level-up notice and the ring, per player; seen running.
+  - Done 2026-10-22: UYA's show-and-fade timings (`hud/clock.rs`; `weapons.md`, "In the
+    kit", "HUD"): the gun, health and bolts shown for the game's frames after what shows
+    them, the bolt tally and its roll, the low pulses, the next two recent guns, the
+    ring's fade; tests on the clock and the view. Seen running on Xvfb.
+  - Not done: L3's show-all (no binding), the pause menu and settings.
+  - xdotool's keys didn't reach the app under Xvfb (no window manager, so no focus);
+    `xdotool windowfocus --sync` on the window first fixes it (CLAUDE.md, "Running the
+    app off-screen").
   - HUD: health, bolts, ammo and weapon icon; plus the quick-select ring.
   - Pause menu.
   - Settings:

@@ -1,7 +1,7 @@
 //! Pickups, crates and the vendor through the whole plugin (PLAN.md P1.10): a crate the
-//! wrench breaks scatters ammo that flies to the hero and fills his gun, a bolt crate's
-//! bolts reach his purse, ammo that doesn't fit goes on to a partner who can use it, and
-//! the vendor's pad sells rounds for bolts. All on synthetic floors.
+//! wrench breaks scatters ammo for his gun that fills it as he takes it, a bolt crate's
+//! bolts reach his purse, ammo that doesn't fit is lost, and the vendor's pad sells rounds
+//! for bolts. All on synthetic floors.
 
 use bevy::{prelude::*, time::TimeUpdateStrategy};
 use rac_combat::pickups::{PickupMotion, PickupTuning};
@@ -113,18 +113,25 @@ fn a_crate_the_wrench_breaks_scatters_ammo_for_his_gun_that_he_collects() {
 
     let armory = Armory::uya();
     let rounds = armory.get(N60).unwrap().pickup_rounds;
-    let count = PickupTuning::default().crates.ammo_pickups;
     let scattered = pickups(&mut app);
-    assert_eq!(scattered.len(), count as usize);
+    let count = scattered.len() as u32;
+    assert!((1..=2).contains(&count), "{count}");
     assert!(scattered.iter().all(|pickup| pickup.kind
         == PickupKind::Ammo {
             weapon: N60,
             rounds
         }));
-    // He stands near enough for every one to fly to him.
-    ticks(&mut app, 120);
+    // He stands in reach, so each is his as it lands, and then flies in.
+    let mut filled = None;
+    for tick in 0..120 {
+        app.update();
+        if filled.is_none() && ammo(&app, hero) == 10 + count * rounds {
+            filled = Some(tick);
+        }
+    }
     assert!(pickups(&mut app).is_empty());
     assert_eq!(ammo(&app, hero), 10 + count * rounds);
+    assert!(filled.is_some_and(|tick| tick < 60), "{filled:?}");
 }
 
 #[test]
@@ -141,52 +148,52 @@ fn a_bolt_crate_s_bolts_reach_his_purse() {
     });
     app.update();
     assert!(app.world().get_entity(target).is_err());
-    let scattered = pickups(&mut app);
+    let scattered: u32 = pickups(&mut app)
+        .iter()
+        .map(|pickup| match pickup.kind {
+            PickupKind::Bolts(value) => value,
+            other => panic!("{other:?}"),
+        })
+        .sum();
     let table = PickupTuning::default().crates;
-    assert!((table.bolts.0..=table.bolts.1).contains(&(scattered.len() as u32)));
+    let spread = table.bolts / 4;
+    assert!((table.bolts - spread..=table.bolts + spread).contains(&scattered));
     ticks(&mut app, 120);
     assert!(pickups(&mut app).is_empty());
     let bolts = app.world().get::<Bolts>(hero).unwrap().0;
-    assert_eq!(bolts, 7 + scattered.len() as u32 * table.bolt_value);
+    assert_eq!(bolts, 7 + scattered);
 }
 
 #[test]
-fn ammo_that_does_not_fit_falls_and_goes_on_to_a_partner_with_room() {
+fn ammo_goes_to_the_nearest_hero_with_room_and_what_does_not_fit_is_lost() {
     let mut app = app();
-    // Player 0 has room for 5 rounds and is nearest; player 1, further off, for all of it.
-    let near = hero(&mut app, 0, Vec3::ZERO, 145, 0);
-    let far = hero(&mut app, 1, Vec3::new(4.5, 0.0, 0.0), 0, 0);
+    // Player 1 is nearer but his N60 is full; player 0 has room for 5 rounds.
+    let room = hero(&mut app, 0, Vec3::new(3.0, 0.0, 0.0), 145, 0);
+    let full = hero(&mut app, 1, Vec3::new(-1.0, 0.0, 0.0), 150, 0);
     let tuning = PickupTuning::default();
     let motion = PickupMotion {
-        kind: PickupKind::Ammo {
-            weapon: N60,
-            rounds: 30,
-        },
-        position: Vec3::new(0.5, tuning.radius, 0.0),
-        velocity: Vec3::ZERO,
-        age: tuning.magnet_delay_ticks,
-        flying_to: None,
+        landed: true,
+        ..PickupMotion::new(
+            PickupKind::Ammo {
+                weapon: N60,
+                rounds: 30,
+            },
+            Vec3::new(0.0, tuning.radius, 0.0),
+            Vec3::ZERO,
+        )
     };
     app.world_mut().spawn((
         Pickup(motion),
         SimTransform::from_translation(motion.position),
     ));
     app.update();
-    let mut saw_leftover = false;
-    for _ in 0..240 {
-        app.update();
-        saw_leftover |= pickups(&mut app).iter().any(|pickup| {
-            pickup.kind
-                == PickupKind::Ammo {
-                    weapon: N60,
-                    rounds: 25,
-                }
-        });
-    }
-    assert!(saw_leftover);
+    app.update();
+    assert_eq!(ammo(&app, room), 150);
+    assert_eq!(ammo(&app, full), 150);
+    // It flies in for show, then goes; the 25 rounds that didn't fit are gone with it.
+    assert!(pickups(&mut app).iter().all(|pickup| pickup.taken));
+    ticks(&mut app, 120);
     assert!(pickups(&mut app).is_empty());
-    assert_eq!(ammo(&app, near), 150);
-    assert_eq!(ammo(&app, far), 25);
 }
 
 #[test]

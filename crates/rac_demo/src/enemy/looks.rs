@@ -16,6 +16,8 @@ use super::{BURST_TICKS, Enemy, EnemyBody, EnemyShot, ShotBurst};
 pub struct EnemyLooks {
     /// What every part shows while its enemy flashes from a hit.
     lit: Handle<StandardMaterial>,
+    /// What every part shows while it is infected.
+    infected: Handle<StandardMaterial>,
     charger: Vec<PartLook>,
     shooter: Vec<PartLook>,
     shot: Handle<Mesh>,
@@ -65,6 +67,7 @@ impl EnemyLooks {
         let lit = glowing(Color::srgb(1.0, 0.95, 0.8), LinearRgba::rgb(2.0, 1.6, 0.8));
         let tell = glowing(Color::srgb(1.0, 0.2, 0.05), LinearRgba::rgb(8.0, 0.8, 0.1));
         let shot_look = glowing(Color::srgb(1.0, 0.5, 0.1), LinearRgba::rgb(8.0, 2.5, 0.4));
+        let infected = glowing(Color::srgb(0.4, 0.9, 0.3), LinearRgba::rgb(0.6, 2.0, 0.4));
 
         // Forward is −z; a cone or cylinder along +y turned this way points forward.
         let forward = Quat::from_rotation_x(-FRAC_PI_2);
@@ -127,6 +130,7 @@ impl EnemyLooks {
         ];
         Self {
             lit,
+            infected,
             charger,
             shooter,
             shot: meshes.add(Sphere::new(0.2)),
@@ -212,6 +216,8 @@ pub(crate) fn pose_enemies(
         // About x at the feet: a positive lean tips the top back, away from −z.
         transform.rotation = Quat::from_rotation_x(lean);
         transform.translation = Vec3::NEG_Y * sink;
+        // Made a duck, it is gone at once: the gun's duck stands there.
+        transform.scale = if body.0.duck { Vec3::ZERO } else { Vec3::ONE };
     }
     for (part, mut material) in &mut parts {
         let Ok((enemy, body, reaction, _)) = enemies.get(part.owner) else {
@@ -220,6 +226,8 @@ pub(crate) fn pose_enemies(
         let def = bestiary.get(enemy.kind);
         let wanted = if reaction.is_some_and(|reaction| reaction.flash_ticks > 0) {
             &looks.lit
+        } else if body.0.infected > 0 {
+            &looks.infected
         } else if body.0.attack_phase(def) == Some(AttackPhase::WindUp)
             && let Some(tell) = &part.tell
         {

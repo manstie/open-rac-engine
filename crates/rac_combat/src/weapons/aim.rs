@@ -15,6 +15,10 @@ pub struct GunTarget {
     pub radius: f32,
     /// It has hit points left, or none to lose.
     pub alive: bool,
+    /// Its hit points now and at most, if it has any.
+    pub health: Option<(f32, f32)>,
+    /// It is an enemy ([`crate::Hostile`]), not a crate or other target.
+    pub enemy: bool,
 }
 
 /// How far a sight line stops short of a target's middle, as the lock-on's does, since a
@@ -57,11 +61,28 @@ pub fn assist_target(
     assist: &AimAssist,
     world: &dyn CollisionWorld,
 ) -> Option<usize> {
+    assist_targets(targets, from, aim, assist, world, |_| true, 1)
+        .first()
+        .copied()
+}
+
+/// The assist's `most` best targets among those `wanted` lets through, best first: what
+/// the guns that seek enemies or mark several ask `gun_aim_target` for (its callers pass
+/// a list and a count). Only enemies, for those guns, as the game's search is.
+pub fn assist_targets(
+    targets: &[GunTarget],
+    from: Vec3,
+    aim: Vec3,
+    assist: &AimAssist,
+    world: &dyn CollisionWorld,
+    wanted: impl Fn(&GunTarget) -> bool,
+    most: usize,
+) -> Vec<usize> {
     let aim_yaw = yaw_of(aim);
     let aim_pitch = pitch_of(aim);
-    let mut best: Option<(f32, usize)> = None;
+    let mut scored: Vec<(f32, usize)> = Vec::new();
     for (index, target) in targets.iter().enumerate() {
-        if !target.alive {
+        if !target.alive || !wanted(target) {
             continue;
         }
         let to = target.centre - from;
@@ -80,15 +101,24 @@ pub fn assist_target(
             continue;
         }
         let score = yaw_off * 3.0 + pitch_off * 0.2 * distance + distance * 0.1;
-        if best.is_some_and(|(least, _)| score >= least) {
-            continue;
-        }
-        if !in_sight(world, from, target.centre) {
-            continue;
-        }
-        best = Some((score, index));
+        scored.push((score, index));
     }
-    best.map(|(_, index)| index)
+    // Ties go to the first in the list, as the game's strict comparison keeps it.
+    scored.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    scored
+        .into_iter()
+        .map(|(_, index)| index)
+        .filter(|&index| in_sight(world, from, targets[index].centre))
+        .take(most)
+        .collect()
+}
+
+/// A cone that takes in everything round, for the searches that look all round.
+pub const ALL_ROUND: (f32, f32) = (180.0, 90.0);
+
+/// `v` along the ground.
+pub fn flat(v: Vec3) -> Vec3 {
+    Vec3::new(v.x, 0.0, v.z)
 }
 
 /// `direction` turned towards `wanted` by at most `most` radians (both unit vectors).
@@ -180,6 +210,8 @@ mod tests {
             centre,
             radius: 0.5,
             alive: true,
+            health: None,
+            enemy: true,
         }
     }
 

@@ -21,7 +21,7 @@ pub use melee::{Clank, Strike, StrikeShape, ThrownWrench, best_target, target_sc
 use crate::{
     camera::CameraSetting,
     collision::{BodyId, CollisionWorld, Material},
-    gun::GunHand,
+    gun::{GunHand, Shield},
     motor::{self, Ground},
     profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
     rail::{GrindRail, RailKind, RailPoint},
@@ -407,6 +407,11 @@ pub struct HeroMotion {
     /// What is in his hand and whether it fires, which the game's weapons code sets each
     /// tick before he moves.
     pub gun: GunHand,
+    /// A shield round him, which takes hits first.
+    pub shield: Shield,
+    /// Attacks the Plasma Whip has started, counting round: each takes a round of its
+    /// ammo, which the weapons code takes.
+    pub whip_attacks: u32,
     /// The strafe's own turning rate, kept apart from the walk's, radians per tick.
     strafe_yaw_rate: f32,
     /// The way he strafes: the stick's direction on the ground, kept when it is let go.
@@ -552,6 +557,8 @@ impl HeroMotion {
             look_ready: true,
             camera_setting: CameraSetting::ThirdPerson,
             gun: GunHand::default(),
+            shield: Shield::default(),
+            whip_attacks: 0,
             strafing: false,
             strafe_side: StrafeSide::Forward,
             flip_side: StrafeSide::Forward,
@@ -978,14 +985,16 @@ pub fn step(
     profile: &HeroProfile,
     world: &dyn CollisionWorld,
 ) -> StepEvents {
-    // While the quick-select ring is open, its stick picks a gun rather than moving him.
-    let centred;
+    // While the quick-select ring holds his input he takes none: its stick and buttons
+    // pick a gun.
+    let still;
     let input = if hero.gun.selecting {
-        centred = PlayerInput {
-            move_stick: [0, 0],
-            ..*input
+        still = PlayerInput {
+            look: input.look,
+            look_stick: input.look_stick,
+            ..PlayerInput::default()
         };
-        &centred
+        &still
     } else {
         input
     };
@@ -1022,6 +1031,7 @@ pub fn step(
     }
     hero.no_grab_ticks = hero.no_grab_ticks.saturating_sub(1);
     hero.safe_ticks = hero.safe_ticks.saturating_sub(1);
+    hero.shield.grace = hero.shield.grace.saturating_sub(1);
     hero.input_lock = hero.input_lock.saturating_sub(1);
     hero.charge_cooldown = hero.charge_cooldown.saturating_sub(1);
     hero.no_rail_ticks = hero.no_rail_ticks.saturating_sub(1);

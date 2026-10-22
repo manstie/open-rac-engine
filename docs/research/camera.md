@@ -1174,13 +1174,26 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   its stick bump, timer and cosine, the 1.5 u minimum arm, and the 30-tick and 30 u
   resets. The stick turns it linearly and its tilt springs back, as the games do; the
   mouse turns it directly and its tilt stays.
-- **The free look** has items 1 to 9 of "The free-look camera" but the aim assist (item 2,
-  4's and 5's target cuts, and 6), with UYA's squared stick and quick turn at once, DL's
+- **The free look** has items 1 to 9 of "The free-look camera", with UYA's squared stick and quick turn at once, DL's
   linear stick and quick turn from the second tick, the limits and the up limit's ease
   (UYA's held look re-setting it each tick), the eye's speed-up-and-brake spring
   (0x445300; 13 ticks from 1.75 to 2.0, as traced), the jump hold, the look-down shift,
   the eye guard, and the lock-strafe offset with its ray cut, ease-out and (UYA) end
   sphere. The camera uses last tick's eye.
+- **Its aim assist** (2026-10-22, `FreeLookAssist`; items 2, 4 to 6 and 0x410B08 read
+  further in code): the target the view's ray hits (weight 1), else the lowest distance ×
+  (1 + weight) in sight within 30 u and 15°, among the targets each better than all
+  before it in the list, as the game builds it; the stick's yaw cut by 0.5 × weight and
+  its pitch by 0.6 (the quick turn's speed uncut, constant +0x58 is 0); with a target the
+  quick turn from the 10th tick past 0.99, at a third of its acceleration; a push past
+  0.85 towards the target held 7 ticks at twice the rate, ending as the turn would pass
+  the target, turning exactly onto it; and, with either stick pushed, his velocity
+  against the target's (capped at 0.1333 u a tick) over its distance turning the view
+  across by 0.666 × weight (at most 1.5° a tick) and up or down by 0.85 × weight, the
+  pitch alone faded from 12 u to 4 [code]. The ray's hit is a target's middle within
+  1 u of it [placeholder: the game tests the moby's collision]; the targets are the
+  kit's `AimTarget`s. DL keeps UYA's [not read in DL]. It is the stick's: once the
+  mouse turns the view there is none until the stick does (§5, 2026-10-22).
 - **The third-person look** waits 7 ticks while the follow camera steers to his facing,
   blends in at 0.075 and is ready at half way, takes the further pushed of the two sticks
   with nothing under 0.5, and blends out from 0.25 at 0.018 (a cut if its own blend
@@ -1194,7 +1207,7 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
 - **Left out:** the platform carry (step "Platforms"), the swim and critter rules, the
   modes for states the kit lacks (jets, rocket jumps, jump pads, state 12, the bounce's
   mode 11), volume steering and fields of view, the view's extra yaw (+0x48), the orbit blend, the 8° turn-back after
-  a look that followed the lock-strafe camera, and the free look's aim assist (P1.9). The
+  a look that followed the lock-strafe camera, and the zoom's narrowing of the assist's cone. The
   kit also sweeps the camera from the pivot at the end, so it never ends behind a wall.
 - **Seen in the running demo** (Xvfb, 2026-10-17): DL's lock-strafe camera stays pointed
   down the level while the hero runs sideways; UYA's third person doesn't turn while he

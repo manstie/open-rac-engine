@@ -27,7 +27,9 @@ use rac_hero::{AimTarget, Hero, HeroBody};
 use rac_sim::{SimSet, SimTransform};
 
 pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor};
-pub use weapons::{Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, WeaponId};
+pub use weapons::{
+    Afflicted, Affliction, Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, WeaponId,
+};
 
 /// Seconds per tick.
 pub(crate) const TICK: f32 = 1.0 / 60.0;
@@ -69,6 +71,11 @@ pub struct HitReaction {
     /// Ticks left before a gun's hit can hurt it again.
     pub(crate) gun_recovery: u32,
 }
+
+/// A target that is an enemy (UYA's class category 5), not a crate or a dummy: the guns
+/// that seek, infect, swallow or turn things into ducks only take enemies.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Hostile;
 
 /// A target that the push moves (through its `SimTransform`).
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
@@ -138,6 +145,7 @@ impl Plugin for CombatPlugin {
             .add_message::<Struck>()
             .add_message::<Destroyed>()
             .add_message::<GunEvent>()
+            .add_message::<Afflicted>()
             .add_systems(
                 FixedUpdate,
                 (react, weapons::fire_guns).chain().in_set(SimSet::World),
@@ -179,9 +187,11 @@ pub(crate) fn position(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn strike_targets(
     tuning: Res<CombatTuning>,
-    heroes: Query<(&Hero, &HeroBody)>,
+    armory: Res<Armory>,
+    mut heroes: Query<(&Hero, &HeroBody, Option<&mut Arsenal>)>,
     mut targets: Query<(
         Entity,
         &Hurtbox,
@@ -189,18 +199,24 @@ fn strike_targets(
         Option<&SimTransform>,
         Option<&mut Hitpoints>,
         &mut HitReaction,
+        Option<&KillXp>,
     )>,
     mut struck: MessageWriter<Struck>,
     mut destroyed: MessageWriter<Destroyed>,
+    mut events: MessageWriter<GunEvent>,
 ) {
-    let mut heroes: Vec<_> = heroes.iter().collect();
-    heroes.sort_by_key(|(hero, _)| hero.player);
+    let mut heroes: Vec<_> = heroes.iter_mut().collect();
+    heroes.sort_by_key(|(hero, ..)| hero.player);
     let mut targets: Vec<_> = targets.iter_mut().collect();
     targets.sort_by_key(|(entity, ..)| *entity);
 
-    for (hero, body) in heroes {
+    for (hero, body, arsenal) in &mut heroes {
+        // The Plasma Whip's rope is the gun in his hand: its kills give that gun XP.
+        let gun = arsenal.as_ref().and_then(|arsenal| arsenal.hand.gun());
+        let mut kills = Vec::new();
         for strike in &body.0.strikes {
-            for (entity, hurtbox, transform, simulated, hitpoints, reaction) in &mut targets {
+            let weapon = if strike.gun { gun } else { None };
+            for (entity, hurtbox, transform, simulated, hitpoints, reaction, xp) in &mut targets {
                 let Some(at) = position(*transform, *simulated) else {
                     continue;
                 };
@@ -224,7 +240,7 @@ fn strike_targets(
                     player: hero.player,
                     damage: strike.damage,
                     push,
-                    weapon: None,
+                    weapon,
                 });
                 if let Some(hitpoints) = hitpoints {
                     let was_alive = hitpoints.current > 0.0;
@@ -233,9 +249,23 @@ fn strike_targets(
                         destroyed.write(Destroyed {
                             target: *entity,
                             player: hero.player,
-                            weapon: None,
+                            weapon,
                         });
+                        if let Some(weapon) = weapon {
+                            kills.push((weapon, xp.map_or(0, |xp| xp.0)));
+                        }
                     }
+                }
+            }
+        }
+        if let Some(arsenal) = arsenal {
+            for (weapon, xp) in kills {
+                for up in arsenal.add_xp(weapon, xp, &armory) {
+                    events.write(GunEvent {
+                        player: hero.player,
+                        weapon,
+                        kind: GunEventKind::LevelUp { level: up.level },
+                    });
                 }
             }
         }

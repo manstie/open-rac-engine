@@ -1,7 +1,7 @@
 //! The hero's guns (PLAN.md P1.9), after UYA (`docs/research/weapons.md`).
 //!
 //! - [`Armory`] holds a game's guns as RON definitions: each one's levels, [`FireMode`]
-//!   and mods. [`Armory::uya`] is UYA NTSC-U's six guns whose code is read.
+//!   and mods. [`Armory::uya`] is UYA NTSC-U's twenty.
 //! - An [`Arsenal`] beside a hero holds what he owns: ammo, XP and levels, the gun the fire
 //!   button brings out, the quick-select rings ([`ring`]), and what is in his hand.
 //! - Each tick, before the heroes move, [`fire::step`] runs every hero's guns and their
@@ -15,23 +15,29 @@
 pub mod aim;
 pub mod arsenal;
 pub mod def;
+mod ducks;
 pub mod fire;
+mod grab;
+mod hand;
 pub mod ring;
+mod seekers;
 pub mod shots;
+mod thrown;
 
 use bevy::prelude::*;
-use rac_hero::{CollisionScene, FollowCamera, Hero, HeroBody, HeroTuning, LockOn};
+use rac_hero::{CollisionScene, FollowCamera, Health, Hero, HeroBody, HeroTuning, LockOn};
 use rac_input::PlayerInputs;
 use rac_sim::{SimRng, SimTransform};
 
-use crate::{CombatTuning, Destroyed, HitReaction, Hitpoints, Hurtbox, Struck, position};
+use crate::{CombatTuning, Destroyed, HitReaction, Hitpoints, Hostile, Hurtbox, Struck, position};
 
 pub use aim::GunTarget;
 pub use arsenal::{Arsenal, Hand, LevelUp, OwnedGun};
 pub use def::{Armory, FireMode, Mods, WeaponDef, WeaponId};
-pub use fire::{GunInput, Hit, Outcome, View};
+pub use fire::{Afflict, GunInput, Hit, Outcome, View};
 pub use ring::{OpenRing, QuickSelect, RingRules};
-pub use shots::{Shot, ShotKind};
+pub use shots::{BarrierState, RiftState, Shot, ShotKind, TurretState};
+pub use thrown::block_shot;
 
 /// The XP a target gives the gun that kills it (UYA's per-class table, 0x4412D0).
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +63,29 @@ pub enum GunEventKind {
     Arc { from: Vec3, to: Vec3 },
     /// The gun reached a new level.
     LevelUp { level: u8 },
+}
+
+/// What a gun did to an enemy beyond its damage (`weapons.md`: the Infector, Qwack-O-Ray,
+/// Rift Inducer and Suck Cannon). The game decides what each looks like and does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Affliction {
+    /// It fights the other enemies for `ticks` (each enemy's own code in UYA).
+    Infected { ticks: u32 },
+    /// The Qwack-O-Ray made it a duck: it is gone, and the gun's duck stands there.
+    Duck,
+    /// A rift at `into` swallowed it: it is dead.
+    Swallowed { into: Vec3 },
+    /// The Suck Cannon took it in: it is dead.
+    Sucked,
+}
+
+/// A gun afflicted a target.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct Afflicted {
+    pub target: Entity,
+    pub player: usize,
+    pub weapon: WeaponId,
+    pub affliction: Affliction,
 }
 
 /// A target burning with acid (`weapon_acid_mod`, 0x31AC38).
@@ -106,6 +135,7 @@ type TargetItem<'a> = (
     Option<&'a mut Hitpoints>,
     &'a mut HitReaction,
     Option<&'a KillXp>,
+    Has<Hostile>,
 );
 
 /// Runs every hero's guns, then puts their hits through the damage queue, the shock and
@@ -120,23 +150,34 @@ pub(crate) fn fire_guns(
     mut rng: ResMut<SimRng>,
     mut burns: ResMut<Burns>,
     cameras: Query<(&FollowCamera, &SimTransform)>,
-    mut heroes: Query<(&Hero, &mut HeroBody, &mut Arsenal, &mut LockOn)>,
+    mut heroes: Query<(
+        &Hero,
+        &mut HeroBody,
+        &mut Arsenal,
+        &mut LockOn,
+        Option<&mut Health>,
+    )>,
     mut targets: Query<TargetItem>,
     mut events: MessageWriter<GunEvent>,
     mut struck: MessageWriter<Struck>,
     mut destroyed: MessageWriter<Destroyed>,
+    mut afflicted: MessageWriter<Afflicted>,
 ) {
     let mut list: Vec<GunTarget> = targets
         .iter()
-        .filter_map(|(entity, hurtbox, transform, simulated, hitpoints, ..)| {
-            let at = position(transform, simulated)?;
-            Some(GunTarget {
-                entity,
-                centre: at + Vec3::Y * hurtbox.height,
-                radius: hurtbox.radius,
-                alive: hitpoints.is_none_or(|hitpoints| hitpoints.current > 0.0),
-            })
-        })
+        .filter_map(
+            |(entity, hurtbox, transform, simulated, hitpoints, _, _, hostile)| {
+                let at = position(transform, simulated)?;
+                Some(GunTarget {
+                    entity,
+                    centre: at + Vec3::Y * hurtbox.height,
+                    radius: hurtbox.radius,
+                    alive: hitpoints.is_none_or(|hitpoints| hitpoints.current > 0.0),
+                    health: hitpoints.map(|hitpoints| (hitpoints.current, hitpoints.max)),
+                    enemy: hostile,
+                })
+            },
+        )
         .collect();
     list.sort_by_key(|target| target.entity);
 
@@ -145,7 +186,8 @@ pub(crate) fn fire_guns(
     let mut pending: Vec<(Entity, Queued)> = Vec::new();
     // Each gun's damage now, which its shock arcs take a share of.
     let mut gun_damage: Vec<((usize, WeaponId), f32)> = Vec::new();
-    for (hero, body, arsenal, lock) in &mut order {
+    let mut afflictions: Vec<(usize, fire::Afflict)> = Vec::new();
+    for (hero, body, arsenal, lock, health) in &mut order {
         let view = cameras
             .iter()
             .find(|(camera, _)| camera.player == hero.player)
@@ -165,11 +207,23 @@ pub(crate) fn fire_guns(
                 view,
                 world: &scene.0,
                 targets: &list,
+                hurt: health
+                    .as_ref()
+                    .is_some_and(|health| health.current < health.max),
             },
             &mut rng,
         );
         body.0.gun = outcome.hand;
         lock.allowed = outcome.lock_on;
+        if let Some(points) = outcome.shield {
+            body.0.shield.points = points;
+        }
+        if outcome.heal > 0
+            && let Some(health) = health
+        {
+            health.current = (health.current + outcome.heal).min(health.max);
+        }
+        afflictions.extend(outcome.afflictions.iter().map(|&a| (hero.player, a)));
         for (weapon, kind) in outcome.events {
             events.write(GunEvent {
                 player: hero.player,
@@ -225,8 +279,42 @@ pub(crate) fn fire_guns(
     pending.sort_by_key(|(entity, _)| *entity);
 
     let mut kills: Vec<(usize, WeaponId, u32)> = Vec::new();
+    // Swallowed, sucked in or made a duck, a target dies past the damage queue (a duck's
+    // enemy is removed, 0x436220). An infection gives the gun XP as a kill does
+    // (0x3DE4F0); so does a duck [placeholder: not read].
+    for (player, afflict) in afflictions {
+        let fire::Afflict {
+            target,
+            weapon,
+            affliction,
+        } = afflict;
+        let Ok((_, _, _, _, hitpoints, _, xp, _)) = targets.get_mut(target) else {
+            continue;
+        };
+        let Some(mut hitpoints) = hitpoints.filter(|hitpoints| hitpoints.current > 0.0) else {
+            continue;
+        };
+        afflicted.write(Afflicted {
+            target,
+            player,
+            weapon,
+            affliction,
+        });
+        kills.push((player, weapon, xp.map_or(0, |xp| xp.0)));
+        if matches!(
+            affliction,
+            Affliction::Swallowed { .. } | Affliction::Sucked | Affliction::Duck
+        ) {
+            hitpoints.current = 0.0;
+            destroyed.write(Destroyed {
+                target,
+                player,
+                weapon: Some(weapon),
+            });
+        }
+    }
     for (entity, Queued { player, hit }) in pending {
-        let Ok((_, _, _, _, hitpoints, mut reaction, xp)) = targets.get_mut(entity) else {
+        let Ok((_, _, _, _, hitpoints, mut reaction, xp, _)) = targets.get_mut(entity) else {
             continue;
         };
         if reaction.gun_recovery > 0 {
@@ -263,7 +351,7 @@ pub(crate) fn fire_guns(
         let level = order
             .iter()
             .find(|(hero, ..)| hero.player == player)
-            .and_then(|(_, _, arsenal, _)| arsenal.gun(hit.weapon))
+            .and_then(|(_, _, arsenal, ..)| arsenal.gun(hit.weapon))
             .map_or(0, |gun| gun.level);
         let acid = armory
             .get(hit.weapon)
@@ -285,7 +373,7 @@ pub(crate) fn fire_guns(
 
     // Acid burns past the damage queue; the burn that kills credits the gun.
     burns.0.retain_mut(|burn| {
-        let Ok((_, _, _, _, Some(mut hitpoints), _, xp)) = targets.get_mut(burn.target) else {
+        let Ok((_, _, _, _, Some(mut hitpoints), _, xp, _)) = targets.get_mut(burn.target) else {
             return false;
         };
         if hitpoints.current <= 0.0 || burn.ticks_left == 0 {
@@ -306,7 +394,7 @@ pub(crate) fn fire_guns(
     });
 
     for (player, weapon, xp) in kills {
-        let Some((_, _, arsenal, _)) = order.iter_mut().find(|(hero, ..)| hero.player == player)
+        let Some((_, _, arsenal, ..)) = order.iter_mut().find(|(hero, ..)| hero.player == player)
         else {
             continue;
         };

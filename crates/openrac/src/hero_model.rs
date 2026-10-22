@@ -472,7 +472,7 @@ fn add_skinned(
     });
 }
 
-fn textured(textures: &[Texture], texture: i32, chrome: bool) -> ImportPaint {
+pub(crate) fn textured(textures: &[Texture], texture: i32, chrome: bool) -> ImportPaint {
     ImportPaint {
         texture: usize::try_from(texture)
             .ok()
@@ -836,7 +836,7 @@ pub fn import_dl(
 
 /// Which of `mesh`'s triangles the metal packets `metal` draw over: those with the same
 /// three corners. Every metal vertex sits on one of the mesh's.
-fn chromed(mesh: &MobyMesh, metal: &MobyMesh) -> Vec<bool> {
+pub(crate) fn chromed(mesh: &MobyMesh, metal: &MobyMesh) -> Vec<bool> {
     let corners = |mesh: &MobyMesh, triangle: &MeshTriangle| {
         let mut corners = triangle
             .corners
@@ -861,11 +861,11 @@ fn position(vertex: &MeshVertex) -> Vec3 {
 
 /// A vertex in the hero's space at rest, skinned to rig joints.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Placed {
-    position: Vec3,
-    normal: Vec3,
-    uv: Vec2,
-    skin: ([u16; 4], [f32; 4]),
+pub(crate) struct Placed {
+    pub position: Vec3,
+    pub normal: Vec3,
+    pub uv: Vec2,
+    pub skin: ([u16; 4], [f32; 4]),
 }
 
 /// A source skin's joints moved to the rig's by `follow`, merged, heaviest first.
@@ -898,7 +898,7 @@ fn fold(skin: Skin, follow: impl Fn(u8) -> usize) -> ([u16; 4], [f32; 4]) {
 /// `mesh`, skinned to `class`'s skeleton, posed in `sequence`'s keyframe and placed at
 /// `attach` in the hero's space, with its joints moved to the rig's by `follow`. Also
 /// returns where each of the class's joints ends up.
-fn baked(
+pub(crate) fn baked(
     class: &MobyClass,
     mesh: &MobyMesh,
     (sequence, keyframe): (usize, usize),
@@ -952,7 +952,7 @@ fn bounds(points: impl Iterator<Item = Vec3>) -> (Vec3, Vec3) {
 
 /// Gathers the import's triangles into one surface per paint.
 #[derive(Default)]
-struct Builder {
+pub(crate) struct Builder {
     surfaces: Vec<Surface>,
     paints: Vec<ImportPaint>,
 }
@@ -961,7 +961,7 @@ impl Builder {
     /// Adds `mesh`'s triangles, whose vertices are `vertices`, as new surfaces: one per
     /// texture the triangles use, and per whether they're `chrome`, drawn in the paint
     /// `paint` gives them.
-    fn add(
+    pub(crate) fn add(
         &mut self,
         mesh: &MobyMesh,
         vertices: &[Placed],
@@ -1015,7 +1015,7 @@ impl Builder {
         }
     }
 
-    fn finish(self) -> (Vec<Surface>, Vec<ImportPaint>) {
+    pub(crate) fn finish(self) -> (Vec<Surface>, Vec<ImportPaint>) {
         (self.surfaces, self.paints)
     }
 }
@@ -1060,7 +1060,7 @@ pub fn register_disc_models(
     commands.remove_resource::<DiscModels>();
 }
 
-fn material(paint: ImportPaint, images: &mut Assets<Image>) -> StandardMaterial {
+pub(crate) fn material(paint: ImportPaint, images: &mut Assets<Image>) -> StandardMaterial {
     let base = StandardMaterial {
         // The games draw both sides of every triangle.
         double_sided: true,

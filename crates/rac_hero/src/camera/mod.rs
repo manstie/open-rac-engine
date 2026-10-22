@@ -39,7 +39,7 @@ use crate::{
     stick::read_axes,
 };
 use follow::{FollowInput, Rig};
-use free_look::{EyeMode, FreeLook};
+use free_look::{Aim, EyeMode, FreeLook};
 
 /// The camera-speed option both games start with (0 to 100).
 pub const DEFAULT_SPEED: f32 = 50.0;
@@ -155,11 +155,13 @@ impl FollowCamera {
 
     /// One tick: picks the camera to show, runs it and blends to it. Returns where the
     /// camera goes and how it turns.
+    #[allow(clippy::too_many_arguments)]
     fn tick(
         &mut self,
         hero: &HeroMotion,
         input: &PlayerInput,
         lock: Option<Vec3>,
+        targets: &[(Entity, Vec3)],
         volumes: &[(Entity, &CameraVolume, &Transform)],
         profile: &HeroProfile,
         world: &dyn CollisionWorld,
@@ -173,6 +175,13 @@ impl FollowCamera {
             .get_or_insert_with(|| CameraState::new(hero, start_yaw, setting, profile));
         let stick = read_axes(input.look_stick, &profile.stick);
         let mouse = input.look_radians();
+        let aim = Aim {
+            targets,
+            velocity: hero.velocity,
+            tick: crate::controller::TICK,
+            pushed: input.look_stick != [0, 0] || input.move_stick != [0, 0],
+            world,
+        };
         let looking = hero.state == HeroState::Look;
         state.look_ticks = if looking { state.look_ticks + 1 } else { 0 };
         let blends = &camera.blends;
@@ -237,12 +246,14 @@ impl FollowCamera {
                     let free = &camera.free_look;
                     let stick =
                         look_stick(stick, read_axes(input.move_stick, &profile.stick), free);
-                    state.free.turn(stick, mouse, speed, free);
+                    state.free.turn(stick, mouse, speed, free, Some(&aim));
                 }
                 state.free.place(&camera.free_look, world)
             }
             View::Hero => {
-                state.free.turn(stick, mouse, speed, &camera.free_look);
+                state
+                    .free
+                    .turn(stick, mouse, speed, &camera.free_look, Some(&aim));
                 state.free.place(&camera.free_look, world)
             }
         };
@@ -540,10 +551,13 @@ pub(crate) fn follow(
     tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
     heroes: Query<(&Hero, &HeroBody, Option<&LockOn>)>,
+    // Disjoint from the cameras, whose `SimTransform`s this system writes.
+    targets: Query<crate::TargetItem, Without<FollowCamera>>,
     volumes: Query<(Entity, &CameraVolume, &Transform)>,
     mut cameras: Query<(&mut FollowCamera, &mut SimTransform)>,
 ) {
     let profile = &tuning.0;
+    let targets = crate::aim_targets(&targets);
     let mut volumes: Vec<_> = volumes.iter().collect();
     volumes.sort_by_key(|(entity, ..)| *entity);
     for (mut camera, mut transform) in &mut cameras {
@@ -555,7 +569,8 @@ pub(crate) fn follow(
         };
         let lock = lock.and_then(LockOn::target_point);
         let input = inputs.get(camera.player);
-        let (position, rotation) = camera.tick(&body.0, &input, lock, &volumes, profile, &scene.0);
+        let (position, rotation) =
+            camera.tick(&body.0, &input, lock, &targets, &volumes, profile, &scene.0);
         transform.translation = position;
         transform.rotation = rotation;
     }

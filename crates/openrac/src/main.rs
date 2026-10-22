@@ -8,6 +8,7 @@
 mod camera;
 mod discs;
 mod flow;
+mod gun_models;
 mod hero_anims;
 mod hero_model;
 mod menu;
@@ -167,12 +168,19 @@ fn main() -> Result<AppExit> {
     if let Some(recording) = replay {
         app.insert_resource(InputSource::replay(recording));
     }
-    let (animations, models) = from_disc(&args.discs);
-    if let Some(animations) = animations {
+    let read = from_disc(&args.discs);
+    if let Some(animations) = read.animations {
         app.insert_resource(animations);
     }
-    app.insert_resource(hero_model::DiscModels(models))
-        .add_systems(bevy::prelude::Startup, hero_model::register_disc_models);
+    app.insert_resource(hero_model::DiscModels(read.models))
+        .insert_resource(gun_models::DiscGuns(read.guns))
+        .add_systems(
+            bevy::prelude::Startup,
+            (
+                hero_model::register_disc_models,
+                gun_models::register_disc_guns,
+            ),
+        );
     if let Some(model) = args.model.as_ref().or(settings.hero_model.as_ref()) {
         app.world_mut()
             .resource_mut::<rac_rig::RigModels>()
@@ -193,27 +201,31 @@ fn main() -> Result<AppExit> {
     Ok(app.run())
 }
 
-/// The hero's animations and models from the user's discs in `folder`: from UYA his
-/// animations, suits and multiplayer skins, from DL its skins.
-fn from_disc(
-    folder: &std::path::Path,
-) -> (Option<rac_rig::RigAnimations>, Vec<hero_model::Imported>) {
-    let (animations, mut models) = from_uya(folder);
-    models.extend(from_dl(folder));
-    (animations, models)
+/// What the user's discs give the hero.
+#[derive(Default)]
+struct FromDisc {
+    animations: Option<rac_rig::RigAnimations>,
+    models: Vec<hero_model::Imported>,
+    guns: Vec<gun_models::DiscGun>,
 }
 
-/// The hero's animations, suits and multiplayer skins from a UYA NTSC-U disc, if one is
-/// in `folder`.
-fn from_uya(
-    folder: &std::path::Path,
-) -> (Option<rac_rig::RigAnimations>, Vec<hero_model::Imported>) {
+/// The hero's animations, models and guns from the user's discs in `folder`: from UYA his
+/// animations, suits, multiplayer skins and guns, from DL its skins.
+fn from_disc(folder: &std::path::Path) -> FromDisc {
+    let mut read = from_uya(folder);
+    read.models.extend(from_dl(folder));
+    read
+}
+
+/// The hero's animations, suits, multiplayer skins and guns from a UYA NTSC-U disc, if one
+/// is in `folder`.
+fn from_uya(folder: &std::path::Path) -> FromDisc {
     let Some((path, mut disc)) = discs::find(folder, discs::Release::UyaNtsc) else {
         info!(
             "no UYA NTSC-U disc in {}: the hero's animation is procedural",
             folder.display()
         );
-        return (None, Vec::new());
+        return FromDisc::default();
     };
     let read = rac_formats::level::Core::read_uya(&mut disc, hero_anims::LEVEL)
         .and_then(|core| core.hero().map(|hero| (core, hero)));
@@ -221,7 +233,7 @@ fn from_uya(
         Ok(read) => read,
         Err(error) => {
             warn!("couldn't read the hero from {}: {error}", path.display());
-            return (None, Vec::new());
+            return FromDisc::default();
         }
     };
     let animations = match hero_anims::rig_animations(&hero) {
@@ -244,7 +256,41 @@ fn from_uya(
     };
     let suits = [hero_model::SUITS, hero_model::MP_SKINS].concat();
     let read = hero_model::import(&mut disc, &core, &hero, &suits);
-    (animations, imported(&suits, read, &path))
+    let models = imported(&suits, read, &path);
+    FromDisc {
+        animations,
+        models,
+        guns: guns(&mut disc, &core, &hero, &path),
+    }
+}
+
+/// The guns' models from a UYA disc, with a warning for each that wasn't read.
+fn guns(
+    disc: &mut impl rac_formats::DiscReader,
+    core: &rac_formats::level::Core,
+    hero: &rac_formats::moby::MobyClass,
+    path: &std::path::Path,
+) -> Vec<gun_models::DiscGun> {
+    let read = match gun_models::import(disc, core, hero) {
+        Ok(read) => read,
+        Err(error) => {
+            warn!("couldn't read the guns from {}: {error}", path.display());
+            return Vec::new();
+        }
+    };
+    let mut guns = Vec::new();
+    for (model, gun) in gun_models::UYA_GUN_MODELS.iter().zip(read) {
+        match gun {
+            Ok(gun) => guns.push(gun),
+            Err(error) => warn!(
+                "couldn't read gun {:#x}'s model from V{} from {}: {error}",
+                model.item,
+                model.level + 1,
+                path.display()
+            ),
+        }
+    }
+    guns
 }
 
 /// The skins from a DL NTSC-U or Gladiator PAL disc, if one is in `folder`. Both hold the

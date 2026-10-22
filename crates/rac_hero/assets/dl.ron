@@ -1161,6 +1161,24 @@
             offset_accel: 0.0055556, // [verified]
             offset_speed: 0.3333333,
             end_sphere_radius: None, // DL has none [code]
+            // UYA's aim assist [not read in DL].
+            assist: Some((
+                range: 30.0,
+                hit_radius: 1.0,
+                cone_degrees: 15.0,
+                yaw_cut: 0.5,
+                quick_cut: 0.0,
+                pitch_cut: 0.6,
+                quick_after_ticks: 10,
+                quick_accel_share: 0.333,
+                snap_stick: 0.85,
+                snap_ticks: 7,
+                strafe_yaw: 0.666,
+                strafe_pitch: 0.85,
+                strafe_cap: 0.1333333,
+                strafe_turn_most: 0.0261799,
+                strafe_fade: (4.0, 12.0),
+            )),
         ),
         blends: (
             look_lead_ticks: 7, // as UYA [not read in DL]

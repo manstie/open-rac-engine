@@ -1,6 +1,8 @@
-// The demo's HUD (PLAN.md P1.12) and quick-select ring (P1.9): where things go, how long
-// the notices last, and each gun's icon. All of it is the demo's own [placeholder]: UYA's
-// HUD isn't read, and no game art is used. The icons are coloured shapes with letters.
+// The demo's HUD (PLAN.md P1.12) and quick-select ring (P1.9): where things go, when they
+// show, and each gun's icon. When the parts show follows UYA ("The HUD" in
+// docs/research/weapons.md; its 60 Hz frames as seconds) [code]; the layout, colours and
+// icons are the demo's own, and no game art is used. The icons are coloured shapes with
+// letters.
 //
 // Units: logical pixels and seconds; colours are sRGB, 0 to 1.
 (
@@ -9,8 +11,24 @@
     text_size: 20.0,
     small_size: 15.0,
     panel: (0.05, 0.06, 0.1, 0.55), // behind each group, with its alpha
-    // How bright the gun the fire button brings out is drawn while the wrench is out.
+    // How bright a gun out of ammo is drawn in the ring, and the gun shown a moment after
+    // it goes away.
     dimmed: 0.45,
+    // "The HUD" [code]: the gun 10 frames after it goes away; health 720 frames after a
+    // kill and 360 after damage, nanotech or the ring; bolts 180; under 15% health stays up
+    // and pulses, and ammo pulses, every 40 frames; the bolt tally fades in over 15
+    // frames, and 61 frames after the last change rolls in over 15.
+    timings: (
+        gun_after: 0.1667,
+        health_after_kill: 12.0,
+        health_after_change: 6.0,
+        bolts_after: 3.0,
+        low_share: 0.15,
+        pulse: 0.6667,
+        tally_fade: 0.25,
+        tally_wait: 1.0167,
+        tally_roll: 0.25,
+    ),
 
     // UYA's nanotech: a pip a point up to `most_pips`, then each pip a share of the most.
     health: (
@@ -19,14 +37,15 @@
         most_pips: 20,
         full: (0.35, 0.85, 1.0),
         lost: (0.15, 0.2, 0.28),
-        low: 3, // at or below this, the pips turn `low_colour`
-        low_colour: (1.0, 0.3, 0.25),
     ),
 
     bolts: (
         icon: 16.0,
         colour: (1.0, 0.82, 0.3),
         size: 24.0,
+        // The tally beside the count: gains and losses.
+        gain: (0.55, 1.0, 0.55),
+        loss: (1.0, 0.45, 0.35),
     ),
 
     gun: (
@@ -36,18 +55,20 @@
         xp: (170.0, 6.0), // the XP bar's width and height
         xp_colour: (0.55, 0.95, 0.45),
         xp_back: (0.2, 0.22, 0.25),
+        // The next two recent guns beneath, smaller and fainter, as UYA shows them.
+        recent: 30.0,
+        recent_alpha: 0.5,
     ),
 
-    // At or below this share of its most, a gun's ammo is low.
-    low_ammo: 0.25,
-    low_colour: (1.0, 0.75, 0.2),
+    // What low health and low ammo pulse to: UYA's dark red.
+    pulse_colour: (0.6, 0.05, 0.05),
+    // A gun out of ammo picked in the ring.
     empty_colour: (1.0, 0.3, 0.25),
-    // The warning blinks this many times a second.
-    warning_blink: 2.5,
     // Ammo going up (a pickup) lights the count for this long.
     ammo_flash_seconds: 0.5,
     ammo_flash_colour: (0.55, 1.0, 0.55),
-    // A gun's level up stays on screen this long, fading over its last half second.
+    // A gun's level up stays on screen this long, fading over its last half second
+    // ("The HUD": 180 frames [code]).
     level_up_seconds: 3.0,
     level_up_colour: (0.55, 0.95, 0.45),
 
@@ -80,5 +101,19 @@
         "Lava Gun": (colour: (1.0, 0.35, 0.1), mark: "LG"),
         "Annihilator": (colour: (0.92, 0.92, 0.88), mark: "AN"),
         "Flux Rifle": (colour: (0.7, 0.5, 1.0), mark: "FR"),
+        "Infector": (colour: (0.45, 0.9, 0.3), mark: "IN"),
+        "Spitting Hydra": (colour: (0.3, 0.75, 0.55), mark: "SH"),
+        "Disc Blade Gun": (colour: (0.8, 0.85, 0.9), mark: "DB"),
+        "Agents of Doom": (colour: (0.9, 0.3, 0.3), mark: "AD"),
+        "Rift Inducer": (colour: (0.55, 0.3, 0.75), mark: "RI"),
+        "Holo Shield Glove": (colour: (0.35, 0.9, 0.95), mark: "HS", shape: Some(Bar)),
+        "Plasma Whip": (colour: (1.0, 0.6, 0.25), mark: "PW"),
+        "Suck Cannon": (colour: (0.75, 0.6, 0.4), mark: "SC"),
+        "Qwack-O-Ray": (colour: (1.0, 0.9, 0.2), mark: "QR"),
+        "RY3NO": (colour: (1.0, 0.25, 0.2), mark: "R3", shape: Some(Diamond)),
+        "Plasma Coil": (colour: (0.5, 0.55, 1.0), mark: "PC"),
+        "Bouncer": (colour: (0.95, 0.65, 0.2), mark: "BO"),
+        "Miniturret Glove": (colour: (0.6, 0.65, 0.7), mark: "MT", shape: Some(Square)),
+        "Shield Charger": (colour: (0.4, 0.6, 1.0), mark: "CH", shape: Some(Ring)),
     },
 )

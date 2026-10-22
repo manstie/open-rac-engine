@@ -1,8 +1,11 @@
-//! The hero's guns in the demo (P1.9): UYA's six read guns at V3, and how their shots,
-//! rays, arcs and impacts look. The HUD shows what is in his hand ([`crate::hud`]).
+//! The hero's guns in the demo (P1.9): UYA's twenty at V3, and how their shots, rays, arcs
+//! and impacts look. The HUD shows what is in his hand ([`crate::hud`]).
 
 use bevy::prelude::*;
-use rac_combat::{Armory, Arsenal, GunEvent, GunEventKind, weapons::ShotKind};
+use rac_combat::{
+    Armory, Arsenal, GunEvent, GunEventKind,
+    weapons::{FireMode, ShotKind},
+};
 use rac_hero::Hero;
 use rac_sim::SimTransform;
 
@@ -53,6 +56,17 @@ pub(crate) struct GunLooks {
     ray: Handle<StandardMaterial>,
     arc: Handle<StandardMaterial>,
     flash: Handle<StandardMaterial>,
+    plasma: Handle<StandardMaterial>,
+    bomb: Handle<StandardMaterial>,
+    blob: Handle<StandardMaterial>,
+    disc: Handle<StandardMaterial>,
+    rift: Handle<StandardMaterial>,
+    thing: Handle<StandardMaterial>,
+    turret: Handle<StandardMaterial>,
+    holo: Handle<StandardMaterial>,
+    agent: Handle<StandardMaterial>,
+    duck: Handle<StandardMaterial>,
+    egg: Handle<StandardMaterial>,
 }
 
 impl GunLooks {
@@ -85,20 +99,99 @@ impl GunLooks {
             ray: glow(0.45, 0.8, 1.0, 0.8),
             arc: glow(0.6, 0.9, 1.0, 0.9),
             flash: glow(1.0, 0.9, 0.6, 0.9),
+            plasma: glow(0.5, 0.55, 1.0, 1.0),
+            bomb: glow(0.95, 0.65, 0.2, 1.0),
+            blob: glow(0.45, 0.9, 0.3, 1.0),
+            disc: glow(0.85, 0.9, 0.95, 1.0),
+            rift: glow(0.35, 0.1, 0.55, 0.85),
+            thing: glow(0.75, 0.6, 0.4, 1.0),
+            turret: glow(0.55, 0.6, 0.65, 1.0),
+            holo: glow(0.35, 0.9, 0.95, 0.35),
+            agent: glow(0.9, 0.3, 0.3, 1.0),
+            duck: glow(1.0, 0.85, 0.2, 1.0),
+            egg: glow(0.95, 0.95, 0.85, 1.0),
         }
     }
 }
 
-/// How big a shot looks, and in what.
-fn shot_look(kind: &ShotKind, speed: f32, looks: &GunLooks) -> (f32, Handle<StandardMaterial>) {
+/// How a shot looks: a ball of a size in a material, or for a holo shield a wall.
+struct Look {
+    mesh: Handle<Mesh>,
+    scale: Vec3,
+    material: Handle<StandardMaterial>,
+    rotation: Quat,
+}
+
+fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &GunLooks) -> Look {
+    let speed = velocity.length();
+    let ball = |size: f32, material: &Handle<StandardMaterial>| Look {
+        mesh: looks.ball.clone(),
+        scale: Vec3::splat(size),
+        material: material.clone(),
+        rotation: Quat::IDENTITY,
+    };
     match kind {
         // The Flux Rifle's shot is far faster than the N60's bullets.
-        ShotKind::Bullet { .. } if speed > 200.0 => (0.1, looks.sniper.clone()),
-        ShotKind::Bullet { .. } => (0.07, looks.bullet.clone()),
-        ShotKind::Charge { .. } => (0.2, looks.charge.clone()),
-        ShotKind::Blast { radius, .. } => (*radius, looks.blast.clone()),
-        ShotKind::Stream => (0.12, looks.lava.clone()),
-        ShotKind::Missile { .. } => (0.14, looks.missile.clone()),
+        ShotKind::Bullet { .. } if speed > 200.0 => ball(0.1, &looks.sniper),
+        ShotKind::Bullet { .. } => ball(0.07, &looks.bullet),
+        ShotKind::Charge { .. } => ball(0.2, &looks.charge),
+        ShotKind::Blast { radius, .. } => ball(*radius, &looks.blast),
+        ShotKind::Stream => ball(0.12, &looks.lava),
+        ShotKind::Missile { .. } | ShotKind::Rocket(_) => ball(0.14, &looks.missile),
+        ShotKind::Ball { .. } => ball(0.3, &looks.plasma),
+        ShotKind::Storm { .. } => ball(0.5, &looks.plasma),
+        ShotKind::Arc { .. } => ball(0.05, &looks.arc),
+        ShotKind::Canister { .. } => ball(0.25, &looks.bomb),
+        ShotKind::Bomblet { .. } => ball(0.1, &looks.bomb),
+        ShotKind::Blob { .. } => ball(0.15, &looks.blob),
+        ShotKind::Bomb => ball(0.3, &looks.blob),
+        ShotKind::Disc { .. } => Look {
+            scale: Vec3::new(0.35, 0.05, 0.35),
+            ..ball(0.0, &looks.disc)
+        },
+        // The spit and the bolts are drawn as their arcs ([`show_gun_events`]).
+        ShotKind::Spit { .. } | ShotKind::Bolt { .. } => Look {
+            scale: Vec3::ZERO,
+            ..ball(0.0, &looks.arc)
+        },
+        ShotKind::Rift(_) => ball(0.3, &looks.rift),
+        ShotKind::Thing { .. } => ball(0.3, &looks.thing),
+        ShotKind::Turret(_) => ball(0.35, &looks.turret),
+        ShotKind::Pellet => ball(0.06, &looks.bullet),
+        ShotKind::Guided { .. } => ball(0.1, &looks.missile),
+        // A wall standing up from where it landed, as wide and high as the kit's.
+        ShotKind::Barrier(state) => {
+            let (half_width, height) = match fire {
+                Some(FireMode::Barrier(fire)) => (fire.half_width, fire.height),
+                _ => (1.0, 1.0),
+            };
+            Look {
+                mesh: looks.beam.clone(),
+                scale: Vec3::new(half_width * 2.0, height * 2.0, 0.1),
+                material: looks.holo.clone(),
+                rotation: Quat::from_rotation_y(state.yaw),
+            }
+        }
+        ShotKind::Pod => ball(0.3, &looks.agent),
+        ShotKind::Agent { .. } => ball(0.3, &looks.agent),
+        ShotKind::Comet { .. } => ball(0.2, &looks.charge),
+        ShotKind::Wave => ball(0.5, &looks.arc),
+        ShotKind::Pulse { .. } => ball(0.2, &looks.holo),
+        ShotKind::Duck(_) => ball(0.35, &looks.duck),
+        ShotKind::Egg { .. } => ball(0.12, &looks.egg),
+        // A blade of light across its way, as wide as what it cuts.
+        ShotKind::Cut { .. } => {
+            let width = match fire {
+                Some(FireMode::Whip(fire)) => fire.cut.map_or(3.0, |cut| cut.width),
+                _ => 3.0,
+            };
+            Look {
+                mesh: looks.beam.clone(),
+                scale: Vec3::new(width, 0.3, 0.1),
+                material: looks.arc.clone(),
+                rotation: Quat::from_rotation_y(ops::atan2(-velocity.x, -velocity.z)),
+            }
+        }
     }
 }
 
@@ -106,6 +199,7 @@ fn shot_look(kind: &ShotKind, speed: f32, looks: &GunLooks) -> (f32, Handle<Stan
 /// between ticks, and drops the looks of shots that ended.
 pub(crate) fn show_shots(
     looks: Res<GunLooks>,
+    armory: Res<Armory>,
     heroes: Query<(&Hero, &Arsenal)>,
     mut shown: Query<(Entity, &ShotLook, &mut SimTransform, &mut Transform)>,
     mut commands: Commands,
@@ -119,9 +213,14 @@ pub(crate) fn show_shots(
         match shot {
             Some(shot) => {
                 simulated.translation = shot.position;
-                // Interpolation leaves the scale alone, so a blast grows through it.
-                if let ShotKind::Blast { radius, .. } = shot.kind {
-                    transform.scale = Vec3::splat(radius);
+                // Interpolation leaves the scale alone, so a blast grows through it, and a
+                // rift opens.
+                match shot.kind {
+                    ShotKind::Blast { radius, .. } => transform.scale = Vec3::splat(radius),
+                    ShotKind::Rift(state) if state.open.is_some() => {
+                        transform.scale = Vec3::splat(0.9);
+                    }
+                    _ => {}
                 }
                 seen.push(*look);
             }
@@ -137,15 +236,18 @@ pub(crate) fn show_shots(
             if seen.contains(&look) {
                 continue;
             }
-            let (size, material) = shot_look(&shot.kind, shot.velocity.length(), &looks);
+            let fire = armory.get(shot.weapon).map(|def| &def.fire);
+            let shown = shot_look(&shot.kind, shot.velocity, fire, &looks);
             commands.spawn((
                 Name::new("shot"),
                 DemoEntity,
                 look,
-                Mesh3d(looks.ball.clone()),
-                MeshMaterial3d(material),
-                SimTransform::from_translation(shot.position),
-                Transform::from_translation(shot.position).with_scale(Vec3::splat(size)),
+                Mesh3d(shown.mesh),
+                MeshMaterial3d(shown.material),
+                SimTransform::from_translation(shot.position).with_rotation(shown.rotation),
+                Transform::from_translation(shot.position)
+                    .with_rotation(shown.rotation)
+                    .with_scale(shown.scale),
             ));
         }
     }

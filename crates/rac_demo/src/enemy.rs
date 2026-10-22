@@ -9,6 +9,9 @@
 //!   their hurtbox, each hit makes them reel, and the last kills them. Dead, they drop
 //!   bolts, nanotech and ammo ([`crate::drops`]), and a while later come back at home.
 //! - The shooter's shots are [`EnemyShot`]s.
+//! - Infected by the Infector, an enemy fights the others, and they fight back: their hits
+//!   on each other ([`FoeHits`]) land at the start of the next tick, and an enemy killed so
+//!   drops what it would for a hero, without his XP.
 
 pub mod brain;
 pub mod def;
@@ -17,13 +20,16 @@ pub mod shot;
 
 use bevy::prelude::*;
 use rac_combat::pickups::{self, PickupTuning};
-use rac_combat::{Armory, Arsenal, Destroyed, Hitpoints, Hurtbox, KillXp, Struck, target_bundle};
+use rac_combat::{
+    Afflicted, Affliction, Armory, Arsenal, Destroyed, Hitpoints, Hostile, Hurtbox, KillXp, Struck,
+    target_bundle, weapons::block_shot,
+};
 use rac_hero::{AimTarget, CollisionScene, Hero, HeroBody, HeroState, HeroTuning, HurtHero};
 use rac_sim::{PreviousSimTransform, SimRng, SimSet, SimTransform};
 
 use crate::DemoEntity;
 use crate::drops;
-use brain::{EnemyMotion, HeroShape, HeroView, Surroundings};
+use brain::{EnemyMotion, EnemyStrike, EnemyView, HeroShape, HeroView, Surroundings};
 use def::{Bestiary, EnemyDef, EnemyKind};
 use shot::{ShotEnd, ShotMotion};
 
@@ -54,6 +60,10 @@ pub struct ShotBurst {
 /// How long a shot's burst shows.
 pub const BURST_TICKS: u32 = 10;
 
+/// The enemies' hits on each other, landing at the start of the next tick.
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct FoeHits(pub Vec<EnemyStrike>);
+
 /// Runs the enemies and their shots in the simulation, and, once [`EnemyLooks`] exist,
 /// shows them. Their drops are `rac_combat`'s pickups, which `rac_combat::CombatPlugin`
 /// moves.
@@ -62,6 +72,7 @@ pub struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Bestiary>()
+            .init_resource::<FoeHits>()
             .add_systems(
                 FixedUpdate,
                 (run_enemies, fly_shots)
@@ -90,6 +101,7 @@ pub fn enemy_bundle(
     (
         Enemy { kind },
         hurtbox(def),
+        Hostile,
         KillXp(def.kill_xp),
         SimTransform::from_translation(home).with_rotation(motion.rotation()),
         EnemyBody(motion),
@@ -114,6 +126,19 @@ fn hero_views(heroes: &Query<(&Hero, &HeroBody)>) -> Vec<HeroView> {
     views
 }
 
+/// Every enemy, in entity order.
+fn enemy_views(
+    bestiary: &Bestiary,
+    enemies: &Query<(Entity, &Enemy, &EnemyBody)>,
+) -> Vec<EnemyView> {
+    let mut views: Vec<EnemyView> = enemies
+        .iter()
+        .map(|(entity, enemy, body)| EnemyView::of(entity, &body.0, bestiary.get(enemy.kind)))
+        .collect();
+    views.sort_by_key(|view| view.entity);
+    views
+}
+
 type EnemyItem<'a> = (
     Entity,
     &'a Enemy,
@@ -123,20 +148,21 @@ type EnemyItem<'a> = (
     &'a mut PreviousSimTransform,
 );
 
-/// Takes this tick's hits and kills, then steps every enemy in entity order, so every peer
-/// draws the same random numbers.
+/// Takes this tick's hits and kills, the enemies' on each other from the last tick among
+/// them, then steps every enemy in entity order, so every peer draws the same random
+/// numbers.
 #[allow(clippy::too_many_arguments)]
 fn run_enemies(
     bestiary: Res<Bestiary>,
     pickup_tuning: Res<PickupTuning>,
-    armory: Res<Armory>,
     hero_tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
     mut rng: ResMut<SimRng>,
+    mut foe_hits: ResMut<FoeHits>,
     mut struck: MessageReader<Struck>,
     mut destroyed: MessageReader<Destroyed>,
+    mut afflicted: MessageReader<Afflicted>,
     heroes: Query<(&Hero, &HeroBody)>,
-    arsenals: Query<(&Hero, &Arsenal)>,
     mut enemies: Query<EnemyItem>,
     mut hurt: MessageWriter<HurtHero>,
     mut commands: Commands,
@@ -152,10 +178,38 @@ fn run_enemies(
             brain::struck(&mut enemies[i].2.0, hit.player, hit.push);
         }
     }
-    for kill in destroyed.read() {
-        let Ok(i) = order.binary_search(&kill.target) else {
+    // Killed by another enemy, or by a hero below.
+    let mut fallen = Vec::new();
+    for hit in std::mem::take(&mut foe_hits.0) {
+        let Ok(i) = order.binary_search(&hit.target) else {
             continue;
         };
+        let (_, _, body, hitpoints, ..) = &mut enemies[i];
+        if !body.0.is_alive() || hitpoints.current <= 0.0 {
+            continue;
+        }
+        brain::struck_by(&mut body.0, hit.by, hit.push);
+        hitpoints.current = (hitpoints.current - hit.damage).max(0.0);
+        if hitpoints.current <= 0.0 {
+            fallen.push(i);
+        }
+    }
+    for afflict in afflicted.read() {
+        let Ok(i) = order.binary_search(&afflict.target) else {
+            continue;
+        };
+        brain::afflict(&mut enemies[i].2.0, afflict.affliction);
+        // A duck is no longer an enemy for the guns that take only enemies.
+        if afflict.affliction == Affliction::Duck {
+            commands.entity(enemies[i].0).remove::<Hostile>();
+        }
+    }
+    fallen.extend(
+        destroyed
+            .read()
+            .filter_map(|kill| order.binary_search(&kill.target).ok()),
+    );
+    for i in fallen {
         let (entity, enemy, body, ..) = &mut enemies[i];
         if !brain::killed(&mut body.0) {
             continue;
@@ -164,42 +218,29 @@ fn run_enemies(
         commands.entity(*entity).remove::<(Hurtbox, AimTarget)>();
         let def = bestiary.get(enemy.kind);
         let at = body.0.position + Vec3::Y * (def.height / 2.0);
-        let killer = arsenals
-            .iter()
-            .find(|(hero, _)| hero.player == kill.player)
-            .map(|(_, arsenal)| arsenal);
-        let kinds = drops::drops(&def.drops, killer, &armory, &mut rng);
+        let kinds = drops::drops(&def.drops, &mut rng);
         pickups::spawn(
             &mut commands,
             pickups::scatter(at, kinds, &pickup_tuning, &mut rng),
         );
     }
 
-    let crowd: Vec<Option<(Vec3, f32)>> = enemies
+    let others: Vec<EnemyView> = enemies
         .iter()
-        .map(|(_, enemy, body, ..)| {
-            body.0
-                .is_alive()
-                .then(|| (body.0.position, bestiary.get(enemy.kind).radius))
-        })
+        .map(|(entity, enemy, body, ..)| EnemyView::of(*entity, &body.0, bestiary.get(enemy.kind)))
         .collect();
-    for (i, (entity, enemy, body, hitpoints, transform, previous)) in enemies.iter_mut().enumerate()
-    {
+    for (entity, enemy, body, hitpoints, transform, previous) in &mut enemies {
         let def = bestiary.get(enemy.kind);
-        let others: Vec<(Vec3, f32)> = crowd
-            .iter()
-            .enumerate()
-            .filter(|&(j, _)| j != i)
-            .filter_map(|(_, other)| *other)
-            .collect();
         let around = Surroundings {
             heroes: &views,
             hero_shape: shape,
-            crowd: &others,
+            me: *entity,
+            enemies: &others,
             gravity: bestiary.gravity,
             world: &scene.0,
         };
         let outcome = brain::step(&mut body.0, def, &around, &mut rng);
+        foe_hits.0.extend(outcome.foe_hits);
         for strike in outcome.hits {
             hurt.write(HurtHero {
                 player: strike.player,
@@ -217,7 +258,7 @@ fn run_enemies(
         }
         if outcome.respawned {
             **hitpoints = Hitpoints::full(def.hitpoints);
-            commands.entity(*entity).insert(hurtbox(def));
+            commands.entity(*entity).insert((hurtbox(def), Hostile));
         }
         transform.translation = body.0.position;
         transform.rotation = body.0.rotation();
@@ -227,32 +268,56 @@ fn run_enemies(
     }
 }
 
-/// Flies the shots, hurting the heroes they hit.
+/// Flies the shots, hurting the heroes they hit, or the enemies for one an enemy fired at
+/// another. The heroes' holo shields stop them.
+#[allow(clippy::too_many_arguments)]
 fn fly_shots(
+    bestiary: Res<Bestiary>,
     hero_tuning: Res<HeroTuning>,
+    armory: Res<Armory>,
     scene: Res<CollisionScene>,
     heroes: Query<(&Hero, &HeroBody)>,
+    enemies: Query<(Entity, &Enemy, &EnemyBody)>,
+    mut arsenals: Query<(&Hero, &mut Arsenal)>,
     mut shots: Query<(Entity, &mut EnemyShot, &mut SimTransform)>,
     mut hurt: MessageWriter<HurtHero>,
+    mut foe_hits: ResMut<FoeHits>,
     mut commands: Commands,
 ) {
     let views = hero_views(&heroes);
+    let others = enemy_views(&bestiary, &enemies);
     let shape = HeroShape::from_profile(&hero_tuning.0.body);
     let mut shots: Vec<_> = shots.iter_mut().collect();
     shots.sort_by_key(|(entity, ..)| *entity);
+    let mut arsenals: Vec<_> = arsenals.iter_mut().collect();
+    arsenals.sort_by_key(|(hero, _)| hero.player);
     for (entity, shot, transform) in &mut shots {
-        let end = shot::step(&mut shot.0, &views, &shape, &scene.0);
+        let motion = shot.0.velocity * brain::TICK;
+        let blocked = arsenals
+            .iter_mut()
+            .find_map(|(_, arsenal)| block_shot(arsenal, &armory, shot.0.position, motion));
+        let end = match blocked {
+            Some(t) => {
+                shot.0.position += motion * t;
+                Some(ShotEnd::Wall)
+            }
+            None => shot::step(&mut shot.0, &views, &shape, &others, &scene.0),
+        };
         transform.translation = shot.0.position;
         let Some(end) = end else {
             continue;
         };
         commands.entity(*entity).despawn();
-        if let ShotEnd::Hero(strike) = end {
-            hurt.write(HurtHero {
-                player: strike.player,
-                damage: strike.damage,
-                knockback: strike.knockback,
-            });
+        match end {
+            ShotEnd::Hero(strike) => {
+                hurt.write(HurtHero {
+                    player: strike.player,
+                    damage: strike.damage,
+                    knockback: strike.knockback,
+                });
+            }
+            ShotEnd::Enemy(strike) => foe_hits.0.push(strike),
+            ShotEnd::Wall | ShotEnd::Fizzled => {}
         }
         if end != ShotEnd::Fizzled {
             commands.spawn((

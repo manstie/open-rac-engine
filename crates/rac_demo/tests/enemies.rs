@@ -3,9 +3,10 @@
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use rac_combat::{CombatPlugin, Destroyed, Hitpoints, Hurtbox};
+use rac_combat::{Afflicted, Affliction, CombatPlugin, Destroyed, Hitpoints, Hurtbox, WeaponId};
 use rac_demo::enemy::brain::{
-    self, AttackPhase, EnemyMotion, EnemyState, HeroShape, HeroView, Outcome, Surroundings,
+    self, AttackPhase, EnemyMotion, EnemyState, EnemyView, HeroShape, HeroView, Outcome,
+    Surroundings,
 };
 use rac_demo::enemy::def::{Attack, EnemyDef};
 use rac_demo::{Bestiary, Bolts, EnemyBody, EnemyKind, EnemyPlugin, Pickup, enemy_bundle};
@@ -20,6 +21,10 @@ const SHAPE: HeroShape = HeroShape {
     bottom: 0.5,
     top: 1.05,
 };
+
+/// The enemy a test steps, and another, as they know each other.
+const ME: Entity = Entity::from_raw_u32(1).unwrap();
+const OTHER: Entity = Entity::from_raw_u32(2).unwrap();
 
 fn floor() -> BodyPlacement {
     BodyPlacement::fixed(
@@ -72,7 +77,8 @@ fn tick(
     let around = Surroundings {
         heroes,
         hero_shape: SHAPE,
-        crowd: &[],
+        me: ME,
+        enemies: &[],
         gravity: 30.0,
         world,
     };
@@ -440,12 +446,14 @@ fn crowded_enemies_part() {
     let world = open();
     let mut rng = SimRng::default();
     let mut enemy = standing();
-    let other = (Vec3::new(0.3, 0.0, 0.0), def.radius);
+    let mut other = EnemyView::of(OTHER, &standing(), def);
+    other.position = Vec3::new(0.3, 0.0, 0.0);
     for _ in 0..60 {
         let around = Surroundings {
             heroes: &[],
             hero_shape: SHAPE,
-            crowd: &[other],
+            me: ME,
+            enemies: &[EnemyView::of(ME, &enemy, def), other],
             gravity: 30.0,
             world: &world,
         };
@@ -453,8 +461,137 @@ fn crowded_enemies_part() {
     }
     // It wants its spot back, so it settles where its walk balances the push: most of the
     // overlap gone.
-    let apart = enemy.position.distance(other.0);
+    let apart = enemy.position.distance(other.position);
     assert!(apart > 0.7, "{apart}");
+}
+
+/// Another enemy of `def`'s kind standing at `at`.
+fn other_at(def: &EnemyDef, at: Vec3, infected: bool) -> EnemyView {
+    let mut other = EnemyView::of(OTHER, &standing(), def);
+    other.position = at;
+    other.infected = infected;
+    other
+}
+
+/// One tick of `enemy` among the heroes and `other`.
+fn tick_among(
+    enemy: &mut EnemyMotion,
+    def: &EnemyDef,
+    heroes: &[HeroView],
+    other: EnemyView,
+    world: &ParryWorld,
+    rng: &mut SimRng,
+) -> Outcome {
+    let around = Surroundings {
+        heroes,
+        hero_shape: SHAPE,
+        me: ME,
+        enemies: &[EnemyView::of(ME, enemy, def), other],
+        gravity: 30.0,
+        world,
+    };
+    brain::step(enemy, def, &around, rng)
+}
+
+#[test]
+fn an_infected_charger_leaves_the_hero_for_another_enemy_until_its_infection_ends() {
+    let bestiary = Bestiary::default();
+    let def = &bestiary.charger;
+    let world = open();
+    let mut rng = SimRng::default();
+    let mut enemy = standing();
+    let heroes = [hero(0, 2.0, 0.0)];
+    tick(&mut enemy, def, &heroes, &world, &mut rng);
+    assert_eq!(enemy.target, Some(0));
+
+    brain::afflict(&mut enemy, Affliction::Infected { ticks: 400 });
+    let other = other_at(def, Vec3::new(0.0, 0.0, -6.0), false);
+    let mut struck = Vec::new();
+    for t in 0..399 {
+        let outcome = tick_among(&mut enemy, def, &heroes, other, &world, &mut rng);
+        assert!(outcome.hits.is_empty(), "{t}");
+        struck.extend(outcome.foe_hits.into_iter().map(|hit| (t, hit)));
+    }
+    assert_eq!(enemy.foe, Some(OTHER));
+    assert!(struck.len() >= 2, "{struck:?}");
+    let Attack::Lunge(lunge) = def.attack else {
+        panic!("the charger lunges")
+    };
+    for (_, hit) in &struck {
+        assert_eq!((hit.target, hit.by), (OTHER, ME));
+        assert_eq!(hit.damage, lunge.hit.damage as f32);
+        assert!(
+            (hit.push.length() - lunge.hit.knockback).abs() < 1e-3 && hit.push.y == 0.0,
+            "{}",
+            hit.push
+        );
+    }
+    // Once an attack.
+    for pair in struck.windows(2) {
+        assert!(pair[1].0 - pair[0].0 > lunge.lunge_ticks, "{struck:?}");
+    }
+
+    // Its infection over, the other is no foe and the hero near it is left alone a while.
+    tick_among(&mut enemy, def, &heroes, other, &world, &mut rng);
+    assert_eq!(enemy.foe, None);
+    assert_eq!(enemy.target, None);
+}
+
+#[test]
+fn an_enemy_an_infected_one_hits_fights_back_until_the_infection_ends() {
+    let bestiary = Bestiary::default();
+    let def = &bestiary.charger;
+    let world = open();
+    let mut rng = SimRng::default();
+    let mut enemy = standing();
+    brain::struck_by(&mut enemy, OTHER, Vec3::new(0.0, 0.0, 3.0));
+    assert_eq!(enemy.foe, Some(OTHER));
+    assert_eq!(enemy.state, EnemyState::Hurt);
+
+    let mut other = other_at(def, Vec3::new(0.0, 0.0, -4.0), true);
+    let mut struck = false;
+    for _ in 0..200 {
+        let outcome = tick_among(&mut enemy, def, &[], other, &world, &mut rng);
+        struck |= outcome.foe_hits.iter().any(|hit| hit.target == OTHER);
+    }
+    assert!(struck);
+    other.infected = false;
+    tick_among(&mut enemy, def, &[], other, &world, &mut rng);
+    assert_eq!(enemy.foe, None);
+    // It finishes any attack under way, then goes back.
+    for _ in 0..120 {
+        if enemy.state == EnemyState::Patrol {
+            break;
+        }
+        tick_among(&mut enemy, def, &[], other, &world, &mut rng);
+    }
+    assert_eq!(enemy.state, EnemyState::Patrol);
+
+    // A tame enemy only reels.
+    let mut tame = standing();
+    brain::afflict(&mut tame, Affliction::Infected { ticks: 60 });
+    brain::struck_by(&mut tame, OTHER, Vec3::ZERO);
+    assert_eq!((tame.foe, tame.state), (None, EnemyState::Hurt));
+}
+
+#[test]
+fn an_infected_shooters_shots_are_fired_at_its_foe() {
+    let bestiary = Bestiary::default();
+    let def = &bestiary.shooter;
+    let world = open();
+    let mut rng = SimRng::default();
+    let mut enemy = standing();
+    brain::afflict(&mut enemy, Affliction::Infected { ticks: 600 });
+    let heroes = [hero(0, 0.0, -3.0)];
+    let other = other_at(&bestiary.charger, Vec3::new(0.0, 0.0, -9.0), false);
+    let shots: Vec<_> = (0..300)
+        .flat_map(|_| tick_among(&mut enemy, def, &heroes, other, &world, &mut rng).shots)
+        .collect();
+    assert!(!shots.is_empty());
+    for shot in &shots {
+        assert_eq!(shot.turned, Some(ME));
+        assert!(shot.velocity.z < 0.0, "{}", shot.velocity);
+    }
 }
 
 #[test]
@@ -600,4 +737,38 @@ fn in_an_app_a_charger_hurts_the_hero_and_dies_into_drops_he_collects() {
         app.world().get::<Hitpoints>(enemy).unwrap().current,
         def.hitpoints
     );
+}
+
+#[test]
+fn in_an_app_an_infected_charger_kills_another_into_its_drops() {
+    let (mut app, hero, infected) = app(30.0);
+    let def = Bestiary::default().charger;
+    let other = app
+        .world_mut()
+        .spawn(enemy_bundle(
+            EnemyKind::Charger,
+            &def,
+            Vec3::new(4.0, 0.0, -30.0),
+            0.0,
+            Vec::new(),
+        ))
+        .id();
+    app.world_mut().write_message(Afflicted {
+        target: infected,
+        player: 0,
+        weapon: WeaponId(0),
+        affliction: Affliction::Infected { ticks: 3000 },
+    });
+    let full = app.world().get::<Health>(hero).unwrap().current;
+    let mut ticks = 0;
+    while state(&app, other) != EnemyState::Dead {
+        app.update();
+        ticks += 1;
+        assert!(ticks < 1500, "the infected charger never killed the other");
+    }
+    assert_ne!(state(&app, infected), EnemyState::Dead);
+    assert!(app.world().get::<Hurtbox>(other).is_none());
+    let drops = app.world_mut().query::<&Pickup>().iter(app.world()).count();
+    assert!(drops >= def.drops.bolts.0 as usize, "{drops}");
+    assert_eq!(app.world().get::<Health>(hero).unwrap().current, full);
 }
