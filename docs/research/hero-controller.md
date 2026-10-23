@@ -1117,19 +1117,41 @@ Read in `hero_change_state`, `hero_update_state`, `hero_transitions` and the wre
 The table's rows 0–4 are UYA's but for the jump attack's last hit frame. The lunges'
 acceleration (37 u/s²) and braking (28 u/s²) match **[traced]**.
 
+**Reading the traces [code, traced 2026-10-23]:** a row of these traces is read part way
+through the hero's update, so its fields come from two frames.
+- **The update's order:** this hero's update is 0x6A65E8 (+0xC of his function table at
+  0x3B10C0). It moves the animation on first (`hero_anim_update`, 0x689090, the only
+  writer of the frame at +0x658). Then it runs the state's update and the move
+  (`hero_move`, 0x67C010, which calls the state update through the table's +0x34), and
+  then the transitions (0x69EA40). So, as in UYA, everything in a frame sees that frame's
+  advanced animation frame.
+- **What a row shows:** the frame already moved on, with the state, and mostly the
+  motion, of the frame before. The speed at +0x1784 repeats on every other row (ages 6
+  and 7, 8 and 9 …) while the frame moves on smoothly, so those rows are read between
+  the animation update and the state update. And the state changes on the row after the
+  one whose frame passes a limit.
+- **So, in the rows:**
+  - an attack's first row shows its start frame half a frame on (swing 1's 15.5);
+  - a lunge seems to hold through the frame that reaches its limit;
+  - each attack seems to leave a frame late. Swing 1's last row shows 31.5 (end 26 + 5),
+    swing 2's 20.5, swing 3's 26.5 and the throw's 96.5.
+- **Counted in rows, the lengths are the code's:** swing 1 lasts 33 frames from frame 15,
+  the throw 133 from frame 30. The thrown flag shows on the row with 33.5, the frame
+  whose update crossed 33.
+- **Corrected:** the first reading took the first two for DL's own rules (an attack
+  begun half a frame on, an update that tests the frame before its advance), and the
+  kit shifted DL's frames half a frame to match. That made every DL attack a frame short.
+
 **Where DL differs:**
-- **The animation frame [traced]:** an attack's frame doesn't creep through a blend and
-  start over. It runs from the start frame at 0.5 a frame, already half a frame on in
-  the frame the attack begins, and the blending flag (hero + 0x64C) stays 0. Swing 1
-  shows 15.5, 16, 16.5 … in its first frames.
+- **The animation frame [code, traced]:** an attack's frame doesn't creep through a
+  blend and start over. It runs from the start frame at 0.5 a frame, and the blending
+  flag (hero + 0x64C) stays 0.
 - **Swing 1's start frame:** 15, keyframe 1 of DL's sequence 40 (UYA 16) **[code,
   traced]**.
 - **Lunge speeds [code, traced]:**
   - swing 1: 4.75 u/s while the frame is under 20;
   - swing 2: 5.95, then 4.75 past frame 7 and 3.25 past frame 10, while under 12;
   - swing 3: 3.95 while under 12.
-  - DL's update tests the frame before the frame's own advance. So a lunge holds through
-    the frame whose frame number reaches the limit, as all three swings' traces show.
 - **The head ball:** 0.75 u for the swings and 1.75 for the jump attack (UYA 0.35 and
   0.47) **[code]**.
 - **Damage** comes from the wrench's level (the gadget box and DL's gadget tables at
@@ -1156,8 +1178,25 @@ acceleration (37 u/s²) and braking (28 u/s²) match **[traced]**.
   - One held from its 9th waited until its 15th, which this rule doesn't explain.
 - **The throw's button** follows the camera option: L2 in lock-strafe and first person,
   L1 or R1 in third person. In the kit it is crouch, as in UYA.
-- **The thrown wrench** hits as a ball of 0.75 u at either end (UYA 0.4), and its catch
-  starts within 5 frames of the hand (UYA 4) **[code]**.
+- **The thrown wrench** hits as a ball of 0.75 u at either end (UYA 0.4) **[code]**.
+- **The throw's animation plays straight through [code, traced 2026-10-23]:** no hold
+  while the wrench is out, and no jump to a catch as the wrench nears (UYA's frame 82).
+  - DL's throw is the hero's sequence 45: 23 keyframes of 8 ticks, frames 30 to 118 four
+    apart, so it runs at 0.5 a frame a tick like the others.
+  - Under 5 frames from the hand the wrench starts its own sequence 1, blending over 5
+    frames (`wrench_update`, 0x461D7C), where UYA moves the hero's animation.
+  - The hero's only jump is in the throw's transitions (0x6A07AC): with the wrench in
+    hand (hand item +0x2318 is 1 and the thrown flag +0x230A clear), the state at least
+    10 frames old and the frame over 2.5 and under 59, the animation goes to sequence
+    45's keyframe 8, frame 62 (`hero_anim_jump_to`). The 10 frames keep it from firing
+    before the release as the frame passes 33, 7 frames in. So only a wrench back early,
+    off a wall, skips ahead.
+  - The thrown flag is set by `wrench_throw` as it lets go (0x6845F4) and cleared by the
+    wrench as it reaches the hand, is over 32 u away, or the hero is in state 49, 100 or
+    102 (0x461EB0). Two more clears (0x6767CC, 0x677618) aren't read.
+  - melee-4's three throws: the flag shows on the rows from 33.5 to 60.5, the frame runs
+    on at 0.5 a frame throughout, and he idles after 133 rows, the last showing 96.5
+    (UYA's throw lasts 95 frames).
 - **The clank** does no damage to what it hits, and the jump attack's ground clank comes
   at frame 28 (UYA 27) **[code]**.
 - **The grind attack's code is there, but nothing starts it:** the grind reads Square
@@ -1165,15 +1204,40 @@ acceleration (37 u/s²) and braking (28 u/s²) match **[traced]**.
 - **Blocking:** Triangle (and R2 in lock-strafe) blocks a ground attack; R2 blocks one in
   the air. Neither is modelled.
 
+**The Scorpion Flail (state 145) [code, 2026-10-23; untraced]:** libdl's
+`PLAYER_STATE_FLAIL_ATTACK`, for the flail (weapon 15) in the hand.
+- **Starting:** where the wrench's combo starts, the flail in hand starts state 145
+  (`flail_attack_start`, the only caller passing 145). It needs ammo; without it the
+  press plays sound 0x28 (0x39 in multiplayer) once until the button is let go.
+  - The ground press window is 10 frames, and the flail must have been in hand at least
+    17 frames (+0x2310). The air rules are the wrench's: the state 11 frames old, 14 or 18
+    frames of press.
+- **Its frames:** rows 7–9 of the attack table are its three swings, and row 10 is a copy
+  of row 9 (they are also the wrench's swing 3 row):
+
+  | Row | Chain before | Presses from | Chain from | Jump from | End | Hits |
+  |---|---|---|---|---|---|---|
+  | 7, swing 1 | 38 | 19 | 24 | 24 | 30 | 17–23 |
+  | 8, swing 2 | 18 | 16 | 11 | 13 | 15 | 8–13 |
+  | 9 and 10, swing 3 | 0 | 16 | 19 | 19 | 21 | 12–16 |
+
+- **Its transitions** are the combo's (the state-19 code), while the flail stays in hand.
+- **Its update** (`hero_update_flail`) is the combo's with UYA's lunge speeds:
+  - swing 1: 4.4 u/s under frame 18;
+  - swing 2: 5.7, then 4.5 past 7 and 3.0 past 8, under 9;
+  - the third: 3.7 under 12, but only for a row whose swing number is 3, which no flail
+    row has, so its third swing doesn't lunge.
+  - Its reach scale counts the distance in whole units, and takes targets within the
+    range + 4.5 (the wrench's + 3).
+  - One of its sequences (48) plays at 0.7 between frames 9 and 15.
+
 **Not read yet:**
-- DL's other melee states:
-  - the flail (145, its own combo over table rows 7–10);
-  - the shuriken throw (133);
-  - the glove (34);
-  - the magnetic attack (111, rows 5–6).
-- DL's throw: with the wrench back in the hand, the animation jumps to frame 62. As read,
-  that would cut a throw short before the release, so something in DL's blend or
-  release isn't understood yet.
+- DL's other melee states. Searching DL's code for each state's number passed to a call
+  found a starter only for 145. These may be leftovers from UYA's engine, unconfirmed:
+  - the magneboots attack (111, libdl's `PLAYER_STATE_MAGNE_ATTACK`, rows 5–6). Its
+    transitions end it past its row's end; the 111 at 0x6A4BC0 is an animation number;
+  - the shuriken throw (133): one 133 at 0x466E00, outside the hero's code;
+  - the glove (34) and the Walloper (31): too many small numbers to search this way.
 - Hero fields +0x4AC (it blocks the combo) and +0x435/+0x436/+0x439.
 
 **In the kit:** `dl.ron`'s `melee` section has all of the above at the wrench's level 0.
@@ -1182,9 +1246,11 @@ acceleration (37 u/s²) and braking (28 u/s²) match **[traced]**.
 - Switches for the differences:
   - `blend_creeps`, `chain_throw`, `crouch_jump_out`;
   - the jump attack's `hover_ticks`;
+  - the throw's catch: no `hold_frame` or `catch_after_tick`, and `catch_back` for the
+    jump to frame 62;
   - a grind attack press window of 0.
-- **Simplified:** DL's lunge frames are given half a frame later than the code's, as the
-  kit tests the frame after its advance.
+- Its frames and lunge limits are the code's; the tests compare them with the rows as
+  "Reading the traces" says.
 
 ## Ledges and getting hit
 

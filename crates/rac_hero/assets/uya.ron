@@ -849,10 +849,11 @@
             damage: 1.0, // the wrench's weapon row (0x2C56AC)
             knockback_out: 1.2,
             knockback_back: 0.37,
-            hold_frame: 81.0, // [simplified]: the game's animation runs on, then switches
+            hold_frame: Some(81.0), // [simplified]: the game's animation runs on, then switches
             catch_frame: 82.0, // [traced]
             catch_ahead_ticks: 4.0,
-            catch_after_tick: 101,
+            catch_after_tick: Some(101),
+            catch_back: None,
             blend_again: 3, // [traced]
             again_after_tick: 30,
             jump_out_window: 8,

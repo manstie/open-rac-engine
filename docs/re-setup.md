@@ -573,6 +573,12 @@ Things that broke the first attempts, and how the harness avoids them:
 - **Torn reads.** PINE answers while the game runs. The capture rereads the frame counter
   after each sample and keeps the settled version of each frame (see
   `tools/pine-probe/src/capture.rs`).
+- **Rows read mid-update (DL).** The frame counter is settled, but a DL row can still be
+  read part way through the hero's update: its animation frame is already moved on while
+  its state, and mostly its motion, are the frame before's (`hero-controller.md`,
+  "Deadlocked's melee", "Reading the traces"). Before reading a one-frame difference
+  between two fields as a rule, check where in the update each is written. UYA's rows
+  show no such split in the melee traces.
 - **Alignment.** The first trace record is the paused frame 0. A button pressed in
   recording frame *n* changes the hero state in trace record *n* + 1 to *n* + 3 (one or
   two frames of game-side input latency, depending on the move), so analyses should

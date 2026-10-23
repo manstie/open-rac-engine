@@ -610,7 +610,7 @@ name = "wrench_throw"
 address = 0x00684510
 kind = "function"
 confidence = "medium"
-note = "Releases the thrown wrench, at frame 33 (32 from the look state)."
+note = "Releases the thrown wrench, at frame 33 (32 from the look state), and sets the thrown flag at hero + 0x230A (0x6845F4), which the wrench clears as it reaches the hand (0x461EB0)."
 
 [[symbol]]
 name = "wrench_update"
@@ -742,8 +742,36 @@ note = "Whether the hero's animation frame passed a given frame this frame."
 name = "hero_anim_jump_to"
 address = 0x00688FE0
 kind = "function"
+confidence = "medium"
+note = "(hero, sequence, keyframe): moves the hero's moby to a keyframe of a sequence with no blend. The throw's transitions (0x6A0804) call it with sequence 45, keyframe 8 (frame 62) when the wrench is back before frame 59."
+
+[[symbol]]
+name = "hero_update"
+address = 0x006A65E8
+kind = "function"
+confidence = "medium"
+note = "The hero's per-frame update, +0xC of hero_function_table: hero_anim_update, then hero_move (the state update and the move), then hero_transitions (0x69EA40). 0x6AAA18 is a near copy, reached otherwise; not read. Order read 2026-10-23 (hero-controller.md, \"Deadlocked's melee\", \"Reading the traces\")."
+
+[[symbol]]
+name = "hero_anim_update"
+address = 0x00689090
+kind = "function"
+confidence = "medium"
+note = "Moves the hero's moby animation on and copies its frame to hero + 0x658 (the only store there) and the frame's step to + 0x65C, which anim_frame_crossed uses."
+
+[[symbol]]
+name = "hero_move"
+address = 0x0067C010
+kind = "function"
 confidence = "low"
-note = "Moves the hero's animation to a keyframe with no blend; the throw uses it for its catch."
+note = "Saves the position at hero + 0x110, runs the state update through hero_function_table + 0x34 (hero_update_state) and moves the hero."
+
+[[symbol]]
+name = "hero_function_table"
+address = 0x003B10C0
+kind = "data"
+confidence = "medium"
+note = "The hero's function table (hero + 0x14 in the DreadZone savestates): +0xC hero_update, +0x30 0x6A7D48 (the stick), +0x34 hero_update_state, +0x3C hero_change_state."
 
 [[symbol]]
 name = "gadget_level"

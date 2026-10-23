@@ -417,16 +417,16 @@ fn start_attack(
     }
     hero.speed = flat_length(hero.velocity);
     if !melee.blend_creeps {
-        straight_from_start(hero, profile);
+        straight_from_start(hero);
     }
     hero.restart_state(state);
 }
 
 /// DL's attacks don't wait for their animation to blend in: the frame runs from the start
-/// frame, a tick on already.
-fn straight_from_start(hero: &mut HeroMotion, profile: &HeroProfile) {
+/// frame. (Our DL traces show it half a frame on, as their rows are read part way through
+/// the hero's update: `hero-controller.md`, "Deadlocked's melee".)
+fn straight_from_start(hero: &mut HeroMotion) {
     hero.attack.blend = 0;
-    hero.attack.frame += profile.melee.frames_per_tick;
 }
 
 /// Whether the grind attack under way may jump off the rail: from its swing's `jump_from`
@@ -474,7 +474,7 @@ fn start_grind_attack(hero: &mut HeroMotion, step: u8, profile: &HeroProfile) {
         ..default()
     };
     if !profile.melee.blend_creeps {
-        straight_from_start(hero, profile);
+        straight_from_start(hero);
     }
     hero.restart_state(HeroState::GrindAttack(step));
 }
@@ -593,10 +593,21 @@ pub(super) fn advance_frame(hero: &mut HeroMotion, profile: &HeroProfile) {
     };
     if hero.state == HeroState::Throw {
         let thrown = &melee.thrown;
-        if hero.thrown.is_some() && attack.frame < thrown.catch_frame {
-            attack.frame = attack.frame.min(thrown.hold_frame);
+        if let Some(hold) = thrown.hold_frame
+            && hero.thrown.is_some()
+            && attack.frame < thrown.catch_frame
+        {
+            attack.frame = attack.frame.min(hold);
         }
-        if t >= thrown.catch_after_tick && attack.frame < thrown.catch_frame {
+        let late = thrown.catch_after_tick.is_some_and(|after| t >= after);
+        if late && attack.frame < thrown.catch_frame {
+            attack.frame = thrown.catch_frame;
+        }
+        if let Some(back) = thrown.catch_back
+            && hero.thrown.is_none()
+            && t >= back.after_tick
+            && attack.frame < back.before_frame
+        {
             attack.frame = thrown.catch_frame;
         }
     }

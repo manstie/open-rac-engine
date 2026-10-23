@@ -891,8 +891,8 @@ pub struct SwimProfile {
 pub struct MeleeProfile {
     pub frames_per_tick: f32,
     /// An attack's animation blends in by creeping its frame from the start frame, then
-    /// starts over from it (UYA). Without this the frame runs from the start, already a
-    /// tick on when the attack begins, and nothing waits for a blend (DL).
+    /// starts over from it (UYA). Without this the frame runs from the start, and nothing
+    /// waits for a blend (DL).
     pub blend_creeps: bool,
     /// How old a melee press may be to start an attack: standing, walking or skidding;
     /// crouching (a throw); and in the air, where it waits `air_after_tick` into the jump,
@@ -1100,18 +1100,29 @@ pub struct ThrownWrenchProfile {
     pub knockback_out: f32,
     pub knockback_back: f32,
     /// The hero's animation holds at `hold_frame` while it is out, and jumps to
-    /// `catch_frame` when it is under `catch_ahead_ticks` from the hand, or
-    /// `catch_after_tick` into the throw.
-    pub hold_frame: f32,
+    /// `catch_frame` when it is under `catch_ahead_ticks` from the hand (0 for never), or
+    /// `catch_after_tick` into the throw (UYA). Without them it plays on, and jumps to
+    /// `catch_frame` only by `catch_back` (DL).
+    pub hold_frame: Option<f32>,
     pub catch_frame: f32,
     pub catch_ahead_ticks: f32,
-    pub catch_after_tick: u32,
+    pub catch_after_tick: Option<u32>,
+    pub catch_back: Option<CatchBack>,
     /// Blends in faster when thrown again straight after a throw.
     pub blend_again: u32,
     /// Thrown again from a throw past this tick, with crouch held.
     pub again_after_tick: u32,
     /// A jump out of a throw counts presses this many ticks back.
     pub jump_out_window: u32,
+}
+
+/// DL's catch: with the wrench back in the hand, a throw at least `after_tick` old whose
+/// frame is still under `before_frame` jumps to the catch. Only a wrench back early, off a
+/// wall, comes back that soon.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CatchBack {
+    pub after_tick: u32,
+    pub before_frame: f32,
 }
 
 /// The grind attack, a swing on a rail (UYA's state 42; `hero-controller.md`, "The grind
@@ -1736,7 +1747,6 @@ mod tests {
                 "melee.combo[0].start_frame",
                 "melee.combo[0].swing",
                 "melee.combo[1].head_radius",
-                "melee.combo[1].lunge[0][0]",
                 "melee.combo[1].lunge[0][1]",
                 "melee.combo[1].lunge[1][0]",
                 "melee.combo[1].lunge[1][1]",
@@ -1744,7 +1754,6 @@ mod tests {
                 "melee.combo[1].lunge[2][1]",
                 "melee.combo[1].swing",
                 "melee.combo[2].head_radius",
-                "melee.combo[2].lunge[0][0]",
                 "melee.combo[2].lunge[0][1]",
                 "melee.combo[2].swing",
                 "melee.crouch_jump_out",
@@ -1757,7 +1766,11 @@ mod tests {
                 "melee.jump_attack.head_radius",
                 "melee.jump_attack.hit_to",
                 "melee.jump_attack.swing",
+                "melee.thrown.catch_after_tick",
                 "melee.thrown.catch_ahead_ticks",
+                "melee.thrown.catch_back",
+                "melee.thrown.catch_frame",
+                "melee.thrown.hold_frame",
                 "melee.thrown.radius",
                 "name",
                 "run_jump.air_speed",

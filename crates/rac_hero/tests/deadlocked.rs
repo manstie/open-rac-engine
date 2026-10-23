@@ -326,8 +326,9 @@ fn melee() -> PlayerInput {
 
 #[test]
 fn deadlocked_swings_play_from_their_start_and_lunge_at_4_75() {
-    // melee-1, the first standing swing, rows t = 0..=19: the frame runs from 15.5 with no
-    // blend, and the lunge rises at 37 u/s² to 4.75, holding while the frame was under 20.
+    // melee-1, the first standing swing, rows t = 0..=19: the frame runs from 15 with no
+    // blend, and the lunge rises at 37 u/s² to 4.75, holding while the frame is under 20.
+    // (Each row shows the frame from part way into the next tick: 15.5 on row 0.)
     let trace = [
         0.0, 0.62, 1.23, 1.85, 2.47, 3.08, 3.70, 4.31, 4.75, 4.75, 4.28, 3.81, 3.35, 2.88, 2.41,
         1.95, 1.48, 1.01, 0.55, 0.08,
@@ -339,7 +340,7 @@ fn deadlocked_swings_play_from_their_start_and_lunge_at_4_75() {
             rig.tick(&input(None, &[], &[]));
         }
         assert_eq!(rig.hero.state, HeroState::Combo(0));
-        assert_eq!(rig.hero.attack_frame(), 15.5 + 0.5 * t as f32, "t = {t}");
+        assert_eq!(rig.hero.attack_frame(), 15.0 + 0.5 * t as f32, "t = {t}");
         assert!(
             (rig.horizontal_speed() - speed).abs() < 0.01,
             "t = {t}: {} against {speed}",
@@ -397,6 +398,105 @@ fn deadlocked_attacks_from_a_double_jump_far_sooner() {
     };
     assert_eq!(first_tick(HeroProfile::dl()), Some(12));
     assert_eq!(first_tick(HeroProfile::uya()), Some(20));
+}
+
+#[test]
+fn deadlocked_swings_play_from_their_start_frame_and_idle_past_the_end() {
+    // melee-1: swing 1 has 33 rows, frames 15.5 to 31.5 as the rows show them; from frame
+    // 15, it idles once the frame passes 31 (its end, 26, and 5).
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.tick(&melee());
+    let mut ticks = 0;
+    let mut last = 0.0;
+    while rig.hero.state == HeroState::Combo(0) {
+        ticks += 1;
+        last = rig.hero.attack_frame();
+        rig.tick(&input(None, &[], &[]));
+        assert!(ticks < 60);
+    }
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    assert_eq!((ticks, last), (33, 31.0));
+}
+
+fn throw() -> PlayerInput {
+    input(None, &[Action::Crouch], &[Action::Melee])
+}
+
+#[test]
+fn deadlocked_throws_play_on_while_the_wrench_is_out_and_last_133_ticks() {
+    // melee-4's standing throws: 133 rows, frames 30.5 to 96.5 as the rows show them. From
+    // frame 30 at half a frame a tick, with no hold while the wrench is out (rows 33.5 to
+    // 60.5) and no jump to a catch; UYA's throw lasts 95 ticks.
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.tick(&throw());
+    let mut out = Vec::new();
+    let mut ticks = 0;
+    while rig.hero.state == HeroState::Throw {
+        assert_eq!(
+            rig.hero.attack_frame(),
+            30.0 + 0.5 * ticks as f32,
+            "t = {ticks}"
+        );
+        if rig.hero.thrown.is_some() {
+            out.push(ticks);
+        }
+        ticks += 1;
+        rig.tick(&input(None, &[], &[]));
+        assert!(ticks < 200);
+    }
+    assert_eq!(ticks, 133);
+    // Let go as the frame passes 33.
+    assert_eq!(out.first(), Some(&7));
+    let back = *out.last().unwrap();
+    assert!((60..=62).contains(&back), "back after {back}");
+    assert_eq!(out.len(), back - 6, "out without a break");
+}
+
+#[test]
+fn deadlocked_throws_jump_to_the_catch_when_the_wrench_comes_back_early() {
+    // [code] Off a wall the wrench is back before frame 59, and the animation goes to
+    // frame 62, the catch.
+    let floor = BodyPlacement::fixed(
+        Collider::Cuboid {
+            half_extents: Vec3::new(200.0, 0.5, 200.0),
+        },
+        Vec3::new(0.0, -0.5, 0.0),
+        Quat::IDENTITY,
+    );
+    let wall = BodyPlacement::fixed(
+        Collider::Cuboid {
+            half_extents: Vec3::new(5.0, 2.0, 0.5),
+        },
+        Vec3::new(0.0, 2.0, -4.0),
+        Quat::IDENTITY,
+    );
+    let mut rig = Rig::new(HeroProfile::dl());
+    rig.world = ParryWorld::new(&[floor, wall]);
+    rig.tick(&throw());
+    let mut ticks = 0;
+    while rig.hero.thrown.is_none() {
+        rig.tick(&input(None, &[], &[]));
+        ticks += 1;
+    }
+    while rig.hero.thrown.is_some() {
+        rig.tick(&input(None, &[], &[]));
+        ticks += 1;
+    }
+    assert!(
+        rig.hero.attack_frame() < 59.0,
+        "{}",
+        rig.hero.attack_frame()
+    );
+    rig.tick(&input(None, &[], &[]));
+    assert_eq!(rig.hero.attack_frame(), 62.0);
+    rig.tick(&input(None, &[], &[]));
+    assert_eq!(rig.hero.attack_frame(), 62.5);
+    let mut more = 2;
+    while rig.hero.state == HeroState::Throw {
+        rig.tick(&input(None, &[], &[]));
+        more += 1;
+    }
+    assert!(ticks + more < 133, "{ticks} + {more}");
 }
 
 #[test]

@@ -712,9 +712,8 @@
                 end: 26.0,
                 hit_from: 17.0,
                 hit_to: 23.0,
-                // 0.079167 u per frame while the frame is under 20 [code, 0x698280]. DL's
-                // update sees the frame before the tick moves it on, so 20.5 here [traced].
-                lunge: [(20.5, 4.75)],
+                // 0.079167 u per frame while the frame is under 20 [code, 0x698280; traced]
+                lunge: [(20.0, 4.75)],
                 reach: Some((offset: 0.75, range: 0.8, max_scale: 4.0)),
                 damage: 1.0, // the wrench at level 0 (0x3BE5B8) [code]
                 knockback: 1.0,
@@ -748,9 +747,9 @@
                 end: 15.0,
                 hit_from: 8.0,
                 hit_to: 13.0,
-                // 0.099167, 0.079167 past frame 7, 0.054167 past 10 and under 12 [code],
-                // half a frame on as swing 1's [traced].
-                lunge: [(7.5, 5.95), (10.5, 4.75), (12.5, 3.25)],
+                // 0.099167, 0.079167 past frame 7, 0.054167 past 10 and under 12 [code,
+                // traced]
+                lunge: [(7.0, 5.95), (10.0, 4.75), (12.0, 3.25)],
                 reach: Some((offset: 0.6, range: 1.7, max_scale: 4.0)),
                 damage: 1.0,
                 knockback: 1.0,
@@ -781,7 +780,7 @@
                 end: 21.0,
                 hit_from: 12.0,
                 hit_to: 16.0,
-                lunge: [(12.5, 3.95)], // 0.065833 under frame 12 [code, traced]
+                lunge: [(12.0, 3.95)], // 0.065833 under frame 12 [code, traced]
                 reach: Some((offset: 1.3, range: 1.7, max_scale: 1.9)),
                 damage: 1.0,
                 knockback: 1.0,
@@ -921,10 +920,14 @@
             damage: 1.0, // the wrench at level 0
             knockback_out: 1.2,
             knockback_back: 0.37,
-            hold_frame: 81.0, // [simplified]: the game's animation runs on, then switches
-            catch_frame: 82.0, // [traced]
-            catch_ahead_ticks: 5.0, // [code]
-            catch_after_tick: 101,
+            // [code, traced]: the animation (sequence 45, frames 30 to 118) plays on while
+            // the wrench is out; under 5 frames from the hand the wrench starts its own
+            // catch, not the hero's. A wrench back early jumps him to keyframe 8, frame 62.
+            hold_frame: None,
+            catch_frame: 62.0,
+            catch_ahead_ticks: 0.0,
+            catch_after_tick: None,
+            catch_back: Some((after_tick: 10, before_frame: 59.0)),
             blend_again: 3, // [traced]
             again_after_tick: 30,
             jump_out_window: 8,

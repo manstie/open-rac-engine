@@ -64,19 +64,14 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. **Owner:** push `re/hero-movement` so CI runs (it needs the owner's credentials). Then
-   fix anything Windows-specific it finds (P0.7).
-2. RE.3 and P1.5: a trace of a death in UYA or DL for `death.ticks`, since the respawn is
+1. RE.3 and P1.5: a trace of a death in UYA or DL for `death.ticks`, since the respawn is
    the level's code. DL's movement sections are read; left in `dl.ron` as UYA's are
    smaller items (the flick, the landing, the strafe flip's stick, the wrench's line, the
    gun arm, some camera numbers, and grinding's reach, switch search and speed).
-3. The guns' effects from the disc (P3.18), with the whip's links and shield, then
+2. The guns' effects from the disc (P3.18), with the whip's links and shield, then
    P1.10's nanotech, explosive and doubler crates ("Ammo
    pickups, crates and the vendor").
-4. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
-
-**Wanted from the owner, when convenient:** savestates by moves that need a particular
-place (`docs/re-setup.md`, "Still wanted").
+3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
 ---
 
@@ -388,6 +383,11 @@ committed (names, addresses, layouts, derived constants).
     where the top's cast hit, so he hangs against the wall, and its shimmy runs 32-frame
     cycles of 0.60 u (`hero-controller.md`, "Deadlocked's moves", "Deadlocked's
     ledges").
+  - DL's trace rows are read part way through the hero's update: the animation frame is
+    a tick ahead of the state and motion (`re-setup.md`, "Rows read mid-update"). It
+    made DL's attacks a frame short in the kit (P1.8). Other one-frame rules read from
+    DL's traces (the double jump's 11th tick, the flip's and ledges' timings) are still
+    to be checked against the update's order.
   - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
     rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
     clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides,
@@ -661,17 +661,27 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with
   hurtboxes, hit points, one hit per attack, knockback and flash. The demo has a melee
   yard and shows clanks as sparks.
-  - Not modelled: DL's flail, shuriken, glove and magnetic attacks (with P1.9), UYA's
-    states 77 and 114, and the giant-Clank mode (`hero-controller.md`, "Not read yet").
+  - Not modelled: DL's Scorpion Flail (state 145, read in code: `hero-controller.md`,
+    "The Scorpion Flail"; with DL's guns), UYA's states 77 and 114, and the giant-Clank
+    mode. DL's shuriken, glove, Walloper and magneboots attacks have no starter found in
+    its code and may be leftovers ("Not read yet").
+  - Still open in DL: Triangle and R2 keeping an attack from starting, hero +0x4AC,
+    which keeps the combo from starting, and the throw button's camera rule (the kit
+    throws with crouch).
   - UYA's grind can't be traced: a rail written into Veldin's empty rail list crashes
     PCSX2 two frames into the grind. The grind attack's wrench line is computed from the
     disc's animations instead. The method reproduces the traced combo
     (`hero-controller.md`, "The grind attack").
-  - DL's attack frames don't creep through a blend, and its lunges test the frame before
-    its advance. Both were found in the traces (`melee.blend_creeps`, and DL's lunge
-    frames half a frame on).
+  - DL's attack frames don't creep through a blend (`melee.blend_creeps`). DL's trace rows
+    are read part way through the hero's update, so they show the frame half a frame
+    ahead of the state and motion; the kit had shifted DL's frames to match, leaving
+    every DL attack a frame short. Fixed 2026-10-23 (`hero-controller.md`, "Reading the
+    traces"; `re-setup.md`, "Rows read mid-update").
+  - DL's throw plays its animation straight through, 133 frames, where the kit had
+    UYA's hold and catch; a wrench back early jumps it to frame 62 (`thrown.catch_back`).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
-    gives; still open (`hero-controller.md`, "Deadlocked's melee").
+    gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
+    double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
   - Done 2026-10-23: with a UYA disc the arms hold each gun by its hold (one hand, both,
     or none for the whip and gloves), from UYA's hold classes 1 and 2 laid over the
