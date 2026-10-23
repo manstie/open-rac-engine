@@ -2,13 +2,15 @@
 //!
 //! Everything it writes is derived from the user's own disc, so it goes in `cache/`, never
 //! the repository. `identify`, `hero`, `rails`, `cameras` and `unpack-elf` read the disc
-//! itself; `moby` reads EE memory images made from savestates
+//! itself, as does `sounds`, which can also render a bank's sounds to WAV files; `moby`
+//! reads EE memory images made from savestates
 //! (`tools/ghidra/import-savestate.sh` writes them), for reverse engineering.
 
 mod cameras;
 mod glb;
 mod identify;
 mod pose;
+mod sounds;
 mod unpack;
 
 use std::fs::File;
@@ -101,6 +103,22 @@ enum Command {
         /// level.
         #[arg(long, requires = "level")]
         check_ee: Option<PathBuf>,
+    },
+    /// List a UYA sound bank's sounds and the class sound tables that play them: a gun's
+    /// bank from the gadget WAD, or a level's; optionally render each sound to a WAV file.
+    Sounds {
+        /// The disc image (.iso).
+        #[arg(long)]
+        iso: PathBuf,
+        /// A gun's class number, in hex (a weapon row's +0x10).
+        #[arg(long, value_parser = parse_hex, conflicts_with = "level")]
+        gadget: Option<u32>,
+        /// A level's number (1 is Veldin).
+        #[arg(long)]
+        level: Option<usize>,
+        /// Write each sound here as `sound-NNN.wav` (under cache/).
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Unpack a packed executable (R&C3, UYA, Deadlocked, Gladiator) from a disc image,
     /// list its sections, and optionally write it as a plain ELF for Ghidra.
@@ -253,6 +271,12 @@ fn main() -> Result<()> {
             level,
             check_ee,
         } => cameras::run(&iso, level, check_ee.as_deref())?,
+        Command::Sounds {
+            iso,
+            gadget,
+            level,
+            out,
+        } => sounds::run(&iso, gadget, level, out.as_deref())?,
         Command::UnpackElf { iso, file, out } => {
             unpack::run(&iso, file.as_deref(), out.as_deref())?;
         }

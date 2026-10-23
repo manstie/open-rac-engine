@@ -27,6 +27,7 @@ parry3d = { version = "0.31", default-features = false, features = ["required-fe
 # Never used in code: its `libm` feature sends parry's scalar maths (through simba) to
 # libm rather than each platform's C library, the half of `enhanced-determinism` we keep.
 glamx = { version = "0.3", default-features = false, features = ["libm"] }
+rac_audio = { path = "crates/rac_audio" }
 rac_combat = { path = "crates/rac_combat" }
 rac_demo = { path = "crates/rac_demo" }
 rac_formats = { path = "crates/rac_formats" }

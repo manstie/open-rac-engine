@@ -14,7 +14,7 @@ use rac_sim::SimRng;
 use std::f32::consts::TAU;
 
 use super::{
-    Affliction, GunEventKind,
+    Affliction, GunEventKind, Sustain,
     aim::{GunTarget, assist_target, assist_targets, bend, first_target, view_point},
     arsenal::{Arsenal, Hand, Sights},
     def::{
@@ -132,6 +132,9 @@ pub(crate) struct Trigger {
     pub(super) beam: Option<(Entity, u32, f32)>,
     /// The Suck Cannon fires what it holds rather than sucking.
     pub(super) expelling: bool,
+    /// A round has gone since the last click of an empty gun, so holding the button on
+    /// clicks once more.
+    pub(super) dry: bool,
 }
 
 /// The states a gun fires in. The game's list isn't read: these are the ones where he has
@@ -203,6 +206,7 @@ pub fn step(
     };
     arsenal.fire_ticks = arsenal.fire_ticks.saturating_sub(1);
     let mut ready_now = false;
+    arsenal.sustain = None;
     if let Hand::Gun { weapon, ticks } = arsenal.hand
         && let Some(def) = armory.get(weapon)
     {
@@ -215,6 +219,7 @@ pub fn step(
             && (hero.state != HeroState::Look || arsenal.trigger.look >= def.look_wait_ticks);
         let gun = Gun::new(arsenal, armory, weapon, def, ready, gun_input);
         ready_now = ready && arsenal.gun(weapon).is_some_and(|owned| owned.ammo > 0);
+        let muzzle = gun.muzzle;
         let before = out.events.len();
         match &def.fire {
             FireMode::Hitscan(fire) => {
@@ -279,6 +284,16 @@ pub fn step(
             .any(|(_, kind)| matches!(kind, GunEventKind::Fired { .. }));
         if fired {
             arsenal.shots_fired = arsenal.shots_fired.wrapping_add(1);
+            arsenal.trigger.dry = true;
+        }
+        // An empty gun clicks when the button is pressed, and once when it is held on past
+        // the last round (each gun's `no ammo` sound; `effects.md`, "Sounds").
+        let empty = arsenal.gun(weapon).is_none_or(|owned| owned.ammo == 0);
+        if ready && empty && input.held(Action::Fire) && !fired {
+            if input.pressed(Action::Fire) || arsenal.trigger.dry {
+                out.event(weapon, GunEventKind::Empty { at: muzzle });
+            }
+            arsenal.trigger.dry = false;
         }
     }
 
@@ -387,8 +402,10 @@ fn look_through_scope(
     };
     if way > 0 && fov > narrowest {
         fov -= scope.zoom_step;
+        arsenal.sustain = Some(Sustain::ZoomingIn);
     } else if way < 0 && fov < widest {
         fov += scope.zoom_step;
+        arsenal.sustain = Some(Sustain::ZoomingOut);
     }
     fov = fov.clamp(narrowest, widest);
     arsenal.zoom = Some(fov);
@@ -751,6 +768,10 @@ fn hitscan(
     }
 
     let free = gun.ready && trigger.pending.is_none() && trigger.after_hit == 0;
+    if charge.is_some() && held && gun.ready {
+        arsenal.sustain = Some(Sustain::Charging);
+    }
+    let trigger = &mut arsenal.trigger;
     let mut shoot = None;
     match charge {
         None => {
@@ -1105,6 +1126,7 @@ fn stream(
     }
     if flowing {
         arsenal.fire_ticks = gun.def.fire_ticks;
+        arsenal.sustain = Some(Sustain::Flowing);
     }
     let trigger = &mut arsenal.trigger;
     let (target, spring) = if flowing {

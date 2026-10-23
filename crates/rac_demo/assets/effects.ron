@@ -1,0 +1,159 @@
+// The kit's guns' effects (PLAN.md P3.18): what each gun shows as it fires, on its shots in
+// flight, along its rays and where its shots land, by its key (`effects` in rac_combat's
+// `uya_weapons.ron`).
+//
+// Textures are the game's numbers (`docs/research/effects.md`): `Effect(n)` an effect
+// texture, `Particle(type, n)` entry n of a particle type's list. Which ones each gun draws
+// with follows that gun's code ("Each gun's effects") [code]; the sizes, colours and lives
+// are the kit's own until the calls' arguments are read. The explosion's particle types
+// and glow are `explosion_spawn`'s [code], the N60's hit its bullet's (0x35BDC8) [code].
+// Without the user's disc each texture is a placeholder painted as `placeholders` says.
+//
+// Sizes are world units, times 60 Hz ticks, colours sRGB with alpha (1, 1, 1 shows a
+// texture as it is). Blends: Add (the default) or Alpha.
+(
+    placeholders: {
+        Effect(11): (shape: Glow, colour: (1.0, 0.95, 0.85)),
+        Effect(14): (shape: Streak, colour: (1.0, 0.45, 0.55)),
+        Effect(26): (shape: Streak, colour: (0.6, 0.85, 1.0)),
+        Effect(43): (shape: Streak, colour: (0.85, 0.9, 1.0)),
+        Effect(44): (shape: Glow, colour: (0.55, 0.75, 1.0)),
+        Effect(47): (shape: Bolt, colour: (0.7, 0.9, 1.0)),
+        Effect(62): (shape: Flame, colour: (1.0, 0.75, 0.25)),
+        Effect(63): (shape: Flame, colour: (1.0, 0.55, 0.15)),
+        Effect(75): (shape: Ring, colour: (0.65, 0.35, 0.95)),
+        Effect(78): (shape: Feather, colour: (0.95, 0.95, 0.9)),
+        Particle(0x17, 0): (shape: Smoke, colour: (0.18, 0.17, 0.16)),
+        Particle(0x19, 0): (shape: Spark, colour: (1.0, 1.0, 1.0)),
+        Particle(0x22, 0): (shape: Ring, colour: (0.65, 1.0, 0.6)),
+        Particle(0x2C, 0): (shape: Spark, colour: (1.0, 0.7, 0.3)),
+        Particle(0x35, 0): (shape: Star, colour: (1.0, 1.0, 1.0)),
+        Particle(0x55, 0): (shape: Smoke, colour: (1.0, 0.55, 0.15)),
+        Particle(0x5A, 0): (shape: Glow, colour: (1.0, 0.3, 0.2)),
+        Particle(0x5C, 0): (shape: Star, colour: (1.0, 0.95, 0.85)),
+        Particle(0x61, 0): (shape: Smoke, colour: (1.0, 0.5, 0.1)),
+        Particle(0x61, 10): (shape: Smoke, colour: (0.45, 0.4, 0.35)),
+    },
+    // Named lists of emits a recipe can use with `Set("name")`.
+    sets: {
+        // The shared explosion (`explosion_spawn`, 0x32FE90): fire (0x55), the general
+        // sprite's rocks (0x61), glares (0x5A), dark smoke (0x17) and a glow in 11.
+        "explosion": [
+            Glow(texture: Effect(11), size: 1.5, end_size: 4.0, ticks: 12, colour: (1.0, 0.7, 0.4, 1.0)),
+            Burst(texture: Particle(0x55, 0), count: 10, speed: 4.0, gravity: -1.0, size: 1.2, end_size: 2.5, ticks: 24),
+            Burst(texture: Particle(0x5A, 0), count: 4, speed: 6.0, size: 0.8, end_size: 0.2, ticks: 12),
+            Burst(texture: Particle(0x17, 0), count: 6, speed: 2.0, gravity: -0.5, size: 1.5, end_size: 3.0, ticks: 45, colour: (1.0, 1.0, 1.0, 0.8), blend: Alpha),
+            Burst(texture: Particle(0x61, 10), count: 5, speed: 8.0, gravity: 20.0, size: 0.3, end_size: 0.3, ticks: 40, blend: Alpha),
+        ],
+        "small explosion": [
+            Glow(texture: Effect(11), size: 0.8, end_size: 2.0, ticks: 10, colour: (1.0, 0.7, 0.4, 1.0)),
+            Burst(texture: Particle(0x55, 0), count: 5, speed: 2.5, gravity: -1.0, size: 0.7, end_size: 1.4, ticks: 20),
+            Burst(texture: Particle(0x17, 0), count: 3, speed: 1.5, gravity: -0.5, size: 0.9, end_size: 1.8, ticks: 35, colour: (1.0, 1.0, 1.0, 0.7), blend: Alpha),
+        ],
+        // The N60's bullet's hit: embers (0x2C), a glare (0x5A) and a burst (0x5C).
+        "bullet hit": [
+            Burst(texture: Particle(0x2C, 0), count: 6, speed: 5.0, gravity: 9.0, size: 0.15, end_size: 0.05, ticks: 15),
+            Glow(texture: Particle(0x5A, 0), size: 0.5, end_size: 1.0, ticks: 6),
+            Burst(texture: Particle(0x5C, 0), count: 3, speed: 1.5, size: 0.4, end_size: 0.8, ticks: 12),
+        ],
+        "sparks": [
+            Burst(texture: Particle(0x2C, 0), count: 8, speed: 6.0, gravity: 9.0, size: 0.15, end_size: 0.05, ticks: 15),
+            Glow(texture: Particle(0x5A, 0), size: 0.4, end_size: 0.8, ticks: 6),
+        ],
+    },
+    // What a gun shows that its own recipe leaves out.
+    default: (
+        impact: Some([
+            Glow(texture: Effect(11), size: 0.3, end_size: 0.6, ticks: 8, colour: (1.0, 0.9, 0.6, 1.0)),
+        ]),
+        ray: Some((texture: Effect(43), width: 0.05, ticks: 10)),
+    ),
+    // The shock mod's arcs and the Hydra's spit and bolts: lightning (47).
+    arc: (texture: Effect(47), width: 0.25, ticks: 10, colour: (0.75, 0.9, 1.0, 1.0)),
+    guns: {
+        // Rays in 26 and 61 with a glow of 11.
+        "shock_blaster": (
+            fire: Some([Glow(texture: Effect(11), size: 0.6, end_size: 1.2, ticks: 6, colour: (0.6, 0.85, 1.0, 1.0))]),
+            ray: Some((texture: Effect(26), width: 0.08, ticks: 10, colour: (0.6, 0.85, 1.0, 1.0))),
+            impact: Some([]),
+        ),
+        // A muzzle flame quad of 63.
+        "n60": (
+            fire: Some([Flash(texture: Effect(63), length: 0.8, width: 0.3, ticks: 3)]),
+            shot: Some((texture: Effect(11), size: 0.25, colour: (1.0, 0.8, 0.4, 1.0))),
+            impact: Some([Set("bullet hit")]),
+        ),
+        "nitro": (
+            fire: Some([Flash(texture: Effect(63), length: 0.6, width: 0.35, ticks: 4)]),
+            impact: Some([Set("explosion")]),
+        ),
+        // The stream is drawn as its blobs, burning (the general sprite's 12).
+        "lava": (
+            fire: Some([]),
+            shot: Some((texture: Particle(0x61, 0), size: 0.35)),
+            impact: Some([
+                Burst(texture: Particle(0x19, 0), count: 3, speed: 2.0, gravity: 6.0, size: 0.15, end_size: 0.05, ticks: 12, colour: (1.0, 0.6, 0.2, 1.0)),
+                Glow(texture: Particle(0x61, 0), size: 0.3, end_size: 0.6, ticks: 8),
+            ]),
+        ),
+        "annihilator": (
+            fire: Some([Glow(texture: Effect(44), size: 0.5, end_size: 1.0, ticks: 6, colour: (1.0, 0.9, 0.7, 1.0))]),
+            impact: Some([Set("explosion")]),
+        ),
+        "flux": (
+            fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.8, ticks: 5, colour: (1.0, 0.4, 0.6, 1.0))]),
+            ray: Some((texture: Effect(14), width: 0.06, ticks: 12, colour: (1.0, 0.35, 0.5, 1.0))),
+            impact: Some([
+                Burst(texture: Particle(0x35, 0), count: 4, speed: 3.0, size: 0.3, end_size: 0.05, ticks: 15),
+                Glow(texture: Particle(0x5A, 0), size: 0.5, end_size: 1.0, ticks: 8),
+            ]),
+        ),
+        // Bubbles (0x22).
+        "infector": (
+            fire: Some([]),
+            shot: Some((texture: Particle(0x22, 0), size: 0.3, colour: (0.6, 1.0, 0.5, 1.0))),
+            impact: Some([
+                Burst(texture: Particle(0x22, 0), count: 8, speed: 3.0, gravity: 2.0, size: 0.25, end_size: 0.1, ticks: 25, colour: (0.6, 1.0, 0.5, 1.0)),
+            ]),
+        ),
+        "hydra": (
+            fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.8, ticks: 5, colour: (0.9, 0.95, 1.0, 1.0))]),
+            impact: Some([Burst(texture: Particle(0x35, 0), count: 4, speed: 3.0, size: 0.3, end_size: 0.0, ticks: 12)]),
+        ),
+        "disc": (impact: Some([Set("sparks")])),
+        "agents": (impact: Some([Set("small explosion")])),
+        // Flames (62) at the muzzle, a swirl (75) for the rift.
+        "rift": (
+            fire: Some([Flash(texture: Effect(62), length: 0.5, width: 0.4, ticks: 4)]),
+            shot: Some((texture: Effect(75), size: 0.8, colour: (0.7, 0.4, 1.0, 1.0))),
+            impact: Some([Glow(texture: Effect(75), size: 1.0, end_size: 3.0, ticks: 20, colour: (0.7, 0.4, 1.0, 1.0))]),
+        ),
+        "holo": (fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.9, ticks: 6, colour: (0.4, 0.9, 1.0, 1.0))])),
+        "whip": (impact: Some([Set("sparks")])),
+        "suck": (impact: Some([Set("small explosion")])),
+        // Feathers (78).
+        "qwack": (
+            impact: Some([
+                Burst(texture: Effect(78), count: 8, speed: 3.0, gravity: 3.0, size: 0.4, end_size: 0.3, ticks: 40, blend: Alpha),
+            ]),
+        ),
+        "ryno": (
+            fire: Some([Glow(texture: Effect(11), size: 0.6, end_size: 1.2, ticks: 6, colour: (1.0, 0.8, 0.5, 1.0))]),
+            impact: Some([Set("explosion")]),
+        ),
+        // The ball in 44, sparkles (0x35) where it bursts.
+        "coil": (
+            shot: Some((texture: Effect(44), size: 0.9, colour: (0.5, 0.7, 1.0, 1.0))),
+            impact: Some([
+                Glow(texture: Effect(44), size: 1.0, end_size: 3.0, ticks: 12, colour: (0.5, 0.7, 1.0, 1.0)),
+                Burst(texture: Particle(0x35, 0), count: 8, speed: 6.0, size: 0.4, end_size: 0.05, ticks: 18),
+            ]),
+        ),
+        "bouncer": (impact: Some([Set("explosion")])),
+        "turret": (
+            fire: Some([Flash(texture: Effect(63), length: 0.4, width: 0.2, ticks: 3)]),
+            impact: Some([Set("bullet hit")]),
+        ),
+        "shield": (),
+    },
+)

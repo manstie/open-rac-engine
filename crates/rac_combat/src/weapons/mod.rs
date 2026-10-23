@@ -45,7 +45,8 @@ pub use thrown::block_shot;
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct KillXp(pub u32);
 
-/// Something a gun did, for the game to show and play (with the gun's [`def::Effects`]).
+/// Something a gun did, for the game to show and play (by the gun's
+/// [`WeaponDef::effects`]).
 #[derive(Message, Debug, Clone, Copy, PartialEq)]
 pub struct GunEvent {
     pub player: usize,
@@ -65,6 +66,24 @@ pub enum GunEventKind {
     Arc { from: Vec3, to: Vec3 },
     /// The gun reached a new level.
     LevelUp { level: u8 },
+    /// The fire button found the gun in hand out of ammo: pressed, or held on from the
+    /// last round (`weapons.md`, "Switching and firing"; `effects.md`, "Sounds").
+    Empty { at: Vec3 },
+}
+
+/// What the gun in hand keeps doing over many ticks, for a game's looping sounds and looks
+/// (`effects.md`, "Sounds"): [`Arsenal::sustain`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Sustain {
+    /// The Shock Blaster held from its charging level.
+    Charging,
+    /// The Lava Gun's stream flowing.
+    Flowing,
+    /// The Suck Cannon's vortex pulling.
+    Sucking,
+    /// The scope zooming in, and out.
+    ZoomingIn,
+    ZoomingOut,
 }
 
 /// What a gun did to an enemy beyond its damage (`weapons.md`: the Infector, Qwack-O-Ray,

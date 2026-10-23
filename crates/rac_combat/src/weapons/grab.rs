@@ -7,7 +7,7 @@ use rac_input::Action;
 use rac_sim::SimRng;
 
 use super::{
-    Affliction, GunEventKind,
+    Affliction, GunEventKind, Sustain,
     aim::{flat, in_sight},
     arsenal::Arsenal,
     def::{Armory, Beam, Rift, Ripper, Suck},
@@ -235,6 +235,7 @@ pub(super) fn suck(
         return;
     }
     arsenal.fire_ticks = gun.def.fire_ticks;
+    arsenal.sustain = Some(Sustain::Sucking);
     let trigger = &mut arsenal.trigger;
     trigger.held += 1;
     if !(trigger.held - 1).is_multiple_of(fire.grab_every.max(1)) || arsenal.sucked >= capacity {

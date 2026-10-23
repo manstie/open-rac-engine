@@ -168,8 +168,10 @@ pub struct WeaponDef {
     #[serde(default)]
     pub acid: ByLevel<Acid>,
     pub fire: FireMode,
+    /// The gun's name in a game's tables of sounds and looks (`"n60"`), which its
+    /// [`crate::GunEvent`]s and [`crate::weapons::Sustain`] are keyed by.
     #[serde(default)]
-    pub effects: Effects,
+    pub effects: String,
     /// What it draws to aim by.
     #[serde(default)]
     pub sight: Sight,
@@ -367,13 +369,6 @@ impl<T: Copy> ByLevel<T> {
 pub struct Acid {
     pub per_second: f32,
     pub seconds: f32,
-}
-
-/// Names the game gives the effects and sounds of a gun's events ([`crate::GunEvent`]).
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Effects {
-    pub fire: Option<String>,
-    pub impact: Option<String>,
 }
 
 /// How a gun fires: the five archetypes of PLAN.md P1.9, and the modes of UYA's other

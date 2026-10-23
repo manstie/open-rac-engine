@@ -1,8 +1,8 @@
 //! Open Ratchet & Clank Engine: application entry point.
 //!
 //! It runs the hero kit's demo. If the user's own UYA disc is in the discs folder, the
-//! hero plays Ratchet's animations read from it, and Ratchet's own model can be chosen in
-//! the menus, as can the game he moves like. The roadmap lives in `PLAN.md` at the
+//! hero plays Ratchet's animations read from it, holds and hears its guns, and Ratchet's
+//! own model can be chosen in the menus, as can the game he moves like. The roadmap lives in `PLAN.md` at the
 //! repository root.
 
 mod camera;
@@ -10,11 +10,13 @@ mod discs;
 mod flow;
 mod fx_textures;
 mod gun_models;
+mod gun_sounds;
 mod hero_anims;
 mod hero_model;
 mod menu;
 mod moves;
 mod settings;
+mod shot_models;
 
 use anyhow::{Context, Result};
 // Named imports: the Bevy prelude's `ContextExt` would clash with anyhow's `Context`.
@@ -173,20 +175,28 @@ fn main() -> Result<AppExit> {
     if let Some(animations) = read.animations {
         app.insert_resource(animations);
     }
+    if let Some(sounds) = read.gun_sounds {
+        gun_sounds::add(&mut app, sounds);
+    }
     app.insert_resource(hero_model::DiscModels(read.models))
         .insert_resource(gun_models::DiscGuns(read.guns))
-        .insert_resource(fx_textures::DiscEffectTextures(read.effect_textures))
+        .insert_resource(shot_models::DiscShots(read.shots))
+        .insert_resource(read.effect_textures)
         .add_systems(
             bevy::prelude::Startup,
             (
                 hero_model::register_disc_models,
                 gun_models::register_disc_guns,
+                shot_models::register_disc_shots,
             ),
         )
         // After the HUD has painted its placeholders.
         .add_systems(
             bevy::prelude::PostStartup,
-            fx_textures::register_disc_sight_images,
+            (
+                fx_textures::register_disc_sight_images,
+                fx_textures::register_disc_fx_images,
+            ),
         );
     if let Some(model) = args.model.as_ref().or(settings.hero_model.as_ref()) {
         app.world_mut()
@@ -214,19 +224,21 @@ struct FromDisc {
     animations: Option<rac_rig::RigAnimations>,
     models: Vec<hero_model::Imported>,
     guns: Vec<gun_models::DiscGun>,
-    effect_textures: Vec<rac_formats::texture::Texture>,
+    shots: Vec<shot_models::DiscShot>,
+    effect_textures: fx_textures::DiscEffectTextures,
+    gun_sounds: Option<gun_sounds::DiscGunSounds>,
 }
 
 /// The hero's animations, models and guns from the user's discs in `folder`: from UYA his
-/// animations, suits, multiplayer skins and guns, from DL its skins.
+/// animations, suits, multiplayer skins and guns with their sounds, from DL its skins.
 fn from_disc(folder: &std::path::Path) -> FromDisc {
     let mut read = from_uya(folder);
     read.models.extend(from_dl(folder));
     read
 }
 
-/// The hero's animations, suits, multiplayer skins and guns from a UYA NTSC-U disc, if one
-/// is in `folder`.
+/// The hero's animations, suits, multiplayer skins and guns, with the guns' sounds, from a
+/// UYA NTSC-U disc, if one is in `folder`.
 fn from_uya(folder: &std::path::Path) -> FromDisc {
     let Some((path, mut disc)) = discs::find(folder, discs::Release::UyaNtsc) else {
         info!(
@@ -269,18 +281,58 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
     let suits = [hero_model::SUITS, hero_model::MP_SKINS].concat();
     let read = hero_model::import(&mut disc, &core, &hero, &suits);
     let models = imported(&suits, read, &path);
-    let effect_textures = core.fx_textures().unwrap_or_else(|error| {
+    let effects = core.fx_textures().unwrap_or_else(|error| {
         warn!(
             "couldn't read the effect textures from {}: {error}",
             path.display()
         );
         Vec::new()
     });
+    let particles = core
+        .particle_textures()
+        .and_then(|textures| Ok((textures, core.header.particle_lists()?)))
+        .unwrap_or_else(|error| {
+            warn!(
+                "couldn't read the particle textures from {}: {error}",
+                path.display()
+            );
+            Default::default()
+        });
+    let effect_textures = fx_textures::DiscEffectTextures {
+        effects,
+        particles: particles.0,
+        particle_lists: particles.1,
+    };
+    let gun_sounds = match gun_sounds::import(&mut disc, &core, hero_anims::LEVEL) {
+        Ok(sounds) => Some(sounds),
+        Err(error) => {
+            warn!(
+                "couldn't read the guns' sounds from {}: {error}",
+                path.display()
+            );
+            None
+        }
+    };
+    let mut shots = Vec::new();
+    for (shot, (_, class)) in shot_models::import(&core)
+        .into_iter()
+        .zip(shot_models::UYA_SHOT_CLASSES)
+    {
+        match shot {
+            Ok(shot) => shots.push(shot),
+            Err(error) => warn!(
+                "couldn't read shot class {class:#x} from {}: {error}",
+                path.display()
+            ),
+        }
+    }
     FromDisc {
         animations,
         models,
         guns: guns(&mut disc, &core, &hero, &path),
+        shots,
         effect_textures,
+        gun_sounds,
     }
 }
 

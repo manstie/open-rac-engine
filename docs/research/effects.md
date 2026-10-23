@@ -11,8 +11,9 @@ effects layer (P1.9, P1.12).
   `uyantsc-veldin`, `docs/re-setup.md`), and in every level's core header on the disc.
   Addresses are Veldin's.
 - **Labels:** **[code]** read in the game's code; **[data]** read from the image or the
-  disc. Nothing here is traced or drawn by us yet, apart from contact sheets of the
-  textures made to check their format (kept in `cache/`).
+  disc. Nothing here is traced yet. Contact sheets of the textures checked their format,
+  and since 2026-10-23 the kit draws the guns' effects with them, checked in screenshots
+  of an off-screen run (both kept out of the repo).
 - The aim indicators that use these textures are in `weapons.md`, "Aim indicators"; each
   gun's shots in `weapons.md`, "Each gun".
 
@@ -72,9 +73,12 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   +0x64, the same 8-bit linear CSM1 format. `particle_textures_init` (0x4224C8) packs
   them into 0x220AC0 (count 0x1E030C).
 - **Which textures each type draws:** core header +0x6C is the offset of a block in the
-  header: {type count 129, texture count, the byte table's offset (0x220) and size}, then
-  129 offsets (0 for the default list), then each type's list of particle texture
-  numbers. Copied to 0x221118 (a pointer per type) and 0x221370.
+  header: four words {type count 129, texture count, the byte table's offset (0x220) and
+  size (0x70 on Veldin)}, then a word per type, the offset of its list in the block (0
+  for none: read as the table's start), then the byte table, one particle texture number
+  a byte. The lists share the bytes and have no lengths; `CoreHeader::particle_lists`
+  ends each where the next one starts, which gives the lists below [data, checked on
+  Veldin 2026-10-23]. Copied to 0x221118 (a pointer per type) and 0x221370.
 - **Per level** [data]: the particle textures differ in count and order between levels,
   though 63 of Veldin's 65 are in each of three others, and each type's list differs too;
   resolved through each level's own lists, 112 of the 129 types give the same images. So
@@ -92,7 +96,7 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   | 0x35 | 21 | a four-point sparkle |
   | 0x5A, 0x6F | 25, 26; 25 | red glares |
   | 0x5B | 12, 27–32 | coloured glows |
-  | 0x5C | 33–38 | the explosion's set |
+  | 0x5C | 33–35, 24, 36–38 | the explosion's set |
   | 0x61 | 12, 40–47, 28, 48–51 | fire, smokes, a streak, a flare, swirls, a star, rocks, a sparkle |
   | 0x7E, 0x80 | 52, 48–50; 52, … | |
 
@@ -142,16 +146,97 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   drawn by 0x34E5E0): the Spitting Hydra's, Shield Charger's, Holo Shield's and Rift
   Inducer's bolts.
 
-### Sounds [code, data]
+### Sounds [code, data, 2026-10-23]
 
-- `moby_play_sound` (0x4A7200) plays entry i of the class's sound table (class +0x28,
-  count at +0xD, 0x20 bytes each); 0x4A6E88 stops one, 0x4A72A8 plays by class number.
-- An entry [data, on five shot classes]: +4 range (40–80), +0xC volume (about
-  0x400–0x6CC), +0x10 and +0x14 an optional pitch range, +0x18 a loop byte, +0x19 flags,
-  +0x1A the sound's number in its bank, +0x1C which bank.
-- Shot classes from the level's core use bank 0, the level's own (Veldin's shots are
-  sounds 0x5E–0xC5); guns from the gadget WAD are set to bank 4 by `gadget_install`, the
-  gun's own 989snd bank in its gadget entry (`moby-format.md`, "The gadget WAD").
+Read in Ghidra on Veldin's image and from the disc's banks; `rac_formats::sound` reads
+the banks and tables, and its disc tests check them against the image.
+- **Playing:** `moby_play_sound` (0x4A7200: index, flags, moby) plays entry *index* of the
+  moby's class's sound table (class +0x28, count +0xD, 0x20 bytes an entry);
+  `class_sound_play` (0x4A72A8) the same by class number; `level_sound_play` (0x4A7368)
+  an entry of the level's own table (below). All go through `sound_start` (0x4A6F58),
+  which takes one of 52 slots of 0x80 bytes at 0x1A3170 (42 unless the moby is the
+  hero's), and returns −1 when the sound would be quieter than 0x20 out of 0x400 or the
+  entry loops (+0x18) without flag 4 in the call (a loop only starts when asked for one,
+  and the reverse). `sound_stop` (0x4A6E88) stops a slot; 0x4A6D70 and 0x4A6DF8 stop a
+  class's or a moby's.
+- **An entry:** +0 near and +4 far (f32), +8 the volume at far and beyond and +0xC within
+  near (out of 0x400; some are louder and are capped at 0x400 less the fade, 0x1D52E4),
+  +0x10 and +0x14 a pitch modulation picked at random between them in 128ths of a
+  semitone (±127 is a semitone, −1524 an octave down; [inferred from the values]), +0x18
+  loops, +0x19 flags (bit 0: the volume falls with the square of the distance left), +0x1A
+  the sound's number in its bank, +0x1C the bank (0 the level's; `gadget_install` sets a
+  gun's to 4, its own).
+- **Volume** (0x4A53D0): within near the near volume; between, the far volume plus
+  (far − d)/(far − near) of the difference (squared with bit 0); past far, the far
+  volume. *d* is the distance from the camera (0x1E2A40; every camera's in split screen,
+  summed). Multiplied by the slot's own scale (+0x5C, 0x400 unless set) and redone every
+  frame as the moby moves (`sound_update`, 0x4A6468).
+- **Pan** (0x4A5508): the sound's angle round the camera, in degrees (0 ahead, 90 to the
+  right), in the camera's frame; within 2 u of the camera it keeps its last pan while the
+  sound is roughly ahead or behind, so it doesn't flip.
+- **To the library:** `snd_PlaySoundVolPanPMPB`'s stub (0x13C0B8: bank, sound, volume,
+  pan, then the slot's +0x18 and the random pitch) and an update (0x13C2C0) each frame.
+- **The core's sound block** (core header +0x70): halves {where the level's entries are,
+  how many, where the table numbering them is, its length}, then two halves per class in
+  the class table's order, the first where its list is: the bank less one (−1, so 0),
+  then each of the class's entries' number in the level's bank as a word.
+  `level_load_core` (0x428750, from 0x429230) writes them into each class's table, and
+  copies the level's own entries (42 on Veldin) to 0x1DFBEC, numbering them through the
+  table (0xFFFF past its end). A class stores its own numbering (0, 1, …): the Nitro
+  Launcher's charge (0x185A) stores 0 and 1 and plays Veldin's 181 and 182.
+- **Classes with no model** (offset 0 in the core's class table) have no class at all:
+  `moby_class_register` (0x424368) only gives them their update (0x45B030), so they have
+  no sound table. The N60's bullet and the Shock Blaster's shot are such; their sounds,
+  if any, are the gun's.
+- **The banks** (989snd `SBlk`, as OpenGOAL's 989snd reads them, `prior-art.md`): a file
+  of chunks {type 1 or 3, count, then {offset, size}}: the bank, then its samples. Every
+  gun's bank in the gadget WAD is named `mn00`, version 3 but for entries 0, 3 and 10
+  (version 1, 40-byte grains), with 1 to 9 sounds (the five entries of class 0, 57);
+  entry 44 has none. Veldin's (level header +0x18) is `DAW`, version 3, 321 sounds and
+  1.5 MB of samples. A sound's grains include random pitch bends (27), random registers
+  (31) that tones take for their volume, loops (21, 22) and random picks (25).
+- **Tones** give their sample's note as a signed byte: negative for a sample at 48 kHz
+  (the note is its magnitude), positive for one at 44.1 kHz, as OpenGOAL's
+  `PS1Note2Pitch` reads it; UYA's gun tones are mostly negative.
+- **Each gun's entries** (of the gun moby's class, from its gadget bank), read in each
+  gun's update. The indices are the same at every level, but from V5 most guns are
+  another class with its own table; where the V5 class has an update of its own it is
+  named.
+
+  | Gun (update; V5's) | Fire | No ammo | Loops | Other |
+  |---|---|---|---|---|
+  | Shock Blaster (0x36A790; 0x385948) | 0; V5 4 (0 when charged) | 3; V5 1 | 4 charging, while held; V5 3 | 2 when 0x1DD88C is set and its timer runs out. V5's update also plays 3 without flag 4 where V1's plays "no ammo", which the loop refuses: silent. |
+  | N60 Storm (0x3A5928; 0x322E68) | 3 | 4 | | |
+  | Nitro Launcher (0x36E360; 0x3893E8) | 0 | 1 | | the charge's blast: its class 0x185A's 0 (0x361218) |
+  | Lava Gun (0x303F88, both) | | 2 | 0 the stream, while it flows | 1 where it hits, 8 frames apart (`class_sound_play` of 0x5C9 or 0xC59, 0x304A18) |
+  | Annihilator (0x36D5A0) | 0 | 1 | | the missile's hit: 0x1894's 0 (1 at V5, 0x396A20). V5's class 0x1887 has no update of its own in the table; its two entries match. |
+  | Flux Rifle (0x3444B0) | 0 | 1 | 2 zooming in, 3 zooming out | |
+  | Infector (0x3688E8; 0x389F58) | 0 | 2; V5 1 | | |
+  | Spitting Hydra (0x31FB90, both) | 1 | 3 | 2, as it aims | 0 for each target found, 5 while counting |
+  | Disc Blade Gun (0x36EFC0, both) | 1 | 2 | | |
+  | Agents of Doom (0x35C9F0) | | 0 (also with 8 agents out) | | |
+  | Rift Inducer (0x372990, both) | 1 | 5 | | |
+  | Holo Shield Glove (0x3717A8, both) | 2 | 1 | | 3 with none left to throw. Its V5 class (0x1C65, in the core) has no sound table on Veldin: silent. |
+  | Plasma Whip (0x356110) | 1 to V2, 4 from V3 (by the row's level, 0x1425C0 + 0x7F) | on another moby (0x1E1AC4) | 0, from V3 3 | |
+  | Suck Cannon (0x3619C8, both) | 2 | | 0 while sucking | |
+  | Qwack-O-Ray (0x37DEB0, both) | | | 0 | 1 when a timer ends; neither mapped to a cue yet |
+  | RY3NO (0x3805B0, both) | 1 at V1, 3 from V2 | 2 | | V5 also plays class 0x1F4's 1 on the hero |
+  | Plasma Coil (0x315638; 0x306F68) | 2 | 7; V5 6 | | |
+  | Bouncer (0x31C890, both) | 0 | 1 | | 3 when its timer ends with ammo |
+  | Miniturret Glove (0x346078; 0x343088) | 0 | 2 | | |
+  | Shield Charger (0x3410E8) | | | 3, the shield | 5, 2 |
+
+  "No ammo" plays when the fire button is pressed with none (`0x50D8F8` or `0x50DA08`
+  failing with the button's press bit, 0x1D52FC + 0x1A4), or once on the next try after
+  the last round went (a per-gun flag such as 0x1E1D90). Most are entries pitched up
+  three semitones (381). The calls of every caller of 0x4A7200 and 0x4A72A8, with the
+  class each update is for, are listed in `cache/snd/soundcalls.txt` (not committed).
+- **In the kit and the app** (2026-10-23): `rac_demo::sfx` turns the guns' events into
+  cues (fire, no ammo, impact, arc, level up, and the loops of charging, the stream, the
+  vortex and the scope) and plays placeholders made in code with this volume and pan;
+  with the disc, `openrac/src/gun_sounds.rs` claims the cues of the table above and plays
+  the disc's sounds through `rac_audio`. Bevy's spatial audio isn't used: it fades with
+  the square of each ear's distance.
 
 ## Shot classes on the disc [data, every single-player level]
 
@@ -213,20 +298,38 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      indicators' fourteen to the HUD (`crates/openrac/src/fx_textures.rs`, `weapons.md`,
      "In the kit"). Rings and the scope are each stored as a top-left quarter with the
      centre at its bottom-right corner, and drawn as four quarters turned or mirrored.
+   - Done for the particle textures and lists (2026-10-23): `Core::particle_textures`
+     and `CoreHeader::particle_lists`; `openrac` hands them, with the effect textures, to
+     the kit's effects (`fx_textures.rs`, `register_disc_fx_images`).
 2. **Read the shot classes** with a mesh from the same core (`Core::moby_class`, as the
    Holo Shield's V5 glove already is), and the whip's links.
+   - Done for six (2026-10-23, `openrac/src/shot_models.rs`): the Nitro Launcher's
+     charge 0x185A, the Annihilator's missile 0x1894, the Disc Blade 0x1867, the
+     Bouncer's canister 0xE64, the Miniturret 0x1366 and the RY3NO's rocket 0x1873, at
+     rest, facing their way of flight (the class's +x, Bevy's −z), each checked in flight
+     in the app. Not drawn from their classes: the Plasma Coil's ball 0xA9B (untextured),
+     the rift 0x186B (0.05 units across, scaled by its code) and the Infector's 0x1E05 (a
+     mound of goo 1.4 units high, not the shot). The whip's links are still to do.
 3. **An effects layer in the kit**, ISO-free as the rest: billboards, beams, strips,
    trails, rings, point lights, camera shake, screen flashes and particles with the
    game's motion (size and alpha lerped over a life, velocity and gravity, spin), drawn
    with the four blends that matter (normal, additive, brighten, by the frame's alpha).
    A game hands it textures and recipes at run time, as it hands the rig its models;
    without a disc it draws its own placeholders.
+   - Started (2026-10-23): `rac_demo::fx` draws flames, glows, bursts of particles
+     (velocity, gravity, size and alpha over a life), beams and sprites on shots in
+     flight, additive or alpha-blended, from recipes in `rac_demo/assets/effects.ron` by
+     the game's texture numbers, with painted placeholders; and `rac_demo::ShotModels`
+     takes a game's shot models. Strips, trails, rings, lights, shake and flashes are
+     still to do.
 4. **Recipes per gun:** each gun's calls with their arguments (texture or particle type,
-   colour, sizes, life, blend), read gun by gun, starting with the six first guns; the
-   kit's `GunEvent`s already carry an effect name for each gun's fire and impact
-   (`rac_combat::weapons::Effects`).
+   colour, sizes, life, blend), read gun by gun, starting with the six first guns. Each
+   gun's `effects` key in `uya_weapons.ron` names its recipe and sounds. The recipes so
+   far take their textures from the table above and the explosion's and N60 hit's
+   particle types from their code; their sizes, colours and lives are the kit's own.
 5. **Sounds** with P3.13: the gadget WAD's bank per gun and the level's bank for shots,
-   by the class's sound table.
+   by the class's sound table. Done (2026-10-23) for every gun's fire, no ammo, impact
+   and loops that the kit cues ("Sounds", above).
 
 ## Not read yet
 

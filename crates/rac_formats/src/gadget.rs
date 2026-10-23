@@ -12,12 +12,13 @@
 //!
 //! Each entry names its class, so a gun's class is found by its number as the game finds
 //! it ([`GadgetTable::find`]). Its file starts with where the class and its textures are,
-//! each a WAD ([`Gadget::parse`]). The sound bank, a 989snd bank the game keeps in IOP
-//! memory, isn't read.
+//! each a WAD ([`Gadget::parse`]). The sound bank is a 989snd bank the game keeps in IOP
+//! memory ([`GadgetTable::read_sounds`]), whose sounds the class's sound table plays.
 
 use crate::armor::read_textures;
 use crate::level::{SECTOR, SectorRange, Toc};
 use crate::moby::{Bangle, Mesh, MobyClass, PacketKind, Placement};
+use crate::sound::{ClassSound, SoundBank};
 use crate::texture::Texture;
 use crate::{DiscReader, FormatError, Image, wad};
 
@@ -90,6 +91,25 @@ impl GadgetTable {
     pub fn find(&self, class: u32) -> Option<usize> {
         self.entries.iter().position(|entry| entry.class == class)
     }
+
+    /// Reads entry `index`'s sound bank from the disc; `None` for an entry with none.
+    pub fn read_sounds(
+        &self,
+        disc: &mut impl DiscReader,
+        index: usize,
+    ) -> Result<Option<SoundBank>, FormatError> {
+        let Some(entry) = self.entries.get(index) else {
+            return Ok(None);
+        };
+        if entry.sounds.is_empty() {
+            return Ok(None);
+        }
+        let bytes = disc.read(
+            (self.sector as u64 + entry.sounds.sector as u64) * SECTOR,
+            entry.sounds.count as usize * SECTOR as usize,
+        )?;
+        SoundBank::parse(&bytes).map(Some)
+    }
 }
 
 /// A gadget's class and its textures, as the game installs them for the item in hand.
@@ -102,6 +122,8 @@ pub struct Gadget {
     /// The parts of its mesh a moby shows or hides one by one (`moby-format.md`,
     /// "Bangles").
     pub bangles: Vec<Bangle>,
+    /// What it plays, from its own sound bank (`gadget_install` points every entry at it).
+    pub sounds: Vec<ClassSound>,
 }
 
 impl Gadget {
@@ -186,6 +208,7 @@ impl Gadget {
             class: MobyClass::read_placed(&image, 0, Placement::Packed)?,
             textures,
             bangles: MobyClass::read_bangles(&image, 0, Placement::Packed)?,
+            sounds: ClassSound::read_table(&image, 0, true)?,
         })
     }
 
@@ -509,6 +532,37 @@ mod disc_tests {
             let used: std::collections::BTreeSet<i32> =
                 high.triangles.iter().map(|t| t.texture).collect();
             assert!(used.iter().all(|&t| t == 0), "{name}: textures {used:?}");
+        }
+        // The class sound tables of two (`effects.md`, "Sounds"): the Shock Blaster's
+        // charge (4) and the Lava Gun's stream (0) loop.
+        let mut looped = |class: u32| -> Vec<bool> {
+            let index = table.find(class).unwrap();
+            let gadget = Gadget::read_from(&mut disc, &table, index).unwrap();
+            assert!(
+                gadget
+                    .sounds
+                    .iter()
+                    .enumerate()
+                    .all(|(i, s)| s.sound == Some(i as u16))
+            );
+            gadget.sounds.iter().map(|sound| sound.looped).collect()
+        };
+        assert_eq!(looped(0x1863), [false, false, false, false, true]);
+        assert_eq!(looped(0x5C9), [true, false, false, false, true]);
+        // Every gun's bank reads: version 3 but for entries 0, 3 and 10 (version 1), and
+        // every tone's sample within it.
+        for index in 0..UYA_GADGETS {
+            let Some(bank) = table.read_sounds(&mut disc, index).unwrap() else {
+                assert_eq!(index, 44, "entry {index} has no bank");
+                continue;
+            };
+            let version = if [0, 3, 10].contains(&index) { 1 } else { 3 };
+            assert_eq!(bank.version, version, "entry {index}");
+            for grain in bank.sounds.iter().flat_map(|sound| &sound.grains) {
+                if let crate::sound::GrainOp::Tone(tone) = &grain.op {
+                    assert!((tone.sample as usize) < bank.samples.len(), "entry {index}");
+                }
+            }
         }
         // The same through the class number alone; the wrench isn't in it.
         let lava = Gadget::read_uya(&mut disc, 0x5C9).unwrap();

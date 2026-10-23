@@ -3,8 +3,8 @@
 //! melee yard of crates and dummies to hit with the wrench (P1.8) and his guns (P1.9), and
 //! to lock on to; an arena of enemies (P1.11, [`enemy`]) that drop bolts, nanotech and ammo
 //! ([`drops`]); bolt and ammo crates and a vendor's pad (P1.10), whose pickups and sales
-//! are `rac_combat`'s; and the hero's HUD with his guns' quick-select ring (P1.12,
-//! [`hud`]).
+//! are `rac_combat`'s; the hero's HUD with his guns' quick-select ring (P1.12, [`hud`]);
+//! and his guns' effects (P3.18, [`fx`]) and sounds (P1.13, [`sfx`]).
 //!
 //! The app decides when the demo exists: it runs [`spawn_demo`] when gameplay starts and
 //! [`despawn_demo`] when it ends. [`DemoPlugin`] adds the demo's simulation systems, and
@@ -12,9 +12,11 @@
 
 pub mod drops;
 pub mod enemy;
+pub mod fx;
 mod guns;
 pub mod hud;
 mod level;
+pub mod sfx;
 mod spectator;
 
 use bevy::prelude::*;
@@ -32,7 +34,7 @@ use rac_sim::{SimSet, SimTick, SimTransform};
 pub use drops::PickupLooks;
 pub use enemy::def::{Bestiary, EnemyKind};
 pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, FoeHits, enemy_bundle};
-pub use guns::demo_arsenal;
+pub use guns::{ShotModel, ShotModels, demo_arsenal};
 pub use hud::{HudLayout, HudPlugin, PlayerHud, spawn_hud};
 pub use level::{
     CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, EnemySpawn, GAP_WIDTHS, Mover, Piece, Shape, Surface,
@@ -96,8 +98,9 @@ impl Plugin for DemoPlugin {
         if !app.is_plugin_added::<RigPlugin>() {
             app.add_plugins(RigPlugin);
         }
-        app.add_plugins((EnemyPlugin, HudPlugin))
+        app.add_plugins((EnemyPlugin, HudPlugin, fx::FxPlugin, sfx::SfxPlugin))
             .init_resource::<DemoSettings>()
+            .init_resource::<ShotModels>()
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
             .add_systems(
                 FixedUpdate,
@@ -105,9 +108,10 @@ impl Plugin for DemoPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (guns::show_shots, guns::show_gun_events, guns::fade)
+                guns::show_shots
                     .in_set(SimSet::Particles)
-                    .run_if(resource_exists::<guns::GunLooks>),
+                    .run_if(resource_exists::<guns::GunLooks>)
+                    .run_if(resource_exists::<fx::FxImages>),
             )
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera))
             .add_systems(

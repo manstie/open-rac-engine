@@ -1,21 +1,24 @@
-//! The hero's guns in the demo (P1.9): UYA's twenty at V3, and how their shots, rays, arcs
-//! and impacts look. The HUD shows what is in his hand ([`crate::hud`]).
+//! The hero's guns in the demo (P1.9): UYA's twenty at V3, and how their shots look in
+//! flight: a sprite where the gun's effects name one ([`crate::fx`]), else a coloured
+//! shape. Their flames, rays, arcs and impacts are [`crate::fx`]'s; the HUD shows what is in
+//! his hand ([`crate::hud`]).
 
+use std::collections::BTreeMap;
+
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rac_combat::{
-    Armory, Arsenal, GunEvent, GunEventKind,
+    Armory, Arsenal,
     weapons::{FireMode, ShotKind},
 };
 use rac_hero::Hero;
 use rac_sim::SimTransform;
 
 use crate::DemoEntity;
+use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes};
 
 /// The level the demo gives every gun: V3, where most have lock-on.
 const DEMO_LEVEL: u8 = 2;
-
-/// How long a ray or arc stays on screen.
-const BEAM_TICKS: u32 = 10;
 
 /// Every gun of the armory at V3, with the first one brought out by the fire button.
 pub fn demo_arsenal(armory: &Armory) -> Arsenal {
@@ -33,15 +36,6 @@ pub(crate) struct ShotLook {
     serial: u32,
 }
 
-/// A ray or arc, or the flash of an impact, fading out.
-#[derive(Component, Debug, Clone, Copy)]
-pub(crate) struct Fading {
-    ticks_left: u32,
-    total: u32,
-    /// Its scale when new.
-    scale: Vec3,
-}
-
 /// Meshes and materials for the guns' effects, made once.
 #[derive(Resource)]
 pub(crate) struct GunLooks {
@@ -53,9 +47,7 @@ pub(crate) struct GunLooks {
     blast: Handle<StandardMaterial>,
     lava: Handle<StandardMaterial>,
     missile: Handle<StandardMaterial>,
-    ray: Handle<StandardMaterial>,
     arc: Handle<StandardMaterial>,
-    flash: Handle<StandardMaterial>,
     plasma: Handle<StandardMaterial>,
     bomb: Handle<StandardMaterial>,
     blob: Handle<StandardMaterial>,
@@ -96,9 +88,7 @@ impl GunLooks {
             blast: glow(1.0, 0.55, 0.15, 0.35),
             lava: glow(1.0, 0.3, 0.05, 1.0),
             missile: glow(0.95, 0.95, 0.9, 1.0),
-            ray: glow(0.45, 0.8, 1.0, 0.8),
             arc: glow(0.6, 0.9, 1.0, 0.9),
-            flash: glow(1.0, 0.9, 0.6, 0.9),
             plasma: glow(0.5, 0.55, 1.0, 1.0),
             bomb: glow(0.95, 0.65, 0.2, 1.0),
             blob: glow(0.45, 0.9, 0.3, 1.0),
@@ -150,7 +140,7 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
             ..ball(0.0, &looks.disc)
         },
         // The spit and the bolts are drawn as their arcs, the Flux Rifle's beam as its
-        // ray ([`show_gun_events`]).
+        // ray ([`crate::fx`]).
         ShotKind::Spit { .. } | ShotKind::Bolt { .. } | ShotKind::Beam { .. } => Look {
             scale: Vec3::ZERO,
             ..ball(0.0, &looks.arc)
@@ -198,36 +188,98 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
     }
 }
 
+/// A game's model for a gun's shots in flight, in place of the kit's shape: its parts,
+/// facing the way the shot flies along their −z.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShotModel {
+    pub parts: Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
+}
+
+/// The shot models a game gives, by gun key. They are drawn for a gun's own shots (a
+/// charge, missile, rocket, disc, canister, turret, rift, blob or ball), not for the
+/// blasts and bomblets they become.
+#[derive(Resource, Debug, Default, Clone, PartialEq)]
+pub struct ShotModels(pub BTreeMap<String, ShotModel>);
+
+/// Whether a shot of this kind is drawn as its gun's model, when there is one.
+fn modelled(kind: &ShotKind) -> bool {
+    matches!(
+        kind,
+        ShotKind::Charge { .. }
+            | ShotKind::Missile { .. }
+            | ShotKind::Rocket(_)
+            | ShotKind::Disc { .. }
+            | ShotKind::Canister { .. }
+            | ShotKind::Turret(_)
+            | ShotKind::Rift(_)
+            | ShotKind::Blob { .. }
+            | ShotKind::Ball { .. }
+    )
+}
+
+/// A shot drawn as a model, turned to its way each tick.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Facing;
+
+/// What a shot can be drawn as.
+#[derive(SystemParam)]
+pub(crate) struct ShotDraw<'w> {
+    looks: Res<'w, GunLooks>,
+    armory: Res<'w, Armory>,
+    recipes: Res<'w, FxRecipes>,
+    images: Res<'w, FxImages>,
+    quad: Option<Res<'w, FxQuad>>,
+    models: Res<'w, ShotModels>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+}
+
+/// The way a shot flies, as a turn of a model's −z, or none while it stands still.
+fn way(velocity: Vec3) -> Option<Quat> {
+    let way = velocity.try_normalize()?;
+    let up = if way.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
+    Some(Transform::IDENTITY.looking_to(way, up).rotation)
+}
+
 /// Keeps a look for every shot in flight, following it in the simulation so it is drawn
 /// between ticks, and drops the looks of shots that ended.
 pub(crate) fn show_shots(
-    looks: Res<GunLooks>,
-    armory: Res<Armory>,
+    mut draw: ShotDraw,
     heroes: Query<(&Hero, &Arsenal)>,
-    mut shown: Query<(Entity, &ShotLook, &mut SimTransform, &mut Transform)>,
+    mut shown: Query<(
+        Entity,
+        &ShotLook,
+        &mut SimTransform,
+        &mut Transform,
+        Has<Facing>,
+    )>,
     mut commands: Commands,
 ) {
     let mut seen = Vec::new();
-    for (entity, look, mut simulated, mut transform) in &mut shown {
+    for (entity, look, mut simulated, mut transform, facing) in &mut shown {
         let shot = heroes
             .iter()
             .filter(|(hero, _)| hero.player == look.player)
             .find_map(|(_, arsenal)| arsenal.shots.iter().find(|shot| shot.serial == look.serial));
-        match shot {
-            Some(shot) => {
-                simulated.translation = shot.position;
-                // Interpolation leaves the scale alone, so a blast grows through it, and a
-                // rift opens.
-                match shot.kind {
-                    ShotKind::Blast { radius, .. } => transform.scale = Vec3::splat(radius),
-                    ShotKind::Rift(state) if state.open.is_some() => {
-                        transform.scale = Vec3::splat(0.9);
-                    }
-                    _ => {}
-                }
-                seen.push(*look);
+        let Some(shot) = shot else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        simulated.translation = shot.position;
+        seen.push(*look);
+        if facing {
+            if let Some(turn) = way(shot.velocity) {
+                simulated.rotation = turn;
             }
-            None => commands.entity(entity).despawn(),
+            continue;
+        }
+        // Interpolation leaves the scale alone, so a blast grows through it, and a rift
+        // opens.
+        match shot.kind {
+            ShotKind::Blast { radius, .. } => transform.scale = Vec3::splat(radius),
+            ShotKind::Rift(state) if state.open.is_some() => {
+                transform.scale = Vec3::splat(0.9);
+            }
+            _ => {}
         }
     }
     for (hero, arsenal) in &heroes {
@@ -239,8 +291,54 @@ pub(crate) fn show_shots(
             if seen.contains(&look) {
                 continue;
             }
-            let fire = armory.get(shot.weapon).map(|def| &def.fire);
-            let shown = shot_look(&shot.kind, shot.velocity, fire, &looks);
+            let def = draw.armory.get(shot.weapon);
+            let key = def.map_or("", |def| def.effects.as_str());
+            if let Some(model) = draw.models.0.get(key).filter(|_| modelled(&shot.kind)) {
+                let turn = way(shot.velocity).unwrap_or_default();
+                commands
+                    .spawn((
+                        Name::new("shot"),
+                        DemoEntity,
+                        look,
+                        Facing,
+                        Visibility::default(),
+                        SimTransform::from_translation(shot.position).with_rotation(turn),
+                        Transform::from_translation(shot.position).with_rotation(turn),
+                    ))
+                    .with_children(|parts| {
+                        for (mesh, material) in &model.parts {
+                            parts.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
+                        }
+                    });
+                continue;
+            }
+            if let (Some(sprite), Some(quad)) = (draw.recipes.shot(key), &draw.quad) {
+                let colour = sprite.colour;
+                let material = StandardMaterial {
+                    base_color: Color::srgba(colour[0], colour[1], colour[2], colour[3]),
+                    base_color_texture: draw.images.0.get(&sprite.texture).cloned(),
+                    alpha_mode: sprite.blend.alpha_mode(),
+                    unlit: true,
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                };
+                let mesh = quad.0.clone();
+                let material = draw.materials.add(material);
+                commands.spawn((
+                    Name::new("shot"),
+                    DemoEntity,
+                    look,
+                    Mesh3d(mesh),
+                    MeshMaterial3d(material),
+                    Billboard { axis: None },
+                    SimTransform::from_translation(shot.position),
+                    Transform::from_translation(shot.position).with_scale(Vec3::splat(sprite.size)),
+                ));
+                continue;
+            }
+            let fire = def.map(|def| &def.fire);
+            let shown = shot_look(&shot.kind, shot.velocity, fire, &draw.looks);
             commands.spawn((
                 Name::new("shot"),
                 DemoEntity,
@@ -253,71 +351,5 @@ pub(crate) fn show_shots(
                     .with_scale(shown.scale),
             ));
         }
-    }
-}
-
-/// Rays, arcs and impact flashes from the guns' events.
-pub(crate) fn show_gun_events(
-    looks: Res<GunLooks>,
-    mut events: MessageReader<GunEvent>,
-    mut commands: Commands,
-) {
-    for event in events.read() {
-        let (from, to, material, width) = match event.kind {
-            GunEventKind::Ray { from, to } => (from, to, looks.ray.clone(), 0.025),
-            GunEventKind::Arc { from, to } => (from, to, looks.arc.clone(), 0.06),
-            GunEventKind::Impact { at } => {
-                let scale = Vec3::splat(0.25);
-                commands.spawn((
-                    Name::new("impact"),
-                    DemoEntity,
-                    Fading {
-                        ticks_left: BEAM_TICKS,
-                        total: BEAM_TICKS,
-                        scale,
-                    },
-                    Mesh3d(looks.ball.clone()),
-                    MeshMaterial3d(looks.flash.clone()),
-                    Transform::from_translation(at).with_scale(scale),
-                ));
-                continue;
-            }
-            GunEventKind::Fired { .. } | GunEventKind::LevelUp { .. } => continue,
-        };
-        let length = from.distance(to);
-        if length < 1e-3 {
-            continue;
-        }
-        let scale = Vec3::new(width, width, length);
-        commands.spawn((
-            Name::new("beam"),
-            DemoEntity,
-            Fading {
-                ticks_left: BEAM_TICKS,
-                total: BEAM_TICKS,
-                scale,
-            },
-            Mesh3d(looks.beam.clone()),
-            MeshMaterial3d(material),
-            Transform::from_translation((from + to) / 2.0)
-                .looking_at(to, Vec3::Y)
-                .with_scale(scale),
-        ));
-    }
-}
-
-/// Thins the beams and shrinks the flashes until they go.
-pub(crate) fn fade(
-    mut fading: Query<(Entity, &mut Fading, &mut Transform)>,
-    mut commands: Commands,
-) {
-    for (entity, mut fade, mut transform) in &mut fading {
-        fade.ticks_left = fade.ticks_left.saturating_sub(1);
-        if fade.ticks_left == 0 {
-            commands.entity(entity).despawn();
-            continue;
-        }
-        let left = fade.ticks_left as f32 / fade.total as f32;
-        transform.scale = Vec3::new(fade.scale.x * left, fade.scale.y * left, fade.scale.z);
     }
 }

@@ -101,7 +101,7 @@
                 push: 1.0, // "knocks enemies back" [text; placeholder strength]
                 charge: Some((from_level: 1, try_ticks: 20, ticks: 78, damage_scale: 3.0)),
             )),
-            effects: (fire: Some("shock_blaster.fire"), impact: Some("shock_blaster.hit")),
+            effects: "shock_blaster",
             // "Aim indicators" [code, data].
             sight: (crosshair: Some((texture: 0x5B, size: (30.0, 55.0), turn_degrees: 90.0, red_above: Some(0.95), when: Aiming))),
         ),
@@ -150,7 +150,7 @@
                     bounces: 7,
                 )),
             )),
-            effects: (fire: Some("n60.fire"), impact: Some("n60.hit")),
+            effects: "n60",
             // "Aim indicators" [code, data].
             sight: (
                 crosshair: Some((texture: 0x56, size: (30.0, 30.0), red_above: Some(0.99), when: AimingUnlocked)),
@@ -227,7 +227,7 @@
                     )),
                 ),
             )),
-            effects: (fire: Some("nitro.fire"), impact: Some("nitro.blast")),
+            effects: "nitro",
         ),
         // "Lava Gun (0x303F88, stream 0x304A18)" [code].
         (
@@ -274,7 +274,7 @@
                 splash_radius: 1.5,
                 nozzle_radius: 0.5,
             )),
-            effects: (fire: Some("lava.fire"), impact: Some("lava.splash")),
+            effects: "lava",
         ),
         // "Annihilator (0x36D5A0, missile 0x396A20)" [code].
         (
@@ -375,7 +375,7 @@
                     ),
                 )),
             )),
-            effects: (fire: Some("annihilator.fire"), impact: Some("annihilator.blast")),
+            effects: "annihilator",
             // "Aim indicators" [code, data].
             sight: (
                 crosshair: Some((texture: 0x44, size: (40.0, 40.0), red_above: Some(0.97), when: Look)),
@@ -432,7 +432,7 @@
                 )),
                 push: 1.0, // [placeholder]
             )),
-            effects: (fire: Some("flux.fire"), impact: Some("flux.hit")),
+            effects: "flux",
             // "Aim indicators" [code, data]. The zoom (0x3444B0) [code]: 20° at V1-V2 and
             // 10° from V3, 0.01 rad a frame, a quarter in at each look's start, the camera
             // springing in at 0.02 / 0.2 and back out at 0.005 / 0.2.
@@ -499,7 +499,7 @@
                     blast_radius: 2.5,
                 )),
             )),
-            effects: (fire: Some("infector.fire"), impact: Some("infector.burst")),
+            effects: "infector",
         ),
         // "Spitting Hydra (0x31FB90)" [code].
         (
@@ -543,7 +543,7 @@
                 spit_push: 0.7,
                 spit_blast: [(0, 1.0), (4, 2.0)],
             )),
-            effects: (fire: Some("hydra.fire"), impact: Some("hydra.strike")),
+            effects: "hydra",
             // "Aim indicators" [code, data].
             sight: (mark: Triangles(within_degrees: 60.0)),
         ),
@@ -590,7 +590,7 @@
                 end_blast: Some((from_level: 3, radius: 4.0, share: 0.5)),
                 split: Some((from_level: 4, most: 15, jitter: (0.1, 0.2))),
             )),
-            effects: (fire: Some("disc.fire"), impact: Some("disc.hit")),
+            effects: "disc",
             // "Aim indicators" [code, data].
             sight: (
                 crosshair: Some((texture: 0x5A, size: (64.0, 32.0), turn_degrees: 180.0, red_above: Some(0.98), when: Aiming)),
@@ -733,7 +733,7 @@
                     )),
                 ],
             )),
-            effects: (fire: Some("agents.throw"), impact: Some("agents.blast")),
+            effects: "agents",
         ),
         // "Rift Inducer (0x372990, rift 0x373990)" [code].
         (
@@ -780,7 +780,7 @@
                     push: 0.5,
                 )),
             )),
-            effects: (fire: Some("rift.fire"), impact: Some("rift.close")),
+            effects: "rift",
             // "Aim indicators" [code, data].
             sight: (crosshair: Some((texture: 0x21, size: (32.0, 32.0), red_above: None, when: Look))),
         ),
@@ -849,7 +849,7 @@
                 heal_reach: 5.0,
                 heal_every: 45,
             )),
-            effects: (fire: Some("holo.throw"), impact: Some("holo.land")),
+            effects: "holo",
         ),
         // "Plasma Whip (0x356110)" [code]: his wrench moves on the fire button, which hit
         // along the rope (`rac_hero::WhipHand`).
@@ -907,7 +907,7 @@
                     push: 1.75,
                 )),
             )),
-            effects: (fire: Some("whip.swing"), impact: Some("whip.hit")),
+            effects: "whip",
         ),
         // "Suck Cannon (0x3619C8)" [code]: it uses no ammo; what it sucks in is what it
         // fires.
@@ -955,7 +955,7 @@
                 world_push: 3.0,
                 ricochet_from: Some(1),
             )),
-            effects: (fire: Some("suck.fire"), impact: Some("suck.hit")),
+            effects: "suck",
             // "Aim indicators" [code, data].
             sight: (
                 crosshair: Some((texture: 0x44, size: (40.0, 40.0), red_above: Some(0.97), when: Aiming)),
@@ -1047,7 +1047,7 @@
                     seek_speed: 2.0, // [placeholder]
                 ),
             )),
-            effects: (fire: Some("qwack.beam"), impact: Some("qwack.duck")),
+            effects: "qwack",
             // "Aim indicators" [code, data].
             sight: (mark: Target(follow_only: true, outside_look: true)),
         ),
@@ -1096,7 +1096,7 @@
                 ahead: 10.0,
                 up: 3.0,
             )),
-            effects: (fire: Some("ryno.fire"), impact: Some("ryno.blast")),
+            effects: "ryno",
             // "Aim indicators" [code, data].
             sight: (mark: Each(below_level: 4)),
         ),
@@ -1157,7 +1157,7 @@
                     again_ticks: 120,
                 )),
             )),
-            effects: (fire: Some("coil.fire"), impact: Some("coil.arc")),
+            effects: "coil",
             // "Aim indicators" [code, data].
             sight: (
                 crosshair: Some((texture: 0x21, size: (32.0, 32.0), red_above: None, when: Aiming)),
@@ -1229,7 +1229,7 @@
                     ),
                 )),
             )),
-            effects: (fire: Some("bouncer.fire"), impact: Some("bouncer.burst")),
+            effects: "bouncer",
         ),
         // "Miniturret Glove (0x346078, turret 0x32AFB0)" [code, data].
         (
@@ -1290,7 +1290,7 @@
                     walk_speed: 6.0, // [placeholder]: it walks by its animation
                 )),
             )),
-            effects: (fire: Some("turret.fire"), impact: Some("turret.hit")),
+            effects: "turret",
         ),
         // "Shield Charger (0x3410E8, firing 0x340DD0)" [code].
         (
@@ -1335,7 +1335,7 @@
                     bolts: 40,
                 )),
             )),
-            effects: (fire: Some("shield.raise"), impact: Some("shield.zap")),
+            effects: "shield",
         ),
     ],
 )

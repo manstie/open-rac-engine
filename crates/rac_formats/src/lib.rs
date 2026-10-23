@@ -14,6 +14,7 @@
 //! - [`wad`]: the games' LZ compression.
 //! - [`level`]: UYA's table of contents and level files, down to the moby classes.
 //! - [`gameplay`]: a level's gameplay file: its grind paths so far.
+//! - [`sound`]: 989snd sound banks, the moby classes' sound tables and the SPU's ADPCM.
 //!
 //! Bad data gives a [`FormatError`], never a panic: users' discs can be damaged or of a
 //! release we haven't seen.
@@ -25,6 +26,7 @@ pub mod gameplay;
 pub mod image;
 pub mod level;
 pub mod moby;
+pub mod sound;
 pub mod texture;
 pub mod wad;
 

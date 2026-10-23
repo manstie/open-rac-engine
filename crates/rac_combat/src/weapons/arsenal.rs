@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 
 use super::{
+    Sustain,
     def::{Armory, Mods, WeaponId},
     fire::Trigger,
     hand::ShieldUp,
@@ -112,6 +113,8 @@ pub struct Arsenal {
     pub(crate) agent_book: super::shots::AgentBook,
     /// What the gun in his hand aims at, as of the last tick.
     pub sights: Sights,
+    /// What the gun in his hand kept doing in the last tick, for looping sounds.
+    pub sustain: Option<Sustain>,
     /// The scope's zoom, kept from tick to tick while he looks through it (UYA's
     /// `flux_scope_fov`, 0x1DD2F8); none starts the next look a share of the way in.
     pub(crate) zoom: Option<f32>,

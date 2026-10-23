@@ -41,7 +41,10 @@ session is working on the task now; notes on problems met stay with their task (
   their firing animations, UYA's quick-select ring, UYA's ammo
   pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
-  the disc's textures for them, P3.18). He
+  the disc's textures for them, P3.18). The guns sound and show their flames, shots,
+  rays and blasts with placeholders made in code, and with a UYA disc the game's own
+  sounds for 18 guns, effect and particle textures, and six shot models (P1.13, P3.13,
+  P3.18). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
@@ -67,8 +70,9 @@ session is working on the task now; notes on problems met stay with their task (
 1. RE.3's remaining to-dos are captures: a diagonal part-tilted stick on UYA NTSC, and
    two small DL timings left open by the update-order check (RE.3's notes). DL's
    movement is read throughout `dl.ron`.
-2. The guns' effects from the disc (P3.18), with the whip's links and shield, then
-   P1.10's nanotech, explosive and doubler crates ("Ammo
+2. The guns' effects from the disc (P3.18): each gun's calls' arguments for the recipes'
+   sizes, colours and lives, then the strips, trails, rings, lights and shake, the whip's
+   links and shield; then P1.10's nanotech, explosive and doubler crates ("Ammo
    pickups, crates and the vendor").
 3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
 
@@ -227,7 +231,8 @@ ISO-free hero kit: reusable in any Bevy app; never depends on the game-layer cra
   rac_rig      the hero's skeleton, the models it wears, procedural poses and clips
   rac_combat   health and damage, melee, weapons, projectiles, pickups, quick-select
   rac_net      direct-IP sessions over ggrs: rollback or lockstep, desync checks (G4)
-  rac_demo     greybox demo level, demo enemies and HUD (the standalone demo)
+  rac_demo     greybox demo level, demo enemies, HUD, guns' effects and sounds (the
+               standalone demo)
 
 Game layer: needs the user's discs
   rac_iso      ISO9660, disc identification, TOC, sector streams                   (no Bevy)
@@ -235,7 +240,7 @@ Game layer: needs the user's discs
                shrubs, sky, collision, textures, VAG, 989snd banks, PSS
   rac_assets   extraction cache + Bevy AssetLoaders → Mesh/Image/AnimationClip/Audio
   rac_render   classic (PS2-faithful) and remaster render paths
-  rac_audio    989snd port (from OpenGOAL), VAG/PSS streaming
+  rac_audio    989snd port (from OpenGOAL), VAG/PSS streaming                       (no Bevy)
   rac_recomp   R5900 (+MMI, FPU, VU0 macro) → Cranelift; compiled at install       (no Bevy)
                and cached
   rac_runtime  EE memory, HLE kernel and IOP RPC, hooks, render bridge (G2)
@@ -309,6 +314,7 @@ None at the moment.
 | 2026-10-17 | **The look stick reaches the simulation as stick counts** (`PlayerInput::look_stick`, making the encoding 12 bytes and `.orin` version 2; version 1 files still load), so each camera applies its game's own response: the follow camera's linear turn and springing tilt, the free look's squared (UYA) or linear (DL) speeds and quick turn. The mouse stays a direct turn in every camera (G5), and the follow camera keeps the tilt the mouse sets. The camera setting (third person, lock-strafe, first person) is a player option on `FollowCamera` whose default is the movement profile's. |
 | 2026-10-20 | **What the games carry on the hero as mobys of their own are attachments** (UYA's Clank and heli-pack): a model part on a skeleton of its own, riding a rig joint with its place and turn but not its scale, as the games normalise the joint before placing a moby. Their clips hold each joint's whole transform, and the game hands the rig its rules for choosing them (`BackAnimations`), as for fidgets. The rig's skeleton stays the hero's; the open model keeps its own Clank on the rig's Clank joints. |
 | 2026-10-22 | **The free look's aim assist is the stick's**, as lock-on is the gamepad's (2026-10-15): once the mouse turns the view the assist stops until the stick turns it again. **The quick-select ring plays as UYA's with QUICK SELECT PAUSE off**: it opens over the running world and holds the hero's input after 15 ticks, so co-op stays in step. |
+| 2026-10-23 | **The guns' sounds and effects go by the game's numbers, with placeholders made in code.** The kit cues sounds from `GunEvent`s and `Arsenal::sustain` and draws effects from recipes naming the game's effect textures and particle types; its placeholders are synthesized and painted at start-up, so no audio or art ships. With the user's disc the app claims the cues it plays (`SoundClaims`) and puts the disc's textures and shot models in place of the placeholders. **Sound is mixed by the game, not by Bevy's spatial audio** (which fades with the square of each ear's distance): the kit and the app each render a stereo stream (`rac_demo::sfx::SoundStream`) with UYA's falloff from the camera and pan round it; the disc's sounds play through `rac_audio`, a Rust port of OpenGOAL's 989snd sound effects (ISC). |
 
 ## 6. Roadmap
 
@@ -870,8 +876,16 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       preferred backend (DX12/Vulkan);
     - volumes;
     - controls, including rebinding and mouse sensitivity.
-- [ ] **P1.13** Placeholder sound effects and music (CC0) through `bevy_audio`, triggered by
+- [~] **P1.13** Placeholder sound effects and music (CC0) through `bevy_audio`, triggered by
   events.
+  - Done (2026-10-23): the guns' sounds. `rac_demo::sfx` cues them from `GunEvent`s and
+    `Arsenal::sustain` (a new `Empty` event; charge, stream, vortex and zoom loops), plays
+    placeholders synthesized from `rac_demo/assets/sounds.ron` on its own stereo stream
+    with UYA's falloff and pan, and leaves the cues the app claims to it
+    (`openrac/src/gun_sounds.rs`, 18 guns from the disc, P3.13).
+  - An off-screen run (ALSA's null device) only showed the stream carries sound; nobody
+    has listened yet. Next: listen in the app, then the other sounds (wrench, hero,
+    pickups, enemies) and music.
 - [ ] **P1.14** Platform checks:
   - Windows: pick the default backend. Today wgpu prefers Vulkan over DX12 whenever both
     exist. Test both, then set `WgpuSettings::backends` accordingly and offer the other in
@@ -1059,10 +1073,20 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Layer toggles: tfrag, tie, shrub, moby, collision, volumes, paths.
   - Instance inspector, with `bevy_egui` 0.43 (which supports 0.20).
   - A switch between the classic and remaster paths.
-- [ ] **P3.13** Audio:
-  - VAG ADPCM decoding and streaming (music, speech).
-  - **Port OpenGOAL's 989snd (ISC) to Rust** for the sound banks.
-  - An approximation of the SPU reverb.
+- [~] **P3.13** Audio:
+  - Done (2026-10-23): UYA's 989snd SFX banks (`SBlk`, the gadget WAD's per gun and the
+    level's) read in `rac_formats::sound`, with class sound tables and the core's
+    numbering; `rac_audio` ports OpenGOAL's 989snd sound effects (ISC: block handler,
+    grains, LFOs, SPU voice, ADSR, Gaussian interpolation) and plays them;
+    `openrac-tool sounds` lists a bank and renders its sounds to WAV under `cache/`. The
+    guns' cues map to class table entries from each gun's update (`effects.md`,
+    "Sounds").
+  - Bevy's spatial audio falls off with the square of the distance per ear, nothing like
+    UYA's even falloff, so both the kit and the app render their own stereo stream
+    (`rac_demo::sfx::SoundStream`) and pan and fade each sound themselves (§5).
+  - Not done: the Qwack-O-Ray's sounds and the guns' unmapped extras (`effects.md`),
+    989snd's MIDI music, VAG ADPCM streaming (music, speech) and an approximation of the
+    SPU reverb. Next step: music and VAG streams.
 - [ ] **P3.14** Video:
   - Demultiplex PSS (MPEG-2 plus SPU ADPCM per language).
   - Choose a decoder: an `ffmpeg` feature flag or a pure-Rust MPEG-2 decoder.
@@ -1079,7 +1103,7 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Field of view and culling that are correct in widescreen.
   - Uncapped frame rates through interpolation.
   - Support for user-supplied high-resolution texture packs.
-- [ ] **P3.18** The guns' **effects from the disc** (`effects.md`, "Importing them"):
+- [~] **P3.18** The guns' **effects from the disc** (`effects.md`, "Importing them"):
   - Read the level's effect and particle textures and particle definitions from its core
     (`rac_formats`), and the shot classes' meshes (`Core::moby_class`).
   - An ISO-free effects layer in the kit: billboards, beams, strips, trails, rings, point
@@ -1089,9 +1113,18 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     `GunEvent`s carry; the sounds with P3.13.
   - Done 2026-10-22: the effect textures (`Core::fx_textures`), and the aim indicators'
     into `rac_demo::hud::SightImages` by their numbers.
-  - Not done: the particle textures and definitions, the effects layer, the recipes, and
-    the whip's links and the shield from their classes. Next step: the whip and shield
-    from their classes (`weapons.md`, "Not read yet").
+  - Done 2026-10-23: the particle textures and each type's list (`Core::particle_textures`,
+    `CoreHeader::particle_lists`); the kit's effects layer `rac_demo::fx` (flames, glows,
+    bursts of particles, beams and sprites on shots, additive or blended) from recipes in
+    `rac_demo/assets/effects.ron` by the game's texture numbers, with painted
+    placeholders, and the disc's textures in their place (`openrac/src/fx_textures.rs`);
+    six shot classes' meshes in flight (`openrac/src/shot_models.rs`); the sounds (P1.13,
+    P3.13). Checked by screenshots of an off-screen run.
+  - Not done: the recipes' sizes, colours and lives (the kit's own; the textures and
+    particle types are the code's); strips, trails, rings, lights, shake and flashes; the
+    V5 shots' classes; the whip's links and the shield. Next step: read the six first
+    guns' effect calls' arguments into their recipes (`effects.md`, "Each gun's
+    effects").
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.

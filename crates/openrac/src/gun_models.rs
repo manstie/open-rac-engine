@@ -227,6 +227,8 @@ fn read_class(
                 class: core.moby_class(class)?,
                 textures: core.moby_textures(class)?,
                 bangles: core.moby_bangles(class)?,
+                // Its sounds are the level's (`gun_sounds`); the model doesn't need them.
+                sounds: Vec::new(),
             })
         })()
         .map_err(|e| format!("neither the gadget WAD nor the core has it: {e}")),

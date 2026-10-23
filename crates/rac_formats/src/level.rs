@@ -11,6 +11,7 @@
 //! and the caller fetches them (`rac_iso`).
 
 use crate::moby::{Bangle, MobyClass, Placement};
+use crate::sound::{ClassSound, SoundBank};
 use crate::texture::{Texture, csm1_palette, unswizzle_psmt8};
 use crate::{DiscReader, FormatError, Image, wad};
 
@@ -235,6 +236,28 @@ impl LevelHeader {
     }
 }
 
+/// Reads UYA level `level`'s sound bank: the sounds its moby classes play from bank 0
+/// (`effects.md`, "Sounds").
+pub fn read_uya_sound_bank(
+    disc: &mut impl DiscReader,
+    level: usize,
+) -> Result<SoundBank, FormatError> {
+    let header = LevelHeader::read_uya_disc(disc, level)?;
+    let range = header.sound_bank;
+    if range.is_empty() {
+        return Err(FormatError::Invalid {
+            what: "level sound bank",
+            address: level as u32,
+            detail: "none".into(),
+        });
+    }
+    let bytes = disc.read(
+        (header.sector as u64 + range.sector as u64) * SECTOR,
+        range.count as usize * SECTOR as usize,
+    )?;
+    SoundBank::parse(&bytes)
+}
+
 /// Reads and unpacks the WAD-compressed file at byte `at` of the disc.
 pub(crate) fn read_wad(
     disc: &mut impl DiscReader,
@@ -385,6 +408,94 @@ impl CoreHeader {
                 })
             })
             .collect()
+    }
+
+    /// The level's particle textures (`effects.md`, "Particles"): +0x50 the count, +0x54
+    /// the table, 16 bytes an entry: where its palette and pixels are, from the particle
+    /// data ([`Self::particle_base`]), a field always 0, then the side of the square.
+    pub fn particle_textures(&self) -> Result<Vec<FxTextureEntry>, FormatError> {
+        let image = Image::new(&self.bytes, 0);
+        let count = image.u32(0x50)?;
+        let table = image.u32(0x54)?;
+        if count > 0x100 {
+            return Err(FormatError::Invalid {
+                what: "particle texture table",
+                address: 0x50,
+                detail: format!("{count} textures"),
+            });
+        }
+        (0..count)
+            .map(|index| {
+                let at = table + index * 16;
+                let side = image.u32(at + 0xC)? as i32;
+                Ok(FxTextureEntry {
+                    palette: image.u32(at)?,
+                    pixels: image.u32(at + 8)?,
+                    width: side,
+                    height: side,
+                })
+            })
+            .collect()
+    }
+
+    /// Where in the core the particle textures' data starts (+0x64).
+    pub fn particle_base(&self) -> Result<u32, FormatError> {
+        Image::new(&self.bytes, 0).u32(0x64)
+    }
+
+    /// Each particle type's particle textures, by type: the block at +0x6C holds the type
+    /// count, the texture count, where its bytes are and how many, then each type's
+    /// offset into them (0 for none, which takes the first), all from the block's start.
+    /// A spawner picks from its type's list by number. The lists share one run of bytes,
+    /// so each is taken to end where the next one starts (or the bytes end).
+    pub fn particle_lists(&self) -> Result<Vec<Vec<u8>>, FormatError> {
+        let image = Image::new(&self.bytes, 0);
+        let block = image.u32(0x6C)?;
+        let types = image.u32(block)?;
+        let (start, len) = (image.u32(block + 8)?, image.u32(block + 0xC)?);
+        if types > 0x100 || len > 0x1000 {
+            return Err(FormatError::Invalid {
+                what: "particle type lists",
+                address: block,
+                detail: format!("{types} types, {len} bytes"),
+            });
+        }
+        let bytes = image.bytes(block + start, len as usize)?;
+        let offsets = (0..types)
+            .map(|index| {
+                let offset = image.u32(block + 0x10 + index * 4)?;
+                Ok(if offset == 0 { start } else { offset })
+            })
+            .collect::<Result<Vec<u32>, FormatError>>()?;
+        let end = start + len;
+        offsets
+            .iter()
+            .map(|&offset| {
+                if !(start..end).contains(&offset) {
+                    return Err(FormatError::Invalid {
+                        what: "particle type list",
+                        address: block + offset,
+                        detail: format!("outside {start:#x}..{end:#x}"),
+                    });
+                }
+                let next = offsets
+                    .iter()
+                    .copied()
+                    .filter(|&other| other > offset)
+                    .min()
+                    .unwrap_or(end);
+                Ok(bytes[(offset - start) as usize..(next - start) as usize].to_vec())
+            })
+            .collect()
+    }
+
+    /// Where the sound block is (+0x70), in bytes from the header's start: four halves
+    /// (where the level's own sound entries are and how many, where the table numbering
+    /// their sounds is and how long), then two halves a class in the class table's order,
+    /// the first where its list is: the bank less one, then each of its sound table's
+    /// entries' number in the bank, a word each.
+    pub fn sound_block(&self) -> Result<u32, FormatError> {
+        Image::new(&self.bytes, 0).u32(0x70)
     }
 
     /// Where in the core the effect textures' data starts (+0x68).
@@ -607,33 +718,54 @@ impl Core {
     /// (`effects.md`, "Effect textures").
     pub fn fx_textures(&self) -> Result<Vec<Texture>, FormatError> {
         let base = self.header.fx_base()?;
-        let core = Image::new(&self.bytes, 0);
         self.header
             .fx_textures()?
             .into_iter()
             .enumerate()
-            .map(|(index, entry)| {
-                let (width, height) = (entry.width, entry.height);
-                if !(1..=1024).contains(&width) || !(1..=1024).contains(&height) {
-                    return Err(FormatError::Invalid {
-                        what: "effect texture",
-                        address: index as u32,
-                        detail: format!("{width} by {height}"),
-                    });
-                }
-                let (width, height) = (width as u32, height as u32);
-                let pixels = core
-                    .bytes(base + entry.pixels, (width * height) as usize)?
-                    .to_vec();
-                let palette = csm1_palette(core.bytes(base + entry.palette, 0x400)?);
-                Ok(Texture {
-                    width,
-                    height,
-                    pixels,
-                    palette,
-                })
-            })
+            .map(|(index, entry)| self.texture_at(base, index, entry, "effect texture"))
             .collect()
+    }
+
+    /// The level's particle textures, by the numbers the particle types' lists use
+    /// ([`CoreHeader::particle_lists`]). Unlike the effect textures, they differ from level
+    /// to level.
+    pub fn particle_textures(&self) -> Result<Vec<Texture>, FormatError> {
+        let base = self.header.particle_base()?;
+        self.header
+            .particle_textures()?
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| self.texture_at(base, index, entry, "particle texture"))
+            .collect()
+    }
+
+    fn texture_at(
+        &self,
+        base: u32,
+        index: usize,
+        entry: FxTextureEntry,
+        what: &'static str,
+    ) -> Result<Texture, FormatError> {
+        let core = Image::new(&self.bytes, 0);
+        let (width, height) = (entry.width, entry.height);
+        if !(1..=1024).contains(&width) || !(1..=1024).contains(&height) {
+            return Err(FormatError::Invalid {
+                what,
+                address: index as u32,
+                detail: format!("{width} by {height}"),
+            });
+        }
+        let (width, height) = (width as u32, height as u32);
+        let pixels = core
+            .bytes(base + entry.pixels, (width * height) as usize)?
+            .to_vec();
+        let palette = csm1_palette(core.bytes(base + entry.palette, 0x400)?);
+        Ok(Texture {
+            width,
+            height,
+            pixels,
+            palette,
+        })
     }
 
     /// Moby class `class` from the core's class table, with its own mesh and sequences.
@@ -651,6 +783,56 @@ impl Core {
             entry.offset,
             crate::moby::Placement::Packed,
         )
+    }
+
+    /// Moby class `class`'s sound table, whose entries name sounds of the level's sound
+    /// bank ([`read_uya_sound_bank`]); empty for a class with none. The class stores its
+    /// own numbering; the core header's sound block gives each class's entries their
+    /// numbers in the bank, as `level_load_core` does ([`CoreHeader::sound_block`]).
+    pub fn moby_sounds(&self, class: u32) -> Result<Vec<ClassSound>, FormatError> {
+        let mut table =
+            ClassSound::read_table(&Image::new(&self.bytes, 0), self.entry(class)?.offset, true)?;
+        let index = self
+            .header
+            .moby_classes
+            .iter()
+            .position(|entry| entry.class == class)
+            .expect("the entry was found") as u32;
+        let header = Image::new(&self.header.bytes, 0);
+        let block = self.header.sound_block()?;
+        let list = block + header.i16(block + 8 + index * 4)? as i32 as u32;
+        let bank = header.u32(list)?.wrapping_add(1);
+        for (i, entry) in table.iter_mut().enumerate() {
+            let sound = header.u32(list + 4 + i as u32 * 4)? as u16;
+            entry.sound = (sound != 0xFFFF).then_some(sound);
+            entry.bank = bank;
+        }
+        Ok(table)
+    }
+
+    /// The level's own sound table, which the game plays by number rather than through a
+    /// class (`level_sound_play`, 0x4A7368): the core header's sound block lists the
+    /// entries, then a table that numbers their sounds in the level's bank.
+    pub fn level_sounds(&self) -> Result<Vec<ClassSound>, FormatError> {
+        let header = Image::new(&self.header.bytes, 0);
+        let block = self.header.sound_block()?;
+        let at = |field: u32| -> Result<u32, FormatError> {
+            Ok(block.wrapping_add(header.i16(block + field)? as i32 as u32))
+        };
+        let (entries, count) = (at(0)?, header.i16(block + 2)?.max(0) as u32);
+        let (numbers, numbered) = (at(4)?, header.i16(block + 6)?.max(0) as u32);
+        (0..count)
+            .map(|index| {
+                let mut entry = ClassSound::read(&header, entries + index * 0x20)?;
+                entry.sound = entry
+                    .sound
+                    .filter(|&sound| (sound as u32) < numbered)
+                    .map(|sound| header.u16(numbers + sound as u32 * 4))
+                    .transpose()?;
+                entry.bank = 0;
+                Ok(entry)
+            })
+            .collect()
     }
 
     /// The hero's class (class 0) with his skeleton and every sequence.
@@ -907,6 +1089,86 @@ pub(crate) mod disc_tests {
             .unwrap();
         assert!(other.len() >= 100);
         assert_eq!(veldin[..100], other[..100]);
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn uyas_particle_types_draw_the_textures_effects_md_lists() {
+        let mut disc = disc(rac_iso::Release::UyaNtsc);
+        let core = Core::read_uya(&mut disc, 1).unwrap();
+        let textures = core.particle_textures().unwrap();
+        assert_eq!(textures.len(), 65);
+        assert!(
+            textures
+                .iter()
+                .all(|t| [32, 64].contains(&t.width) && t.width == t.height)
+        );
+        let lists = core.header.particle_lists().unwrap();
+        assert_eq!(lists.len(), 129);
+        // `effects.md`, "Particles": Veldin's lists for the guns' types.
+        let expected: [(usize, &[u8]); 8] = [
+            (0x0F, &[7, 11]),
+            (0x17, &[0]),
+            (0x19, &[14]),
+            (0x2C, &[18]),
+            (0x35, &[21]),
+            (0x5A, &[25, 26]),
+            (0x5C, &[33, 34, 35, 24, 36, 37, 38]),
+            (
+                0x61,
+                &[12, 40, 41, 42, 43, 44, 45, 46, 47, 28, 48, 49, 50, 51],
+            ),
+        ];
+        for (kind, list) in expected {
+            assert_eq!(lists[kind], list, "type {kind:#x}");
+        }
+        assert!(
+            lists
+                .iter()
+                .flatten()
+                .all(|&n| usize::from(n) < textures.len())
+        );
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn uyas_level_sound_bank_has_the_sounds_its_shot_classes_play() {
+        let mut disc = disc(rac_iso::Release::UyaNtsc);
+        let bank = read_uya_sound_bank(&mut disc, 1).unwrap();
+        assert_eq!(
+            (&bank.name, bank.version, bank.sounds.len()),
+            (b"DAW\0", 3, 321)
+        );
+        // Every tone's sample is in the bank's samples.
+        for sound in &bank.sounds {
+            for grain in &sound.grains {
+                if let crate::sound::GrainOp::Tone(tone) = &grain.op {
+                    assert!((tone.sample as usize) < bank.samples.len());
+                }
+            }
+        }
+        // The shots' classes in Veldin's core, with the sounds the game's image has for them
+        // (`effects.md`, "Sounds"): the Nitro Launcher's charge, the Annihilator's missile,
+        // the Bouncer's bomblet and the Lava Gun's stream. Classes with no model, such as
+        // the N60's bullet, have no class in the core and so no sounds.
+        let core = Core::read_uya(&mut disc, 1).unwrap();
+        for (class, sounds) in [
+            (0x185A, &[181, 182][..]),
+            (0x1894, &[196, 197]),
+            (0xECE, &[100, 101]),
+            (0x1E52, &[290]),
+        ] {
+            let table = core.moby_sounds(class).unwrap();
+            let read: Vec<u16> = table.iter().filter_map(|entry| entry.sound).collect();
+            assert_eq!(read, sounds, "{class:#x}");
+            assert!(table.iter().all(|entry| entry.bank == 0));
+        }
+        // The level's own table, as the game's image of Veldin has it.
+        let level = core.level_sounds().unwrap();
+        assert_eq!(level.len(), 42);
+        let read: Vec<Option<u16>> = level[..8].iter().map(|entry| entry.sound).collect();
+        assert_eq!(read, [0, 1, 2, 2, 3, 4, 5, 6].map(Some));
+        assert_eq!((level[40].sound, level[40].looped), (Some(30), true));
     }
 
     #[test]

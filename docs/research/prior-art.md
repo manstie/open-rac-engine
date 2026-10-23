@@ -168,6 +168,12 @@ only from the decompilation projects.
     - It does not emulate the GS.
   - **Sound:** **989snd is reimplemented in C++ (`game/sound/989snd`)**. This is our port
     source for audio.
+    - **Reused (2026-10-23):** `crates/rac_audio` ports its sound-effect half to Rust: the
+      SFX block handler and its grains (`sfxblock`, `blocksound_handler`), the SPU voice
+      with its ADSR envelope, Gaussian interpolation and ADPCM (`spu`, `adsr`), the volume
+      and pitch helpers, and the pitch, pan and interpolation tables. Each file keeps the
+      OpenGOAL Team's and Ziemas's ISC notice. The bank reader in `rac_formats::sound` is
+      our own, after the same layout. Music (MIDI) and streams aren't ported.
   - **Frame rate:** it generalises frame-rate scaling (`time-adjust-ratio`).
   - Jak 1 was released in 2022. Jak 3 entered beta on 2026-04-01.
 - **Dark Cloud (Chronicle)**: a complete decompilation plus a native SDL3/Vulkan port. It

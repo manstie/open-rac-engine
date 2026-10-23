@@ -5199,3 +5199,196 @@ address = 0x001A4D30
 kind = "data"
 confidence = "medium"
 note = "Vector: what the platform's carry moved the hero this frame, after its collision (hero_move_step). camera_hero_copy passes it to the camera as CameraHeroData +0x70."
+
+[[symbol]]
+name = "sound_start"
+address = 0x004A6F58
+kind = "function"
+confidence = "high"
+note = "(entry, flags, moby, position, scale): takes a sound slot for a sound table entry, with its volume from the distance and a random pitch from +0x10..+0x14; -1 if too quiet (under 0x20) or the entry's loop byte disagrees with flag 4."
+
+[[symbol]]
+name = "sound_stop"
+address = 0x004A6E88
+kind = "function"
+confidence = "high"
+note = "Stops the sound in a slot (state 4; a slot still starting is freed)."
+
+[[symbol]]
+name = "class_sound_play"
+address = 0x004A72A8
+kind = "function"
+confidence = "high"
+note = "(index, flags, moby, class): moby_play_sound with another class's sound table, found by class number."
+
+[[symbol]]
+name = "level_sound_play"
+address = 0x004A7368
+kind = "function"
+confidence = "high"
+note = "(index, flags, moby): plays entry index of the level's own sound table (level_sounds, from the core header's sound block)."
+
+[[symbol]]
+name = "sound_volume"
+address = 0x004A53D0
+kind = "function"
+confidence = "high"
+note = "(distance, near, far, entry, squared): the entry's volume out of 0x400 by its distance from the listener; linear from near to far, squared with entry +0x19 bit 0."
+
+[[symbol]]
+name = "sound_pan"
+address = 0x004A5508
+kind = "function"
+confidence = "medium"
+note = "(slot, position): the sound's angle round the camera in degrees, 0 ahead and 90 right; within 2 u keeps the slot's last pan while it is roughly ahead or behind."
+
+[[symbol]]
+name = "sound_update"
+address = 0x004A6468
+kind = "function"
+confidence = "medium"
+note = "Each frame: moves every slot's sound with its moby, redoes its volume and pan, and starts, updates or stops it through 989snd's stubs (0x13C0B8 play, 0x13C2C0 update, 0x13C200 stop)."
+
+[[symbol]]
+name = "sound_slots"
+address = 0x001A3170
+kind = "data"
+confidence = "high"
+note = "52 sound slots of 0x80 bytes: +0 the library's handle, +4 the entry, +8 the sound number, +0xA the class's entry index, +0xC the volume scale, +0x10 the state (7 starting, 1 playing, 4 stopping), +0x14 the pitch, +0x1C the moby, +0x20 the position."
+
+[[symbol]]
+name = "level_sounds"
+address = 0x001DFBEC
+kind = "data"
+confidence = "high"
+note = "Pointer to the level's own sound table (count 0x1DFBE8), copied from the core header's sound block by level_load_core; 0x4A73F8 and 0x4A7530 play from entry 0x1D669C on."
+
+# Added 2026-10-23 with the guns' sounds (P1.13, P3.13): each gun's moby update, found as
+# the callers of moby_play_sound named for their classes by class_update_table
+# (docs/research/effects.md, "Sounds"). Their V5 classes' updates where they have their own.
+
+[[symbol]]
+name = "shock_cannon_update"
+address = 0x00385948
+kind = "function"
+confidence = "medium"
+note = "The Shock Blaster's V5 (class 0x1882) update: its shot plays entry 4 (0 charged), no ammo 1, the charge loop 3."
+
+[[symbol]]
+name = "n90_update"
+address = 0x00322E68
+kind = "function"
+confidence = "medium"
+note = "The N60's V5 (class 0x184F) update: entries 3 to fire and 4 for no ammo, as the N60's."
+
+[[symbol]]
+name = "nitro_v5_update"
+address = 0x003893E8
+kind = "function"
+confidence = "medium"
+note = "The Nitro Launcher's V5 (class 0x1885) update: entries 0 to fire and 1 for no ammo."
+
+[[symbol]]
+name = "infector_update"
+address = 0x003688E8
+kind = "function"
+confidence = "medium"
+note = "The Infector's (class 0x1861) update: entry 0 to fire, 2 for no ammo."
+
+[[symbol]]
+name = "infector_v5_update"
+address = 0x00389F58
+kind = "function"
+confidence = "medium"
+note = "The Infector's V5 (class 0x1886) update: entry 0 to fire, 1 for no ammo."
+
+[[symbol]]
+name = "hydra_update"
+address = 0x0031FB90
+kind = "function"
+confidence = "medium"
+note = "The Spitting Hydra's (classes 0x184E, 0x1B4F) update: entry 1 as it fires, 3 for no ammo, 2 looped as it aims, 0 per target, 5 counting."
+
+[[symbol]]
+name = "disc_blade_update"
+address = 0x0036EFC0
+kind = "function"
+confidence = "medium"
+note = "The Disc Blade Gun's (classes 0x1866, 0x1C44) update: entry 1 to fire, 2 for no ammo."
+
+[[symbol]]
+name = "agents_glove_update"
+address = 0x0035C9F0
+kind = "function"
+confidence = "medium"
+note = "The Agents of Doom glove's (class 0x1852) update: entry 0 for no ammo or eight agents out."
+
+[[symbol]]
+name = "rift_inducer_update"
+address = 0x00372990
+kind = "function"
+confidence = "medium"
+note = "The Rift Inducer's (classes 0x186A, 0x1C67) update: entry 1 to fire, 5 for no ammo."
+
+[[symbol]]
+name = "holo_glove_update"
+address = 0x003717A8
+kind = "function"
+confidence = "medium"
+note = "The Holo Shield Glove's (classes 0x1868, 0x1C65) update: entry 2 to throw, 1 for no ammo, 3 with none left."
+
+[[symbol]]
+name = "suck_cannon_update"
+address = 0x003619C8
+kind = "function"
+confidence = "medium"
+note = "The Suck Cannon's (classes 0x185B, 0x1892) update: entry 0 looped while sucking, 2 as it fires."
+
+[[symbol]]
+name = "qwack_update"
+address = 0x0037DEB0
+kind = "function"
+confidence = "medium"
+note = "The Qwack-O-Ray's (classes 0x1870, 0x1C63) update: entry 0 looped, 1 when a timer ends."
+
+[[symbol]]
+name = "ryno_update"
+address = 0x003805B0
+kind = "function"
+confidence = "medium"
+note = "The RY3NO's (classes 0x1871, 0x1DE1) update: entry 1 to fire at V1, 3 from V2, 2 for no ammo; at V5 also class 0x1F4's 1 on the hero."
+
+[[symbol]]
+name = "plasma_coil_update"
+address = 0x00315638
+kind = "function"
+confidence = "medium"
+note = "The Plasma Coil's (class 0xC4A) update: entry 2 to fire, 7 for no ammo."
+
+[[symbol]]
+name = "plasma_storm_update"
+address = 0x00306F68
+kind = "function"
+confidence = "medium"
+note = "The Plasma Coil's V5 (class 0x5CA) update: entry 2 to fire, 6 for no ammo."
+
+[[symbol]]
+name = "bouncer_update"
+address = 0x0031C890
+kind = "function"
+confidence = "medium"
+note = "The Bouncer's (classes 0xE14, 0xE9E) update: entry 0 to fire, 1 for no ammo, 3 when its timer ends with ammo."
+
+[[symbol]]
+name = "miniturret_update"
+address = 0x00346078
+kind = "function"
+confidence = "medium"
+note = "The Miniturret Glove's (class 0xC5A) update: entry 0 as a turret is thrown, 2 for no ammo."
+
+[[symbol]]
+name = "megaturret_update"
+address = 0x00343088
+kind = "function"
+confidence = "medium"
+note = "The Miniturret Glove's V5 (class 0xA65) update: as the V1 glove's."

@@ -1,0 +1,77 @@
+// The kit's guns' sounds (PLAN.md P1.13): placeholders made from these recipes when the
+// app starts, so no recorded audio ships. A game with its own sounds plays them in their
+// place (`rac_demo::sfx`); with the user's UYA disc the app plays UYA's.
+//
+// How far they are heard follows UYA's guns, which play at full volume at the camera and
+// fade evenly to nothing 30 to 64 units away (`docs/research/effects.md`, "Sounds") [data].
+//
+// A recipe: `wave` (Sine, Triangle, Square, Saw or Noise) at `from` hertz, swept `sweep`
+// octaves (down when negative) over `seconds`, rising over `attack` seconds then dying
+// away; `noise` mixes in white noise, `overtone` adds a wave that many times the pitch;
+// `volume` is out of 1. A `looped` one holds its pitch and volume until let go.
+(
+    near: 0.0,
+    far: 45.0,
+    clips: {
+        "click": (wave: Square, from: 2200.0, sweep: -0.5, seconds: 0.04, volume: 0.25),
+        "chime": (wave: Sine, from: 880.0, sweep: 1.0, seconds: 0.6, attack: 0.01, overtone: 2.0, volume: 0.35),
+        "thud": (wave: Sine, from: 180.0, sweep: -1.5, seconds: 0.15, noise: 0.5, volume: 0.4),
+        "boom": (wave: Sine, from: 110.0, sweep: -1.5, seconds: 0.7, noise: 0.7, volume: 0.6),
+        "sizzle": (wave: Noise, from: 1.0, seconds: 0.12, attack: 0.02, volume: 0.15),
+        "spark": (wave: Saw, from: 2400.0, sweep: -2.0, seconds: 0.12, noise: 0.4, volume: 0.3),
+        "zap": (wave: Saw, from: 900.0, sweep: -2.5, seconds: 0.35, noise: 0.3, overtone: 1.5, volume: 0.45),
+        "hum": (wave: Saw, from: 110.0, seconds: 0.5, attack: 0.15, noise: 0.05, overtone: 2.0, volume: 0.2, looped: true),
+        "rattle": (wave: Square, from: 420.0, sweep: -1.2, seconds: 0.09, noise: 0.45, volume: 0.3),
+        "launch": (wave: Sine, from: 160.0, sweep: -1.4, seconds: 0.3, noise: 0.25, volume: 0.5),
+        "hiss": (wave: Noise, from: 1.0, seconds: 0.5, attack: 0.08, volume: 0.18, looped: true),
+        "whoosh": (wave: Saw, from: 200.0, sweep: 1.3, seconds: 0.5, noise: 0.6, volume: 0.4),
+        "crack": (wave: Square, from: 1400.0, sweep: -2.8, seconds: 0.25, noise: 0.5, volume: 0.45),
+        "zoom_in": (wave: Sine, from: 620.0, seconds: 0.25, attack: 0.03, overtone: 1.5, volume: 0.12, looped: true),
+        "zoom_out": (wave: Sine, from: 460.0, seconds: 0.25, attack: 0.03, overtone: 1.5, volume: 0.12, looped: true),
+        "spit": (wave: Saw, from: 700.0, sweep: -1.2, seconds: 0.25, noise: 0.35, volume: 0.35),
+        "blob": (wave: Sine, from: 300.0, sweep: 1.2, seconds: 0.2, volume: 0.4),
+        "whirr": (wave: Triangle, from: 500.0, sweep: 0.9, seconds: 0.3, noise: 0.1, volume: 0.4),
+        "pod": (wave: Sine, from: 220.0, sweep: -0.8, seconds: 0.3, overtone: 1.5, volume: 0.45),
+        "rift": (wave: Sine, from: 90.0, sweep: -1.2, seconds: 0.6, noise: 0.15, overtone: 1.5, volume: 0.5),
+        "shimmer": (wave: Sine, from: 800.0, sweep: 0.6, seconds: 0.4, attack: 0.05, overtone: 1.5, volume: 0.3),
+        "lash": (wave: Saw, from: 2000.0, sweep: -2.7, seconds: 0.15, noise: 0.5, volume: 0.4),
+        "slurp": (wave: Saw, from: 150.0, sweep: 1.4, seconds: 0.3, noise: 0.2, volume: 0.4),
+        "vortex": (wave: Saw, from: 70.0, seconds: 0.5, attack: 0.1, noise: 0.6, volume: 0.2, looped: true),
+        "quack": (wave: Square, from: 500.0, sweep: -0.5, seconds: 0.18, overtone: 1.5, volume: 0.3),
+        "plasma": (wave: Sine, from: 250.0, sweep: -1.0, seconds: 0.4, noise: 0.1, overtone: 2.0, volume: 0.45),
+        "pop": (wave: Sine, from: 400.0, sweep: -1.0, seconds: 0.15, noise: 0.15, volume: 0.4),
+        "clank": (wave: Square, from: 300.0, sweep: -1.0, seconds: 0.12, noise: 0.3, volume: 0.35),
+        "charge_up": (wave: Sine, from: 200.0, sweep: 1.0, seconds: 0.5, attack: 0.05, overtone: 2.0, volume: 0.35),
+    },
+    // What a cue plays for a gun that names none of its own.
+    cues: {
+        Empty: "click",
+        Impact: "thud",
+        Arc: "spark",
+        LevelUp: "chime",
+    },
+    // Each gun's, by its key (`effects` in rac_combat's `uya_weapons.ron`).
+    guns: {
+        "shock_blaster": { Fire: "zap", Impact: "", Charge: "hum" },
+        "n60": { Fire: "rattle", Impact: "" },
+        "nitro": { Fire: "launch", Impact: "boom" },
+        // The stream is heard as its loop, and where it lands.
+        "lava": { Fire: "", Flow: "hiss", Impact: "sizzle" },
+        "annihilator": { Fire: "whoosh", Impact: "boom" },
+        "flux": { Fire: "crack", Impact: "", ZoomIn: "zoom_in", ZoomOut: "zoom_out" },
+        "infector": { Fire: "blob" },
+        "hydra": { Fire: "spit" },
+        "disc": { Fire: "whirr" },
+        "agents": { Fire: "pod" },
+        "rift": { Fire: "rift" },
+        "holo": { Fire: "shimmer" },
+        "whip": { Fire: "lash" },
+        "suck": { Fire: "slurp", Suck: "vortex" },
+        "qwack": { Fire: "quack" },
+        "ryno": { Fire: "whoosh", Impact: "boom" },
+        "coil": { Fire: "plasma", Impact: "boom" },
+        "bouncer": { Fire: "pop", Impact: "boom" },
+        "turret": { Fire: "clank" },
+        "shield": { Fire: "charge_up" },
+    },
+)

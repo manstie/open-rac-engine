@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+rac_audio.workspace = true
 rac_formats.workspace = true
 rac_iso.workspace = true
 serde_json.workspace = true
