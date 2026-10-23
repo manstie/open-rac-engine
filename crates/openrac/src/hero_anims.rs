@@ -13,6 +13,8 @@
 //! - Clank and the heli-pack on his back play their own classes' sequences, joint for
 //!   joint, chosen by UYA's back table ([`back_animations`]); the models carry them as
 //!   attachments on their own skeletons (`hero_model.rs`).
+//! - With a gun in hand his arms hold it as UYA's hold classes have them, laid over the
+//!   body's moves keyframe for keyframe ([`hold_animations`]).
 
 use std::collections::BTreeMap;
 
@@ -21,9 +23,11 @@ use rac_formats::FormatError;
 use rac_formats::level::Core;
 use rac_formats::moby::{Joint, Keyframe, MobyClass};
 use rac_rig::{
-    BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, JumpTiming, Landing, LineUpError,
-    RigAnimations, RigClip, RigKeyframe, RigMove, SkeletonMap, SourceJoint, model,
+    BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, HoldAnimations, JumpTiming, Landing,
+    LineUpError, RigAnimations, RigClip, RigKeyframe, RigMove, SkeletonMap, SourceJoint, model,
 };
+
+use crate::hero_model::ImportError;
 
 /// Veldin: a new game starts here, and its core holds every one of the hero's sequences.
 pub const LEVEL: usize = 1;
@@ -113,28 +117,33 @@ const MOVES: &[(RigMove, usize, bool, usize)] = &[
 ];
 
 /// The idle's fidgets, by [`RigMove::Fidget`] number: sequences 1 and 2 about every 10 s,
-/// 73 every 8 s (where nothing is within 8 u overhead, which the rig can't see), and 78 at
-/// low health (UYA's table at 0x2F4370).
+/// 73 every 8 s (where nothing is within 8 u overhead, which the rig can't see, and not
+/// with a gun in both hands), and 78 at low health (UYA's table at 0x2F4370 and
+/// `hero_fidget_pick`).
 const FIDGETS: [FidgetRule; 4] = [
     FidgetRule {
         interval: 10.0,
         cooldown: 5.5,
         low_health: false,
+        two_hands: true,
     },
     FidgetRule {
         interval: 10.0,
         cooldown: 5.5,
         low_health: false,
+        two_hands: true,
     },
     FidgetRule {
         interval: 8.0,
         cooldown: 5.0,
         low_health: false,
+        two_hands: false,
     },
     FidgetRule {
         interval: 4.0,
         cooldown: 2.5,
         low_health: true,
+        two_hands: true,
     },
 ];
 
@@ -209,17 +218,37 @@ fn scale_to_bevy([x, y, z]: [f32; 3]) -> Vec3 {
 /// Each UYA joint relative to its parent in one keyframe, in UYA's units and axes: its
 /// rotation, translation and scale.
 fn locals(class: &MobyClass, keyframe: &Keyframe) -> Vec<(Quat, Vec3, Vec3)> {
+    let rotations = (0..class.joints.len()).map(|index| Quat::from_array(keyframe.rotation(index)));
+    placed(class, rotations, keyframe)
+}
+
+/// One keyframe of an arm's hold class as the hero's: its joints are the hero's from
+/// `first` on, and its translations name the hero's joints (UYA's hold layers copy it
+/// into a keyframe of the hero's, 0x437200). The hero's other joints stay unturned.
+fn arm_locals(hero: &MobyClass, first: usize, keyframe: &Keyframe) -> Vec<(Quat, Vec3, Vec3)> {
+    let rotations = (0..hero.joints.len()).map(|index| {
+        index
+            .checked_sub(first)
+            .filter(|&own| own < keyframe.rotations.len())
+            .map_or(Quat::IDENTITY, |own| {
+                Quat::from_array(keyframe.rotation(own))
+            })
+    });
+    placed(hero, rotations, keyframe)
+}
+
+/// Each of `class`'s joints with its rotation, at its rest offset and scale unless
+/// `keyframe` moves or scales it.
+fn placed(
+    class: &MobyClass,
+    rotations: impl Iterator<Item = Quat>,
+    keyframe: &Keyframe,
+) -> Vec<(Quat, Vec3, Vec3)> {
     let mut locals: Vec<(Quat, Vec3, Vec3)> = class
         .joints
         .iter()
-        .enumerate()
-        .map(|(index, joint)| {
-            (
-                Quat::from_array(keyframe.rotation(index)),
-                Vec3::from_array(joint.offset),
-                Vec3::ONE,
-            )
-        })
+        .zip(rotations)
+        .map(|(joint, rotation)| (rotation, Vec3::from_array(joint.offset), Vec3::ONE))
         .collect();
     for entry in &keyframe.translations {
         if let Some(local) = locals.get_mut(entry.joint as usize) {
@@ -401,8 +430,17 @@ pub fn skeleton_map(class: &MobyClass) -> Result<SkeletonMap, LineUpError> {
 /// hero's axes and metres. A joint with no children whose bind scales (UYA's brows) takes
 /// that scale into its own, as it reaches only its vertices.
 fn source_pose(class: &MobyClass, keyframe: &Keyframe, leaves: &[bool]) -> Vec<SourceJoint> {
+    to_source(class, locals(class, keyframe), leaves)
+}
+
+/// [`source_pose`] from each joint's rotation, translation and scale.
+fn to_source(
+    class: &MobyClass,
+    locals: Vec<(Quat, Vec3, Vec3)>,
+    leaves: &[bool],
+) -> Vec<SourceJoint> {
     let unit = class.unit();
-    locals(class, keyframe)
+    locals
         .into_iter()
         .zip(&class.joints)
         .zip(leaves)
@@ -445,10 +483,7 @@ pub fn rig_animations(class: &MobyClass) -> Result<RigAnimations, LineUpError> {
         };
         animations.jumps.insert(movement, timing);
     }
-    let mut leaves = vec![true; class.joints.len()];
-    for parent in class.joints.iter().filter_map(|j| j.parent) {
-        leaves[parent] = false;
-    }
+    let leaves = leaves(class);
     for &(movement, number, looping, start) in MOVES {
         let Some(Some(sequence)) = class.sequences.get(number) else {
             continue;
@@ -480,6 +515,116 @@ pub fn rig_animations(class: &MobyClass) -> Result<RigAnimations, LineUpError> {
         );
     }
     Ok(animations)
+}
+
+/// Which of a class's joints have no children.
+fn leaves(class: &MobyClass) -> Vec<bool> {
+    let mut leaves = vec![true; class.joints.len()];
+    for parent in class.joints.iter().filter_map(|j| j.parent) {
+        leaves[parent] = false;
+    }
+    leaves
+}
+
+/// UYA's hold classes for the arms holding a gun (`weapons.md`, "Holding a gun"), from
+/// the core: class 1 the right arm, from the hero's joint 52 (the clavicle) through his
+/// fingers to 71, and class 2 the left, from 72 to 91. Each has the hero's sequences 0
+/// to 22 for its arm, keyframe for keyframe.
+const ARM_CLASSES: [(u32, usize); 2] = [(1, 52), (2, 72)];
+const ARM_JOINTS: usize = 20;
+const ARM_SEQUENCES: usize = 23;
+/// The hero's sequences the held arms don't follow, holding their rest (sequence 0)
+/// instead (0x4E55A8): the left, right and back flips, the grind's stances and its jump,
+/// and others the kit doesn't play.
+const ARMS_REST_IN: [usize; 12] = [28, 29, 31, 44, 45, 50, 66, 67, 72, 80, 84, 85];
+
+/// The arms holding a gun, from the hold classes in `core`, as `hero` plays them: for
+/// each move whose sequence has one, each arm's clip, timed as the move's own.
+pub fn hold_animations(core: &Core, hero: &MobyClass) -> Result<HoldAnimations, ImportError> {
+    let map = skeleton_map(hero)?;
+    let leaves = leaves(hero);
+    let mut hold = HoldAnimations {
+        rest_in: MOVES
+            .iter()
+            .filter(|m| ARMS_REST_IN.contains(&m.1))
+            .map(|m| m.0)
+            .collect(),
+        ..Default::default()
+    };
+    for (side, (class, first)) in ARM_CLASSES.into_iter().enumerate() {
+        let arm = core.moby_class(class)?;
+        lines_up(&arm, hero, class, first)?;
+        let clip = |number: usize, looping: bool, start: usize| {
+            let (Some(Some(body)), Some(Some(own))) =
+                (hero.sequences.get(number), arm.sequences.get(number))
+            else {
+                return None;
+            };
+            // Each keyframe is the body's own keyframe's, as the game copies the hero's
+            // keyframe and its progress into the layer.
+            let keyframes: Vec<RigKeyframe> = body
+                .keyframes
+                .iter()
+                .enumerate()
+                .map(|(index, timing)| {
+                    let keyframe = own.keyframes.get(index).or(own.keyframes.last())?;
+                    let pose = to_source(hero, arm_locals(hero, first, keyframe), &leaves);
+                    let (rotations, offsets, scales) = map.pose(&pose);
+                    Some(RigKeyframe {
+                        ticks: timing.ticks(),
+                        frame: timing.stamp as f32 / 16.0,
+                        rotations,
+                        offsets,
+                        scales,
+                    })
+                })
+                .collect::<Option<_>>()?;
+            (start < keyframes.len()).then_some(RigClip {
+                keyframes,
+                looping,
+                start,
+            })
+        };
+        for &(movement, number, looping, start) in MOVES {
+            if number < ARM_SEQUENCES
+                && let Some(clip) = clip(number, looping, start)
+            {
+                hold.follow[side].insert(movement, clip);
+            }
+        }
+        hold.rest[side] = clip(0, true, 0);
+    }
+    Ok(hold)
+}
+
+/// Whether an arm's hold class poses the hero's arm from joint `first`. It has no
+/// skeleton of its own, only keyframes (the game maps their joints to the hero's by a list
+/// at its +0x1C [data]): each must turn the arm's joints, and move or scale none but them.
+fn lines_up(
+    arm: &MobyClass,
+    hero: &MobyClass,
+    class: u32,
+    first: usize,
+) -> Result<(), ImportError> {
+    let arm_joints = first..first + ARM_JOINTS;
+    let keyframes = arm.sequences.iter().flatten().flat_map(|s| &s.keyframes);
+    let mut joints = keyframes.clone().flat_map(|k| {
+        let moved = k.translations.iter().map(|t| t.joint);
+        moved.chain(k.scales.iter().map(|s| s.joint))
+    });
+    let matches = arm_joints.end <= hero.joints.len()
+        && keyframes.clone().all(|k| k.rotations.len() == ARM_JOINTS)
+        && joints.all(|joint| arm_joints.contains(&usize::from(joint)));
+    if matches {
+        Ok(())
+    } else {
+        Err(FormatError::Invalid {
+            what: "an arm's hold class",
+            address: class,
+            detail: format!("its keyframes don't pose the hero's joints {arm_joints:?}"),
+        }
+        .into())
+    }
 }
 
 #[cfg(test)]
@@ -755,6 +900,73 @@ mod disc_tests {
                 timing.landing_keyframe + 2 < clip.keyframes.len(),
                 "{movement:?}"
             );
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn the_uya_disc_gives_the_arms_holding_a_gun() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) =
+            find(std::path::Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
+        let core = rac_formats::level::Core::read_uya(&mut disc, LEVEL).unwrap();
+        let hero = core.hero().unwrap();
+        let animations = rig_animations(&hero).unwrap();
+        let hold = hold_animations(&core, &hero).unwrap();
+        // Every move whose sequence the arms have, timed as the move's own clip.
+        let followed: Vec<RigMove> = MOVES
+            .iter()
+            .filter(|m| m.1 < ARM_SEQUENCES)
+            .map(|m| m.0)
+            .collect();
+        for side in 0..2 {
+            assert_eq!(hold.follow[side].keys().copied().collect::<Vec<_>>(), {
+                let mut sorted = followed.clone();
+                sorted.sort();
+                sorted
+            });
+            for (movement, clip) in &hold.follow[side] {
+                let body = &animations.clips[movement];
+                assert_eq!(clip.keyframes.len(), body.keyframes.len(), "{movement:?}");
+                assert_eq!(clip.start, body.start);
+                assert_eq!(clip.cycle(), body.cycle());
+            }
+            assert!(hold.rest[side].is_some());
+        }
+        use FlipSide::{Back, Left, Right};
+        assert_eq!(
+            hold.rest_in,
+            [
+                RigMove::Land(Landing::Flip(Left)),
+                RigMove::Land(Landing::Flip(Right)),
+                RigMove::Land(Landing::Flip(Back)),
+                RigMove::Flip(Left),
+                RigMove::Flip(Right),
+                RigMove::Flip(Back),
+                RigMove::GrindJump,
+                RigMove::Grind,
+            ]
+        );
+        // The hold turns each arm away from the body's own in the idle and the run, and
+        // touches nothing else.
+        for movement in [RigMove::Idle, RigMove::Run] {
+            let body = &animations.clips[&movement].keyframes[0];
+            for (side, arm) in [model::joint::ARM_R, model::joint::ARM_L]
+                .into_iter()
+                .enumerate()
+            {
+                let held = &hold.follow[side][&movement].keyframes[0];
+                let most = arm
+                    .clone()
+                    .map(|j| {
+                        held.rotations[j]
+                            .angle_between(body.rotations[j])
+                            .to_degrees()
+                    })
+                    .fold(0.0, f32::max);
+                println!("{movement:?}, arm {side}: turned up to {most:.1}°");
+                assert!(most > 5.0, "{movement:?}, arm {side}: {most}");
+            }
         }
     }
 

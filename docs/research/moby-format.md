@@ -87,6 +87,19 @@ libuya's `MobyClass` layout matches UYA's data:
     tip the swing's hit line ends at; then 9, 8, 10 and 14.
   - **Checked:** the combo's traced wrench lines are reproduced by posing the hero and the
     wrench this way (`hero-controller.md`, "The grind attack").
+- **Point records** [data, UYA NTSC, 2026-10-23]: an entry's first byte is its chain's
+  length and its third the count of a second list after the chain, the joints an
+  animation layer on that point drives (`moby_anim_layer_new`, 0x436BD8). The hero's
+  point 0 is the chain to joint 56 then 56–70 (the hand and fingers); 12 and 13 are the
+  chains to the clavicles 52 and 72 then each whole arm, 52–71 and 72–91.
+- **Classes of sequences only** [code, data, UYA NTSC, 2026-10-23]: UYA's classes 1 and 2
+  have a joint count (20) and sequences but no mesh, skeleton or joint offsets (+0x14 and
+  +0x18 are 0); their +0x1C is a plain list of the hero's joints their keyframes pose.
+  They are the arms' hold layers (`weapons.md`, "Holding a gun"). `MobyClass` reads such
+  a class with no joints, its keyframes with the header's count.
+- **A moby's scale** (+0x2C) starts as its class's (+0x24; `moby_init`, 0x435F98); the
+  class's units are scale / 1024 world units. The whip's handle sets its own to 0.3 of
+  that.
 - **DL's hero sequences** keep a {u16 ticks, u16 time stamp} pair per keyframe at
   sequence + 0x20 + 4k, which `hero_set_animation` reads [code, DL NTSC]. Turning
   keyframes into frames this way gives UYA's own start frames back when run on UYA.

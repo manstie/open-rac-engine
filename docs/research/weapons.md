@@ -70,8 +70,9 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
 | +0x02 | u8 | not read; shared by some weapons [data] | |
 | +0x04 | u32 | name (text number) | menus |
 | +0x08 | u32 | slot: 0 hand, 1 feet, 3 back, 4 body, 6 camera option [data, partly code] | `hero_item_in_slot` |
+| +0x0C | i32 | the hero's matrix slot the item's moby is put on (0x1A5810 + slot × 0x40): 6 for the Miniturret Glove, 0 for every other gun and the wrench [code, data, 2026-10-23] | `hero_place_item_mobys` |
 | +0x10, +0x14 | i32 | moby classes spawned for the item in hand (−1 none) | 0x4E7148 |
-| +0x18 | u8 | hold type: 0 none, 1 one hand, 2 both hands | 0x4E7148, 0x4E6A08 |
+| +0x18 | u8 | hold type: 0 none, 1 one hand, 2 both hands ("Holding a gun") | 0x4E7148, 0x4E6A08, 0x4E61E8 |
 | +0x24, +0x28, +0x2C | i32 | firing animations: whole body, arms only, arms only in hero state type 0xC | 0x4E6A08 |
 | +0x30 | u8 | copied to 0x1A71CB when firing | 0x4E6A08 |
 | +0x34, +0x36 | u16 | ammo-pickup message ("Got %d … ammo") for several rounds and for one; the same text for the six guns read [data] | `ammo_pickup_collect_test` |
@@ -637,6 +638,54 @@ changes sequence by a cut (0x441BA0) or a blend over some ticks (`moby_anim_blen
   bobbing 0.02 × sin(phase), the phase easing to 600°/s while he moves and 90°/s at a
   speed of 0.02 u a frame or less; every other frame a ray pulls it back up to 1.5 u when
   something is in front; the fire direction is the camera's.
+
+### Holding a gun [code, data, UYA NTSC, 2026-10-23]
+
+A gun has no idle of its own for the hero: `hero_idle_sequence` (0x4DC0D0) gives the same
+sequence 0 whatever is in his hand, and the walk and jumps are the wrench's too. What
+holds the gun is a pair of **hold layers** over his arms (`hero_hold_layers_update`,
+0x4E61E8, each frame from the hand's update 0x4E7118; the layers at 0x1A5A50), chosen by
+the hand item's hold type (row +0x18, kept in `hero_hold_type`, 0x1A71CC, as its moby
+spawns).
+- **The classes:** each layer plays a class of its own from the level's core: class 1
+  for the right arm, class 2 for the left [code, data]. Neither has a mesh, a skeleton or
+  joint offsets (+0x14 and +0x18 are 0): only 20 joints' worth of keyframes, in 24
+  uncompressed sequences, and at +0x1C a list mapping its joints to the hero's, 52–71
+  (right clavicle to elbow helper, the fingers included) and 72–91 [data, Veldin's
+  image]. Their translations name the hero's joints (52, 54, 56; 72, 74, 76, 86).
+  `moby_anim_layer_keyframe_of` (0x437200) turns a keyframe of the class into one of the
+  hero's: each joint's rotation into the hero joint the list names, its translations as
+  they are. The layers drive the joints listed after the chain of the hero's points 12
+  and 13 (`moby-format.md`, "The class header"): 52–71 and 72–91.
+- **Which hold:** the right layer for hold type 1 or 2, the left for 2. Of UYA's guns
+  [data]: one hand, the N60 Storm, Qwack-O-Ray, Plasma Coil and Shield Charger; none, the
+  wrench, the Plasma Whip and the three gloves (Agents of Doom, Holo Shield, Miniturret);
+  both hands, the other twelve.
+- **Following the body:** each frame a layer takes the hero's own sequence number, its
+  keyframe and its blend between sequences, and plays that sequence of its class. Classes
+  1 and 2 have the hero's sequences 0–22 keyframe for keyframe (the same keyframe counts,
+  but 17's 27 to the hero's 25; their 23 is never played) [data]; for the hero's sequences from 23 on (the
+  firing animations, attacks, ledges, swimming…) the layer plays the hero's own sequence,
+  which changes nothing. So the hold is the idle, walk, skid, crouch, jumps, falls,
+  landings, glide, hit and fidgets 1 and 2 with the gun held.
+- **Resting:** through the sequences `hero_arms_rest` (0x4E55A8) lists, the left, right
+  and back flips (28, 29, 31; not the forward flip, 30), the grind's stances (44, 45), the
+  grind jump (72) and 50, 66, 67, 80, 84 and 85, the layer blends to its own sequence 0
+  over 15 frames and plays it on its own; after them it blends back over 10 frames. In the
+  three flips past animation frame 25, both clavicles' springs (records 8 and 9, "The
+  hero's joint springs") take a target of −75° on y at 0.05 and 0.3, lifting the gun; in
+  50, −55°.
+- **Weights:** a layer starts at 0 and rises 0.25 a frame; while the firing arms layer
+  (`hero_fire_layers`, 0x1A5A58) plays it falls 0.15 a frame, and rises again as that
+  one fades (0x1A5A64 set). Switching to an item of another hold type
+  (`hero_item_switch`) marks both leaving: they fall 0.1 a frame and are dropped at 0,
+  before the new hold's start. On a ledge (states 23–27 set `hero_no_hold`, 0x1A71D0;
+  every other state change clears it) both leave and none starts.
+- **Fidgets:** the third idle fidget (sequence 73) doesn't play with a gun held in both
+  hands (`hero_fidget_pick`, 0x502930; `hero-controller.md`, "Idle fidgets").
+- **The gun's own size:** a moby starts at its class's scale (`moby_init`, 0x435F98: +0x2C
+  from class +0x24). Of the guns' updates, only the whip's changes it: on its first frame
+  it sets its handle to 0.3 of its class's scale ("Plasma Whip").
 
 ### Checked in traces [verified on UYA NTSC, 2026-10-20]
 
@@ -1775,7 +1824,16 @@ profiles' `gun` section):
   each shot does the gun's recoil (`openrac`'s `gun_models::uya_motion`); the Annihilator
   and Disc Blade Gun fired while growing in go to their rest over 4 ticks instead of
   recoiling (the kit's reading of "first"). The Agents' and Holo Shield's gloves and the
-  whip's handle have one sequence and stay baked in it. The joint springs
+  whip's handle have one sequence and stay baked in it, the handle at 0.3 of its class's
+  size as its update draws it (2026-10-23; it was drawn at its class's own, over three
+  times too big). The arms hold each gun by its hold (2026-10-23, "Holding a gun"):
+  `openrac` builds each arm's clip for every move whose sequence the hold classes have
+  (`hero_anims::hold_animations`), and the rig lays them over the arms
+  (`rac_rig::HoldAnimations`, `play.rs`'s `HoldLayer`) with the game's weights, the rest
+  through the flips and the grind with the clavicles' lift late in the flips, nothing on
+  a ledge, and the third fidget held back with a gun in both hands. The open model keeps
+  its procedural hold. [simplified] The way back from the rest blends towards the body's
+  current keyframe rather than from its first. The joint springs
   (`rac_rig/src/springs.rs`) turn the waist, chest and clavicles for the raised arm and
   towards the gun's aim point, as `hero_gun_arm_raise` and `hero_head_look` set them, at
   60 Hz. Without a disc the guns are blocky placeholders [placeholder]. The open model

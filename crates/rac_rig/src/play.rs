@@ -12,13 +12,15 @@
 //! - a skid straight out of a run, or out of a long jump, has the run's own skid;
 //! - firing a gun standing plays the gun's whole-body firing animation over the idle and
 //!   the landings, started again by each shot; on the move or crouched, its arms-only one
-//!   is laid over the arms ([`ArmLayer`]; `weapons.md`, "The hero's side of firing").
+//!   is laid over the arms ([`ArmLayer`]; `weapons.md`, "The hero's side of firing");
+//! - with a gun in hand, the arms hold it as the gun's hold has them: one arm or both
+//!   ([`HoldLayer`]; `weapons.md`, "Holding a gun").
 
 use bevy::math::Vec2;
-use rac_hero::{CameraSetting, HeroMotion, HeroState, Hold};
+use rac_hero::{CameraSetting, HeroMotion, HeroState, Hold, JumpKind};
 
 use crate::clips::{
-    JumpTiming, Landing, RUN_BELOW, RigAnimations, RigClip, RigMove, SET_OFF_BELOW,
+    FlipSide, JumpTiming, Landing, RUN_BELOW, RigAnimations, RigClip, RigMove, SET_OFF_BELOW,
 };
 
 /// At or under this share of his full health the hero stands hurt (UYA 0x4DC080).
@@ -61,6 +63,19 @@ const LANDING_SHORT: f32 = 1.5;
 /// this much once firing ends (UYA 0x4E6A08).
 const ARMS_IN: f32 = 0.2;
 const ARMS_OUT: f32 = 0.07;
+/// The hold layers' weight rises this much a tick while the gun is held, falls this much
+/// while the firing arms layer plays, and this much as they leave for another hold
+/// (UYA 0x4E61E8).
+const HOLD_IN: f32 = 0.25;
+const HOLD_OUT: f32 = 0.15;
+const HOLD_LEAVING: f32 = 0.1;
+/// Ticks the held arms take to go over to their rest, and how much of the way back they
+/// come a tick.
+const HOLD_TO_REST_TICKS: f32 = 15.0;
+const HOLD_FROM_REST: f32 = 0.1;
+/// In the flips the arms don't follow, the clavicles lift the held gun past this frame
+/// (UYA 0x4E55A8).
+const FLIP_LIFT_AFTER: f32 = 25.0;
 
 /// What the rig remembers to choose and time its clips.
 #[derive(Debug, Clone, PartialEq)]
@@ -174,7 +189,8 @@ impl Director {
                 _ => RigMove::SetOff,
             }),
             Some(RigMove::Idle) if firing.is_none() => {
-                Some(self.idle(previous, hurt, animations, whole))
+                let two_hands = gun_in(hero) == Hold::TwoHands;
+                Some(self.idle(previous, hurt, two_hands, animations, whole))
             }
             other => other,
         };
@@ -290,11 +306,13 @@ impl Director {
         rate
     }
 
-    /// Standing idle: the idle, the hurt idle, or a fidget.
+    /// Standing idle: the idle, the hurt idle, or a fidget. `two_hands`: he holds a gun in
+    /// both hands.
     fn idle(
         &mut self,
         previous: Option<RigMove>,
         hurt: bool,
+        two_hands: bool,
         animations: Option<&RigAnimations>,
         ticks: u32,
     ) -> RigMove {
@@ -318,6 +336,7 @@ impl Director {
             cooldowns.get(number) == Some(&0)
                 && clip(RigMove::Fidget(number as u8)).is_some()
                 && rules[number].interval > 0.0
+                && (rules[number].two_hands || !two_hands)
         };
         match previous {
             // The hurt idle's fidget, now and then as its loop comes round.
@@ -446,6 +465,8 @@ pub(crate) struct ArmLayer {
     pub weight: f32,
     /// Whether it lies over both arms.
     pub both: bool,
+    /// It plays for the gun's firing, rather than fading out.
+    pub firing: bool,
     shots: u8,
 }
 
@@ -469,6 +490,7 @@ impl ArmLayer {
         .filter(|arms| animations.is_some_and(|a| a.clips.contains_key(arms)));
         let shot = gun.shots != self.shots;
         self.shots = gun.shots;
+        self.firing = wanted.is_some();
         match wanted {
             Some(arms) => {
                 if self.playing != Some(arms) || shot {
@@ -488,6 +510,127 @@ impl ArmLayer {
                 }
             }
         }
+    }
+}
+
+/// How he holds the gun in his hand: nothing with the wrench, or while a gun comes out.
+pub(crate) fn gun_in(hero: &HeroMotion) -> Hold {
+    if hero.gun.item.is_some() {
+        hero.gun.pose.hold
+    } else {
+        Hold::None
+    }
+}
+
+/// The states his hands are on a ledge in, where UYA drops the hold layers (0x1A71D0,
+/// set by states 23 to 27).
+fn on_ledge(state: HeroState) -> bool {
+    matches!(
+        state,
+        HeroState::LedgeGrab
+            | HeroState::LedgeHang
+            | HeroState::LedgeShimmy(_)
+            | HeroState::Jump(JumpKind::Ledge)
+    )
+}
+
+/// The arms holding the gun in hand (`weapons.md`, "Holding a gun"; UYA 0x4E61E8): the
+/// right arm's layer for a gun held in one hand or both, and the left's for one in both,
+/// each playing its arm's clip for the body's move ([`crate::HoldAnimations`]). A layer rises to
+/// full weight at [`HOLD_IN`] a tick, and gives way at [`HOLD_OUT`] while the firing arms
+/// layer plays. A change of hold, and a ledge, send both off at [`HOLD_LEAVING`] a tick
+/// before any comes back. Through the moves the arms don't follow they go over to their
+/// rest in [`HOLD_TO_REST_TICKS`], playing it from its start, and come back at
+/// [`HOLD_FROM_REST`] a tick.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct HoldLayer {
+    /// The hold the layers are for.
+    held: Hold,
+    /// Each arm's weight, right then left, and whether it is leaving.
+    pub weights: [f32; 2],
+    leaving: [bool; 2],
+    /// How far over to their rest the arms are, from 0 to 1, and how far into it.
+    pub resting: f32,
+    pub rest_ticks: f32,
+}
+
+impl HoldLayer {
+    /// Moves on by `seconds`, the body playing `current` and the firing arms layer
+    /// playing for a shot if `firing_arms`.
+    pub fn step(
+        &mut self,
+        hero: &HeroMotion,
+        current: Option<RigMove>,
+        firing_arms: bool,
+        animations: Option<&RigAnimations>,
+        seconds: f32,
+    ) {
+        let elapsed = seconds * 60.0;
+        let hold = gun_in(hero);
+        let ledge = on_ledge(hero.state);
+        if hold != self.held || ledge {
+            self.held = hold;
+            for (leaving, weight) in self.leaving.iter_mut().zip(&self.weights) {
+                *leaving |= *weight > 0.0;
+            }
+        }
+        for side in 0..2 {
+            let weight = &mut self.weights[side];
+            if self.leaving[side] {
+                *weight = (*weight - HOLD_LEAVING * elapsed).max(0.0);
+                self.leaving[side] = *weight > 0.0;
+                continue;
+            }
+            let wanted = !ledge
+                && match hold {
+                    Hold::None => false,
+                    Hold::OneHand => side == 0,
+                    Hold::TwoHands => true,
+                };
+            *weight = if wanted && !firing_arms {
+                (*weight + HOLD_IN * elapsed).min(1.0)
+            } else {
+                (*weight - HOLD_OUT * elapsed).max(0.0)
+            };
+        }
+        let resting = animations
+            .and_then(|a| a.hold.as_ref())
+            .zip(current)
+            .is_some_and(|(hold, current)| hold.rest_in.contains(&current));
+        if resting {
+            if self.resting == 0.0 {
+                self.rest_ticks = 0.0;
+            } else {
+                self.rest_ticks += elapsed;
+            }
+            self.resting = (self.resting + elapsed / HOLD_TO_REST_TICKS).min(1.0);
+        } else {
+            self.resting = (self.resting - HOLD_FROM_REST * elapsed).max(0.0);
+        }
+    }
+
+    /// Whether either arm's layer is on.
+    pub fn on(&self) -> bool {
+        self.weights.iter().any(|&weight| weight > 0.0)
+    }
+
+    /// Whether the clavicles lift the held gun: past [`FLIP_LIFT_AFTER`] of the left,
+    /// right and back flips, whose sequences UYA's arms don't follow (0x4E61E8, the
+    /// joint springs' records 8 and 9). The forward flip's isn't one of them.
+    pub fn lifts(&self, current: Option<RigMove>, ticks: f32, animations: &RigAnimations) -> bool {
+        use FlipSide::{Back, Left, Right};
+        let flip = matches!(
+            current,
+            Some(
+                RigMove::Flip(Left | Right | Back)
+                    | RigMove::Land(Landing::Flip(Left | Right | Back))
+            )
+        );
+        self.on()
+            && flip
+            && current
+                .and_then(|current| animations.clips.get(&current))
+                .is_some_and(|clip| clip.frame_at(ticks) > FLIP_LIFT_AFTER)
     }
 }
 
@@ -549,11 +692,13 @@ mod tests {
                     interval: 1.0 / 60.0,
                     cooldown: 5.0,
                     low_health: false,
+                    two_hands: true,
                 },
                 FidgetRule {
                     interval: 4.0,
                     cooldown: 2.5,
                     low_health: true,
+                    two_hands: true,
                 },
             ],
             walk_phase: [1, 5],
@@ -935,5 +1080,133 @@ mod tests {
         hero.gun.firing = true;
         layer.step(&hero, Some(&a), TICK);
         assert_eq!(layer.playing, None);
+    }
+
+    /// A gun in his hand held as `hold`, not firing.
+    fn holding(hold: Hold) -> rac_hero::GunHand {
+        rac_hero::GunHand {
+            pose: rac_hero::GunPose {
+                hold,
+                ..n60(false, 0).pose
+            },
+            ..n60(false, 0)
+        }
+    }
+
+    fn with_holds() -> RigAnimations {
+        let mut a = with_guns();
+        let flip = RigMove::Flip(FlipSide::Left);
+        a.clips.insert(flip, clip(40, 2.0, false));
+        a.hold = Some(crate::HoldAnimations {
+            follow: [
+                [(RigMove::Idle, clip(10, 2.0, true))].into(),
+                [(RigMove::Idle, clip(10, 2.0, true))].into(),
+            ],
+            rest: [Some(clip(10, 2.0, true)), Some(clip(10, 2.0, true))],
+            rest_in: vec![flip],
+        });
+        a
+    }
+
+    fn step_hold(layer: &mut HoldLayer, hero: &HeroMotion, a: &RigAnimations, ticks: usize) {
+        for _ in 0..ticks {
+            layer.step(hero, RigMove::of(hero), false, Some(a), TICK);
+        }
+    }
+
+    #[test]
+    fn a_gun_in_both_hands_brings_both_arms_in_and_one_in_one_hand_the_right() {
+        let a = with_holds();
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        let mut layer = HoldLayer::default();
+        step_hold(&mut layer, &hero, &a, 5);
+        assert!(!layer.on(), "the wrench holds no gun");
+
+        hero.gun = holding(Hold::TwoHands);
+        step_hold(&mut layer, &hero, &a, 1);
+        assert!((layer.weights[0] - 0.25).abs() < 1e-5);
+        assert!((layer.weights[1] - 0.25).abs() < 1e-5);
+        step_hold(&mut layer, &hero, &a, 3);
+        assert_eq!(layer.weights, [1.0, 1.0]);
+
+        // A gun in one hand: both go off at 0.1 a tick, then the right comes back alone.
+        hero.gun = holding(Hold::OneHand);
+        step_hold(&mut layer, &hero, &a, 1);
+        assert!((layer.weights[0] - 0.9).abs() < 1e-5);
+        step_hold(&mut layer, &hero, &a, 9);
+        assert!(layer.weights[0] < 1e-5 && layer.weights[1] < 1e-5);
+        step_hold(&mut layer, &hero, &a, 5);
+        assert_eq!(layer.weights, [1.0, 0.0]);
+
+        // The whip and the gloves are held in no hold.
+        hero.gun = holding(Hold::None);
+        step_hold(&mut layer, &hero, &a, 10);
+        assert!(!layer.on());
+    }
+
+    #[test]
+    fn the_held_arms_give_way_to_the_firing_arms_and_leave_on_a_ledge() {
+        let a = with_holds();
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.gun = holding(Hold::TwoHands);
+        let mut layer = HoldLayer::default();
+        step_hold(&mut layer, &hero, &a, 4);
+        layer.step(&hero, Some(RigMove::Idle), true, Some(&a), TICK);
+        assert!((layer.weights[0] - 0.85).abs() < 1e-5);
+        step_hold(&mut layer, &hero, &a, 1);
+        assert_eq!(layer.weights[0], 1.0, "back at 0.25 a tick");
+
+        hero.state = HeroState::LedgeHang;
+        step_hold(&mut layer, &hero, &a, 1);
+        assert!((layer.weights[1] - 0.9).abs() < 1e-5);
+        step_hold(&mut layer, &hero, &a, 30);
+        assert!(!layer.on(), "off while he hangs");
+        hero.state = HeroState::Idle;
+        step_hold(&mut layer, &hero, &a, 4);
+        assert_eq!(layer.weights, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn through_the_flips_the_held_arms_go_to_their_rest_and_lift_the_gun_late() {
+        let a = with_holds();
+        let flip = Some(RigMove::Flip(FlipSide::Left));
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.gun = holding(Hold::TwoHands);
+        let mut layer = HoldLayer::default();
+        step_hold(&mut layer, &hero, &a, 4);
+        layer.step(&hero, flip, false, Some(&a), TICK);
+        assert!((layer.resting - 1.0 / 15.0).abs() < 1e-5);
+        assert_eq!(layer.rest_ticks, 0.0, "its rest plays from the start");
+        for _ in 0..20 {
+            layer.step(&hero, flip, false, Some(&a), TICK);
+        }
+        assert_eq!(layer.resting, 1.0);
+        assert!((layer.rest_ticks - 20.0).abs() < 1e-3);
+        // Back over ten ticks.
+        layer.step(&hero, Some(RigMove::Idle), false, Some(&a), TICK);
+        assert!((layer.resting - 0.9).abs() < 1e-5);
+
+        // The flip's frame passes 25 after 50 ticks: a frame a keyframe of 2 ticks.
+        assert!(!layer.lifts(flip, 50.0, &a));
+        assert!(layer.lifts(flip, 51.0, &a));
+        assert!(!layer.lifts(Some(RigMove::Flip(FlipSide::Forward)), 51.0, &a));
+        assert!(
+            !HoldLayer::default().lifts(flip, 51.0, &a),
+            "not without a gun held"
+        );
+    }
+
+    #[test]
+    fn the_third_fidget_waits_while_he_holds_a_gun_in_both_hands() {
+        let mut a = animations();
+        a.fidgets[0].two_hands = false;
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.gun = holding(Hold::TwoHands);
+        let mut director = Director::new(5);
+        run(&mut director, &hero, &a, 300);
+        assert_eq!(director.current, Some(RigMove::Idle));
+        hero.gun = holding(Hold::OneHand);
+        run(&mut director, &hero, &a, 1);
+        assert_eq!(director.current, Some(RigMove::Fidget(0)));
     }
 }

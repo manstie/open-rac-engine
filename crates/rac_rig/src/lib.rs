@@ -45,8 +45,8 @@ use bevy::prelude::*;
 use rac_hero::{Health, HeroBody};
 
 pub use clips::{
-    BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, JumpTiming, Landing, RUN_BELOW,
-    RigAnimations, RigClip, RigKeyframe, RigMove, SET_OFF_BELOW, Sample,
+    BackAnimations, BackHold, BackRow, FidgetRule, FlipSide, HoldAnimations, JumpTiming, Landing,
+    RUN_BELOW, RigAnimations, RigClip, RigKeyframe, RigMove, SET_OFF_BELOW, Sample,
 };
 pub use guns::{GunData, GunMotion, GunSkeleton, Recoil, RigGuns, open_guns};
 pub use hull::convex_hull;
@@ -478,7 +478,13 @@ fn animate(
             1.0 - (-speed * seconds).exp(),
         );
 
-        rig.springs.step(hero, seconds);
+        let lifts = animations.as_deref().is_some_and(|animations| {
+            let director = &animator.director;
+            animator
+                .hold
+                .lifts(director.current, director.ticks, animations)
+        });
+        rig.springs.step(hero, lifts, seconds);
         let springs = &rig.springs;
         let locals: Vec<Transform> = (0..rig.joints.len())
             .map(|index| {
@@ -713,15 +719,20 @@ fn play_clip(
     let director = &mut animator.director;
     let current = director.step(hero, health, animations, seconds);
     animator.arms.step(hero, animations, seconds);
+    let firing_arms = animator.arms.firing;
+    animator
+        .hold
+        .step(hero, current, firing_arms, animations, seconds);
     let Some(animations) = animations else {
         return false;
     };
+    let ticks = animator.director.ticks;
     let clip = current.and_then(|current| Some((current, animations.clips.get(&current)?)));
     let sample = clip.and_then(|(current, clip)| {
         if current.follows_attack_frame() {
             clip.at_frame(hero.attack_frame())
         } else {
-            clip.at_time(director.ticks)
+            clip.at_time(ticks)
         }
     });
     let playing = sample.is_some();
@@ -737,32 +748,105 @@ fn play_clip(
         }
     }
 
+    // The arms holding the gun: each arm's clip for the move, or the move's own arms where
+    // it has none, gone over to their rest as far as they have.
+    let hold = &animator.hold;
+    if let Some(holds) = animations.hold.as_ref().filter(|_| hold.on()) {
+        for (side, joints) in [joint::ARM_R, joint::ARM_L].into_iter().enumerate() {
+            let weight = hold.weights[side];
+            if weight <= 0.0 {
+                continue;
+            }
+            let follow = current.and_then(|m| holds.follow[side].get(&m)?.at_time(ticks));
+            let rest = holds.rest[side]
+                .as_ref()
+                .filter(|_| hold.resting > 0.0)
+                .and_then(|rest| rest.at_time(hold.rest_ticks));
+            for index in joints {
+                let Some(mut held) = joint_of(target, follow.as_ref(), index) else {
+                    continue;
+                };
+                if let Some(rest) = rest.as_ref().and_then(|r| joint_of(target, Some(r), index)) {
+                    held = mix_joint(held, rest, hold.resting);
+                }
+                lay_over(target, &animations.driven, index, held, weight);
+            }
+        }
+    }
+
     // The arms-only firing animation, laid over whatever the rest plays.
     let arms = &animator.arms;
     let layer = arms
         .playing
         .filter(|_| arms.weight > 0.0)
         .and_then(|playing| animations.clips.get(&playing)?.at_time(arms.ticks));
-    if let Some((rotations, offsets, scales)) = layer {
+    if let Some(layer) = layer {
         let sides = if arms.both { 2 } else { 1 };
         for index in [joint::ARM_R, joint::ARM_L]
             .into_iter()
             .take(sides)
             .flatten()
         {
-            let driven = animations.driven.get(index).copied().unwrap_or(false);
-            if !driven || index >= target.rotations.len() || index >= rotations.len() {
-                continue;
-            }
-            let weight = arms.weight;
-            target.rotations[index] = target.rotations[index].slerp(rotations[index], weight);
-            target.offsets[index] = target.offsets[index].lerp(offsets[index], weight);
-            if let Some(scale) = scales.get(index) {
-                target.scales[index] = target.scales[index].lerp(*scale, weight);
+            if let Some(fired) = joint_of(target, Some(&layer), index) {
+                lay_over(target, &animations.driven, index, fired, arms.weight);
             }
         }
     }
     playing
+}
+
+/// Joint `index` of `sample`, or of `target` where `sample` is `None` or lacks a scale.
+/// `None` for a joint neither has.
+fn joint_of(target: &Pose, sample: Option<&Sample>, index: usize) -> Option<(Quat, Vec3, Vec3)> {
+    let scale = |scales: &[Vec3]| scales.get(index).copied();
+    match sample {
+        Some((rotations, offsets, scales)) => Some((
+            *rotations.get(index)?,
+            *offsets.get(index)?,
+            scale(scales).or_else(|| scale(&target.scales))?,
+        )),
+        None => Some((
+            *target.rotations.get(index)?,
+            *target.offsets.get(index)?,
+            scale(&target.scales)?,
+        )),
+    }
+}
+
+/// `t` of the way from one joint's pose to another's.
+fn mix_joint(
+    (rotation, offset, scale): (Quat, Vec3, Vec3),
+    (to_rotation, to_offset, to_scale): (Quat, Vec3, Vec3),
+    t: f32,
+) -> (Quat, Vec3, Vec3) {
+    (
+        rotation.slerp(to_rotation, t),
+        offset.lerp(to_offset, t),
+        scale.lerp(to_scale, t),
+    )
+}
+
+/// Lays a layer's pose of joint `index` over `target`'s at `weight`, if the clips drive it.
+fn lay_over(
+    target: &mut Pose,
+    driven: &[bool],
+    index: usize,
+    layer: (Quat, Vec3, Vec3),
+    weight: f32,
+) {
+    if !driven.get(index).copied().unwrap_or(false) || index >= target.rotations.len() {
+        return;
+    }
+    let own = (
+        target.rotations[index],
+        target.offsets[index],
+        target.scales[index],
+    );
+    (
+        target.rotations[index],
+        target.offsets[index],
+        target.scales[index],
+    ) = mix_joint(own, layer, weight);
 }
 
 /// Spins the thrown wrench along its flight, and removes it with its hero.
@@ -813,6 +897,83 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn a_gun_in_one_hand_lays_the_right_arms_hold_over_the_bodys_clip() {
+        let posed = |rotation: Quat| RigClip {
+            keyframes: vec![RigKeyframe {
+                ticks: 2.0,
+                frame: 0.0,
+                rotations: vec![rotation; joint::COUNT],
+                offsets: vec![Vec3::ZERO; joint::COUNT],
+                scales: vec![Vec3::ONE; joint::COUNT],
+            }],
+            looping: true,
+            start: 0,
+        };
+        let held = Quat::from_rotation_x(1.0);
+        let animations = RigAnimations {
+            clips: [(RigMove::Idle, posed(Quat::IDENTITY))].into(),
+            driven: vec![true; joint::COUNT],
+            hold: Some(HoldAnimations {
+                follow: [
+                    [(RigMove::Idle, posed(held))].into(),
+                    [(RigMove::Idle, posed(held))].into(),
+                ],
+                ..default()
+            }),
+            ..default()
+        };
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.gun = rac_hero::GunHand {
+            out: true,
+            item: Some(0x2F),
+            pose: rac_hero::GunPose {
+                hold: rac_hero::Hold::OneHand,
+                ..default()
+            },
+            ..default()
+        };
+        let mut animator = pose::Animator::new(1);
+        let mut target = Pose::rest();
+        // Half in after two ticks, at 0.25 a tick.
+        for _ in 0..2 {
+            target = Pose::rest();
+            play_clip(
+                &mut animator,
+                Some(&animations),
+                &hero,
+                None,
+                1.0 / 60.0,
+                &mut target,
+            );
+        }
+        let half = Quat::IDENTITY.slerp(held, 0.5);
+        assert!(target.rotations[joint::HAND_R].angle_between(half) < 1e-4);
+        for _ in 0..2 {
+            target = Pose::rest();
+            play_clip(
+                &mut animator,
+                Some(&animations),
+                &hero,
+                None,
+                1.0 / 60.0,
+                &mut target,
+            );
+        }
+        for index in joint::ARM_R {
+            assert!(
+                target.rotations[index].angle_between(held) < 1e-4,
+                "{index}"
+            );
+        }
+        for index in joint::ARM_L.chain([joint::CHEST, joint::HEAD]) {
+            assert!(
+                target.rotations[index].angle_between(Quat::IDENTITY) < 1e-4,
+                "{index}"
+            );
+        }
     }
 
     #[test]

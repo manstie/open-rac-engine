@@ -36,7 +36,8 @@ session is working on the task now; notes on problems met stay with their task (
   lock-on, the lock-strafe and first-person cameras with the free look's aim assist and
   their blends (P1.7), melee for both games (P1.8), and all twenty of UYA's guns with their
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
-  models, each level's) with their firing animations, UYA's quick-select ring, UYA's ammo
+  models, each level's, held in one hand or both as UYA's hold layers have them) with
+  their firing animations, UYA's quick-select ring, UYA's ammo
   pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
   the disc's textures for them, P3.18). He
@@ -446,6 +447,8 @@ committed (names, addresses, layouts, derived constants).
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
   `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
+  - Done 2026-10-23: how the hero holds a gun: the hold layers, their classes, weights
+    and rests, and the whip's own scale (`weapons.md`, "Holding a gun").
   - Done 2026-10-22: the last of UYA's guns' open items: the Flux Rifle's piercing (its
     scoped beam, class 0x186F), the Annihilator's V2–V4 mines and V5 seekers, the agents'
     sight, walking and gun (from V2), the Nitro Eruptor's bullets, the shock arc
@@ -649,6 +652,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - One trace of DL's double-jump attack started later than the code's frame-16 rule
     gives; still open (`hero-controller.md`, "Deadlocked's melee").
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Done 2026-10-23: with a UYA disc the arms hold each gun by its hold (one hand, both,
+    or none for the whip and gloves), from UYA's hold classes 1 and 2 laid over the
+    body's moves with the game's weights, rests and the flips' lift
+    (`hero_anims::hold_animations`, `rac_rig`'s `HoldLayer`; `weapons.md`, "Holding a
+    gun"); the whip's handle at 0.3 of its class's size, as its update draws it. Seen
+    on Xvfb: the two-handed guns held up in both hands, the N60 in one, the whip's
+    handle in the fist.
+  - UYA's hold classes have no skeleton (+0x14 and +0x18 are 0), which `MobyClass` took
+    for a bad bind; it now reads such a class with no joints (`moby-format.md`).
   - Done 2026-10-22: the agents' search (`aim::level_search`, claims), states, walker and
     gun (`ShotKind::Slug`, UYA's small bullet, and the shared `AgentBook`); the Nitro
     Eruptor's 15 small bullets; `SmallMissile`, shared by the Decimator and the Agents of

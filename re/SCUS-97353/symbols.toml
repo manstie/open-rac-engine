@@ -656,7 +656,7 @@ name = "plasma_whip_update"
 address = 0x00356110
 kind = "function"
 confidence = "high"
-note = "The Plasma Whip's object (item 0x7F, class 0x1843): starts the wrench's attack states on Circle, sets the rope's stretch, and hits along its nine links (0x357F10)."
+note = "The Plasma Whip's object (item 0x7F, class 0x1843): on its first frame sets its moby's scale to 0.3 of its class's; starts the wrench's attack states on Circle, sets the rope's stretch, and hits along its nine links (0x357F10)."
 
 [[symbol]]
 name = "hero_auto_aim"
@@ -1909,7 +1909,7 @@ name = "hero_idle_sequence"
 address = 0x004DC0D0
 kind = "function"
 confidence = "medium"
-note = "The idle's sequence: 0, 74 at low health, the hand item's idle, or others by mode."
+note = "(firing): the idle's sequence: 0 (85 with 0x1A6054 set), 74 at low health; with a held gun firing (hero_firing_held, the arm not raised) its whole-body firing sequence (row +0x24); 20 or 29 in hero mode 1, 1 in mode 3. No idle of a gun's own: its hold is the hold layers' (hero_hold_layers_update)."
 
 [[symbol]]
 name = "jump_anim_frames"
@@ -2065,7 +2065,7 @@ name = "hero_spawn_item_mobys"
 address = 0x004E7148
 kind = "function"
 confidence = "medium"
-note = "Spawns the mobys of the hand item (row +0x10, +0x14) and the slots, sets held_item and the fire button (0x1A5DF0: 0x80 for the wrench, 0x20 Circle for guns)."
+note = "Spawns the mobys of the hand item (row +0x10, +0x14) and the slots, sets held_item, the fire button (0x1A5DF0: 0x80 for the wrench, 0x20 Circle for guns) and hero_hold_type from the row's +0x18."
 
 [[symbol]]
 name = "hero_item_switch"
@@ -5052,3 +5052,89 @@ address = 0x003444B0
 kind = "function"
 confidence = "high"
 note = "(moby): the held Flux Rifle's update. In state 1 or 29 with the look ready: hides the gun, registers flux_scope_draw, tests a 128 u line from the camera for a live enemy on 4 frames of 8, moves flux_scope_fov and calls camera_fov_set (0.02, 0.2); leaving, resets the zoom a quarter in and springs back out (0.005, 0.2). Dropped in state 0x74."
+
+[[symbol]]
+name = "hero_hold_layers_update"
+address = 0x004E61E8
+kind = "function"
+confidence = "high"
+note = "Per frame (from 0x4E7118): the two hold layers (hero_hold_layers), the right arm's for hero_hold_type 1 or 2 and the left's for 2, off while hero_no_hold. A layer plays class 1 (right) or 2 (left) at the hero's own sequence, keyframe and blend; weight up 0.25 a frame, down 0.15 while the firing arms layer plays (unless 0x1A5A64), 0.1 while leaving. Through hero_arms_rest sequences it blends to its sequence 0 over 15 frames and plays it, back over 10. Sequences 23 and up play the hero's own."
+
+[[symbol]]
+name = "hero_hold_layers"
+address = 0x001A5A50
+kind = "data"
+confidence = "high"
+note = "Two animation layers (right arm, left arm) holding the gun in hand: +0x08 weight, +0x18 the hold class (1 or 2), +0x34 leaving. hero_item_switch marks both leaving when the new item's hold type differs."
+
+[[symbol]]
+name = "hero_fire_layers"
+address = 0x001A5A58
+kind = "data"
+confidence = "high"
+note = "Two animation layers (right arm, left arm) of the arms-only firing animation (row +0x28, +0x2C), started by hero_fire_anim and run by hero_gun_update. 0x1A5A64: 0 while in, 1 or 2 as they fade out."
+
+[[symbol]]
+name = "hero_hold_type"
+address = 0x001A71CC
+kind = "data"
+confidence = "high"
+note = "The hand item's hold (row +0x18): 0 none (the wrench, whip and gloves), 1 one hand, 2 both hands. Set as its moby spawns (hero_spawn_item_mobys)."
+
+[[symbol]]
+name = "hero_no_hold"
+address = 0x001A71D0
+kind = "data"
+confidence = "high"
+note = "Set by hero_change_state for states 23 to 27 (the ledge), cleared on each other state change: the hold layers leave and none starts."
+
+[[symbol]]
+name = "hero_arms_rest"
+address = 0x004E55A8
+kind = "function"
+confidence = "high"
+note = "(hero sequence, out lift): 1 for the sequences the hold layers don't follow (28, 29, 31, 44, 45, 50, 66, 67, 72, 80, 84, 85). Lift: -75 deg on both clavicles' springs (records 8, 9; 0.05, 0.3) in 28, 29 and 31 past animation frame 25, -55 deg in 50."
+
+[[symbol]]
+name = "hero_fire_layers_resume"
+address = 0x004E6868
+kind = "function"
+confidence = "medium"
+note = "From hero_change_state: while a held gun fires (hero_firing_held), starts its arms-only firing layers again (one, or two for hero_hold_type 2) at full weight."
+
+[[symbol]]
+name = "moby_anim_layer_new"
+address = 0x00436BD8
+kind = "function"
+confidence = "high"
+note = "(moby, point, buffer): one of 16 animation layers (0x40 bytes at 0x1F47C0) on the moby's joints listed after point's chain in its class's point table (class +0x1C), linked at moby +0x50."
+
+[[symbol]]
+name = "moby_anim_layer_free"
+address = 0x00436C90
+kind = "function"
+confidence = "high"
+note = "(moby, &layer): unlinks the layer from the moby and clears it."
+
+[[symbol]]
+name = "moby_anim_layer_set"
+address = 0x00437108
+kind = "function"
+confidence = "high"
+note = "(moby, layer, sequence, keyframe, ticks, update): blends the layer from the moby's current sequence to the given one over the ticks."
+
+[[symbol]]
+name = "moby_anim_layer_keyframe_of"
+address = 0x00437200
+kind = "function"
+confidence = "high"
+note = "(layer, sequence, keyframe, out): a keyframe of the layer's own class (+0x18) as one of its moby's: each joint's rotation into the joint its class's +0x1C list names, its translations as stored (they name the moby's joints)."
+
+# 2026-10-23, the end of death (PLAN.md RE.3; hero-controller.md, "Getting hit and dying").
+
+[[symbol]]
+name = "hero_death_done"
+address = 0x004EA040
+kind = "function"
+confidence = "medium"
+note = "Called by hero_transitions once death (57) is over: counts the death in the stats (0x143D70 per player, 0x1D4CA0) and sets 0x1A71D2, which the level's code takes up for the respawn (not read)."

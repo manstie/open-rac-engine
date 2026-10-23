@@ -2031,7 +2031,7 @@ Read in the idle state's transitions (0x503B68) and the fidget picker 0x502930 o
   |---|---|---|---|---|
   | 0 | 1 | 10 s | 5.5 s | |
   | 1 | 2 | 10 s | 5.5 s | |
-  | 2 | 73 | 8 s | 5 s | nothing within 8 u above him (a ray up), and a global at 0x1D545C of −1 |
+  | 2 | 73 | 8 s | 5 s | nothing within 8 u above him (a ray up), a global at 0x1D545C of −1, and no gun in both hands (`hero_hold_type` ≠ 2) |
   | 3 | 78 | 4 s | 2.5 s | at low health (below) |
 
 - **Each frame** standing in the plain idle animation, when no fidget has played for 120
@@ -2043,7 +2043,8 @@ Read in the idle state's transitions (0x503B68) and the fidget picker 0x502930 o
 - **At 20% health or less** (0x4DC080) the idle is 74, and at each end of its loop fidget
   3 plays one time in three if its cooldown is over.
 - In the kit: `rac_rig/src/play.rs`. The rig has no collision, so it plays fidget 2 as if
-  the sky were clear.
+  the sky were clear; it holds it back with a gun in both hands
+  (`FidgetRule::two_hands`).
 
 ### Landings [code, UYA NTSC, 2026-10-15]
 

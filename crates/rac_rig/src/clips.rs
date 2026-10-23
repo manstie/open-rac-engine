@@ -243,6 +243,23 @@ pub struct RigAnimations {
     pub back: Option<BackAnimations>,
     /// How each jump's air animation is timed to its arc.
     pub jumps: BTreeMap<RigMove, JumpTiming>,
+    /// How the arms hold a gun.
+    pub hold: Option<HoldAnimations>,
+}
+
+/// How the arms hold a gun in hand: clips laid over the arms that follow the body's clip
+/// keyframe for keyframe, the right arm's for any gun he holds and the left's for one in
+/// both hands, as UYA's hold layers play (`weapons.md`, "Holding a gun"). A move without
+/// one leaves the arms as its own clip has them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HoldAnimations {
+    /// The right arm's clips ([`crate::joint::ARM_R`]) and the left's
+    /// ([`crate::joint::ARM_L`]) by the move they follow, each timed as the move's own.
+    pub follow: [BTreeMap<RigMove, RigClip>; 2],
+    /// Each arm's rest, which it blends to and plays on its own clock through the moves
+    /// in `rest_in`.
+    pub rest: [Option<RigClip>; 2],
+    pub rest_in: Vec<RigMove>,
 }
 
 /// How a jump's clip is timed to its arc, as UYA times its jumps (`hero-controller.md`,
@@ -328,6 +345,8 @@ pub struct FidgetRule {
     /// Plays only at low health, now and then at the end of the hurt idle's loop,
     /// instead of at random.
     pub low_health: bool,
+    /// Plays while he holds a gun in both hands too.
+    pub two_hands: bool,
 }
 
 impl RigClip {

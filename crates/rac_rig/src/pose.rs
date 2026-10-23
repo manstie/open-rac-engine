@@ -70,6 +70,8 @@ pub struct Animator {
     pub director: crate::play::Director,
     /// The arms-only firing animation over it.
     pub(crate) arms: crate::play::ArmLayer,
+    /// The arms holding the gun, under that.
+    pub(crate) hold: crate::play::HoldLayer,
 }
 
 impl Animator {
@@ -82,6 +84,7 @@ impl Animator {
             time: 0.0,
             director: crate::play::Director::new(seed),
             arms: crate::play::ArmLayer::default(),
+            hold: crate::play::HoldLayer::default(),
         }
     }
 

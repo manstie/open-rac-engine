@@ -15,6 +15,8 @@
 //!   it.
 //! - Its model changes with its level ([`UYA_GUN_MODELS`]): from V2 its update shows more of
 //!   its bangles, and from V5 its rows name another class.
+//! - The whip's handle is drawn at 0.3 of its class's size, as its update scales it
+//!   ([`moby_scale`]).
 
 use std::collections::BTreeMap;
 
@@ -163,6 +165,13 @@ const GLOVES: &[u16] = &[0x57, 0x67, 0x15];
 /// The pose a class with one sequence (two of the gloves and the whip) is baked in.
 const GLOVE_POSE: (usize, usize) = (0, 0);
 
+/// The scale a gun's moby is drawn at, of its class's own. Only the whip's update sets one
+/// of its own, 0.3, on its first frame (0x356110); no other gun's update scales its moby
+/// [code].
+fn moby_scale(item: u16) -> f32 {
+    if item == 0x7F { 0.3 } else { 1.0 }
+}
+
 /// Whether a class plays its own sequences in the hand: it has a rest to settle into.
 fn plays(class: &MobyClass) -> bool {
     class.sequences.get(1).is_some_and(Option::is_some)
@@ -283,6 +292,7 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
         .filter(|bangle| bangle.slot < 16 && model.bangles & (1 << bangle.slot) != 0)
         .map(|bangle| bangle.mesh(PacketKind::High));
     let skinned = plays(class);
+    let scale = moby_scale(model.item);
     let mut builder = Builder::default();
     for mesh in std::iter::once(class.mesh(PacketKind::High)).chain(shown) {
         let mesh = mesh?;
@@ -300,7 +310,7 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
         let chrome = chromed(&mesh, &metal);
         let (mut vertices, _) = baked(class, &mesh, GLOVE_POSE, "a gun", Vec3::ZERO, |_| 0)?;
         for vertex in &mut vertices {
-            vertex.position = into_grip.transform_point3(vertex.position);
+            vertex.position = into_grip.transform_point3(vertex.position * scale);
             vertex.normal = into_grip.transform_vector3(vertex.normal);
         }
         builder.add(&mesh, &vertices, &chrome, false, |t, c| {
@@ -309,7 +319,9 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
     }
     let (surfaces, paints) = builder.finish();
     let skeleton = skinned.then(|| GunSkeleton {
-        origin: Transform::from_matrix(Mat4::from(into_grip)),
+        origin: Transform::from_matrix(Mat4::from(
+            into_grip * Affine3A::from_scale(Vec3::splat(scale)),
+        )),
         parents: class.joints.iter().map(|joint| joint.parent).collect(),
         binds: binds(class),
         clips: part_clips(class),
@@ -440,8 +452,11 @@ mod disc_tests {
                     "{name}: {low} to {high}"
                 );
             } else if model.item == 0x7F {
-                // The whip's handle is in the fist.
+                // The whip's handle is in the fist, at 0.3 of its class's size: about half
+                // a unit long, where its class's own is over one and a half.
                 assert!(low.z < -0.05 && high.z < 0.3, "{name}: {low} to {high}");
+                let size = (high - low).max_element();
+                assert!(size > 0.3 && size < 0.6, "{name}: {size}");
             } else {
                 // Held as the game holds it, the barrel reaches well ahead of the grip and
                 // less behind it (the RY3NO rests on his shoulder), and the gun sits on the

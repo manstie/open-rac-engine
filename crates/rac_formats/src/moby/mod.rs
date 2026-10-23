@@ -177,8 +177,17 @@ impl MobyClass {
         let offsets = pointer(address + 0x18)?;
         let scale = image.f32(address + 0x24)?;
 
-        let mut joints = Vec::with_capacity(joint_count);
-        for index in 0..joint_count as u32 {
+        // A class with neither a skeleton nor joint offsets is only sequences that pose
+        // another class's joints: UYA's hold classes 1 and 2, whose keyframes are the hero's
+        // arms (`weapons.md`, "Holding a gun"). It has no joints of its own, and its
+        // keyframes have the header's count.
+        let posed = if skeleton == 0 && offsets == 0 {
+            0
+        } else {
+            joint_count
+        };
+        let mut joints = Vec::with_capacity(posed);
+        for index in 0..posed as u32 {
             let record = offsets + index * 0x10;
             let offset = image.f32s::<3>(record)?;
             let parent = match (index, image.u32(record + 0x0C)?) {
@@ -618,6 +627,48 @@ pub(crate) mod tests {
             (z - half).abs() < 1e-6 && (w - half).abs() < 1e-6,
             "{z} {w}"
         );
+    }
+
+    #[test]
+    fn a_class_of_sequences_only_has_no_joints_but_its_keyframes_have_the_count() {
+        let mut w = Writer::default();
+        // Two joints, no skeleton or offsets, one sequence.
+        w.at(0x100).u32(0).u8(0).u8(0).u16(0).u8(2).put(&[0; 3]);
+        w.u8(1)
+            .put(&[0; 3])
+            .u32(0)
+            .u32(0)
+            .u32(0)
+            .put(&[0; 8])
+            .f32(1024.0);
+        w.at(0x148).u32(0x200);
+        // The sequence: one keyframe, stored whole, with a translation of joint 53.
+        w.at(0x200)
+            .put(&[0; 16])
+            .u8(1)
+            .u8(0)
+            .u8(0)
+            .u8(0xFF)
+            .put(&[0; 8]);
+        w.u32(0x300);
+        w.at(0x300)
+            .f32(0.5)
+            .u16(32)
+            .u16(0)
+            .u16(16)
+            .u16(0)
+            .u16(0)
+            .u16(1);
+        w.u16(0).u16(0).u16(0).u16(0x8000);
+        w.u16(0x4000).u16(0).u16(0).u16(0x6000);
+        w.u16(1).u16(2).u16(3).u16(53);
+        let class = MobyClass::read(&Image::new(&w.bytes, 0), 0x100).unwrap();
+        assert!(class.joints.is_empty());
+        let keyframe = &class.sequences[0].as_ref().unwrap().keyframes[0];
+        assert_eq!(keyframe.rotations.len(), 2);
+        assert_eq!(keyframe.ticks(), 2.0);
+        assert_eq!(keyframe.translations[0].joint, 53);
+        assert_eq!(keyframe.translations[0].offset, [1, 2, 3]);
     }
 
     #[test]

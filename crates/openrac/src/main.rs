@@ -255,6 +255,10 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
                 Ok(back) => animations.back = Some(back),
                 Err(error) => warn!("Clank and the heli-pack in {}: {error}", path.display()),
             }
+            match hero_anims::hold_animations(&core, &hero) {
+                Ok(hold) => animations.hold = Some(hold),
+                Err(error) => warn!("the arms holding a gun in {}: {error}", path.display()),
+            }
             Some(animations)
         }
         Err(error) => {

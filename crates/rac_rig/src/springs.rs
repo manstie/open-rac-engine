@@ -7,7 +7,9 @@
 //!   clavicles turn the arm up, both of them for a gun held in both hands, and past 35°
 //!   the waist bends back for the rest;
 //! - the turn to the gun's target (`hero_head_look`, 0x4E2F50; [`rac_hero::GunHand::target`]):
-//!   the upper chest turns to its yaw and the waist to its pitch.
+//!   the upper chest turns to its yaw and the waist to its pitch;
+//! - late in the flips the held arms don't follow, both clavicles lift the gun
+//!   (0x4E61E8; `weapons.md`, "Holding a gun").
 //!
 //! Each spring holds three angles about the joint's own x, y and z in UYA's axes (x
 //! forward, y left, z up), turned in that order after the animation's turn. Its gain and
@@ -100,6 +102,8 @@ const LOOK_YAW_MOST: f32 = 59.0;
 const LOOK_UP_MOST: f32 = 25.0;
 const LOOK_DOWN_MOST: f32 = 35.0;
 const LOOK_SPRING: (f32, f32) = (0.037, 0.3);
+/// The flips' lift of the held gun: both clavicles 75° up, on the raise's springs.
+const FLIP_LIFT: f32 = 75.0;
 
 /// What a hero's joint springs remember between frames.
 #[derive(Debug, Clone, PartialEq)]
@@ -138,20 +142,27 @@ fn turns_to_target_in(state: HeroState) -> bool {
 }
 
 impl JointSprings {
-    /// Moves the springs on by `seconds` of `hero`, a tick at a time.
-    pub fn step(&mut self, hero: &HeroMotion, seconds: f32) {
+    /// Moves the springs on by `seconds` of `hero`, a tick at a time. `lifts`: a flip
+    /// lifts the held gun ([`crate::play::HoldLayer::lifts`]).
+    pub fn step(&mut self, hero: &HeroMotion, lifts: bool, seconds: f32) {
         self.pending += seconds * 60.0;
         while self.pending >= 1.0 {
             self.pending -= 1.0;
-            self.tick(hero);
+            self.tick(hero, lifts);
         }
     }
 
-    fn tick(&mut self, hero: &HeroMotion) {
+    fn tick(&mut self, hero: &HeroMotion, lifts: bool) {
         for spring in &mut self.springs {
             spring.target = Vec3::ZERO;
         }
         self.raise(hero);
+        if lifts {
+            let (gain, damping) = RAISE_SPRING;
+            for spring in &mut self.springs[CLAVICLE_R..=CLAVICLE_L] {
+                spring.set(gain, damping).target.y = -FLIP_LIFT.to_radians();
+            }
+        }
         self.look(hero);
         for spring in &mut self.springs {
             spring.step();
@@ -237,8 +248,29 @@ mod tests {
 
     fn settle(springs: &mut JointSprings, hero: &HeroMotion) {
         for _ in 0..600 {
-            springs.tick(hero);
+            springs.tick(hero, false);
         }
+    }
+
+    #[test]
+    fn a_flip_lifts_the_held_gun_on_both_clavicles_whatever_the_hold() {
+        let hero = hero_with(held(0x2F, Hold::OneHand), GunArm::default());
+        let mut springs = JointSprings::default();
+        for _ in 0..600 {
+            springs.tick(&hero, true);
+        }
+        for side in [CLAVICLE_R, CLAVICLE_L] {
+            let up = springs.springs[side].angles.y.to_degrees();
+            assert!((up + 75.0).abs() < 0.1, "{up}");
+        }
+        // On the raise's springs: its first tick moves 0.05 of the way.
+        let mut springs = JointSprings::default();
+        springs.tick(&hero, true);
+        let first = springs.springs[CLAVICLE_R].angles.y;
+        assert!(
+            (first + 0.05 * FLIP_LIFT.to_radians()).abs() < 1e-6,
+            "{first}"
+        );
     }
 
     #[test]
