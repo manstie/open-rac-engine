@@ -78,7 +78,8 @@ pub struct DemoSettings {
 
 /// Where the hero starts, on the floor facing down the level.
 const HERO_SPAWN: Vec3 = Vec3::new(0.0, 0.0, 0.0);
-/// Falling this far below the floor puts the hero back at the start.
+/// The level's kill height: falling under it, the hero falls out of the level and comes
+/// back at the start (`FallOutProfile`).
 const RESPAWN_BELOW: f32 = -20.0;
 /// The XP a dummy knocked out gives the gun that did it [placeholder: UYA's per-class XP
 /// isn't read].

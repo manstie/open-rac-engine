@@ -279,7 +279,7 @@ which nothing in the follow camera reads, so the kit can drop them):
 | 9, 10 | falling, or more than 54 frames off the ground | 1 (and the view direction eases back over 90 frames) |
 | 9 | jump attack over | 10 |
 | 10 | after 30 more frames | 0 |
-| any | state 121 (the bounce) | 11 |
+| any | state 121 (falling out of the level in UYA's single player; libdl's "bounce") | 11 |
 
 **The height, each frame:**
 - **Modes 0, 1, 4 and 11:** the hero's height, exactly.
@@ -1092,7 +1092,26 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
      20° cone (0x19EC, × zoom) instead of 30 u and 15°; yaw cut by 0.5 b, pitch by
      0.6 b, the strafe pull 0.666 / 0.85, capped at 1.5° a frame; the 7-frame snap past
      0.85.
+     - **Read further (2026-10-23):** with a target the quick turn starts on the 2nd frame
+       past 0.99, as without one (UYA waits to the 10th), at a third of its acceleration
+       as UYA. The strafe pull is UYA's in single player (motion capped at 0.1333 u a
+       frame, the pitch faded by distance); on multiplayer levels it is halved (cap
+       0.0667, × 0.5, at most 0.75° a frame), and with the hacker ray (item 13) active
+       it is 1.53 × with a 0.2 cap, no limit or fade, the pitch a third.
+     - **Its cuts** are in the hero's look block, as UYA's: quick turn 0 (hero+0x19C8),
+       yaw 0.5, pitch 0.6, with the strafe pull's 0.666 and 0.85 and the cone after them
+       **[read in the DreadZone savestate's hero]**. The ray hits a target's collision, as
+       UYA's.
+   - **In the look** (free-look flag bit 0) each axis takes the further pushed of the two
+     sticks, as UYA's, but there is **no 0.5 floor** and no d-pad under it **[code]**.
+     The look itself (camera mode 4, condition 0x520010) is UYA's: it switches on the 7th
+     frame of the request, steering the follow camera to his facing at 0.0698 rad a
+     frame meanwhile, and at once from mode 0x20 **[code]**.
 2. **Camera position** (`hero_look_place`, 0x562E40):
+   - **The eye guard only works with the eye held low:** UYA's 0.4 u sphere (0x21E754)
+     swept from 0.7 u above the feet to the pivot, pulling the pivot back on a hit, runs
+     only while the eye height (hero+0x1AFC) is under 1.15. So it acts in a jump's hold
+     and the landing after, not at the lock-strafe's 2.0 or first person's 1.15 **[code]**.
    - **camera = pivot − forward × d**, d = 6.0 (`CameraOffset` (−6, 0, 0)). It orbits a
      6 u sphere round the pivot: at 70° down it is 5.6 u above it.
    - **The pivot used is last frame's** (the pivot is updated after the camera), so the
@@ -1179,8 +1198,8 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   linear stick and quick turn from the second tick, the limits and the up limit's ease
   (UYA's held look re-setting it each tick), the eye's speed-up-and-brake spring
   (0x445300; 13 ticks from 1.75 to 2.0, as traced), the jump hold, the look-down shift,
-  the eye guard, and the lock-strafe offset with its ray cut, ease-out and (UYA) end
-  sphere. The camera uses last tick's eye.
+  the eye guard (DL's only with the eye under 1.15), and the lock-strafe offset with its
+  ray cut, ease-out and (UYA) end sphere. The camera uses last tick's eye.
 - **Its aim assist** (2026-10-22, `FreeLookAssist`; items 2, 4 to 6 and 0x410B08 read
   further in code): the target the view's ray hits (weight 1), else the lowest distance ×
   (1 + weight) in sight within 30 u and 15°, among the targets each better than all
@@ -1193,7 +1212,8 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   across by 0.666 × weight (at most 1.5° a tick) and up or down by 0.85 × weight, the
   pitch alone faded from 12 u to 4 [code]. The ray's hit is a target's middle within
   1 u of it [placeholder: the game tests the moby's collision]; the targets are the
-  kit's `AimTarget`s. DL keeps UYA's [not read in DL]. It is the stick's: once the
+  kit's `AimTarget`s. DL's has its 35 u, 20° and quick turn ("Lock-strafe, DL's
+  default"). It is the stick's: once the
   mouse turns the view there is none until the stick does (§5, 2026-10-22).
 - **The third-person look** waits 7 ticks while the follow camera steers to his facing,
   blends in at 0.075 and is ready at half way, takes the further pushed of the two sticks

@@ -71,6 +71,9 @@
     // ("The HUD": 180 frames [code]).
     level_up_seconds: 3.0,
     level_up_colour: (0.55, 0.95, 0.45),
+    // Brought back after a death or a fall out of the level, UYA's screen is black and
+    // clears by 1/8 a frame ("Getting hit and dying" [verified on UYA NTSC]).
+    respawn_fade_seconds: 0.1333333,
 
     // The ring round the middle of the screen, slot 0 at the top and the rest clockwise.
     ring: (

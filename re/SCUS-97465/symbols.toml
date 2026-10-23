@@ -124,7 +124,7 @@ name = "hero_stick_move"
 address = 0x0067C5F8
 kind = "function"
 confidence = "medium"
-note = "Turns the stick (hero+0x120) into a camera-relative move direction and a target speed (scale × stick length), as UYA's hero_stick_move_angle, mode 1 snapping an axis under 0.12 to 0 while the other is over 0.7. While strafing, outside state 16, sorts the stick into the side (hero+0x5F7): back within 60 degrees of straight back (UYA 45), tested first, then right and left within 45, else forward; walking backwards (hero+0x5F6) past m 0.05 (UYA 0.15)."
+note = "Turns the stick (hero+0x120) into a camera-relative move direction and a target speed (scale × stick length), as UYA's hero_stick_move_angle, mode 1 snapping an axis under 0.12 to 0 while the other is over 0.7, though all 26 calls pass 0. While strafing, outside state 16, sorts the stick into the side (hero+0x5F7): back within 60 degrees of straight back (UYA 45), tested first, then right and left within 45, else forward; walking backwards (hero+0x5F6) past m 0.05 (UYA 0.15)."
 
 [[symbol]]
 name = "hero_turn_by"
@@ -492,7 +492,7 @@ name = "hero_walk_stick_target"
 address = 0x0067CAF8
 kind = "function"
 confidence = "medium"
-note = "The walk's and fall's speed target: walk_speed × frame_dt × stick magnitude × hero+0x2FC0 (libdl's Speed, 1.0 here)."
+note = "The walk's and fall's speed target: walk_speed × frame_dt × stick magnitude × hero+0x2FC0 (libdl's Speed, 1.0 here); wading (114) × 0.8, at least 2.5 u/s × frame_dt, as UYA's."
 
 [[symbol]]
 name = "walk_speed"
@@ -1793,14 +1793,21 @@ name = "hero_look_update"
 address = 0x005620A0
 kind = "function"
 confidence = "high"
-note = "DL's free-look camera (UYA 0x410B08): right-stick yaw and pitch speeds (scale fov / 1.11 x lerp(0.25, 1.25, speed / 64)), the fast gear after two frames past 0.99, the aim assist, the limits, then hero_look_place. Verified in dlntsc-dreadzone-cam-1."
+note = "DL's free-look camera (UYA 0x410B08): right-stick yaw and pitch speeds (scale fov / 1.11 x lerp(0.25, 1.25, speed / 64)), the fast gear after two frames past 0.99, the aim assist, the limits, then hero_look_place. Verified in dlntsc-dreadzone-cam-1. Its rates and cuts are in the look block (hero+0x19B8..0x19EC). In the look (flag bit 0) each axis is the further pushed stick, with no 0.5 floor or d-pad as UYA has."
+
+[[symbol]]
+name = "camera_look_cond"
+address = 0x00520010
+kind = "function"
+confidence = "high"
+note = "Camera mode 4's condition (camera_mode_table): while the hero asks for 4 or 0x51, counts frames and switches on the 7th, steering the follow camera to his facing at 0.0698 rad a frame meanwhile; from mode 0x20 at once. As UYA's."
 
 [[symbol]]
 name = "hero_look_place"
 address = 0x00562E40
 kind = "function"
 confidence = "high"
-note = "Places the lock-strafe camera at the pivot - forward x d (d = 6), cut in on a ray hit to the hit - 0.5 and eased out at 1/180 u a frame per frame up to 1/3. Verified."
+note = "Places the lock-strafe camera at the pivot - forward x d (d = 6), cut in on a ray hit to the hit - 0.5 and eased out at 1/180 u a frame per frame up to 1/3. Verified. First, while the eye height (hero+0x1AFC) is under 1.15, pulls the pivot back along a 0.4 u sphere (0x21E754) swept from 0.7 u above the feet (UYA sweeps always)."
 
 [[symbol]]
 name = "hero_aim_search"
@@ -1909,7 +1916,7 @@ name = "level_kill_height"
 address = 0x00222BFC
 kind = "data"
 confidence = "medium"
-note = "Below this height, more than 2 u over the ground, hero_transitions starts the death fall (state 118, libdl's DEATH_FALL), which empties the hero's health after 120 frames. DL has no zip lines; UYA's single player uses 118 for them."
+note = "Below this height, more than 2 u over the ground, hero_transitions starts the death fall (state 118, libdl's DEATH_FALL), which falls through the floor and at state frame 121 empties the hero's health and reports the death (verified, dlntsc-dreadzone-death-2; 100 on DreadZone Station). DL has no zip lines; UYA's single player uses 118 for them."
 
 [[symbol]]
 name = "hero_detect_ledge"
@@ -2007,7 +2014,7 @@ name = "hero_floor_material"
 address = 0x00672298
 kind = "function"
 confidence = "high"
-note = "UYA's hero_floor_material with DL's material numbers: material 5 damages by the most health (hero+0x2F24) / 8 in integers, sets the 90-frame safe timer hero+0x39C and enters state 144, which zeroes the motion (hero_stop_motion) and stands 41 frames on the get-hit update."
+note = "UYA's hero_floor_material with DL's material numbers: material 5 damages by the most health (hero+0x2F24) / 8 in integers, sets the 90-frame safe timer hero+0x39C and enters state 144, which zeroes the motion (hero_stop_motion) and stands 41 frames on the get-hit update. Also the water's: the depth (surface hero+0x2E0 less floor hero+0x2C8) into hero+0x2E14, the wading flag hero+0x2661 at 0.25-0.85 u, and puddles (material 14): the surface 0.25 u above the floor (UYA 0.2) and the depth written as 0.2."
 
 [[symbol]]
 name = "hero_stop_motion"
@@ -2041,8 +2048,41 @@ confidence = "high"
 note = "|a - b| folded to 0..pi."
 
 [[symbol]]
+name = "hero_find_rail"
+address = 0x00673810
+kind = "function"
+confidence = "high"
+note = "UYA's hero_find_rail: with the no-rail timer (hero+0x3FE) at 0, looks for a rail with the feet 0.5 below to 0.57 above its nearest point and sets the found flag (hero+0x4AC). Never takes one in the grind jump (40); in state 63 with hero+0x504 set, skips the rail ridden."
+
+[[symbol]]
+name = "rail_nearest"
+address = 0x006732D0
+kind = "function"
+confidence = "high"
+note = "UYA's rail_nearest (0.9 u horizontally, 0.3 when hero+0x25D4 < 2, 1.5 u vertically, something solid under it), skipping rails whose flag word (+0x18) is nonzero; can skip or require one rail."
+
+[[symbol]]
 name = "hero_death_done"
 address = 0x0067A4F8
 kind = "function"
 confidence = "medium"
 note = "UYA's hero_death_done: reports the death unless hero+0x420 is set; in single player counts it in the stats and sets 0x368BE8, which the level takes up for the respawn (not read). Death (57, 148; entry 0x699F48, sequence 58) calls it when a 10-frame counter at hero+0x3F8 runs out, or once the animation is done, a timer at hero+0x3DC has run out and the state is over 80 frames old (1 on multiplayer levels)."
+
+# 2026-10-23, the step limit (PLAN.md RE.3; docs/research/hero-controller.md, "Found in the
+# traces").
+
+[[symbol]]
+name = "hero_move_step"
+address = 0x0067F5E8
+kind = "function"
+confidence = "high"
+note = "The hero's move: caps the intended motion at the radius (hero+0x204) less 0.02, once the squared length passes hero+0x240 - 0.0004 (the whole vector; the horizontal part for the grind's type 15 and the jump attack's group), adds it to the position and runs the collision. Called from 0x684A60. Exempt: types 13 and 14, and while hero+0x3A0 runs. First calls hero_platform_carry, except on multiplayer levels."
+
+# 2026-10-23, moving platforms (docs/research/hero-controller.md, "Moving platforms").
+
+[[symbol]]
+name = "hero_platform_carry"
+address = 0x0068B258
+kind = "function"
+confidence = "medium"
+note = "UYA's hero_platform_carry with per-second literals × frame_dt: off the platform 2 u/s² (20 with the moby's flag 0x10) across and 25 u/s² vertically × frames off the ground; no critter-mode clause. hero_move_step skips it on multiplayer levels (multiplayer_flag)."

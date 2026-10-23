@@ -498,7 +498,8 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
 - **The raised gun arm** (`gun_arm_raised`, 0x1A7454; libuya's `raisedGunArm`), each
   frame with a gun in hand (0x4E26F8): a ray 0.57 u up (0.7 while firing) from just inside
   his radius to 1.3 u ahead; if it hits a wall, the arm points up by
-  `−70° × 1.25 × (1.3 − d) / 1.3` (d from the ray's start to the hit), clamped to
+  `−70° × 1.25 × (1.3 − d) / 1.3` (d the hit's distance from his feet less his radius,
+  0x1A4E64), clamped to
   −30° … −70°, and the flag is set. Guns then aim along the gun (the Annihilator) or
   delay the shot's hit to 5 frames (the Shock Blaster). In the lock-strafe camera the arm
   follows the camera's pitch instead (0x1A6180, clamped to −80° … 45°) and the flag
@@ -542,6 +543,38 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
   ready, R1 fires as well as Circle, and letting go of the look's button goes back to idle.
   The Shock Blaster waits 40 frames from entering it before it fires (0x1A749C, reset to
   40 whenever he isn't in it), as the Nitro Launcher does (below).
+
+### Deadlocked's side of firing [code, DL NTSC, 2026-10-23]
+
+Read in DL's code on DreadZone Station against UYA's functions above. The item in hand
+is hero+0x2318 (libdl's weapon ids: 1 the wrench, 2 the Dual Vipers, 3 the Magma Cannon,
+4 the Arbiter, 5 the Fusion Rifle); firing is hero+0x265A.
+- **The walk's turn while firing** (0x67D100, DL's `hero_walk_turn`): UYA's numbers
+  (gain 0.009 m, damping 0.15, cap 4.5° m a frame up to a 0.95 stick; 0.017, 0.18 and
+  8.33° above; the caps written per second, as DL's literals are), but only while the
+  Dual Vipers fire and he isn't skidding (hero+0x1C8F), where UYA's are its four
+  automatic guns.
+- **Firing in the gun cameras** (0x67CFD0, the turn every move's turning goes through):
+  not UYA's tripling. In the lock-strafe **and** first-person cameras (hero+0x1AE0 not
+  0), while firing or with R1 or Circle in the last 2 frames, and with anything but the
+  wrench in hand, the turn's gain is raised to at least 0.2 a frame and its cap to at
+  least 50° a frame (52.36 rad/s), which all but snaps him to the camera. Not in state 63
+  (the grind turn).
+- **The raised gun arm** (0x670A50, ray 0x6708B0): UYA's ray (0.57 u up, 0.7 firing,
+  from 0.02 inside his radius) and `(1.3 − d) / 1.3 × 1.25` × the most, but:
+  - the ray runs to 2.3 u, and a hit counts within 1.3 u **of its start**, so walls up
+    to about 1.73 u ahead of his centre raise the arm, where UYA's ray ends 1.3 u ahead;
+  - the angles depend on the item: the Fusion Rifle 0°–30°, the Dual Vipers 0°–25°,
+    item 9 0°–45°, anything else 30°–40° (UYA 30°–70° for every gun);
+  - in lock-strafe the camera's pitch, kept from 80° up to 20° down (UYA 45° down), with
+    small offsets: 8.5° down standing with the Arbiter or Fusion Rifle, 6.5° up with
+    hero+0x2658 set (not read), and for the Vipers or Magma Cannon with gadget 7 or 0x56
+    23° or 28° more;
+  - in first person (hero+0x1AE0 = 2) the camera's pitch 10° lower, with no wall ray,
+    kept to the same limits (9° up with hero+0x2658 set). UYA's arm doesn't follow the
+    first-person camera.
+  - The ray's result is cached (hero+0x2F90 to +0x2F98) while the height stays within
+    0.133 u.
 
 ### The hero's joint springs [code, data, UYA NTSC, 2026-10-22]
 

@@ -24,6 +24,11 @@ pub struct WaterVolume {
 /// is found (`hero_ground_probe`'s first cast).
 pub const PROBE_ABOVE: f32 = 2.2;
 
+/// How far under its bottom a box still holds the feet: a hero standing on the floor the
+/// box rests on sits a hair below it, and the games' probe, finding the surface from
+/// above, has no bottom.
+const BOTTOM_SLACK: f32 = 0.05;
+
 impl WaterVolume {
     pub fn new(centre: Vec3, half_extents: Vec3) -> Self {
         Self {
@@ -39,7 +44,7 @@ impl WaterVolume {
     fn holds(&self, feet: Vec3) -> bool {
         (self.min.x..=self.max.x).contains(&feet.x)
             && (self.min.z..=self.max.z).contains(&feet.z)
-            && (self.min.y..=self.max.y + PROBE_ABOVE).contains(&feet.y)
+            && (self.min.y - BOTTOM_SLACK..=self.max.y + PROBE_ABOVE).contains(&feet.y)
     }
 }
 
@@ -66,6 +71,8 @@ mod tests {
         assert_eq!(surface_at(&pool, Vec3::new(1.0, 0.5, -2.0)), Some(2.0));
         assert_eq!(surface_at(&pool, Vec3::new(1.0, 4.0, -2.0)), Some(2.0));
         assert_eq!(surface_at(&pool, Vec3::new(1.0, 4.5, -2.0)), None);
+        // Standing on the floor at its bottom.
+        assert_eq!(surface_at(&pool, Vec3::new(1.0, -1e-6, -2.0)), Some(2.0));
         assert_eq!(surface_at(&pool, Vec3::new(6.0, 1.0, 0.0)), None);
         assert_eq!(surface_at(&pool, Vec3::new(0.0, -0.5, 0.0)), None);
     }

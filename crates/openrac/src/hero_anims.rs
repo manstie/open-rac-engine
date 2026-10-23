@@ -48,6 +48,8 @@ const MOVES: &[(RigMove, usize, bool, usize)] = &[
     (RigMove::SetOff, 3, true, 15),
     (RigMove::Run, 4, true, 16),
     (RigMove::StrafeBack, 20, true, 0),
+    // Wading's own sequence, which Ratchet's class has (`hero-controller.md`, "Wading").
+    (RigMove::Wade, 80, true, 0),
     (RigMove::Skid, 6, false, 0),
     (RigMove::RunSkid, 5, false, 0),
     (RigMove::Crouch, 13, false, 2),

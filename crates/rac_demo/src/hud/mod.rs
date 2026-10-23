@@ -27,7 +27,7 @@ use rac_combat::{
         ring::{RINGS, SLOTS},
     },
 };
-use rac_hero::{Health, Hero};
+use rac_hero::{Health, Hero, HeroRespawned};
 use serde::{Deserialize, Serialize};
 
 use crate::{Bolts, DemoEntity};
@@ -76,6 +76,9 @@ pub struct HudLayout {
     /// A gun's level up stays on screen this long.
     pub level_up_seconds: f32,
     pub level_up_colour: Rgb,
+    /// Brought back after a death or a fall, the view fades in from black over this long,
+    /// under the HUD.
+    pub respawn_fade_seconds: f32,
     pub ring: RingLayout,
     /// The icon's shape for each fire mode.
     pub shapes: Shapes,
@@ -403,6 +406,11 @@ pub fn health_pips(current: u32, max: u32, most_pips: u32) -> (u32, u32) {
     (pips, lit as u32)
 }
 
+/// The respawn's fade `seconds` later: it clears evenly from 1 (black) over `over`.
+pub fn fade_after(fade: f32, seconds: f32, over: f32) -> f32 {
+    (fade - seconds / over.max(1e-3)).max(0.0)
+}
+
 /// How strongly an ammo count pulses now: by `pulse` under `low_share` of its most.
 pub fn ammo_pulse(ammo: Ammo, low_share: f32, pulse: f32) -> f32 {
     if (ammo.now as f32) < ammo.most as f32 * low_share {
@@ -459,6 +467,7 @@ impl Plugin for HudPlugin {
                 (
                     note_level_ups,
                     note_kills,
+                    note_respawns,
                     draw_huds,
                     sights::add_sight_sprites,
                 )
@@ -488,6 +497,8 @@ pub struct PlayerHud {
     clock: HudClock,
     /// He killed something since the last frame.
     killed: bool,
+    /// The respawn's fade still to clear, from 1 (black) to 0.
+    fade: f32,
 }
 
 impl PlayerHud {
@@ -499,6 +510,7 @@ impl PlayerHud {
             notice: None,
             clock: HudClock::default(),
             killed: false,
+            fade: 0.0,
         }
     }
 }
@@ -512,6 +524,7 @@ struct HudPart {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Part {
+    Fade,
     Health,
     Pip(u32),
     HealthCount,
@@ -621,6 +634,18 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
             },
         ))
         .with_children(|root| {
+            // First, so everything else draws over it.
+            root.spawn((
+                part(Part::Fade),
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                BackgroundColor(Color::BLACK),
+                Visibility::Hidden,
+            ));
             let health = &layout.health;
             let (mut node, back) = panel(layout);
             node.position_type = PositionType::Absolute;
@@ -860,9 +885,20 @@ fn note_kills(mut kills: MessageReader<Destroyed>, mut huds: Query<&mut PlayerHu
     }
 }
 
+/// Blacks out each player who was just brought back, to fade in.
+fn note_respawns(mut respawns: MessageReader<HeroRespawned>, mut huds: Query<&mut PlayerHud>) {
+    for respawn in respawns.read() {
+        for mut hud in huds.iter_mut().filter(|hud| hud.player == respawn.player) {
+            hud.fade = 1.0;
+        }
+    }
+}
+
 /// One player's view this frame, with the HUD's own timers.
 struct Shown {
     player: usize,
+    /// The respawn's fade, 1 (black) to 0.
+    fade: f32,
     view: HudView,
     showing: Showing,
     /// The ammo flash's share left, 1 to 0.
@@ -924,8 +960,11 @@ fn draw_huds(
         if over {
             hud.notice = None;
         }
+        let fade = hud.fade;
+        hud.fade = fade_after(hud.fade, seconds, layout.respawn_fade_seconds);
         shown.push(Shown {
             player: hud.player,
+            fade,
             view,
             showing,
             flash: hud.flash / layout.ammo_flash_seconds.max(1e-3),
@@ -951,6 +990,10 @@ fn draw_huds(
             rgb(colour).mix(&rgb(layout.pulse_colour), pulse)
         };
         match part.part {
+            Part::Fade => {
+                look.show(shown.fade > 0.0);
+                background.set_if_neq(BackgroundColor(Color::BLACK.with_alpha(shown.fade)));
+            }
             Part::Health => look.show(showing.health),
             Part::Pip(pip) => {
                 let (current, max) = view.health.unwrap_or((0, 0));
@@ -1288,6 +1331,20 @@ mod tests {
             assert!((bundled - game).abs() < 1e-3, "{bundled} against {game}");
         }
         assert_eq!(timings.low_share, 0.15);
+    }
+
+    #[test]
+    fn the_respawn_fade_clears_by_an_eighth_a_frame() {
+        let layout: HudLayout = ron::from_str(HUD_RON).unwrap();
+        let mut fade = 1.0;
+        for frame in 1..=8 {
+            fade = fade_after(fade, 1.0 / 60.0, layout.respawn_fade_seconds);
+            assert!(
+                (fade - (1.0 - frame as f32 / 8.0)).abs() < 1e-4,
+                "{frame}: {fade}"
+            );
+        }
+        assert_eq!(fade, 0.0);
     }
 
     #[test]

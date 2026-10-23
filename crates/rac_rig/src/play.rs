@@ -640,6 +640,7 @@ fn rate(movement: Option<RigMove>, speed: f32) -> f32 {
         Some(RigMove::SetOff) => (per_frame * 157.0).clamp(0.6, 4.0),
         Some(RigMove::Run) => (per_frame * 13.0).clamp(0.6, 2.2),
         Some(RigMove::StrafeBack) => (per_frame * 25.0).clamp(0.7, 2.2),
+        Some(RigMove::Wade) => (per_frame * 35.0).clamp(0.6, 1.05),
         Some(RigMove::DoubleJump) => 0.8,
         _ => 1.0,
     }
@@ -768,6 +769,10 @@ mod tests {
         assert_eq!(rate(Some(RigMove::Run), 30.0), 2.2);
         assert_eq!(rate(Some(RigMove::SetOff), 0.0), 0.6);
         assert_eq!(rate(Some(RigMove::SetOff), 2.0), 4.0);
+        // Wading: 35 × the speed a frame, from 0.6 to 1.05, so 1.05 from 1.8 u/s.
+        assert_eq!(rate(Some(RigMove::Wade), 0.5), 0.6);
+        assert!((rate(Some(RigMove::Wade), 1.2) - 0.7).abs() < 1e-5);
+        assert_eq!(rate(Some(RigMove::Wade), 4.9), 1.05);
     }
 
     #[test]

@@ -45,6 +45,8 @@ pub struct HeroProfile {
     pub grind: GrindProfile,
     pub zip_line: ZipLineProfile,
     pub swim: SwimProfile,
+    pub wade: WadeProfile,
+    pub platform: PlatformProfile,
     pub melee: MeleeProfile,
     pub gun: GunProfile,
     pub hit: HitProfile,
@@ -681,6 +683,11 @@ pub struct GrindProfile {
     pub chain: Option<GrindChain>,
     /// A jump press this recent jumps off the rail.
     pub jump_press_window: u32,
+    /// A jump off a rail that comes down onto it grinds again this many ticks later (UYA
+    /// 1, DL 0). Past its rail's end, a grind jump lands on another rail only if
+    /// `jump_finds_rails` (UYA).
+    pub land_ticks: u32,
+    pub jump_finds_rails: bool,
     /// The grind jump and the switch jump (states 40 and 41).
     pub jump: JumpParams,
     pub switch_jump: JumpParams,
@@ -879,6 +886,33 @@ pub struct SwimProfile {
     pub under_stroke_rate_per_speed: f32,
     pub under_stroke_rate_min: f32,
     pub under_stroke_rate_max: f32,
+}
+
+/// Wading: the walk in shallow water (UYA's state 117, DL's 114; `hero-controller.md`,
+/// "Wading"). Strafing never wades.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WadeProfile {
+    /// Water deeper than `depth_above` and shallower than `depth_below`, from its surface
+    /// down to the floor, wades.
+    pub depth_above: f32,
+    pub depth_below: f32,
+    /// The walk's speed target × `speed_scale`, but never under `min_speed` (u/s), even with
+    /// the stick released.
+    pub speed_scale: f32,
+    pub min_speed: f32,
+    /// Instead of the walk's stop, he stops once the stick is let go (in its dead zone) and
+    /// he is slower than `stop_below` (u/s).
+    pub stop_below: f32,
+}
+
+/// Off a moving platform, its last move a tick carries on through the air, the part
+/// across shortened by `air_brake` and the part up or down brought towards 0 by
+/// `air_brake_vertical` (u/s²), each × the ticks since he left it (`hero-controller.md`,
+/// "Moving platforms").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlatformProfile {
+    pub air_brake: f32,
+    pub air_brake_vertical: f32,
 }
 
 /// The wrench: the three-swing combo (state 19), the jump attack (20) and the throw (21)
@@ -1183,31 +1217,62 @@ pub struct GunProfile {
     /// Letting go of the walk with a gun in hand brakes at the walk's `brake` for this many
     /// ticks and then idles: only the wrench arms the release skid.
     pub stop_ticks: u32,
-    /// In the lock-strafe camera, firing or a fire press in the last `fire_turn_ticks`
-    /// scales the strafe turn's gain and cap by `fire_turn_scale`.
-    pub fire_turn_scale: f32,
+    /// In the lock-strafe camera (and the first-person one with
+    /// `fire_turn_first_person`), firing or a fire press in the last `fire_turn_ticks`
+    /// turns him to the camera faster.
+    pub fire_turn: FireTurn,
     pub fire_turn_ticks: u32,
+    pub fire_turn_first_person: bool,
     /// The gun arm raised against a wall ahead.
     pub raise: GunRaise,
 }
 
+/// How firing in the gun cameras speeds up the strafe turn.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum FireTurn {
+    /// UYA's: the turn's gain and cap times this.
+    Scale(f32),
+    /// DL's: the turn's gain and cap raised to at least these, the cap in radians a tick.
+    AtLeast { gain: f32, cap: f32 },
+}
+
+impl FireTurn {
+    pub fn apply(self, spring: &mut TurnSpring) {
+        match self {
+            FireTurn::Scale(scale) => {
+                spring.gain *= scale;
+                spring.cap *= scale;
+            }
+            FireTurn::AtLeast { gain, cap } => {
+                spring.gain = spring.gain.max(gain);
+                spring.cap = spring.cap.max(cap);
+            }
+        }
+    }
+}
+
 /// The gun arm raised against a wall close ahead (`weapons.md`, "The raised gun arm"): a
 /// ray `height` up (`firing_height` while the gun fires) from `radius − start_inside`
-/// ahead of his feet to `reach` ahead. If it hits at `d` from his feet, the arm turns up
-/// by `most × scale × (reach − (d − radius)) / reach`, kept within `least` and `most`.
+/// ahead of his feet to `reach` ahead, or `reach` past its start with
+/// `reach_from_start` (DL's). If it hits at `d` from his feet, the arm turns up by
+/// `most × scale × (reach − (d − radius)) / reach`, kept within `least` and `most`.
 /// In the lock-strafe camera the arm follows the camera's pitch instead, from `strafe_down`
-/// below level to `strafe_up` above, unless the wall raises it further. Degrees.
+/// below level to `strafe_up` above, unless the wall raises it further; with
+/// `first_person_lower` (DL's) the first-person camera's pitch that much lower, within the
+/// same limits, wall or not. Degrees.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GunRaise {
     pub height: f32,
     pub firing_height: f32,
     pub start_inside: f32,
     pub reach: f32,
+    pub reach_from_start: bool,
     pub scale: f32,
     pub least: f32,
     pub most: f32,
     pub strafe_up: f32,
     pub strafe_down: f32,
+    pub first_person_lower: Option<f32>,
 }
 
 /// Being knocked back (`hero-controller.md`, "Getting hit and dying").
@@ -1239,8 +1304,22 @@ pub struct HitProfile {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeathProfile {
-    /// How long the hero lies dead before he comes back at his checkpoint.
+    /// How long the hero lies dead before he comes back at his checkpoint, the tick he
+    /// dies on included.
     pub ticks: u32,
+    pub fall_out: FallOutProfile,
+}
+
+/// Falling out of the level (UYA's state 121, DL's 118): under the level's kill height
+/// (`Hero::respawn_below`) and more than `above_ground` over the ground, he falls on with
+/// no control, and comes back at his checkpoint, healed as after a death, when its tick
+/// count reaches `ticks`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FallOutProfile {
+    pub above_ground: f32,
+    pub ticks: u32,
+    /// Whether he still collides with the level, or falls through it (DL's).
+    pub collides: bool,
 }
 
 /// A damped spring without a cap: each tick the rate gains `gain × error` and loses
@@ -1499,9 +1578,12 @@ pub struct FreeLookProfile {
     /// Looking straight down moves the eye this far forward.
     pub look_down_forward: f32,
     /// A sphere of `eye_guard_radius` swept from `eye_guard_from` above his feet to the eye
-    /// keeps the eye out of walls.
+    /// keeps the eye out of walls; with `eye_guard_below`, only while the eye is held lower
+    /// than that (DL).
     pub eye_guard_from: f32,
     pub eye_guard_radius: f32,
+    #[serde(default)]
+    pub eye_guard_below: Option<f32>,
     /// The lock-strafe camera sits `offset` behind the eye along the view. A ray
     /// `offset_ray_extra` longer that hits something cuts it to the hit less that much at
     /// once; it eases back out at up to `offset_speed`, speeding up and braking by
@@ -1684,9 +1766,11 @@ mod tests {
             // names of each as the same value.)
             [
                 "camera.distance",
+                "camera.free_look.assist",
                 "camera.free_look.end_sphere_radius",
                 "camera.free_look.eye_accel",
                 "camera.free_look.eye_first_person",
+                "camera.free_look.eye_guard_below",
                 "camera.free_look.eye_on_switch",
                 "camera.free_look.eye_speed",
                 "camera.free_look.first_person_lead_ticks",
@@ -1695,6 +1779,7 @@ mod tests {
                 "camera.free_look.jump_hold_ledge",
                 "camera.free_look.jump_hold_until",
                 "camera.free_look.lock_strafe_limits.up_degrees",
+                "camera.free_look.look_stick_threshold",
                 "camera.free_look.pitch_accel",
                 "camera.free_look.pitch_speed",
                 "camera.free_look.quick_accel",
@@ -1703,15 +1788,31 @@ mod tests {
                 "camera.free_look.up_limit_rest_degrees",
                 "camera.free_look.yaw_accel",
                 "camera.free_look.yaw_speed",
+                // "Getting hit and dying".
+                "death.fall_out.collides",
+                "death.ticks",
                 "double_jump.after_tick",
                 "double_jump.cap",
                 "fall.air_speed",
                 "glide.sink",
                 "glide.speed",
                 // "Deadlocked's grinding".
+                "grind.accel",
                 "grind.chain",
+                "grind.jump_finds_rails",
+                "grind.land_ticks",
+                "grind.slope_max",
+                "grind.slope_rise",
+                "grind.speed",
                 "grind.stance_degrees",
                 "grind.turn_round",
+                // "Deadlocked's side of firing".
+                "gun.fire_turn",
+                "gun.fire_turn_first_person",
+                "gun.raise.first_person_lower",
+                "gun.raise.most",
+                "gun.raise.reach_from_start",
+                "gun.raise.strafe_down",
                 // "Deadlocked's hits".
                 "hit.fall_after_tick",
                 "hit.safe_ticks",
@@ -1723,7 +1824,6 @@ mod tests {
                 "ledge.climb_forward_from_tick",
                 "ledge.climb_forward_stop_tick",
                 "ledge.climb_forward_until_tick",
-                "ledge.double_jump_after_tick",
                 "ledge.grab_rising_below",
                 "ledge.grab_ticks",
                 "ledge.lip_walk",

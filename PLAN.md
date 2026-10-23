@@ -64,10 +64,9 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. RE.3 and P1.5: a trace of a death in UYA or DL for `death.ticks`, since the respawn is
-   the level's code. DL's movement sections are read; left in `dl.ron` as UYA's are
-   smaller items (the flick, the landing, the strafe flip's stick, the wrench's line, the
-   gun arm, some camera numbers, and grinding's reach, switch search and speed).
+1. RE.3's remaining to-dos are captures: a diagonal part-tilted stick on UYA NTSC, and
+   two small DL timings left open by the update-order check (RE.3's notes). DL's
+   movement is read throughout `dl.ron`.
 2. The guns' effects from the disc (P3.18), with the whip's links and shield, then
    P1.10's nanotech, explosive and doubler crates ("Ammo
    pickups, crates and the vendor").
@@ -384,10 +383,16 @@ committed (names, addresses, layouts, derived constants).
     cycles of 0.60 u (`hero-controller.md`, "Deadlocked's moves", "Deadlocked's
     ledges").
   - DL's trace rows are read part way through the hero's update: the animation frame is
-    a tick ahead of the state and motion (`re-setup.md`, "Rows read mid-update"). It
-    made DL's attacks a frame short in the kit (P1.8). Other one-frame rules read from
-    DL's traces (the double jump's 11th tick, the flip's and ledges' timings) are still
-    to be checked against the update's order.
+    a tick ahead of the state and motion, and the timer one behind what the transitions
+    see; UYA's rows come after the whole update (`re-setup.md`, "Rows read mid-update";
+    `hero-controller.md`, "Reading the traces"). Rechecked on that basis: DL's double
+    jump at `t > 10` is in its code; its attack from a double jump waits a tick longer
+    (13), and UYA's grab hangs at 14, each a tick later than the kit had; the ledge
+    grab's double-jump limits were frame numbers taken for ticks (now its 31st tick in
+    both games).
+  - Open from that check: DL's after-flip attack window (its flips play another sequence,
+    untimed, so the kit keeps UYA's), and a held press that attacked from a DL double
+    jump two ticks late, possibly a timer at hero+0x3BA that no trace records.
   - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
     rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
     clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides,
@@ -395,12 +400,15 @@ committed (names, addresses, layouts, derived constants).
     dive, hits (a 47- or 70-frame safe time by camera), swimming (UYA's otherwise), the
     stick with no cut-off and its length as m, strafing's 60° back, 0.05 back stick
     and side change that stops both ways, grinding facing along the rail with its back
-    to the camera (a hop round past 120°, state 63) and chained rails, and death, which
-    reports 10 frames in: "Deadlocked's moves", "Deadlocked's hits", "Deadlocked's
+    to the camera (a hop round past 120°, state 63) and chained rails, and death's
+    10-frame early report: "Deadlocked's moves", "Deadlocked's hits", "Deadlocked's
     swimming", "Input", "Deadlocked's strafing", "Deadlocked's grinding", "Getting hit
     and dying".
-  - Both games' death ends by reporting to the level's code, which respawns the hero (not
-    read), so `death.ticks` needs a trace of a death.
+  - Death, falling out of the level (UYA 121, DL 118) and the respawn are traced in both
+    games ("Getting hit and dying"): UYA's death lasts 109 frames and DL's 82, each fall
+    122; the level brings him back healed (UYA in place, with an 8-frame fade-in; DL by
+    reloading the level). Falls end at the 0.43 u step limit, which caps the whole
+    motion.
   - DL's lock-strafe camera is read and traced under RE.4 (`camera.md`, "Deadlocked's
     camera").
   - `hero-controller.md` had DL's skid crouch on R1 "as UYA"; DL's code works out R1's
@@ -413,16 +421,42 @@ committed (names, addresses, layouts, derived constants).
     so it is 0.2 u in both games. Corrected in both profiles.
   - Both games' climbs hang still through the push-off and a frame more (traces), where
     the kit pressed the hero down and left a frame early. Fixed in the kit.
-  - To do (`hero-controller.md`, "Next steps"): a trace of a death in either game; the
-    smaller items `dl.ron` still marks "not read in DL"; which callers of
-    the move-angle function snap the stick's axes ("Input", 5); wading (state 117); how the games carry the hero on moving platforms; and a diagonal part-tilted
-    stick on NTSC (the dead zone, the 0.25 cut-off and the speed's scaling are verified
-    with `AXIS_SCALE` keys).
+  - The move-angle function's axis snap (mode 1) has no caller in either game, so the
+    stick is never snapped, as in the kit ("Input", 5).
+  - Wading (UYA 117, DL 114) is read in both games' code, the same but for its numbers,
+    and is in the kit (P1.5; "Wading"). Untraced.
+  - Moving platforms are read in both games' code (UYA 0x50DB78, DL 0x68B258): the
+    platform's move carries him and turns him, and off it its last move carries on
+    through the air, losing 2 u/s² across and 25 u/s² vertically for every frame off
+    it. The kit has the carry off it; turning and the moby flags aren't modelled
+    ("Moving platforms").
+  - To do (`hero-controller.md`, "Next steps"): a diagonal part-tilted stick on NTSC
+    (the dead zone, the 0.25 cut-off and the speed's scaling are verified with
+    `AXIS_SCALE` keys).
   - DL's chained rails swap only the spline pointer and keep the segment index, so where
     on the new rail he lands wasn't worked out; the kit starts at the new rail's start
     ("Deadlocked's grinding").
-  - Next step: a capture of a death on UYA NTSC, from any savestate where the hero can
-    be killed, logging the frames from state 57 to the respawn.
+  - DL's smaller items are read, so `dl.ron` has nothing left "not read in DL": the
+    fall's landing, the strafe flip's stick, getting on a rail, the switch jump's search,
+    the look's 7-tick lead and the assist's cuts are UYA's; the gun's walk and fire
+    turns, its arm, the aim assist's range, cone and quick turn, the grind's speed (14
+    u/s at 17), the look's stick (no 0.5 floor) and the eye guard (only with the eye
+    under 1.15 u) are DL's own, in `dl.ron` with tests ("Deadlocked's side of firing" in
+    `weapons.md`, "Deadlocked's grinding", `camera.md`, "Lock-strafe, DL's default").
+  - The grind's jumps (40, 41, DL's 63) land on the rail they follow through their own
+    transitions, not the rail search: the fall is cut to end on the rail, and the state
+    is written to 39 without the grind's entry (UYA a frame later, DL at once). Another
+    rail is taken only past the rail's end, and never by DL's grind jump. In the kit
+    with tests ("Grinding", "Deadlocked's grinding").
+  - The 0.43 u step limit is the hero's move capping the motion at the radius less 0.02
+    (UYA 0x4ECDA0, DL 0x67F5E8), the grind's horizontal part only, with a few states
+    exempt; DL's test lets 0.43–0.4496 u through ("Found in the traces"). The kit now
+    caps DL's fall through floors too. Not modelled: the grind's cap, which only DL's
+    28 u/s after a descent reaches.
+  - Next step: captures, which suit Haiku agents: a diagonal part-tilted stick on UYA
+    NTSC (two `AXIS_SCALE` keys, for the `(max + length) / 2` rule), then DL's
+    after-flip attack window (with the animation frame) and a held double-jump attack
+    (with hero+0x3BA in the layout).
 - [x] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
   - Done, UYA NTSC: the follow camera with its height modes, obstacles and collision
     (clearance point, sweep, pull-in, the 30-frame and 30 u resets, the collision masks);
@@ -595,9 +629,20 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     `lock_on.enabled`, `dl.ron`'s `ledge` and `hit`); DL's stick and strafe sides
     (`stick.magnitude`, `walk.start_above`, `strafe.back_degrees`,
     `strafe.reverse_eases`); DL's grinding facing along the rail, its hop round
-    (`JumpKind::GrindTurn`) and chained rails (`grind.turn_round`, `grind.chain`). Tests: `rac_hero/tests/` and
+    (`JumpKind::GrindTurn`) and chained rails (`grind.turn_round`, `grind.chain`); the
+    death's length per game and falling out of the level under its kill height
+    (`HeroState::FallOut`, `death.fall_out`; `Hero::respawn_below` is the kill height,
+    and every respawn heals). Tests: `rac_hero/tests/` and
     `rac_demo/tests/greybox_moves.rs`.
-  - **To do:** auto-jumping rails, wading, and DL's open items under RE.3.
+  - The respawn fades in from black over UYA's 8 frames: the kit sends `HeroRespawned`
+    and the demo's HUD draws the fade (`hud.ron`'s `respawn_fade_seconds`).
+  - Wading (UYA 117, DL 114) is the walk flagged `wading` in water 0.25–0.85 u deep:
+    × 0.8 speed with a 2.5 u/s floor, a stop that waits for the stick to be let go, and
+    sequence 80 in the rig (`wade` in both profiles; RE.3).
+  - Off a moving platform its last move carries him through the air, slowing at 2 u/s²
+    across and 25 u/s² vertically for every tick off it (`platform` in both profiles;
+    RE.3).
+  - **To do:** auto-jumping rails, and DL's open items under RE.3.
   - The motor dropped a skin's width of every slide along a wall, cutting each of DL's
     shimmy steps (which point into the wall) by 0.0016 u; it now keeps all the motion it
     didn't travel (`motor.rs`).
@@ -609,8 +654,10 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     verified on UYA NTSC.
   - The rig took a flip's side from its velocity, which a crouch flip from a run points
     forward; the controller now records the side (`HeroMotion::flip_side`).
-  - **Placeholders:** the death's length, DL's starting health, and the end of the
-    charge's bounce.
+  - **Placeholders:** the end of the charge's bounce.
+  - The motor capped only the motion across at the 0.43 u step limit, so long falls
+    reached 50 u/s; the games cap the whole vector (verified on UYA), so falls now end at
+    25.8 u/s, and a charge off an edge sinks at 6.26 u/s, not the spring's 7.5 (untraced).
   - The hazard surface threw the hero up and back with made-up numbers; both games stop
     him where he stands for 41 ticks and take the most health / 8 (`hit.hazard_ticks`,
     `hazard_divisor`; `hero-controller.md`, "Getting hit and dying"). The rig still plays

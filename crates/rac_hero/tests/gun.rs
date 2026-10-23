@@ -329,6 +329,105 @@ fn held_gun() -> GunHand {
 }
 
 #[test]
+fn firing_in_deadlocked_s_gun_cameras_turns_at_least_at_0_2() {
+    // "Deadlocked's side of firing": the gain raised to 0.2 in lock-strafe and first
+    // person, where UYA's first person doesn't change it.
+    for setting in [CameraSetting::LockStrafe, CameraSetting::FirstPerson] {
+        for (profile, firing, gain) in [
+            (HeroProfile::dl(), false, 0.042),
+            (HeroProfile::dl(), true, 0.2),
+            (HeroProfile::uya(), true, 0.126),
+        ] {
+            let mut rig = Rig::new(gun(firing, false));
+            rig.profile = profile;
+            rig.hero.camera_setting = setting;
+            rig.camera_yaw = FRAC_PI_2;
+            rig.tick(&input(Some(FORWARD), &[], &[]));
+            let gain = if setting == CameraSetting::FirstPerson && gain == 0.126 {
+                0.042
+            } else {
+                gain
+            };
+            let rate = gain * FRAC_PI_2;
+            assert!(
+                (rig.hero.yaw - rate).abs() < 1e-5,
+                "{setting:?}: {} against {rate}",
+                rig.hero.yaw
+            );
+        }
+    }
+}
+
+/// The gun arm with a wall across his path, its near face `gap` ahead of his feet.
+fn arm_with_wall_at(profile: HeroProfile, gap: f32) -> GunArm {
+    let mut rig = Rig::new(held_gun());
+    rig.profile = profile;
+    // Ahead is −z.
+    let wall = BodyPlacement::fixed(
+        Collider::Cuboid {
+            half_extents: Vec3::new(5.0, 3.0, 0.5),
+        },
+        Vec3::new(0.0, 3.0, -gap - 0.5),
+        Quat::IDENTITY,
+    );
+    let floor = BodyPlacement::fixed(
+        Collider::Cuboid {
+            half_extents: Vec3::new(100.0, 0.5, 100.0),
+        },
+        Vec3::new(0.0, -0.5, 0.0),
+        Quat::IDENTITY,
+    );
+    rig.world = ParryWorld::new(&[floor, wall]);
+    rig.tick(&idle());
+    rig.hero.gun_arm
+}
+
+#[test]
+fn deadlocked_raises_the_gun_arm_for_walls_further_out_and_less() {
+    // Its ray counts 1.3 u from its start, 0.43 u ahead, and the guns' arm turns 30°–40°.
+    assert!(!arm_with_wall_at(HeroProfile::uya(), 1.5).raised);
+    let far = arm_with_wall_at(HeroProfile::dl(), 1.5);
+    assert!(far.raised);
+    assert!((far.pitch.to_degrees() - 30.0).abs() < 0.01, "{far:?}");
+    assert!(!arm_with_wall_at(HeroProfile::dl(), 1.8).raised);
+    let d = Vec2::new(0.6, 0.57).length() - 0.45;
+    let expected = (40.0 * 1.25 * (1.3 - d) / 1.3).clamp(30.0, 40.0);
+    let near = arm_with_wall_at(HeroProfile::dl(), 0.6);
+    assert!(
+        (near.pitch.to_degrees() - expected).abs() < 0.01,
+        "{near:?}"
+    );
+}
+
+#[test]
+fn in_deadlocked_s_first_person_the_gun_arm_follows_the_pitch_10_lower() {
+    let mut rig = Rig::new(held_gun());
+    rig.profile = HeroProfile::dl();
+    rig.hero.camera_setting = CameraSetting::FirstPerson;
+    for (pitch, expected) in [
+        (30.0_f32, 20.0),
+        (-5.0, -15.0),
+        (-15.0, -20.0),
+        (95.0, 80.0),
+    ] {
+        rig.hero.camera_pitch = pitch.to_radians();
+        rig.tick(&idle());
+        assert!(!rig.hero.gun_arm.raised);
+        assert!(
+            (rig.hero.gun_arm.pitch.to_degrees() - expected).abs() < 1e-3,
+            "{pitch}: {}",
+            rig.hero.gun_arm.pitch.to_degrees()
+        );
+    }
+    // UYA's arm doesn't follow the first-person camera.
+    let mut rig = Rig::new(held_gun());
+    rig.hero.camera_setting = CameraSetting::FirstPerson;
+    rig.hero.camera_pitch = 0.5;
+    rig.tick(&idle());
+    assert_eq!(rig.hero.gun_arm, GunArm::default());
+}
+
+#[test]
 fn a_wall_close_ahead_raises_the_gun_arm_the_nearer_the_more() {
     // "The raised gun arm": a ray 0.57 u up from just inside his radius to 1.3 u ahead;
     // a hit at d from his feet raises the arm by 70° × 1.25 × (1.3 − (d − 0.45)) / 1.3,

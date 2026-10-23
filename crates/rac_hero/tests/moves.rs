@@ -226,6 +226,19 @@ fn hang(rig: &mut Rig) {
 }
 
 #[test]
+fn the_grab_hangs_on_its_15th_tick() {
+    // "Ledges": the grab animation passes frame 12 with the state timer at 14
+    // (uyantsc-veldin-ledge-{1,2,3}); the kit grabs at the end of the tick before.
+    let mut rig = ledge_rig();
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    rig.until(60, &input(None, &[Action::Jump], &[]), |hero| {
+        hero.state == HeroState::LedgeGrab
+    });
+    let grab = rig.until(40, &idle(), |hero| hero.state == HeroState::LedgeHang);
+    assert_eq!(grab, 15);
+}
+
+#[test]
 fn a_jump_grabs_a_ledge_and_hangs_below_its_lip() {
     // "Ledges": the feet hang 1.43 u below the lip and 0.5 u out from the wall, facing it.
     let mut rig = ledge_rig();
@@ -510,13 +523,77 @@ fn a_hazard_floor_holds_him_where_he_stands_for_41_ticks() {
 }
 
 #[test]
-fn a_fatal_hit_ends_in_death_and_a_respawn() {
+fn a_fatal_hit_ends_in_death_and_a_respawn_109_ticks_on() {
     let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
     controller::hurt(&mut rig.hero, Vec3::new(0.0, 4.0, 3.0), true, &rig.profile);
     rig.until(120, &idle(), |hero| hero.state == HeroState::Dead);
+    // The tick he died on is the first of UYA's 109 (`uyantsc-veldin-death-1`).
+    rig.ticks(107, &idle());
     assert!(!rig.hero.respawn_due(&rig.profile));
-    rig.ticks(rig.profile.death.ticks as usize, &idle());
+    rig.tick(&idle());
     assert!(rig.hero.respawn_due(&rig.profile));
+}
+
+// --- Falling out of the level ----------------------------------------------------------
+
+#[test]
+fn under_the_kill_height_he_falls_out_of_the_level_for_121_ticks() {
+    let mut rig = Rig::new(&[], Vec3::ZERO, 0.0);
+    rig.hero.kill_height = -10.0;
+    rig.until(200, &idle(), |hero| hero.state == HeroState::FallOut);
+    // The tick's move took him under it, as in `uyantsc-veldin-death-3`.
+    assert!(rig.hero.position.y < -10.0);
+    assert!(rig.hero.position.y - rig.hero.velocity.y * TICK >= -10.0);
+    // No control: the stick changes nothing.
+    let across = (rig.hero.velocity.x, rig.hero.velocity.z);
+    rig.ticks(120, &input(Some([0, 127]), &[], &[Action::Jump]));
+    assert_eq!(rig.hero.state, HeroState::FallOut);
+    assert_eq!((rig.hero.velocity.x, rig.hero.velocity.z), across);
+    assert!(!rig.hero.respawn_due(&rig.profile));
+    rig.tick(&idle());
+    assert!(rig.hero.respawn_due(&rig.profile));
+}
+
+#[test]
+fn uya_falls_out_onto_floors_and_deadlocked_through_them() {
+    for (profile, through) in [(HeroProfile::uya(), false), (HeroProfile::dl(), true)] {
+        let mut rig = Rig::new(&[floor()], Vec3::new(0.0, 3.0, 0.0), 0.0);
+        rig.profile = profile;
+        rig.hero.kill_height = 10.0;
+        rig.tick(&idle());
+        assert_eq!(rig.hero.state, HeroState::FallOut);
+        for _ in 0..110 {
+            // Falling through floors or not, the step limit holds (DL 0x67F5E8).
+            let from = rig.hero.position;
+            rig.tick(&idle());
+            assert!(from.distance(rig.hero.position) < 0.43 + 1e-4);
+        }
+        assert_eq!(rig.hero.state, HeroState::FallOut);
+        assert_eq!(rig.hero.position.y < -1.0, through, "{}", rig.hero.position);
+    }
+}
+
+#[test]
+fn ground_under_the_kill_height_is_safe_within_2_u() {
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    rig.hero.kill_height = 10.0;
+    rig.ticks(30, &idle());
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    rig.until(120, &idle(), |hero| hero.state == HeroState::Idle);
+}
+
+#[test]
+fn a_long_fall_never_moves_more_than_0_43_u_a_tick() {
+    let mut rig = Rig::new(&[], Vec3::new(0.0, 100.0, 0.0), 0.0);
+    let mut moved = 0.0;
+    for _ in 0..120 {
+        let from = rig.hero.position;
+        rig.tick(&idle());
+        moved = from.distance(rig.hero.position);
+        assert!(moved <= rig.profile.body.max_step + 1e-5, "{moved}");
+    }
+    assert!((moved - rig.profile.body.max_step).abs() < 1e-5, "{moved}");
 }
 
 #[test]
@@ -789,7 +866,9 @@ fn a_charge_off_an_edge_sinks_and_carries_on() {
     let mut rig = Rig::new(&[floor(), deck], Vec3::new(0.0, 3.0, 0.0), 0.0);
     double_tap(&mut rig, 3);
     rig.until(30, &idle(), |hero| hero.ground.is_none());
-    // Down to the floor at no more than 7.5 u/s, charging all the way.
+    // Down to the floor, charging all the way: the height's spring sinks at most 7.5 u/s,
+    // and the step limit caps the whole motion at 25.8 u/s, so at the charge's 30 u/s
+    // across he sinks at 7.5 × 25.8 / |(30, 7.5)| = 6.26 u/s at most.
     let mut fastest: f32 = 0.0;
     while rig.hero.ground.is_none() {
         assert_eq!(rig.hero.state, HeroState::Charge);
@@ -798,7 +877,7 @@ fn a_charge_off_an_edge_sinks_and_carries_on() {
     }
     assert_eq!(rig.hero.state, HeroState::Charge);
     assert!(rig.hero.position.y < 0.01);
-    assert!((-7.5 - 1e-3..-7.0).contains(&fastest), "{fastest}");
+    assert!((-6.26 - 1e-3..-6.0).contains(&fastest), "{fastest}");
 }
 
 // --- Ability flags ---------------------------------------------------------------------
@@ -1378,21 +1457,88 @@ fn a_jump_from_the_water_lands_on_the_side() {
     assert!(!rig.hero.state.is_swimming());
 }
 
-#[test]
-fn shallow_water_is_walked_through() {
-    let water = WaterVolume::new(Vec3::new(0.0, 0.3, 0.0), Vec3::new(50.0, 0.3, 50.0));
+/// Water `depth` u deep over the floor, with the hero standing in it.
+fn shallows(depth: f32) -> Rig {
+    let half = depth / 2.0;
+    let water = WaterVolume::new(Vec3::new(0.0, half, 0.0), Vec3::new(50.0, half, 50.0));
     let mut rig = Rig {
         hero: HeroMotion::new(Vec3::new(0.0, 2.0, 0.0), 0.0),
         profile: HeroProfile::uya(),
         world: ParryWorld::new(&[floor()]).with_water(vec![water]),
     };
-    // Falling in lands on the bottom; walking stays walking.
     rig.until(120, &idle(), |hero| hero.ground.is_some());
+    rig.ticks(30, &idle());
+    rig
+}
+
+/// Past the dead zone but inside UYA's 0.25 cut-off: the hero code sees no stick, but the
+/// pad still sees it held.
+const NUDGE: Option<[i8; 2]> = Some([0, 60]);
+
+#[test]
+fn shallow_water_wades_at_four_fifths_of_the_walk() {
+    let mut rig = shallows(0.6);
     for _ in 0..120 {
         rig.tick(&input(FORWARD, &[], &[]));
         assert!(!rig.hero.state.is_swimming(), "{:?}", rig.hero.state);
     }
     assert_eq!(rig.hero.state, HeroState::Walk);
+    assert!(rig.hero.wading);
+    assert!(
+        (rig.hero.speed - 6.17 * 0.8).abs() < 1e-3,
+        "{}",
+        rig.hero.speed
+    );
+}
+
+#[test]
+fn wading_goes_on_at_2_5_u_s_until_the_stick_is_let_go() {
+    let mut rig = shallows(0.6);
+    rig.ticks(120, &input(FORWARD, &[], &[]));
+    // A stick inside the cut-off would stop the walk; wading carries on at its least.
+    rig.ticks(120, &input(NUDGE, &[], &[]));
+    assert!(rig.hero.wading);
+    assert!((rig.hero.speed - 2.5).abs() < 1e-3, "{}", rig.hero.speed);
+    rig.tick(&idle());
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    assert!(!rig.hero.wading);
+}
+
+#[test]
+fn letting_go_wades_on_until_under_3_2_u_s() {
+    let mut rig = shallows(0.6);
+    rig.ticks(120, &input(FORWARD, &[], &[]));
+    let mut waded = 0;
+    while rig.hero.state == HeroState::Walk {
+        let before = rig.hero.speed;
+        rig.tick(&idle());
+        if rig.hero.state == HeroState::Walk {
+            assert!(before >= 3.2, "{before}");
+            waded += 1;
+        } else {
+            assert!(before < 3.2, "{before}");
+        }
+        assert!(waded < 30);
+    }
+    // 4.94 u/s braking at the walk's 30 u/s² passes 3.2 on the fourth tick.
+    assert_eq!(waded, 4);
+    assert_eq!(rig.hero.state, HeroState::Idle);
+}
+
+#[test]
+fn only_water_between_0_25_and_0_85_deep_wades() {
+    for (depth, wades) in [(0.2, false), (0.3, true), (0.7, true)] {
+        let mut rig = shallows(depth);
+        rig.ticks(120, &input(FORWARD, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Walk, "{depth}");
+        assert_eq!(rig.hero.wading, wades, "{depth}");
+    }
+    // Strafing never wades.
+    let mut rig = shallows(0.6);
+    rig.ticks(120, &input(FORWARD, &[Action::Strafe], &[]));
+    assert_eq!(rig.hero.state, HeroState::Walk);
+    assert!(!rig.hero.wading);
+    assert!(rig.hero.speed > 6.0, "{}", rig.hero.speed);
 }
 
 #[test]
@@ -1471,4 +1617,105 @@ fn standing_after_a_far_fall_he_neither_walks_nor_jumps_until_the_controls_come_
         HeroState::Idle,
         "he moves once they're back"
     );
+}
+
+// --- Moving platforms ------------------------------------------------------------------
+
+/// A platform under x < 1 reporting `motion` a tick (its box stays put; only the ride
+/// moves him), and still ground beyond, with the hero standing on the platform.
+fn moving_platform(motion: Vec3) -> Rig {
+    let platform = BodyPlacement {
+        motion,
+        ..block(
+            Vec3::new(-49.0, -0.5, 0.0),
+            Vec3::new(50.0, 0.5, 50.0),
+            Material::Solid,
+        )
+    };
+    let still = block(
+        Vec3::new(51.0, -0.5, 0.0),
+        Vec3::new(50.0, 0.5, 50.0),
+        Material::Solid,
+    );
+    Rig::new(&[platform, still], Vec3::new(-2.0, 0.0, 0.0), 0.0)
+}
+
+#[test]
+fn a_jump_off_a_moving_platform_carries_on_losing_2_u_s_a_second() {
+    // 6 u/s along +x.
+    let mut rig = moving_platform(Vec3::new(0.1, 0.0, 0.0));
+    rig.tick(&input(None, &[], &[Action::Jump]));
+    assert!(rig.hero.state.is_airborne());
+    // Counted from the first tick that starts off the platform: the jump's push-off
+    // still stands on it, and rides.
+    let mut off = 0;
+    while rig.hero.state.is_airborne() {
+        let before = rig.hero.position.x;
+        off = if rig.hero.ground.is_some() {
+            0
+        } else {
+            off + 1
+        };
+        rig.tick(&idle());
+        if rig.hero.state.is_airborne() {
+            let expected = 0.1 - 2.0 * off as f32 / 3600.0;
+            let moved = rig.hero.position.x - before;
+            assert!((moved - expected).abs() < 1e-5, "{off} off: {moved}");
+        }
+        assert!(off < 120);
+    }
+    assert!(off > 20);
+    // He came down past the platform's edge, on still ground, which stops the carry.
+    assert!(rig.hero.position.x > 1.0, "{}", rig.hero.position);
+    let landed = rig.hero.position.x;
+    rig.ticks(30, &idle());
+    assert!((rig.hero.position.x - landed).abs() < 1e-3);
+}
+
+#[test]
+fn a_jump_off_a_rising_platform_rises_on_losing_25_u_s_a_second() {
+    // A lift rising `rise` a tick, rebuilt where it has got to each tick; returns his
+    // height each tick after the jump, and whether the tick started on the lift.
+    let heights = |rise: f32| {
+        let lift = |at: f32| BodyPlacement {
+            motion: Vec3::Y * rise,
+            ..block(
+                Vec3::new(0.0, at - 0.5, 0.0),
+                Vec3::new(50.0, 0.5, 50.0),
+                Material::Solid,
+            )
+        };
+        let mut top = 0.0;
+        let mut rig = Rig::new(&[lift(top)], Vec3::ZERO, 0.0);
+        let mut tick = |rig: &mut Rig, input: &PlayerInput| {
+            top += rise;
+            rig.world = ParryWorld::new(&[lift(top)]);
+            let on = rig.hero.ground.is_some();
+            rig.tick(input);
+            (rig.hero.position.y, on)
+        };
+        tick(&mut rig, &input(None, &[], &[Action::Jump]));
+        (0..16).map(|_| tick(&mut rig, &idle())).collect::<Vec<_>>()
+    };
+    let still = heights(0.0);
+    let rising = heights(0.05);
+    // The ride on the take-off tick and any push-off ticks, then the carry: 0.05 less
+    // 25/3600 a tick per tick off it, down to 0 after seven.
+    let mut expected = 0.05;
+    let mut off = 0;
+    for (n, (&(high, on), &(low, _))) in rising.iter().zip(&still).enumerate() {
+        if on {
+            off = 0;
+            expected += 0.05;
+        } else {
+            off += 1;
+            expected += (0.05 - 25.0 * off as f32 / 3600.0).max(0.0);
+        }
+        let gained = high - low;
+        assert!(
+            (gained - expected).abs() < 1e-4,
+            "tick {n}: {gained} for {expected}"
+        );
+    }
+    assert!(off > 8);
 }

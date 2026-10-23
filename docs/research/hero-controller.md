@@ -116,9 +116,12 @@ to the d-pad when the stick is near the centre.
    only meet a diagonal just past it (m about 0.213). In DL they decide when a part-pushed
    stick walks.
 5. **Direction:** the stick vector rotated by the camera yaw.
-   - **An axis snap [code, both games]:** the move-angle function (UYA 0x4EAA78, DL
-     0x67C5F8) called with a mode of 1 zeroes an axis under 0.12 while the other is over
-     0.7. Which callers pass 1 isn't read; the kit has no snap.
+   - **An axis snap that nothing uses [code, both games, 2026-10-23]:** the move-angle
+     function (UYA 0x4EAA78, DL 0x67C5F8) called with a mode of 1 zeroes an axis under
+     0.12 while the other is over 0.7. Every caller passes 0: UYA's 42 calls (the mode
+     in a0) and DL's 26 (in a1, after the hero), wrappers (UYA 0x4EADD0, DL 0x67CAF8)
+     included, and neither memory image (Veldin, Dreadzone) holds a pointer to either
+     function. So the stick is never snapped, as in the kit.
 6. **The stick as presses [code, UYA NTSC 0x45D5C8; seen in
    `uyantsc-veldin-crouchflip-1`]:** the pad update also turns the stick into button
    presses, kept with the others in its 30-frame history (`pad_pressed_within`).
@@ -544,7 +547,9 @@ per state"). Deadlocked keeps only the landing flip ("Deadlocked's flips", below
   angle, or the facing with the stick released) against the hero's yaw, in the same
   90-degree sectors with an exact diagonal as forward. A forward side never flips.
 - **Which motion:** the strafe flip's while strafing with the stick past 0.3 when the flip
-  starts (a flag at 0x1A50DD), otherwise the crouch flip's.
+  starts (a flag at 0x1A50DD), otherwise the crouch flip's. DL's jump entry sets its flag
+  (hero+0x1D9D, 0x69CB88) the same way, also with a gun in the gun cameras, never from
+  state 16, and starts the motion at 5 u/s [code, DL NTSC, 2026-10-23].
 - **Vertical:** the standard model with 3.2–3.25 u, for both.
 
 #### The strafe flip
@@ -1141,6 +1146,27 @@ through the hero's update, so its fields come from two frames.
 - **Corrected:** the first reading took the first two for DL's own rules (an attack
   begun half a frame on, an update that tests the frame before its advance), and the
   kit shifted DL's frames half a frame to match. That made every DL attack a frame short.
+- **The state timer, both games [code, traced 2026-10-23]:** a rule on the timer t is
+  tested in the transitions, after that frame's count.
+  - **UYA** runs `hero_update` (the state, the move, then `hero_timers_update`), then the
+    ledge and rail searches and `hero_transitions` (0x4DE348). Its rows come after all of
+    it, so a row's timer is the one its transitions saw, and a state change shows on the
+    same row as the animation frame that caused it.
+  - **DL** counts during `hero_move`, after the row is read, so its transitions see the
+    row's timer + 1. Checked on DL's double jump, which the code allows at `t > 10`: the
+    jump's last row reads 10.
+  - **So an animation rule converts to the timer as:** UYA, the row's timer where the
+    frame passes; DL, that timer + 1. The kit's `hero.ticks` at a decision is the same
+    count.
+- **Converted that way [traced 2026-10-23]:**
+  - DL's double jump animation runs 11 + 0.4 a frame (then 0.5 from about 19.5): past 16
+    with the timer at 13, at 24 with it at 31, the same in all 15 double jumps traced.
+    So an attack from it waits for 13 (the kit had 12), and a ledge grab for 31.
+  - UYA's double jump reaches 37, the ledge grab's frame, at 31 too, and passes 32, the
+    attack's, at 20, in three traces.
+  - The grab hangs once its animation passes 12: UYA at 14 (the kit had 13), DL at 23.
+  - The kit had the ledge grab's double-jump limits as the frame numbers themselves
+    (UYA 37, DL 24), taking them for ticks; both are 31 now.
 
 **Where DL differs:**
 - **The animation frame [code, traced]:** an attack's frame doesn't creep through a
@@ -1173,9 +1199,13 @@ through the hero's update, so its fields come from two frames.
 - **Jumping out is always a standing jump [code, traced]:** R1 and X at swing 1's frame
   26 jumped as from standing (state 7).
 - **From a double jump**, an attack can start once its animation is past frame 16 (UYA
-  32) **[code]**. That is its 12th frame.
-  - In the traces, a press on its 13th frame attacked on its 14th.
-  - One held from its 9th waited until its 15th, which this rule doesn't explain.
+  32) **[code]**, with the state timer at 13 ("Reading the traces").
+  - In the traces, a press with the timer at 14 attacked at once.
+  - One pressed at 10 and held attacked only at 15, not 13. DL's rule also wants a
+    timer at hero+0x3BA at 0 (0x6A5248), which these traces don't record, so it may be
+    that.
+  - After a flip DL waits for frame 18 (20 when hero+0x1D44 is −1), as UYA does, but
+    its flips play sequence 17 + side, and no trace times them: the kit keeps UYA's 30.
 - **The throw's button** follows the camera option: L2 in lock-strafe and first person,
   L1 or R1 in third person. In the kit it is crouch, as in UYA.
 - **The thrown wrench** hits as a ball of 0.75 u at either end (UYA 0.4) **[code]**.
@@ -1426,8 +1456,8 @@ These match the code:
     frame before had 0.463).
   - The hang point is the lip less 1.43 u, 0.5 u out from the wall.
   - He moves towards it at exactly 4 u/s.
-  - He hangs on the 14th frame, once the grab animation (which starts at frame 11) has
-    passed frame 12.
+  - He hangs with the state timer at 14, once the grab animation (which starts at frame
+    11) has passed frame 12 [verified, `uyantsc-veldin-ledge-{1,2,3}`].
 - **Letting go:** R1, and X with the stick pulled away, each drop him into a fall.
 - **The shimmy's steps and the climb,** as above.
 
@@ -1458,7 +1488,8 @@ rise and 1.8 u drop, the wall face's five probes 0.14 u apart, the hang point (0
 and turn, the hang's and shimmy's buttons, windows and angles, the shimmy's 0.2 u side look
 and its turn, and the 40-frame timer after letting go mid-shimmy.
 - **When it looks:** a jump grabs once past its apex or rising slower than 0.5 u/s (UYA
-  3.5), and a double jump from its animation's frame 24 (UYA 37).
+  3.5), and a double jump from its animation's frame 24 (UYA 37), which both games'
+  double jumps reach with the state timer at 31 ("Reading the traces").
 - **The top's probe:** one vertical cast 0.3 + 0.3 u past the capsule's front, 1.05 u
   ahead of the feet, from 1.65 u above them to 1.15 below. UYA casts four times, 0.525 to
   0.75 u ahead. That is for the local player's hero (`IsLocal`, hero+0x266D, 1 in the
@@ -1568,7 +1599,37 @@ slide along a wall, which had cut each of DL's shimmy steps by 0.0016 u.
     0x1A71D2, which the level's code takes up for the respawn (not read). A hero who
     drowned (108) uses its own counter (0x1A4E1C) instead.
   - So the hero's part lasts about sequence 64's length; the fade and the respawn are
-    the level's, still to read or trace. The kit's `death.ticks` stays a placeholder.
+    the level's.
+  - **Traced [verified on UYA NTSC, 2026-10-23]** (`uyantsc-veldin-death-{1,2}`): 1, a
+    hit from Veldin's attackers at 1 health; 2, health written to 0 in a jump, so idle
+    on landing goes to 57 the next frame. Both deaths run alike:
+    - The blend's 12 frames hold key 0, then sequence 64 plays its 24 keys at 0.25 a
+      frame, so 96 frames. On state frame 108 the animation's end flag (0x1A57E8 & 2)
+      is set and the death is reported (0x1A71D2 = 1) in the same frame: the timer at
+      0x1A4DFE reads 0 throughout, so it adds nothing.
+    - The level respawns him at the end of that frame: the next frame he is idle (state
+      timer 1) at Veldin's start point, facing its way, with full health.
+    - `screen_fade` stays 0 through the death. It is 1 when he respawns and clears by
+      1/8 a frame, so the screen cuts to black after the animation and fades in over 8
+      frames.
+    - The hit before the death lasts its 28 frames, as read.
+  - So the hero lies dead 109 frames, the entry's included, and plays again on the
+    110th. The kit's `death.ticks` is 109 (it counts the entry tick as 1).
+- **Falling out of the level (state 121) [code, verified on UYA NTSC, 2026-10-23]:**
+  - **The start** (`hero_transitions`, before its switch): the hero's height under the
+    level's kill height (`level_kill_height`, 0x1DFCB0 on Veldin, 60.0 there), more
+    than 2 u over the ground, not in hero mode 2 and not already in 121.
+  - **The fall:** he keeps falling, at the 0.43 u/frame cap, with no control; the game
+    plays the fall's sequence 11 and the camera's vertical mode 11 (`camera.md`).
+  - **The end:** once the state timer reaches 121 the hero reports, as a death does
+    (0x4EA040), and the level puts him back the next frame, as for a death, with the
+    same 8-frame fade-in. The fall takes no health, and the respawn refills it all the
+    same (`-4`: 5 before, 10 after).
+  - **Collision stays on:** in `uyantsc-veldin-cam-1` he slides down the cliff face,
+    pushed off it now and then, his horizontal speed otherwise kept.
+  - Traced: `uyantsc-veldin-death-3` and `-4` (the hero written over the drop east of
+    Veldin's start) crossed 60.0003 to 59.57 into 121 and respawned 122 frames later;
+    the two falls in `uyantsc-veldin-cam-1` also last 122 frames.
 - **Deadlocked's death [code, DL NTSC, 2026-10-23]:**
   - **Entry** (0x699F48, shared by 57 and 148): type 20, sequence 58 over a 12-frame
     blend (UYA 64), and a 10-frame counter at hero+0x3F8 unless the byte hero+0x266D is
@@ -1582,8 +1643,34 @@ slide along a wall, which had cut each of DL's shimmy steps by 0.0016 u.
   - **The report** (0x67A4F8) does nothing while hero+0x420 is set. In single player it
     counts the death in the stats and sets 0x368BE8, which the level takes up for the
     respawn (not read).
-  - So DL reports a death 10 frames in, where UYA waits for the animation. As in UYA, the
-    respawn's timing is the level's: a trace of a death will give `death.ticks`.
+  - So DL can report a death 10 frames in, where UYA waits for the animation. As in UYA,
+    the respawn is the level's; traced below.
+- **Deadlocked's death and death fall [code and traced, DL NTSC, 2026-10-23]:**
+  - `dlntsc-dreadzone-death-1`: health (hero+0x2E20, a float, libdl's) written to 0 in a
+    jump. DL goes to 57 the next frame **in the air**, where UYA waits for idle or a
+    walk, and he falls to the floor in it. The animation's flag is set at state frame
+    70 and the death is reported at frame 81, "more than 80 frames old"; DreadZone
+    Station's hero has hero+0x266D set, so the 10-frame early report never starts. So
+    82 frames, the entry's included.
+  - `dlntsc-dreadzone-death-2`: `level_kill_height` (0x222BFC, 100 on the station)
+    written to 200, then a double jump: at 2.17 u over the ground he went to 118. He
+    keeps the jump's rise and falls under gravity to the 0.43 cap, **through the
+    floor**, and at state frame 121 his health goes to 0 and the death is reported in
+    the same frame. So DL's fall counts as a death, where UYA's only reports; both come
+    back with full health. 122 frames.
+  - **The respawn** in both: the game stops counting frames for about 3 s of real time,
+    then the frame counter starts again from 0 with the hero at the station's start
+    point, full health and the level's own kill height back. So on DreadZone Station a
+    death reloads the level; the level's data resets, which the kit doesn't model.
+  - Health on a new game is 10 of 10 (`dlntsc-dreadzone-open.p2s`).
+- **In the kit:** `death.ticks` (UYA 109, DL 82) and `death.fall_out` (2 u, 121 ticks;
+  `collides` false for DL) in the profiles, and `HeroState::FallOut`, entered after the
+  tick's move from any state; `Hero::respawn_below` is the level's kill height, and every
+  respawn heals him. **[simplified]** DL's death in the air (any state at no health) and
+  its 10-frame early report aren't modelled: the kit's deaths come from fatal hits and
+  deadly floors. The kit sends `HeroRespawned` when it brings a hero back, and the demo's
+  HUD fades that view in from black over UYA's 8 frames (`respawn_fade_seconds`, under
+  the HUD) for both games; DL's level reload isn't modelled.
 
 ### Deadlocked's hits [code, DL NTSC, 2026-10-20]
 
@@ -1604,7 +1691,7 @@ from frame 11, and the return after 28 frames, or death with no health.
   (libdl's `ELECTRIC_GET_HIT`), which zeroes the motion (0x6781B8 through the hero's
   table), plays sequence 59 and stands 41 frames on the get-hit update **[code,
   2026-10-23]**.
-- **Not read:** death and the respawn.
+- **Death and the respawn:** "Getting hit and dying", "Deadlocked's death and death fall".
 - **In the kit:** `dl.ron`'s `hit` (`fall_after_tick` 16, `safe_ticks` 47 for the
   default camera). **[simplified]** The kit doesn't vary the timer with the camera.
 
@@ -1642,8 +1729,26 @@ so gadget 0x11 was granted by writing its gadget-box entry. These match the code
 - **The hero never moves faster than 0.43 u per frame (25.8 u/s).**
   - The intended velocity (hero+0x130) is capped there, while the speed variable reaches
     0.5 (30 u/s).
-  - 0.43 is the collision radius less 0.02, the same expression as the wall probe's, so
-    it is probably the collision's step limit. Its code isn't found yet.
+  - **The whole vector, not just across [verified on UYA NTSC, 2026-10-23]:** running
+    off Veldin's cliff in `uyantsc-veldin-cam-1` (frames 474-478), the motion's length
+    stays 0.4300 while its horizontal part shrinks and its vertical part grows by what
+    that frees, short of the fall's own 50 u/s cap; a fall straight down settles at
+    0.43 u a frame (`uyantsc-veldin-death-3`). So long falls end at 25.8 u/s.
+  - **The code [UYA 0x4ECDA0, DL 0x67F5E8, 2026-10-23]:** the hero's move caps the
+    intended motion at the collision radius less 0.02 (UYA 0x1A4E64, DL hero+0x204:
+    0.45) before adding it to the position and running the collision:
+    - **most states:** the whole vector is scaled down to 0.43;
+    - **the grind's type (15):** the horizontal part is held to 0.43, scaling the whole
+      vector (UYA's grind tops out at 24 u/s, under it; DL's 28 after a descent doesn't);
+    - **the jump attack (20)** and a few others (UYA 92, 95, 134, 162; DL 131): the
+      horizontal part is held to 0.43, and a fall can't go more than 0.1 u below the
+      ground under him in a frame; the jump attack's whole vector is capped too;
+    - **no cap:** grappling and swinging (types 13, 14), UYA's state 68, and while a
+      hero timer runs (UYA 0x1A4DD0, DL hero+0x3A0; what sets it wasn't read).
+    - **DL's test is looser:** it caps only when the squared length passes the radius
+      squared less 0.0004 (hero+0x240 − 0.0004), so above 0.4496 u, and then cuts to
+      0.43. Motions from 0.43 to 0.4496 u a frame pass uncut. UYA compares the length
+      with 0.43.
   - Slower moves never reach it.
 - **The bounce lasts 54 frames**, its animation, then the hero idles. Its speed is spent
   after 23 of them.
@@ -1693,7 +1798,9 @@ so gadget 0x11 was granted by writing its gadget-box entry. These match the code
   on a spring: gain 0.04, damping 0.3, at most 7.5 u/s.
   - So he rides slightly above the ground.
   - Running off an edge, he keeps charging and sinks towards the ground below at up to
-    7.5 u/s.
+    7.5 u/s; if the step limit below caps the whole motion, as it does a fall's (UYA,
+    2026-10-23), that is 6.26 u/s at the charge's 30 u/s **[untraced; the kit does
+    so]**.
 - **Each charge frame** sets the 30-frame cooldown, which the timers update counts down.
 - **Ending (state 125's transitions):**
   - **At frame 61, on magnetic ground, or on a flag not yet identified:** a skid
@@ -1769,7 +1876,9 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
     - within 1.5 u vertically;
     - above something solid (a ray from 0.25 u above to 1 u below it).
   - **The feet must be** at most 0.5 u below that point and less than 0.57 u above it.
-  - Any jump past its apex lands on a rail this way, the grind jump included.
+  - Any jump past its apex lands on a rail this way. The grind's own jumps (40, 41) are
+    searched only once past the end of the rail they follow (0x1A51C0 counting, or a
+    flag at 0x1A5214 set); until then they land on that rail ("Jumps from a rail").
 - **Speed:** each frame the speed is a base plus a slope term, never below 0. The hero is
   moved along the rail by that distance.
   - **The base** eases towards **12 u/s at 15 u/s²**.
@@ -1802,6 +1911,17 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
   - The hero's horizontal position keeps tracking the rail, moving along at the speed
     he left with. Only the height jumps.
   - The rail's own rise is added to the height.
+  - **Landing [code, the grind jump's transitions near 0x507720, 2026-10-23]:** while the
+    rail lasts, on the frame the fall would take his feet below the rail point, the
+    vertical speed is cut to end exactly on it and the jump block's landed byte
+    (0x1A504C) is set. The next frame the state is written straight to 39, without
+    `hero_change_state`'s entry, playing sequence 44 + the stance side over 7 frames, so
+    the stance and speed carry on. It needs the ground probe's height above the ground
+    (0x1A4F1C) under 0.5, which a rail's own collision presumably gives (`rail_nearest`
+    also wants something solid at the point). The same jump falls (state 6) if his feet
+    get 2.5 u below the rail point.
+  - **Past the rail's end** the jump flies on; 6 frames on it lands on a rail
+    `hero_find_rail` found with his feet under 0.35 u above it, or else falls.
 - **Switching rails:** in the grind jump's first 10 frames, a stick past 0.5 that points
   20°–160° away from the rail's direction looks for another rail to that side.
   - **The search:** probe points are 48 frames of the current velocity ahead, then 2.0,
@@ -1815,13 +1935,17 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
 - **In the hero kit (P1.5):** rails are one-way polylines (`GrindRail`), and the
   getting-on rule, speed model, side-on stance, grind jump, switch jump, rail end and grind
   attack are as above. The pull onto the rail uses the game's spring (gain 0.03, damping
-  0.3, up to 7 u/s).
+  0.3, up to 7 u/s). The jumps land on their own rail as above (`grind.land_ticks`: UYA
+  1, DL 0) and look for another only past its end (`grind.jump_finds_rails`, false in
+  DL), with tests in `rac_hero/tests/deadlocked.rs`.
   **[simplified]:**
   - nothing collides while grinding;
   - the hero falls as soon as the rail ends, not 6 frames later;
   - no solid ground is needed under a rail;
   - the fall from a rail with nothing under it isn't there;
-  - the stance is always −90°; the object that turns it the other way isn't modelled.
+  - the stance is always −90°; the object that turns it the other way isn't modelled;
+  - a jump's landing on its rail needs no ground under it, and past the rail's end the
+    jump neither falls after 6 frames nor tightens the window to 0.35 u.
 
 ### Deadlocked's grinding (states 39–42, 62, 63) [code, DL NTSC, 2026-10-23; untraced]
 
@@ -1841,8 +1965,10 @@ can't be played from a new game yet, so none of it is traced.
     point) is more than 90° from the camera's yaw (`GameCamera` + 0x18), the stance is
     180°, so he rides backwards with his back to the camera. This test comes last and
     wins over the object's.
-  - The entry plays sequence 107, blending over 6 frames. Whatever the state before, it
-    runs again each time state 39 starts, from a jump or a chained rail too.
+  - The entry plays sequence 107, blending over 6 frames. It runs again whenever state 39
+    is entered through `hero_change_state` (getting on, a chained rail), but not when a
+    jump lands back on its own rail, which writes the state directly, as UYA's does (so
+    the hop's turned stance holds).
 - **Turning round on the rail (state 63, DL only).** In the grind (39), once neither X
   (the grind jump, within 7 frames) nor the rail's end nor the fall from a rail with
   nothing under it applies:
@@ -1869,15 +1995,40 @@ can't be played from a new game yet, so none of it is traced.
     on the new rail the hero then is wasn't worked out.
   - Without one, the rail ends as in UYA.
 - **No grind attack:** its code is there, but nothing starts it ("Deadlocked's melee").
-- **Not read in DL:** getting on (`hero_find_rail`'s reach), the switch jump's search
-  for a rail and the speed model's numbers, which `dl.ron` copies from UYA.
+- **Getting on (0x673810, the rail search 0x6732D0) is UYA's:** the 8-frame no-rail
+  timer (hero+0x3FE), reach 0.9 u (0.3 standing or walking), 1.5 u vertically, the ray
+  from 0.25 u above to 1 u below, and the feet 0.5 u below to 0.57 u above the point (or
+  any height above it while hero+0x400 runs). Three differences:
+  - the search skips a rail whose flag word (+0x18) is nonzero, and can skip or require a
+    given rail;
+  - in the grind jump (40) a rail it finds is never taken, even past the rail's end,
+    where UYA's takes one there;
+  - it also runs in the hop round (63), where with hero+0x504 set it skips the rail the
+    hero is on.
+- **Landing back on the rail** (the transitions, 0x6A2878–0x6A29C4) is UYA's, for 40, 41
+  and the hop (63): the fall cut to end on the rail point (with the height above the
+  ground under 0.5), the landed byte hero+0x1D0C set, and the fall at 2.5 u under the
+  rail. But **the state is written to 39 on the same frame** (UYA a frame later), playing
+  sequence 107 over 10 frames, again without the entry.
+- **The switch jump's search** (in the transitions, around 0x6A2620) is UYA's: the first
+  10 frames of the grind jump, before its apex, a stick past 0.5 within 70° of square to
+  the rail, probes 48 frames of velocity ahead and 2.0–4.25 u to the side in 0.75 u steps.
+- **The speed is faster** (the grind update, 0x692C00, per-second literals times 1/60 or
+  1/3600): the base eases to **14 u/s at 17 u/s²** (UYA 12 at 15), and the slope term
+  rises at **9 u/s²** (UYA 8) and is capped at **14 u/s** (UYA 12). The pitch probe
+  (0.3 u), the uphill and downhill rates (15/π and 72/π per radian), the fall rate
+  (2 u/s²), the floor (−2.5 u/s) and the stick's lean (gain 0.015, damping 0.3, up to
+  45°) are UYA's.
 - **In the kit:** `dl.ron`'s grind has `stance_degrees: 0`, `turn_round` (the backwards
   start past 90° and the hop past 120°) and `chain` (0.5 u, 0.9 u). Its hop is
-  `JumpKind::GrindTurn`, which the rig plays as the grind jump. Tested in
-  `rac_hero/tests/deadlocked.rs`. **[simplified]:** a chained rail is ridden from its
-  start, so a loop chains to itself; any rail of the grind kind can be chained to (the
-  flag word isn't modelled); chains are looked for at the rail's end only, not at each
-  point along it; and the camera's yaw is the kit's, whichever camera is in use.
+  `JumpKind::GrindTurn`, which the rig plays as the grind jump. Its speeds are DL's (14
+  at 17, the slope term rising at 9 up to 14), and its jumps land back on the rail the
+  same tick and never look for another rail (`land_ticks: 0`, `jump_finds_rails: false`).
+  Tested in `rac_hero/tests/deadlocked.rs`. **[simplified]:** a chained rail is ridden
+  from its start, so a loop chains to itself; any rail of the grind kind can be chained
+  to or got on (the flag word isn't modelled); chains are looked for at the rail's end
+  only, not at each point along it; and the camera's yaw is the kit's, whichever camera
+  is in use.
 
 ## Zip lines (state 118) [code, then verified on UYA NTSC, 2026-10-15]
 
@@ -2014,7 +2165,7 @@ match the code:
   - sets the depth, surface minus floor, at 0x1A7428.
   - Collision material 14 is a puddle: the surface is 0.2 u above the floor.
   - **Shallow water** (0.25–0.85 u deep) sets a wading flag, and walking in it is state
-    117. That state isn't read yet.
+    117 ("Wading").
   - Correction to "Getting hit and dying" below: material 3 is quicksand. The probe keeps
     its height apart from water's, at 0x1A4F34.
 - **Getting in [code, `hero_enter_water`, every frame]:** only in water, and not from a
@@ -2134,7 +2285,7 @@ match the code:
   - **So on the surface** the velocity averages about 1.06 × the speed, between about
     0.55 and 1.9 × through the stroke. Under water at full rate it averages about 1.2 ×
     the speed.
-- **Not read yet:** wading (117), drowning (108), getting hit in the water, the
+- **Not read yet:** drowning (108), getting hit in the water, the
   every-16-frames underwater probe, flowing water, and the lift on diving.
 - **In the hero kit (P1.5, 2026-10-13):** water is a box whose top is the surface
   (`Water`, `WaterVolume`), found under or up to 2.2 u below the feet. The five states,
@@ -2145,7 +2296,9 @@ match the code:
   - **[simplified]:**
     - Buttons always count as fully pressed. So the pitch heads straight for ±78° and
       turns at up to 1.22 rad/s, as on a DualShock 2 pressed hard.
-    - Swimming into shallow water lands and walks instead of wading.
+    - Swimming into shallow water drops him onto the floor and lands, where the game
+      stands up into wading (or idle) at once: the kit's walk falls off where the floor is
+      out of its reach.
     - The level-out of the pitch on the surface is the kit's own. The game's surface
       code doesn't touch the pitch.
     - The water jump keeps the velocity it swam with, without the game's flattening in
@@ -2187,10 +2340,105 @@ transitions, side by side with UYA's.
   0.12 u, scaled by the frame-time globals to UYA's per-frame values at 60 Hz (read
   2026-10-23). It has no Clank's 0.05, and skips the surface spring in states 126 and 153
   where UYA skips 129 and 80.
-- **Not read in DL:** wading (117) and drowning.
+- **Wading** is UYA's, as state 114 ("Wading").
+- **Not read in DL:** drowning.
 - **In the kit:** `dl.ron`'s `swim` keeps UYA's numbers, which DL's code matches, with
   `dives: false`. Tested in `rac_hero/tests/moves.rs`
   (`deadlocked_swims_on_the_surface_without_diving`).
+
+## Wading (UYA state 117, DL 114) [code, UYA NTSC and DL NTSC, 2026-10-23; untraced]
+
+Wading is the walk in shallow water: the same state code, with a slower speed, its own
+stop and its own animation. Read in UYA's `hero_floor_material` (0x4E3EF0),
+`hero_walk_stick_target` (0x4EADD0), `hero_change_state` (0x4FC518), the state update
+(0x4F2090, which runs 2 and 117 together) and `hero_transitions` (0x503B68), and in DL's
+counterparts (0x672298, 0x67CAF8, 0x699C70, 0x690F18, 0x69EA40). The two games match but
+for the state and sequence numbers.
+- **The flag:** water (not a puddle) between 0.25 and 0.85 u deep, the surface less the
+  floor under the hero, sets `hero_wading` (UYA 0x1A71CA, DL hero+0x2661), each frame.
+  - A puddle, collision material 14, puts the surface 0.2 u above the floor (DL 0.25,
+    with the depth written as 0.2). It sets a puddle flag instead (UYA 0x1A6056), which
+    with the depth under 0.25 makes the walk splash as wading does; he doesn't wade.
+- **Into wading:**
+  - Walking (2) with the flag set becomes 117, and 117 without it becomes 2, in the
+    transitions each frame (the walk's own case, which also has 117's).
+  - An entry to the walk with the flag set, from the idle, a landing or anywhere else,
+    enters 117 instead: sequence 80 if the hero's class has one (DL 11), else the
+    set-off walk's 3 (DL 6), blended over 8 ticks. Ratchet's classes have both (the
+    Veldin and Dreadzone images), so he plays 80 (DL 11).
+  - Strafing never wades: UYA's entry skips it with the strafe flag (0x1A6054) set, and
+    DL's strafe walk has an entry of its own (its jump table sends only 2 and 114 there).
+  - The surface swim (53) in water under 0.7 u deep stands up into 117, blended over 17
+    ticks, and zeroes the vertical part of the velocity and the intended velocity
+    ("Swimming"). Surface idle (54) under 0.4 u stands up into idle (0), over 18.
+- **The speed:** the walk's target × 0.8, but never under 2.5 u/s (UYA 0.041667 u a
+  frame; DL 2.5 × frame_dt), even with the stick released. So at full stick he wades
+  at 4.94 u/s (UYA's 6.17 × 0.8). The acceleration, turning and skids are the walk's.
+- **Stopping:** not the walk's stick under 0.17. He stops into idle (0, blended over 17
+  ticks) once `handsOffStick` (pad +0x1D4) is set and the intended velocity (UYA
+  0x1A4CD0, DL hero+0x130) is under 3.2 u/s. `handsOffStick` is set when no direction
+  bit is: the d-pad, or the stick past its dead zone, sets them (the pad update,
+  0x45D5C8; "Input", 6). So a stick inside the hero's 0.25 cut-off (zeroed in
+  `hero_update`, "Input", 2) still counts as held in UYA, and he wades on at 2.5 u/s
+  along his facing. DL has no cut-off, so any stick out of its dead zone wades its way
+  at 2.5 u/s or more.
+- **Everything else is the walk's:** jumping, attacking, crouching, falling off and the
+  ledge and rail searches go through the walk's own cases. In UYA the walk also doesn't
+  fall off with the flag set while 0x1A71B4, probably the previous state, is the water
+  jump (18).
+- **The animation's rate:** 35 × his speed in u a frame, from 0.6 to 1.05 (UYA
+  0x1A57E0, DL hero+0x640). So 1.05 above 1.8 u/s.
+- **Effects:** while wading, or in a puddle, the walk adds splashes and ripples by the
+  speed (over 1 u/s and over 0.5 u/s), and the idle states one of their own.
+- **In the kit (P1.5, 2026-10-23):** the profiles' `wade` section (the same in both),
+  with the walk flagged `HeroMotion::wading` rather than a state of its own, as the games
+  run it through the walk's code. The rig plays sequence 80 at the game's rate
+  (`RigMove::Wade`). Tested in `rac_hero/tests/moves.rs` (`shallow_water_wades_*`,
+  `wading_goes_on_*`, `letting_go_wades_on_*`, `only_water_between_*`).
+  - **[simplified]:** standing up from the surface swim drops him onto the floor and lands
+    ("Swimming", "In the hero kit"). The splashes and puddles aren't modelled. A water
+    box holds feet up to 0.05 u under its bottom, so a hero standing on the floor it
+    rests on is in it.
+
+## Moving platforms [code, UYA NTSC and DL NTSC, 2026-10-23; untraced]
+
+Read in UYA's `hero_platform_carry` (0x50DB78), which `hero_move_step` (0x4ECDA0) calls
+first, and in DL's (0x68B258, from 0x67F5E8). DL's is UYA's with per-second literals ×
+frame_dt, and runs only off multiplayer levels (`multiplayer_flag`).
+- **The platform:** the ground probe keeps the moby under him (libuya's `HeroGround`
+  `pMoby`, UYA 0x1A4F3C). The platform followed (UYA 0x1A4FA0) is that moby while he is
+  on the ground; the moby whose ledge he holds (UYA 0x1A5118) while he hangs (type 3) or
+  climbs up from it (27); or, once off the ground, the last one. Ground with no moby
+  under it clears it. A moby carries him
+  only with a moving-collision record (UYA 0x449388), whose flags (+0x3C) pick the
+  variants below.
+- **On it:** his position and facing are put through the moby's move this frame (its old
+  matrix to its new, 0x4493C0), and the difference is the carry. His facing turns with
+  it.
+  - Standing still (idle, not pushed, on the ground), he is pinned to a point in the
+    moby's own frame, taken once (0x4498A0, then 0x449720 each frame), so he can't
+    drift. The pin lets go if it would move him over 2 u in a frame, or once he is
+    0.1 u off it.
+- **The move:** he moves by his own velocity and collides; then a carry over 0.0001 u is
+  a second move, with its own collision and ground probe. What it moved him (UYA
+  0x1A4D30) is what the camera adds (`camera.md`, "Platforms"). His own speeds (0x1A4D50,
+  0x1A4D54) leave the carry out.
+- **Off it** (jumping, falling or walking off): the platform's last carry a frame (UYA
+  0x1A4F90) carries on, from the frame after he left. With n frames off the ground, the
+  horizontal part is shortened by 2 u/s² × n frames (20 u/s² with the moby's flag
+  0x10; at least 23 in UYA's critter mode 5), and the vertical one brought towards 0 by
+  25 u/s² × n frames, each from what he left with. So he keeps the platform's speed,
+  losing 2 u/s each second, until he lands on ground with no moby (a 5 u/s platform
+  carries a jump about 4 u in its first second).
+  - With the moby's flag 2, the moby itself carries him in the air too, as on it.
+- **In the kit (P1.5, 2026-10-23):** bodies only translate, by their `motion` a tick.
+  He rides the ground body each tick, and off it its last motion carries him through
+  the air, collided, losing 2 u/s² across and 25 u/s² up or down for every tick off it
+  (`platform` in both profiles). Tested in `rac_hero/tests/moves.rs`
+  (`a_jump_off_a_moving_platform_*`, `a_jump_off_a_rising_platform_*`).
+  - **[simplified]:** platforms don't turn him; the ride on the ground is added before
+    his own move, without collision; standing still isn't pinned (a translation can't
+    drift); every platform is the plain kind, without flags 2 and 0x10.
 
 ## Animations per state [code and trace, UYA NTSC, 2026-10-13]
 
@@ -2204,6 +2452,7 @@ moby's sequence every frame). **[verified]** marks sequences the trace showed.
 |---|---|---|
 | Idle (0) | 0 **[verified]** | The idle fidgets 1 and 2 play now and then **[verified]**, and 73 ("Idle fidgets"). At 20% health or less, 74, with 78 now and then. While a held gun fires (row +0x30), the look and state 29 play its whole-body firing sequence (row + 0x24) instead (`weapons.md`, "The hero's side of firing"). |
 | Walk (2) | 3 + substate: 3 setting off, 4 moving **[verified]** | Strafing backwards, 20 [code]. Bands and rates under "The walk's animation". |
+| Wading (117) | 80 [code] | 3 for a class without 80; DL's 114 plays 11, or 6 ("Wading"). |
 | Skid (3) | 6, or 5 straight out of a run between frames 3 and 16 | |
 | Crouch (4) | 13 **[verified]**; 14 moving **[verified]** | Starts at keyframe 2. |
 | Fall (6) | 10, then 11 **[verified]**, then 12 on landing **[verified]** | "Landings". The game also plays 11 in state 121, falling out of the level **[verified]**. |
@@ -2322,7 +2571,11 @@ Read in the idle state's transitions (0x503B68) and the fidget picker 0x502930 o
   - In the kit: `fall.landing` in the movement profiles, the lockout as
     `HeroMotion::input_lock`, which already held back the skid and attacks
     (`moves.rs`, `a_far_fall_lands_standing_and_holds_still_longer_the_longer_it_fell`).
-    DL's isn't read: its profile keeps UYA's.
+  - **DL's is UYA's [code, DL NTSC, 2026-10-23]:** its state 6 transitions (0x6A31A0,
+    shared with 44) switch to 11 after 17 frames or from 1.75 u up, and land with the
+    same lockouts (hero+0x3BA, libdl's `noInput`: 7, 10 after 44, 18 past 50 frames and
+    22 from 90, those two while hero+0x2EC is clear), the same walk past a 0.5 stick and
+    skid above 0.05 u a frame.
 - In the kit the controller lands into the walk, so the rig plays a landing while he stays
   at the speed he landed with, at most 2.5 u/s (a landing with the stick let go), and
   stops it when he speeds up. The rig times each jump's clip to its arc as above
@@ -2381,7 +2634,7 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
 | Glide (state 8): forward speed, sink | 3 u/s (5 in one gadget mode), 2.16 u/s | 5 u/s, 3.6 u/s (5 × 0.72) [code] |
 | Ledge jump push-off | 4 frames NTSC (he leaves on the 6th), 3 on R&C3 PAL | 2 frames on DL NTSC (he leaves on the 4th) **[verified on DL NTSC]** and on Gladiator PAL |
 | Ledge lip | walked out over the top to the wall's edge | where the top's cast hit, 1.05 u ahead of the feet: the walk's probe has no length **[code; verified on DL NTSC]** |
-| Ledge grab, then hanging | from the grab's 14th frame | from its 24th: its animation starts at keyframe 1, not 11 **[verified on DL NTSC]** |
+| Ledge grab, then hanging | at the timer's 14 | at 23: its animation starts at keyframe 1, not 11 **[verified on DL NTSC]** |
 | Shimmy | 0.5 × the table sideways; 28 frames and 0.623 u a cycle | 1.5 × the table towards a point the wall half blocks; 32 frames and 0.60 u a cycle **[verified on DL NTSC]** |
 | A jump from a strafing walk | flips to the side or back | always a standing jump **[verified on DL NTSC]** |
 | Flips | from a walk, as a jump lands, and from a crouch | only as a jump lands **[verified on DL NTSC]** |
@@ -2417,14 +2670,13 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
   a left stick held at 0.1974 left the hero standing in both camera settings. That isn't
   a cut-off: DL's hero code has none, nor the d-pad fallback, and its magnitude is the
   length; the walk's own 0.22 start holds him (2026-10-23, "Input").
-- **Not read in DL yet:** death (DL has no wall jump and no zip lines: "Deadlocked's
-  moves"; its ledges, hits, swimming and grinding: "Deadlocked's ledges", "Deadlocked's
-  hits", "Deadlocked's swimming", "Deadlocked's grinding"; its campaign never locks on:
-  "Deadlocked's lock-on"). The kit's DL profile keeps UYA's numbers for it, marked as
-  such. Melee is read ("Deadlocked's melee"), and so are the strafe
-  turn and the camera (2026-10-16, `camera.md`, "Deadlocked's camera"): UYA's strafe turn,
-  and a follow camera 6 u back. The flips, the crouch and the glide are read (2026-10-20,
-  "Deadlocked's moves").
+- **Read in DL since,** each in its own section: death and the death fall ("Getting hit
+  and dying"), the missing wall jump and zip lines and the flips, crouch and glide
+  ("Deadlocked's moves", 2026-10-20), ledges, hits, swimming and grinding ("Deadlocked's
+  ledges", "Deadlocked's hits", "Deadlocked's swimming", "Deadlocked's grinding"), the
+  campaign's missing lock-on ("Deadlocked's lock-on"), melee ("Deadlocked's melee"), and
+  the strafe turn and the camera (2026-10-16, `camera.md`, "Deadlocked's camera": UYA's
+  strafe turn, and a follow camera 6 u back).
 - **Releasing the stick in the air, both games:** the game brakes instead of steering
   when the speed the stick asks for (the move's air speed × the stick) is under 20% of
   the walk speed, not when the stick is under 20% (UYA 0x4EDE80, DL 0x680A88) [code].
@@ -2579,7 +2831,8 @@ Also read in code but not seen in a trace:
 - in UYA's: 18, the water jump; 50–52, swimming under water (type 17); and 53–54,
   swimming on the surface (type 18).
 - UYA's code uses 117 for wading, where libuya's names say "get hit under water", so
-  libuya's numbering above about 100 may not hold for UYA's single-player code.
+  libuya's numbering above about 100 may not hold for UYA's single-player code. DL's
+  wades in 114 ("Wading").
 - UYA's single player uses 118 for the zip line; DL's uses it for the death fall, as
   libuya's and libdl's `DEATH_FALL` name it ("Deadlocked's moves").
 
@@ -2598,9 +2851,13 @@ Also read in code but not seen in a trace:
 1. **More on Deadlocked NTSC.** The charge (2026-10-12), the walk, jumps and double jump
    (2026-10-15), and the flips, the missing crouch, the barred glide, the missing wall
    jump and the ledges, shimmy and climb (2026-10-20) are verified ("Deadlocked's moves",
-   "Deadlocked's ledges"). Next: a trace of a death in either game (both hand the
-   respawn to the level's code: "Getting hit and dying"), the smaller items the kit's DL
-   profile still marks "not read in DL", and the code behind the 0.43 u step limit.
+   "Deadlocked's ledges"). Deaths, falls out of the level and the respawn are traced in
+   both games (2026-10-23, "Getting hit and dying"). The kit's DL profile has nothing
+   left "not read in DL", and the 0.43 u step limit's code is read (2026-10-23, "Found
+   in the traces"). The one-frame rules read from DL's traces are checked against its
+   update order (2026-10-23, "Reading the traces"); still open are the window for
+   attacking after its flips (untimed) and a held press that attacked from a double
+   jump two ticks late ("From a double jump", under "Deadlocked's melee").
    Lock-on, the stick, strafing, the surface float, the damaging floor, grinding and
    death are read (2026-10-23, "Deadlocked's lock-on", "Input", "Deadlocked's
    strafing", "Deadlocked's swimming", "Deadlocked's hits", "Deadlocked's grinding",

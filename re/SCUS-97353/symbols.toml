@@ -348,7 +348,7 @@ name = "hero_walk_stick_target"
 address = 0x004EADD0
 kind = "function"
 confidence = "medium"
-note = "The walk's stick direction, its angle from the facing, and the target speed walk_speed × stick magnitude."
+note = "The walk's stick direction, its angle from the facing, and the target speed walk_speed × stick magnitude; × 0.85 in level 21 with 0x1A6059 set; wading (117) × 0.8, at least 2.5 u/s (0.041667 u a frame) even with the stick released."
 
 [[symbol]]
 name = "hero_speed_towards_target"
@@ -471,7 +471,7 @@ name = "hero_stick_move_angle"
 address = 0x004EAA78
 kind = "function"
 confidence = "medium"
-note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length; with a mode of 1 it first zeroes an axis under 0.12 while the other is over 0.7. While strafing it also sorts the stick into strafe_direction (left 0, right 1, forward 2, back 3; 45-degree sectors either side of each, an exact diagonal counting as forward) and sets strafe_back for back with the stick past 0.15."
+note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length; with a mode of 1 it first zeroes an axis under 0.12 while the other is over 0.7, though all 42 calls pass 0. While strafing it also sorts the stick into strafe_direction (left 0, right 1, forward 2, back 3; 45-degree sectors either side of each, an exact diagonal counting as forward) and sets strafe_back for back with the stick past 0.15."
 
 [[symbol]]
 name = "anim_table_over_step"
@@ -507,6 +507,20 @@ address = 0x001A7428
 kind = "data"
 confidence = "medium"
 note = "Water surface less the floor's height; 0.25-0.85 sets the wading flag at 0x1A71CA."
+
+[[symbol]]
+name = "hero_wading"
+address = 0x001A71CA
+kind = "data"
+confidence = "high"
+note = "Byte: set by hero_floor_material in water (not a puddle, material 14) 0.25-0.85 u deep. The walk (2) runs as wading (117) while it is set: hero_transitions swaps 2 and 117 each frame, and hero_change_state turns an entry to 2 into 117 unless strafing."
+
+[[symbol]]
+name = "hero_in_puddle"
+address = 0x001A6056
+kind = "data"
+confidence = "medium"
+note = "Byte: set by hero_floor_material on material 14, a puddle whose surface it puts 0.2 u above the floor. With the depth under 0.25 the walk makes wading's splashes, but the hero doesn't wade."
 
 [[symbol]]
 name = "hero_anim_rate"
@@ -5137,4 +5151,51 @@ name = "hero_death_done"
 address = 0x004EA040
 kind = "function"
 confidence = "medium"
-note = "Called by hero_transitions once death (57) is over: counts the death in the stats (0x143D70 per player, 0x1D4CA0) and sets 0x1A71D2, which the level's code takes up for the respawn (not read)."
+note = "Called by hero_transitions once death (57) is over (state frame 108, as sequence 64 ends), and by falling out of the level (121) at state frame 121: counts the death in the stats (0x143D70 per player, 0x1D4CA0) and sets 0x1A71D2, which the level's code takes up: it respawns the hero at the end of the same frame (verified, uyantsc-veldin-death-{1,2,3})."
+
+[[symbol]]
+name = "level_kill_height"
+address = 0x001DFCB0
+kind = "data"
+confidence = "high"
+note = "Veldin's build (60.0 there; the level's globals move between builds, as screen_fade does). Below it, more than 2 u over the ground and not in hero mode 2, hero_transitions starts falling out of the level (state 121), which reports at state frame 121 (the respawn refills health, as after a death); DL's counterpart is level_kill_height (0x222BFC). Verified, uyantsc-veldin-death-3."
+
+# 2026-10-23, the step limit (PLAN.md RE.3; docs/research/hero-controller.md, "Found in the
+# traces").
+
+[[symbol]]
+name = "hero_move_step"
+address = 0x004ECDA0
+kind = "function"
+confidence = "high"
+note = "The hero's move: caps the intended motion at the radius (0x1A4E64) less 0.02 (the whole vector; the horizontal part for the grind's type 15 and the jump attack's group), adds it to the position and runs the collision. Called from 0x4FA7B0. Exempt: types 13 and 14, state 68, and while the timer at 0x1A4DD0 runs. First calls hero_platform_carry; after the hero's own move, a carry over 0.0001 u is a second move with its own collision and ground probe, and what it moved him goes to hero_carried."
+
+# 2026-10-23, moving platforms (docs/research/hero-controller.md, "Moving platforms").
+
+[[symbol]]
+name = "hero_platform_carry"
+address = 0x0050DB78
+kind = "function"
+confidence = "medium"
+note = "Adds the platform's move this frame to the carry at 0x1A4CE0, and its turn to the facing. The platform (hero_platform) is the ground moby, the ledge's moby (0x1A5118) in type 3 and state 27, or after leaving the ground the last one; it carries only with a moving-collision record (0x449388; flags +0x3C). Standing still pins the hero to a point in its frame. Off it, the last carry (0x1A4F90) goes on, its horizontal length less 2 u/s² (20 with flag 0x10) × frames off the ground and its vertical part towards 0 by 25 u/s² × frames; flag 2 carries him rigidly instead."
+
+[[symbol]]
+name = "hero_platform"
+address = 0x001A4FA0
+kind = "data"
+confidence = "medium"
+note = "The moby carrying the hero (hero_platform_carry); 0x1A4FA4 bit 0 marks his position pinned in its frame (0x1A4F50), bit 1 his facing (0x1A4F60, while not turning)."
+
+[[symbol]]
+name = "hero_ground_moby"
+address = 0x001A4F3C
+kind = "data"
+confidence = "high"
+note = "libuya's HeroGround pMoby: the moby the ground probe found under the hero, 0 for level ground."
+
+[[symbol]]
+name = "hero_carried"
+address = 0x001A4D30
+kind = "data"
+confidence = "medium"
+note = "Vector: what the platform's carry moved the hero this frame, after its collision (hero_move_step). camera_hero_copy passes it to the camera as CameraHeroData +0x70."

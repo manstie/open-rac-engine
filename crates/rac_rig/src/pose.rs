@@ -375,7 +375,7 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
             b.set(joint::HEAD, rx(0.3));
             tail(&mut b, 0.1, -0.5, time);
         }
-        HeroState::Fall => {
+        HeroState::Fall | HeroState::FallOut => {
             arms_down(&mut b, 0.2, 0.9);
             b.sides(joint::THIGH_R, joint::THIGH_L, rx(0.3));
             b.sides(joint::KNEE_R, joint::KNEE_L, rx(-0.5));

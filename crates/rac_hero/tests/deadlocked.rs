@@ -386,7 +386,9 @@ fn deadlocked_swings_on_with_crouch_held_and_jumps_out_standing() {
 
 #[test]
 fn deadlocked_attacks_from_a_double_jump_far_sooner() {
-    // Past its animation's frame 16, on its 12th tick (melee-3); UYA waits for frame 32.
+    // Past its animation's frame 16, on its 13th tick: DL's rows show frame 16.2 with the
+    // timer at 12, read before that tick's count ("Reading the traces"). UYA waits for
+    // frame 32, its 20th.
     let first_tick = |profile: HeroProfile| {
         (1..40).find(|&delay| {
             let mut rig = Rig::new(profile.clone());
@@ -396,7 +398,7 @@ fn deadlocked_attacks_from_a_double_jump_far_sooner() {
             rig.hero.state == HeroState::JumpAttack
         })
     };
-    assert_eq!(first_tick(HeroProfile::dl()), Some(12));
+    assert_eq!(first_tick(HeroProfile::dl()), Some(13));
     assert_eq!(first_tick(HeroProfile::uya()), Some(20));
 }
 
@@ -546,6 +548,83 @@ fn deadlocked_rides_facing_along_the_rail_where_uya_rides_side_on() {
         rig.ticks(60, &input(None, &[], &[]));
         assert_eq!(rig.hero.state, HeroState::Grind);
         assert!((rig.hero.yaw - yaw).abs() < 0.01, "yaw {}", rig.hero.yaw);
+    }
+}
+
+#[test]
+fn deadlocked_grinds_a_level_rail_at_14_u_s_where_uya_grinds_at_12() {
+    // The grind update's base speed: 14 u/s at 17 u/s² in DL, 12 at 15 in UYA.
+    for (profile, speed) in [(HeroProfile::dl(), 14.0), (HeroProfile::uya(), 12.0)] {
+        let mut rig = grinding(profile, vec![rail_along_minus_z(500.0)], 0.0);
+        rig.ticks(90, &input(None, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Grind);
+        assert!((rig.hero.speed - speed).abs() < 1e-3, "{}", rig.hero.speed);
+    }
+}
+
+#[test]
+fn a_grind_jump_lands_on_its_rail_deadlocked_at_once_and_uya_a_tick_later() {
+    // "Deadlocked's grinding": the fall is cut to end on the rail; DL grinds again that
+    // tick, UYA the next.
+    for (profile, ticks_on_rail) in [(HeroProfile::dl(), 0), (HeroProfile::uya(), 1)] {
+        let mut rig = grinding(profile, vec![rail_along_minus_z(500.0)], 0.0);
+        rig.ticks(30, &input(None, &[], &[]));
+        rig.tick(&input(None, &[Action::Jump], &[Action::Jump]));
+        assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Grind));
+        // (The push-off presses him down off the rail a little first.)
+        let mut on_rail = None;
+        let mut risen = false;
+        for tick in 0..120 {
+            rig.tick(&input(None, &[], &[]));
+            risen |= rig.hero.position.y > 2.5;
+            if !risen {
+                continue;
+            }
+            assert!(rig.hero.position.y > 2.0 - 1e-4, "{}", rig.hero.position);
+            if on_rail.is_none() && rig.hero.position.y < 2.0 + 1e-4 {
+                on_rail = Some(tick);
+            }
+            if rig.hero.state == HeroState::Grind {
+                assert_eq!(Some(tick - ticks_on_rail), on_rail);
+                break;
+            }
+        }
+        assert_eq!(rig.hero.state, HeroState::Grind);
+    }
+}
+
+#[test]
+fn past_its_rails_end_only_uyas_grind_jump_lands_on_another_rail() {
+    // A rail ending at z = −30 and another from z = −32 on, too far to chain.
+    let rails = || {
+        vec![
+            rail_along_minus_z(30.0),
+            GrindRail::new(vec![
+                Vec3::new(0.0, 2.0, -32.0),
+                Vec3::new(0.0, 2.0, -200.0),
+            ]),
+        ]
+    };
+    for (profile, lands) in [(HeroProfile::uya(), true), (HeroProfile::dl(), false)] {
+        let mut rig = grinding(profile, rails(), 0.0);
+        for _ in 0..600 {
+            if rig.hero.position.z < -26.0 {
+                break;
+            }
+            rig.tick(&input(None, &[], &[]));
+        }
+        rig.tick(&input(None, &[Action::Jump], &[Action::Jump]));
+        assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Grind));
+        for _ in 0..120 {
+            rig.tick(&input(None, &[], &[]));
+            if rig.hero.state == HeroState::Grind || rig.hero.position.y < 0.0 {
+                break;
+            }
+        }
+        assert_eq!(rig.hero.state == HeroState::Grind, lands);
+        if lands {
+            assert_eq!(rig.hero.rail.map(|at| at.rail), Some(1));
+        }
     }
 }
 

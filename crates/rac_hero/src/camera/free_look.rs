@@ -499,7 +499,11 @@ impl FreeLook {
         }
         let from = hero.position + Vec3::Y * profile.eye_guard_from;
         let motion = eye - from;
-        if motion.length_squared() > 0.01
+        let guarded = profile
+            .eye_guard_below
+            .is_none_or(|below| self.eye_height < below);
+        if guarded
+            && motion.length_squared() > 0.01
             && let Some(hit) = world.cast_sphere(profile.eye_guard_radius, from, motion)
         {
             eye = from + motion * hit.fraction;
@@ -716,6 +720,34 @@ mod tests {
         hero.height_above_ground = 3.5;
         free.update_eye(&hero, &profile, &world);
         assert!(free.eye.y > 3.5, "{}", free.eye.y);
+    }
+
+    #[test]
+    fn deadlocked_guards_the_eye_only_while_it_is_held_under_1_15() {
+        use crate::collision::{BodyPlacement, Collider};
+        // A ceiling 1.3 u up: the 0.4 u sphere from 0.7 u up stops with the eye at 0.9.
+        let ceiling = ParryWorld::new(&[BodyPlacement::fixed(
+            Collider::Cuboid {
+                half_extents: Vec3::new(10.0, 0.5, 10.0),
+            },
+            Vec3::new(0.0, 1.8, 0.0),
+            Quat::IDENTITY,
+        )]);
+        let hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        let profile = uya();
+        let mut free = lock_strafe(&profile);
+        free.update_eye(&hero, &profile, &ceiling);
+        assert!((free.eye.y - 0.9).abs() < 0.01, "{}", free.eye.y);
+
+        let profile = HeroProfile::dl().camera.free_look;
+        let mut free = lock_strafe(&profile);
+        free.update_eye(&hero, &profile, &ceiling);
+        assert!((free.eye.y - 2.0).abs() < 1e-5, "{}", free.eye.y);
+        // Held low, as a jump or a landing holds it.
+        free.eye_height = 1.0;
+        free.eye_speed = 0.0;
+        free.update_eye(&hero, &profile, &ceiling);
+        assert!((free.eye.y - 0.9).abs() < 0.01, "{}", free.eye.y);
     }
 
     #[test]

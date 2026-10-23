@@ -23,7 +23,10 @@ use crate::{
     collision::{BodyId, CollisionWorld, Material},
     gun::{GunArm, GunHand, Hold, Shield},
     motor::{self, Ground},
-    profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring, WalkProfile},
+    profile::{
+        HeroProfile, JumpParams, PlatformProfile, Spring, SwimProfile, TurnSpring, WadeProfile,
+        WalkProfile,
+    },
     rail::{GrindRail, RailKind, RailPoint},
     stick::{Stick, StickPresses, read_axes, read_stick},
     water,
@@ -128,6 +131,10 @@ pub enum HeroState {
     /// Knocked back by a hit.
     Hit,
     Dead,
+    /// Falling out of the level, under its kill height, until he comes back at his
+    /// checkpoint (UYA's state 121, DL's 118: `hero-controller.md`, "Getting hit and
+    /// dying").
+    FallOut,
 }
 
 impl HeroState {
@@ -170,6 +177,8 @@ impl HeroState {
             HeroState::SurfaceSwim => 53,
             HeroState::SurfaceIdle => 54,
             HeroState::Dead => 57,
+            // UYA's; DL's is 118.
+            HeroState::FallOut => 121,
             HeroState::ZipLine => 118,
             HeroState::Bounce => 121,
             HeroState::Charge => 125,
@@ -314,6 +323,8 @@ struct JumpBlock {
     past_apex: bool,
     /// A ceiling was hit, so no more lift.
     blocked: bool,
+    /// A jump off a rail come down onto it: ticks left before the grind starts again.
+    rail_landing: Option<u32>,
 }
 
 /// Ticks since a button was last pressed, so presses can be buffered as the games do.
@@ -404,6 +415,9 @@ pub struct HeroMotion {
     /// Strafe or lock-on is held: on the ground he faces the camera and moves with the
     /// stick (`hero-controller.md`, "Strafing").
     pub strafing: bool,
+    /// Walking in shallow water this tick: wading, UYA's state 117 and DL's 114, which run
+    /// the walk's code (`hero-controller.md`, "Wading").
+    pub wading: bool,
     /// Where the stick last pointed while strafing.
     pub strafe_side: StrafeSide,
     /// Which way the current or last flip went, relative to his facing; its animation
@@ -422,6 +436,9 @@ pub struct HeroMotion {
     /// That camera's pitch, radians, negative looking down, which the camera sets: the
     /// gun arm follows it in the lock-strafe camera.
     pub camera_pitch: f32,
+    /// The level's kill height, which the level sets: under it he falls out of the level
+    /// ([`FallOutProfile`](crate::profile::FallOutProfile)).
+    pub kill_height: f32,
     /// What is in his hand and whether it fires, which the game's weapons code sets each
     /// tick before he moves.
     pub gun: GunHand,
@@ -529,6 +546,10 @@ pub struct HeroMotion {
     no_zip_ticks: u32,
     /// The water he is in or over, found each tick.
     water: Option<WaterLevel>,
+    /// What last carried him, a tick: the body he stood or hung on; and the ticks since
+    /// he left it, through which it carries on.
+    carry: Vec3,
+    carry_ticks: u32,
     /// The pitch's spring rate, radians per tick.
     pitch_rate: f32,
     /// On the surface: the height his feet float at follows the water's, and an offset
@@ -581,11 +602,13 @@ impl HeroMotion {
             look_ready: true,
             camera_setting: CameraSetting::ThirdPerson,
             camera_pitch: 0.0,
+            kill_height: f32::NEG_INFINITY,
             gun: GunHand::default(),
             gun_arm: GunArm::default(),
             shield: Shield::default(),
             whip_attacks: 0,
             strafing: false,
+            wading: false,
             strafe_side: StrafeSide::Forward,
             flip_side: StrafeSide::Forward,
             strafing_back: false,
@@ -646,6 +669,8 @@ impl HeroMotion {
             zip_end: 0,
             no_zip_ticks: 0,
             water: None,
+            carry: Vec3::ZERO,
+            carry_ticks: 0,
             pitch_rate: 0.0,
             float_height: 0.0,
             float_rate: 0.0,
@@ -675,9 +700,13 @@ impl HeroMotion {
         facing(self.yaw)
     }
 
-    /// Dead long enough to come back at a checkpoint.
+    /// Dead, or fallen out of the level, long enough to come back at a checkpoint.
     pub fn respawn_due(&self, profile: &HeroProfile) -> bool {
-        self.state == HeroState::Dead && self.ticks >= profile.death.ticks
+        match self.state {
+            HeroState::Dead => self.ticks >= profile.death.ticks,
+            HeroState::FallOut => self.ticks >= profile.death.fall_out.ticks,
+            _ => false,
+        }
     }
 
     /// Whether a hit now would hurt him.
@@ -1068,17 +1097,31 @@ pub fn step(
     hero.no_rail_ticks = hero.no_rail_ticks.saturating_sub(1);
     hero.no_zip_ticks = hero.no_zip_ticks.saturating_sub(1);
 
-    // Ride whatever he stands on or hangs from.
+    // Ride whatever he stands on or hangs from; off it, its last move carries on through
+    // the air, slowing (`hero-controller.md`, "Moving platforms").
     if let Some(ground) = hero.ground {
-        hero.position += world.body_motion(ground.body);
-    }
-    if hero.state.is_on_ledge()
+        let motion = world.body_motion(ground.body);
+        hero.position += motion;
+        hero.carry = motion;
+        hero.carry_ticks = 0;
+    } else if hero.state.is_on_ledge()
         && let Some(ledge) = hero.ledge.as_mut()
     {
         let motion = world.body_motion(ledge.body);
         ledge.hang += motion;
         ledge.lip += motion;
         hero.position += motion;
+        hero.carry = motion;
+        hero.carry_ticks = 0;
+    } else if hero.state.is_airborne() {
+        hero.carry_ticks += 1;
+        let carry = carried_on(hero.carry, hero.carry_ticks, &profile.platform);
+        if carry != Vec3::ZERO {
+            hero.position =
+                motor::move_body(world, &profile.body, hero.position, carry, false).position;
+        }
+    } else {
+        hero.carry = Vec3::ZERO;
     }
     hero.height_above_ground = height_above_ground(world, hero.position);
     hero.flip_over_drop = flip_over_drop(hero, profile, world);
@@ -1098,6 +1141,7 @@ pub fn step(
     try_catch_zip_line(hero, profile, world);
     hero.water = find_water(world, hero.position);
     enter_water(hero, profile);
+    hero.wading = false;
     if hero.state.is_attacking() {
         melee::advance_frame(hero, profile);
     }
@@ -1105,6 +1149,7 @@ pub fn step(
 
     match hero.state {
         HeroState::Dead => dead_tick(hero, profile),
+        HeroState::FallOut => fall_out_tick(hero, profile),
         HeroState::Hit => hit_tick(hero, profile),
         HeroState::Charge => charge_tick(hero, &stick, profile),
         HeroState::Bounce => bounce_tick(hero, profile),
@@ -1124,6 +1169,7 @@ pub fn step(
 
     follow_rail_in_air(hero, &stick, wish, profile, world);
     move_hero(hero, &stick, profile, world);
+    try_fall_out(hero, profile, world);
     melee::thrown_tick(hero, profile, world);
     melee::update_strikes(hero, profile);
     melee::clank(hero, profile, world);
@@ -1142,13 +1188,26 @@ pub fn step(
 
 /// The gun arm this tick (`hero_gun_arm_raise`, 0x4E26F8): with a gun held in a hand,
 /// raised against a wall close ahead, or in the lock-strafe camera following the camera's
-/// pitch where that raises it more.
+/// pitch where that raises it more; in DL's first-person camera, following its pitch
+/// (0x670A50).
 fn gun_arm(hero: &HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) -> GunArm {
     let gun = &hero.gun;
     if !gun.out || gun.item.is_none() || gun.pose.hold == Hold::None {
         return GunArm::default();
     }
     let raise = &profile.gun.raise;
+    let follow_camera = |lower: f32| GunArm {
+        raised: false,
+        pitch: (hero.camera_pitch - lower.to_radians()).clamp(
+            -raise.strafe_down.to_radians(),
+            raise.strafe_up.to_radians(),
+        ),
+    };
+    if hero.camera_setting == CameraSetting::FirstPerson
+        && let Some(lower) = raise.first_person_lower
+    {
+        return follow_camera(lower);
+    }
     let radius = profile.body.radius;
     let height = if gun.firing {
         raise.firing_height
@@ -1157,8 +1216,14 @@ fn gun_arm(hero: &HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld)
     };
     let ahead = hero.facing();
     let up = Vec3::Y * height;
-    let from = hero.position + up + ahead * (radius - raise.start_inside);
-    let to = hero.position + up + ahead * raise.reach;
+    let start = radius - raise.start_inside;
+    let from = hero.position + up + ahead * start;
+    let end = if raise.reach_from_start {
+        start + raise.reach
+    } else {
+        raise.reach
+    };
+    let to = hero.position + up + ahead * end;
     let mut arm = GunArm::default();
     if let Some(hit) = world.cast_ray(from, to - from) {
         let at = from + (to - from) * hit.fraction;
@@ -1169,15 +1234,9 @@ fn gun_arm(hero: &HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld)
         arm.raised = true;
     }
     if hero.camera_setting == CameraSetting::LockStrafe {
-        let pitch = hero.camera_pitch.clamp(
-            -raise.strafe_down.to_radians(),
-            raise.strafe_up.to_radians(),
-        );
-        if !arm.raised || pitch > arm.pitch {
-            arm = GunArm {
-                raised: false,
-                pitch,
-            };
+        let camera = follow_camera(0.0);
+        if !arm.raised || camera.pitch > arm.pitch {
+            arm = camera;
         }
     }
     arm
@@ -1192,8 +1251,13 @@ fn move_hero(
     world: &dyn CollisionWorld,
 ) {
     let state = hero.state;
-    if state.is_grinding() || state == HeroState::ZipLine {
-        // The rail carries him; nothing else stops him.
+    let through_floors = state == HeroState::FallOut && !profile.death.fall_out.collides;
+    if state.is_grinding() || state == HeroState::ZipLine || through_floors {
+        // The rail carries him, or DL's fall out of the level falls through everything;
+        // nothing stops him. That fall still keeps to the step limit.
+        if through_floors {
+            hero.velocity = hero.velocity.clamp_length_max(profile.body.max_step / TICK);
+        }
         hero.position += hero.velocity * TICK;
         hero.ground = None;
         hero.ticks += 1;
@@ -1217,11 +1281,16 @@ fn move_hero(
     }
     let on_ground = !state.is_airborne() && !state.is_on_ledge();
     let pushing_off = hero.pushing_off_ground(profile);
-    // Hits, deaths, bounces, charges and attacks keep to the ground while they are on it.
+    // Hits, deaths, falls out of the level, bounces, charges and attacks keep to the
+    // ground while they are on it, and never land into another state.
     let keeps_to_ground = state.is_attacking()
         || matches!(
             state,
-            HeroState::Hit | HeroState::Dead | HeroState::Bounce | HeroState::Charge
+            HeroState::Hit
+                | HeroState::Dead
+                | HeroState::FallOut
+                | HeroState::Bounce
+                | HeroState::Charge
         );
     let grounded = match state {
         // A charge runs up slopes too.
@@ -1230,9 +1299,9 @@ fn move_hero(
         _ => on_ground || pushing_off,
     };
     let start = hero.position;
-    // A charge would outrun the collision's step limit, so the game caps the velocity.
-    let horizontal = hero.horizontal_velocity();
-    hero.set_horizontal_velocity(horizontal.clamp_length_max(profile.body.max_step / TICK));
+    // A charge or a long fall would outrun the collision's step limit, so the game caps
+    // the whole motion at the radius less 0.02 (UYA 0x4ECDA0, DL 0x67F5E8).
+    hero.velocity = hero.velocity.clamp_length_max(profile.body.max_step / TICK);
     let outcome = motor::move_body(
         world,
         &profile.body,
@@ -1514,7 +1583,15 @@ fn ground_tick(
         }
     }
 
-    let pushed = walk_pushed(hero, stick, walk);
+    // Wading is the walk with a slower speed and a stop of its own, which waits for the
+    // stick to be let go and him to slow down (UYA 0x503B68, DL 0x69EA40).
+    let wading = !hero.strafing && in_shallows(hero, &profile.wade);
+    let hands_off = read_axes(input.move_stick, &profile.stick) == Vec2::ZERO;
+    let pushed = if wading && hero.state == HeroState::Walk {
+        !hands_off || hero.speed >= profile.wade.stop_below
+    } else {
+        walk_pushed(hero, stick, walk)
+    };
     if hero.strafing && pushed {
         hero.set_state(HeroState::Walk);
         hero.stop_ticks = 0;
@@ -1535,13 +1612,19 @@ fn ground_tick(
     }
 
     if pushed {
-        let target_yaw = yaw_of(wish_direction);
+        // A wade on with the stick in UYA's cut-off goes the way he faces.
+        let target_yaw = if stick.is_active() {
+            yaw_of(wish_direction)
+        } else {
+            hero.yaw
+        };
         let error = wrap(target_yaw - hero.yaw).abs();
         hero.stop_ticks = 0;
         if hero.state != HeroState::Walk {
             hero.setting_off = hero.speed < walk.setting_off_below;
             hero.set_state(HeroState::Walk);
         }
+        hero.wading = wading;
         if hero.setting_off && hero.speed >= walk.setting_off_below {
             hero.setting_off = false;
         }
@@ -1591,6 +1674,10 @@ fn ground_tick(
         turn(hero, target_yaw, spring);
 
         let mut target = walk.speed * stick.magnitude;
+        if wading {
+            let wade = &profile.wade;
+            target = (target * wade.speed_scale).max(wade.min_speed);
+        }
         let mut brake = walk.brake;
         if hero.skidding {
             let most = (walk.speed - error * walk.skid_speed_loss / PI).max(0.0);
@@ -1614,7 +1701,7 @@ fn ground_tick(
         let rate = if hero.speed < target { accel } else { brake };
         hero.speed = approach(hero.speed, target, rate * TICK);
 
-        let direction = if hero.sliding {
+        let direction = if hero.sliding && stick.is_active() {
             wish_direction
         } else {
             hero.facing()
@@ -1634,6 +1721,11 @@ fn ground_tick(
             hero.set_state(HeroState::Walk);
         }
         match hero.state {
+            // Wading stops into idle with the speed it has, which idle brakes.
+            HeroState::Walk if wading => {
+                hero.set_state(HeroState::Idle);
+                hero.speed = approach(hero.speed, 0.0, walk.stop_brake * TICK);
+            }
             HeroState::Walk if hero.strafing => {
                 // A strafe brakes at the skid rate, turning to the camera, and only idles
                 // once he faces within a couple of degrees of it.
@@ -1718,15 +1810,17 @@ fn strafe_walk(hero: &mut HeroMotion, profile: &HeroProfile) {
 }
 
 /// Turns him to the camera on the strafe's spring and its own rate (UYA 0x4EA5B0). Firing
-/// in the lock-strafe camera turns him faster.
+/// in the gun cameras turns him faster (UYA 0x4EAFF8, DL 0x67CFD0).
 fn turn_to_camera(hero: &mut HeroMotion, profile: &HeroProfile) {
     let gun = &profile.gun;
     let mut spring = profile.strafe.turn;
-    if hero.camera_setting == CameraSetting::LockStrafe
-        && (hero.gun.firing || hero.fire_press.ticks < gun.fire_turn_ticks)
-    {
-        spring.gain *= gun.fire_turn_scale;
-        spring.cap *= gun.fire_turn_scale;
+    let gun_camera = match hero.camera_setting {
+        CameraSetting::LockStrafe => true,
+        CameraSetting::FirstPerson => gun.fire_turn_first_person,
+        CameraSetting::ThirdPerson => false,
+    };
+    if gun_camera && (hero.gun.firing || hero.fire_press.ticks < gun.fire_turn_ticks) {
+        gun.fire_turn.apply(&mut spring);
     }
     hero.yaw_rate = hero.strafe_yaw_rate;
     turn(hero, hero.camera_yaw, spring);
@@ -1748,6 +1842,7 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
         gravity: params.gravity,
         past_apex: false,
         blocked: false,
+        rail_landing: None,
     };
     // A water jump keeps the velocity it swam with.
     if !kind.follows_rail()
@@ -2202,6 +2297,29 @@ fn dead_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
     brake_and_fall(hero, profile.hit.brake_later, profile);
 }
 
+/// Falls out of the level once he is under its kill height with more than a little air
+/// below him, from any state but this one, as the games check before their states'
+/// transitions, after the frame's move.
+fn try_fall_out(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn CollisionWorld) {
+    if hero.state == HeroState::FallOut || hero.position.y >= hero.kill_height {
+        return;
+    }
+    if height_above_ground(world, hero.position) <= profile.death.fall_out.above_ground {
+        return;
+    }
+    hero.ledge = None;
+    hero.rail = None;
+    hero.wall = None;
+    hero.ground = None;
+    hero.set_state(HeroState::FallOut);
+}
+
+/// Falling out of the level: no control, the motion across kept, gravity down to the cap.
+fn fall_out_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
+    hero.velocity.y =
+        (hero.velocity.y - profile.fall.gravity * TICK).max(-profile.air.fall_speed_cap);
+}
+
 /// Slows the horizontal motion at `rate`, and falls when off the ground.
 fn brake_and_fall(hero: &mut HeroMotion, rate: f32, profile: &HeroProfile) {
     let horizontal = hero.horizontal_velocity();
@@ -2359,9 +2477,16 @@ fn try_get_on_rail(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn Col
         hero.state,
         HeroState::Idle | HeroState::Walk | HeroState::Skid | HeroState::Crouch
     );
+    // A jump off a rail lands on the rail it follows (`follow_rail_in_air`); only past that
+    // rail's end does it look for another, and DL's grind jump never does (0x673810).
     let may = on_ground
         || match hero.state {
             HeroState::Fall => true,
+            HeroState::Jump(kind) if kind.follows_rail() => {
+                hero.rail.is_none()
+                    && hero.jump.past_apex
+                    && (kind != JumpKind::Grind || profile.grind.jump_finds_rails)
+            }
             HeroState::Jump(_) => hero.jump.past_apex,
             HeroState::DoubleJump | HeroState::Glide => hero.velocity.y <= 0.0,
             _ => false,
@@ -2592,7 +2717,8 @@ fn follow_rail_in_air(
         return;
     }
     hero.rail = Some(at);
-    let mut target = rail.position(at);
+    let on_rail = rail.position(at);
+    let mut target = on_rail;
     hero.position.y += target.y - height_before;
     if let Some(mut from) = hero.switch_from {
         let old = &rails[from.rail];
@@ -2606,6 +2732,23 @@ fn follow_rail_in_air(
     hero.velocity.z = (target.z - hero.position.z) / TICK;
     hero.rail_yaw = yaw_of(flat(rail.direction(at)));
     turn(hero, hero.rail_yaw + hero.grind_stance, grind.turn);
+
+    // Coming down onto the rail, the jump's fall is cut to end on it and the grind starts
+    // again `land_ticks` later, without the grind's entry: the stance and speed carry on
+    // (UYA's grind jump transitions, DL 0x6A2878; "Deadlocked's grinding").
+    let falls_past = hero.jump.past_apex && hero.position.y + hero.velocity.y * TICK < on_rail.y;
+    if hero.jump.rail_landing.is_some() || falls_past {
+        hero.velocity.y = (on_rail.y - hero.position.y) / TICK;
+        let left = hero.jump.rail_landing.unwrap_or(grind.land_ticks);
+        if left > 0 {
+            hero.jump.rail_landing = Some(left - 1);
+        } else {
+            hero.rail_offset = Vec3::new(target.x - on_rail.x, 0.0, target.z - on_rail.z);
+            hero.rail_pull = 0.0;
+            hero.switch_from = None;
+            hero.restart_state(HeroState::Grind);
+        }
+    }
 }
 
 /// Another rail to the side the stick points, for a switch jump: looked for that far
@@ -2741,6 +2884,23 @@ fn zip_line_tick(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn Colli
     hero.velocity = (target - hero.position) / TICK;
 }
 
+/// A platform's move a tick, `ticks` ticks after he left it: the part across shortened,
+/// and the part up or down brought towards 0, by the brakes × the ticks (UYA 0x50DB78).
+fn carried_on(carry: Vec3, ticks: u32, platform: &PlatformProfile) -> Vec3 {
+    let per_tick = TICK * TICK * ticks as f32;
+    let across = Vec2::new(carry.x, carry.z);
+    let across =
+        across.normalize_or_zero() * (across.length() - platform.air_brake * per_tick).max(0.0);
+    let up = approach(carry.y, 0.0, platform.air_brake_vertical * per_tick);
+    Vec3::new(across.x, up, across.y)
+}
+
+/// Whether the water he is in is shallow enough to wade, and deep enough.
+fn in_shallows(hero: &HeroMotion, wade: &WadeProfile) -> bool {
+    hero.water
+        .is_some_and(|water| water.depth > wade.depth_above && water.depth < wade.depth_below)
+}
+
 /// The water at `feet`, as the games' ground probe finds it (`hero-controller.md`,
 /// "Swimming").
 fn find_water(world: &dyn CollisionWorld, feet: Vec3) -> Option<WaterLevel> {
@@ -2791,7 +2951,10 @@ fn enter_water(hero: &mut HeroMotion, profile: &HeroProfile) {
     }
     if state.is_on_surface()
         || state.is_on_ledge()
-        || matches!(state, HeroState::Grind | HeroState::Dead)
+        || matches!(
+            state,
+            HeroState::Grind | HeroState::Dead | HeroState::FallOut
+        )
     {
         return;
     }
@@ -2927,7 +3090,8 @@ fn surface_tick(
         swim.stand_depth_swimming
     };
     if water.depth < stand_depth {
-        // The game wades in state 117, not read yet; the kit lands and walks.
+        // The game stands up into wading (state 117) or idle; the kit's walk falls off
+        // where the floor is out of its reach, so he drops onto it and lands.
         hero.velocity.y = 0.0;
         out_of_water(hero);
         air_tick(hero, input, stick, wish, profile);

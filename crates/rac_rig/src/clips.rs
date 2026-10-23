@@ -27,6 +27,8 @@ pub enum RigMove {
     Run,
     /// Strafing backwards: walking backwards.
     StrafeBack,
+    /// Walking in shallow water.
+    Wade,
     Skid,
     /// The skid straight out of a run, or out of a long jump's landing.
     RunSkid,
@@ -110,6 +112,7 @@ impl RigMove {
         let horizontal = Vec2::new(hero.velocity.x, hero.velocity.z).length();
         Some(match hero.state {
             HeroState::Idle | HeroState::Look => RigMove::Idle,
+            HeroState::Walk if hero.wading => RigMove::Wade,
             HeroState::Walk if hero.strafing_back => RigMove::StrafeBack,
             // UYA's walk sets off below 2.35 u/s (`hero-controller.md`).
             HeroState::Walk if horizontal < SET_OFF_BELOW => RigMove::SetOff,
@@ -117,7 +120,8 @@ impl RigMove {
             HeroState::Skid => RigMove::Skid,
             HeroState::Crouch if horizontal > 0.5 => RigMove::CrouchMove,
             HeroState::Crouch => RigMove::Crouch,
-            HeroState::Fall => RigMove::Fall,
+            // UYA plays the fall's sequence in state 121 too [verified].
+            HeroState::Fall | HeroState::FallOut => RigMove::Fall,
             HeroState::Jump(kind) => match kind {
                 JumpKind::Standing => RigMove::Jump,
                 JumpKind::Run => RigMove::RunJump,
@@ -644,6 +648,9 @@ mod tests {
         assert_eq!(RigMove::of(&hero), Some(RigMove::SetOff));
         hero.velocity = Vec3::new(0.0, 0.0, -6.0);
         assert_eq!(RigMove::of(&hero), Some(RigMove::Run));
+        hero.wading = true;
+        assert_eq!(RigMove::of(&hero), Some(RigMove::Wade));
+        hero.wading = false;
         hero.state = HeroState::Jump(JumpKind::Flip);
         hero.flip_side = StrafeSide::Back;
         assert_eq!(RigMove::of(&hero), Some(RigMove::Flip(FlipSide::Back)));

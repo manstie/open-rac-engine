@@ -10,8 +10,8 @@
 // compared with UYA's in DL's DreadZone Station overlay (2026-10-15; addresses in
 // re/SCUS-97465/symbols.toml), and the traces dlntsc-dreadzone-moves-{1..5} check the
 // walk, the jumps and the double jump. Values marked "DL:" differ from UYA's (uya.ron).
-// Sections marked "as UYA [not read in DL]" keep UYA's numbers until DL's code for them
-// is read; everything else was read the same in DL's code.
+// Everything not marked "DL:" was read the same in DL's code (all of it by 2026-10-23),
+// unless its comment says otherwise.
 (
     name: "Deadlocked NTSC-U",
     body: (
@@ -25,8 +25,9 @@
         // steep [code].
         slope_limit_degrees: 50.0,
         ground_snap: 0.3, // [placeholder]
-        // "Charge boots": DL caps the intended velocity at the collision radius less 0.02
-        // a frame, 25.8 u/s; only the charge reaches it [measured on DL NTSC].
+        // "Charge boots": the games cap the motion at the collision radius less 0.02 a
+        // frame, 25.8 u/s, the whole vector: the charge reaches it, and so does a long fall
+        // [measured on DL NTSC; verified on UYA NTSC falls, uyantsc-veldin-death-3].
         max_step: 0.43,
     ),
     stick: (
@@ -38,8 +39,8 @@
         live_range: 76.0,
         cut_off: 0.0, // DL
         magnitude: Length, // DL
-        // As UYA [not read in DL]: "Flips", the pad layer's flick. Only the crouch flip
-        // reads it, and DL has none (walk.crouches).
+        // UYA's, unused: "Flips", the pad layer's flick. Only the crouch flip reads it, and
+        // DL has none (walk.crouches).
         flick: (from: 0.25, to: 0.9, within_ticks: 3, swing_degrees: 55.0, swing_ticks: 4),
     ),
     walk: (
@@ -135,7 +136,10 @@
         gravity: 22.0,
         air_speed: 7.25, // DL: it steers to the walk's speed target (0x67CAF8) [code]
         release_brake: 7.0,
-        // Coming down: UYA's [not read in DL].
+        // Coming down: DL's state 6 transitions (0x6A31A0, shared with 44) are UYA's: 11
+        // after 17 frames or from 1.75 u up; landing from 11 stands with a 7-frame lockout,
+        // 10 after 44, 18 past 50 frames and 22 from 90 (those two while hero+0x2EC is
+        // clear); one still in 10 walks on past a 0.5 stick, or skids above 3 u/s [code].
         landing: (
             far_after_ticks: 17,
             far_above: 1.75,
@@ -210,9 +214,10 @@
         min_speed: 2.0,
         start_speed: 5.0,
         accel: 47.0,
-        // As UYA [not read in DL]: the strafe flip's stick. The crouch flip is UYA's,
-        // unused: DL has no crouch, and the flip from a jump still on the ground ignores
-        // R1 (0x6A3D28) [code].
+        // DL's jump entry (0x69CB88) flags the strafe flip's motion as UYA's does: strafing
+        // (or a gun in the gun cameras), not from state 16, the stick past 0.3, starting at
+        // 5 u/s [code]. The crouch flip is UYA's, unused: DL has no crouch, and the flip
+        // from a jump still on the ground ignores R1 (0x6A3D28) [code].
         strafe_stick: 0.3,
         crouch: (
             press_gap: 12,
@@ -394,7 +399,9 @@
         hang_out: 0.5,
         hang_below: 1.43,
         grab_rising_below: 0.5, // DL: 0.5 × frame_dt, against UYA's 3.5 u/s
-        double_jump_after_tick: 24, // DL: animation frame 24, against UYA's 37
+        // DL: from the double jump's animation frame 24 (UYA 37; 0x672A64) [code], which it
+        // reaches on its 31st tick, as UYA's reaches 37 [traced in 11 double jumps].
+        double_jump_after_tick: 30,
         grab_speed: 4.0, // 0.066667 u per frame
         grab_turn: (gain: 0.04, damping: 0.2, cap: 0.10472),
         // DL: the grab's animation starts at keyframe 1 (UYA 11), so it passes frame 12 on
@@ -486,9 +493,9 @@
         bounce_gravity: 25.0,
         bounce_ticks: 54,
     ),
-    // States 39-41 and 63, "Deadlocked's grinding" [code]: the jumps (40, 41), the turn
-    // and the rail's end as UYA; getting on, the switch's search and the speed as UYA [not
-    // read in DL]. Per-frame values are given as UYA's code has them.
+    // States 39-41 and 63, "Deadlocked's grinding" [code]: getting on, the jumps (40, 41),
+    // the switch's search, the turn and the rail's end as UYA; the speed is DL's own, from
+    // per-second literals (the grind update, 0x692C00).
     grind: (
         reach: 0.9,
         reach_on_ground: 0.3,
@@ -496,15 +503,15 @@
         below: 0.5,
         above: 0.57,
         no_rail_ticks: 8,
-        speed: 12.0, // 0.2 u per frame
-        accel: 15.0, // 0.0041667 u per frame per frame
+        speed: 14.0, // DL (UYA 12)
+        accel: 17.0, // DL (UYA 15)
         pitch_probe: 0.3,
-        uphill_per_radian: 4.7746483, // 15/π: θ × 1.9098593 × 0.041666668 u per frame
-        downhill_per_radian: 22.918312, // 72/π: θ × 2.864789 × 0.13333334 u per frame
-        slope_rise: 8.0, // 0.0022222 u per frame per frame
-        slope_fall: 2.0, // 0.00055556
-        slope_min: -2.5, // -0.041666668 u per frame
-        slope_max: 12.0, // 0.2 u per frame
+        uphill_per_radian: 4.7746483, // 15/π: θ × 1.9098593 × 2.5
+        downhill_per_radian: 22.918312, // 72/π: θ × 2.864789 × 8
+        slope_rise: 9.0, // DL (UYA 8)
+        slope_fall: 2.0,
+        slope_min: -2.5,
+        slope_max: 14.0, // DL (UYA 12)
         turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
         stance_degrees: 0.0, // DL: facing along the rail
         // DL: backwards past 90° from the camera's yaw getting on, and state 63's hop
@@ -526,6 +533,8 @@
         // 0.9 u under the hero.
         chain: Some((within: 0.5, above: 0.9)),
         jump_press_window: 7,
+        land_ticks: 0, // DL: state 39 the same frame (0x6A2978)
+        jump_finds_rails: false, // DL: never in the grind jump (0x673810)
         // States 40 and 41, "Jump parameters by state" [code].
         jump: (
             height_min: 2.4,
@@ -668,10 +677,25 @@
         under_stroke_rate_min: 0.25,
         under_stroke_rate_max: 0.75,
     ),
+    // "Wading" [code, DL NTSC, 2026-10-23; untraced]: UYA's, as state 114, in 0x672298,
+    // 0x67CAF8 and 0x69EA40.
+    wade: (
+        depth_above: 0.25,
+        depth_below: 0.85,
+        speed_scale: 0.8,
+        min_speed: 2.5,
+        stop_below: 3.2,
+    ),
+    // "Moving platforms" [code, DL NTSC, 2026-10-23; untraced]: UYA's, in 0x68B258.
+    platform: (
+        air_brake: 2.0,
+        air_brake_vertical: 25.0,
+    ),
     // "Deadlocked's melee" [code, DL NTSC: the attack states, DL's attack table at 0x3B0358
     // and the wrench's object at 0x460530]. Values marked [code] are DL's own; the rest
-    // match UYA's ("Melee"). The wrench's line is UYA's [not read in DL]. Per-frame game
-    // values are given in comments.
+    // match UYA's ("Melee"). The wrench's line is pushed out and shortened as UYA's [code],
+    // and the swings' keys are DL's own, from the traces. Per-frame game values are given
+    // in comments.
     melee: (
         frames_per_tick: 0.5, // the animation global 0x1A57E4
         blend_creeps: false, // [traced]
@@ -680,7 +704,9 @@
         air_press_window: 14,
         air_press_window_late: 18, // after a flip or double jump
         air_after_tick: 10, // the game's state timer at least 11
-        double_jump_after_tick: 11, // its animation past frame 16 [code], its 12th [traced]
+        // Its animation, 11 + 0.4 a tick, past frame 16 [code]: from its 13th tick
+        // [traced in 15 double jumps; "Reading the traces"].
+        double_jump_after_tick: 12,
         flip_after_tick: 30, // past frame 18 [traced]; 20 for one flip kind, not read
         combo_below_height: 0.1,
         chain_press_max: 15,
@@ -1026,10 +1052,11 @@
             ground_below: 0.9,
         ),
     ),
-    // A gun in hand, as UYA's (weapons.md, "The hero's side of firing") [not read in DL],
-    // but for the release, which DL's trace with a gun in hand shows
-    // (hero-controller.md, "Letting go of the walk with a gun in hand").
+    // A gun in hand (weapons.md, "Deadlocked's side of firing") [code, DL NTSC], and the
+    // release, which DL's trace with a gun in hand shows (hero-controller.md, "Letting go
+    // of the walk with a gun in hand").
     gun: (
+        // DL's walk turn (0x67D100): UYA's numbers, while the Dual Vipers fire [code].
         steady_part_stick: 0.95,
         steady_part: (
             gain_per_m: 0.009,
@@ -1042,26 +1069,33 @@
         ),
         steady_full: (gain: 0.017, damping: 0.18, cap: 0.1454),
         stop_ticks: 1, // [verified on DL NTSC]
-        fire_turn_scale: 3.0,
+        // DL: 0x67CFD0 raises the turn's gain to at least 0.2 and its cap to at least 50°
+        // a frame, in lock-strafe and first person, firing or with R1 or Circle in the
+        // last 2 frames [code].
+        fire_turn: AtLeast(gain: 0.2, cap: 0.87266463),
         fire_turn_ticks: 2,
-        // UYA's [not read in DL]: hero_gun_arm_raise (0x4E26F8): the ray 0.57 u up (0.7 firing) from 0.02 inside
-        // his radius to 1.3 u ahead; −70° × 1.25 × (1.3 − (d − radius)) / 1.3, kept to
-        // 30°–70°; in lock-strafe the camera's pitch, 80° up to 45° down.
+        fire_turn_first_person: true, // DL
+        // 0x670A50: UYA's ray, but a hit counts within 1.3 u of its start, and the angles
+        // go by the item: 30°–40° for the guns but the Vipers (0°–25°), the Fusion Rifle
+        // (0°–30°) and item 9 (0°–45°); in lock-strafe the camera's pitch, 80° up to 20°
+        // down; in first person its pitch 10° lower [code; the item offsets in lock-strafe
+        // aren't modelled].
         raise: (
             height: 0.57,
             firing_height: 0.7,
             start_inside: 0.02,
             reach: 1.3,
+            reach_from_start: true, // DL
             scale: 1.25,
             least: 30.0,
-            most: 70.0,
+            most: 40.0, // DL
             strafe_up: 80.0,
-            strafe_down: 45.0,
+            strafe_down: 20.0, // DL
+            first_person_lower: Some(10.0), // DL
         ),
     ),
     // State 22, "Getting hit and dying": DL's entry (0x69DAAC), motion and transitions
-    // are UYA's apart from the marked values ("Deadlocked's hits") [code]. Death is as
-    // UYA [not read in DL].
+    // are UYA's apart from the marked values ("Deadlocked's hits") [code].
     hit: (
         max_speed: 7.0, // 0.11667 u per frame
         brake: 4.0,
@@ -1078,13 +1112,16 @@
         hazard_safe_ticks: 90,
         hazard_divisor: 8,
         hazard_ticks: 41,
-        max_health: 10, // [placeholder]
+        max_health: 10, // a new game's 10 of 10 [measured, dlntsc-dreadzone-open.p2s]
     ),
     death: (
-        // [placeholder]: the hero reports his death 10 frames in, or once sequence 58 is
-        // done and the state is 80 frames old, and the level respawns him ("Getting hit and
-        // dying"); the respawn's timing wants a trace.
-        ticks: 120,
+        // DL: reported once the state is over 80 frames old, sequence 58 done; the level
+        // then reloads (the 10-frame early report is off on DreadZone Station): 82 ticks,
+        // the entry's included ("Getting hit and dying") [verified, dlntsc-dreadzone-death-1].
+        ticks: 82,
+        // DL: state 118, UYA's numbers and timing, but it falls through the floor, and
+        // reports as a death [verified, dlntsc-dreadzone-death-2].
+        fall_out: (above_ground: 2.0, ticks: 121, collides: false),
     ),
     // camera.md, "Deadlocked's camera" [DL NTSC]: the follow camera is UYA's with its own
     // distance, so its sections are UYA's numbers [code: its functions pair up one for one
@@ -1188,7 +1225,9 @@
             quick_after_ticks: 2, // DL [verified]
             quick_speed: 0.10472, // 360°/s [verified]
             quick_accel: 0.0034907, // DL [verified]
-            look_stick_threshold: 0.5, // as UYA [not read in DL]
+            // DL's look takes the further pushed of the two sticks as it is: no 0.5 floor
+            // with the d-pad under it, as UYA's has (0x5620A0) [code].
+            look_stick_threshold: 0.0,
             lock_strafe_limits: (down_degrees: 70.0, up_degrees: 70.0), // DL [code]
             first_person_limits: (down_degrees: 89.0, up_degrees: 85.0), // DL [verified]
             up_limit_rest_degrees: 70.0, // DL [verified]
@@ -1197,29 +1236,37 @@
             first_person_lead_ticks: 10, // DL [measured]
             eye_lock_strafe: 2.0, // [verified]
             eye_first_person: 1.15, // DL [verified]
-            eye_crouch: 1.0, // as UYA [not read in DL]
+            eye_crouch: 1.0, // UYA's, unused: DL has no crouch
             eye_on_switch: None, // DL: at once both ways [verified]
             eye_accel: 0.0088889, // DL: 32 u/s² [code]
             eye_speed: 1.0666667,
             jump_hold_until: 3.5, // DL [verified]
             jump_hold_ledge: false, // DL [code]
             look_down_forward: 0.45, // [verified]
-            eye_guard_from: 0.7, // as UYA [not read in DL]
+            // UYA's sphere from 0.7 u up (DL's caller, 0x68BBA0; its radius 0x21E754), but
+            // only while the eye is under 1.15 u, held low by a jump or a landing (0x562E40)
+            // [code].
+            eye_guard_from: 0.7,
             eye_guard_radius: 0.4,
+            eye_guard_below: Some(1.15),
             offset: 6.0, // [verified]
             offset_ray_extra: 0.5, // [verified]
             offset_accel: 0.0055556, // [verified]
             offset_speed: 0.3333333,
             end_sphere_radius: None, // DL has none [code]
-            // UYA's aim assist [not read in DL].
+            // DL's aim assist (hero_look_update, 0x5620A0) is UYA's in single player but for
+            // a 35 u ray, a 20° cone, and the quick turn from its 2nd tick past 0.99 with a
+            // target as without [code]. The cuts are the look block's (hero+0x19C8: quick
+            // 0, yaw 0.5, pitch 0.6) [savestate]. `hit_radius` stands in for the target's
+            // collision, which the ray tests in both games.
             assist: Some((
-                range: 30.0,
+                range: 35.0, // DL
                 hit_radius: 1.0,
-                cone_degrees: 15.0,
+                cone_degrees: 20.0, // DL
                 yaw_cut: 0.5,
                 quick_cut: 0.0,
                 pitch_cut: 0.6,
-                quick_after_ticks: 10,
+                quick_after_ticks: 2, // DL
                 quick_accel_share: 0.333,
                 snap_stick: 0.85,
                 snap_ticks: 7,
@@ -1231,7 +1278,9 @@
             )),
         ),
         blends: (
-            look_lead_ticks: 7, // as UYA [not read in DL]
+            // Mode 4's condition (0x520010) switches on the 7th tick, steering at 4° a tick,
+            // as UYA [code].
+            look_lead_ticks: 7,
             look_steer: 0.0698,
             look_reset_degrees: 80.0,
             into_look: (start: 0.0, rate: 0.075),

@@ -10,7 +10,7 @@
 //! - [`HeroTuning`] holds the movement profile, UYA NTSC-U's unless the app sets another,
 //!   such as Deadlocked's ([`HeroProfile::dl`]); the games differ only in its numbers.
 //! - Health, hits ([`HurtHero`]), death and [`Checkpoint`]s are handled here, around the
-//!   controller.
+//!   controller; [`HeroRespawned`] says when a hero is brought back.
 //! - The wrench's attacks turn to [`AimTarget`]s, and what they can hit each tick is in
 //!   [`HeroMotion::strikes`] for the game's combat code (`rac_combat`) to test.
 //! - [`FollowCamera`] is the hero's camera (P1.7): UYA's third-person follow camera, or
@@ -58,7 +58,8 @@ pub struct Hero {
     /// [`Checkpoint`] moves it.
     pub spawn: Vec3,
     pub spawn_yaw: f32,
-    /// Falling below this height sends him back to `spawn`.
+    /// The level's kill height: under it, with air below him, he falls out of the level
+    /// and comes back at `spawn` ([`FallOutProfile`](profile::FallOutProfile)).
     pub respawn_below: f32,
 }
 
@@ -101,6 +102,14 @@ pub struct HurtHero {
     pub player: usize,
     pub damage: u32,
     pub knockback: Vec3,
+}
+
+/// The hero of `player` was brought back after a death or a fall out of the level, healed,
+/// at his spawn. UYA's level fades the screen in from black over the next 8 frames
+/// (`hero-controller.md`, "Getting hit and dying").
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeroRespawned {
+    pub player: usize,
 }
 
 /// The movement profile every hero uses. Replacing it changes how the heroes move from
@@ -146,6 +155,7 @@ impl Plugin for HeroPlugin {
         app.init_resource::<HeroTuning>()
             .init_resource::<CollisionScene>()
             .add_message::<HurtHero>()
+            .add_message::<HeroRespawned>()
             .add_systems(
                 FixedUpdate,
                 (
@@ -250,6 +260,7 @@ fn move_heroes(
     scene: Res<CollisionScene>,
     cameras: Query<&FollowCamera>,
     mut hurts: MessageReader<HurtHero>,
+    mut respawned: MessageWriter<HeroRespawned>,
     mut heroes: Query<(
         &Hero,
         &mut HeroBody,
@@ -285,6 +296,7 @@ fn move_heroes(
             camera.setting_with(&profile.camera)
         });
         body.0.camera_pitch = camera.map_or(0.0, |camera| camera.pitch);
+        body.0.kill_height = hero.respawn_below;
         let events = controller::step(
             &mut body.0,
             &inputs.get(hero.player),
@@ -297,12 +309,14 @@ fn move_heroes(
             hurt_hero(&mut body.0, &mut health, damage, None, profile);
             body.0.stay_safe_for(profile.hit.hazard_safe_ticks);
         }
-        let teleport = body.0.position.y < hero.respawn_below || body.0.respawn_due(profile);
+        // Both games' levels heal him as they bring him back, after a fall too.
+        let teleport = body.0.respawn_due(profile);
         if teleport {
-            if body.0.state == HeroState::Dead {
-                *health = Health::full(health.max);
-            }
+            *health = Health::full(health.max);
             body.0 = HeroMotion::new(hero.spawn, hero.spawn_yaw);
+            respawned.write(HeroRespawned {
+                player: hero.player,
+            });
         }
         transform.translation = body.0.position;
         // Nose down is a turn about his own x axis.
@@ -405,7 +419,7 @@ fn reach_checkpoints(
     let mut checkpoints: Vec<_> = checkpoints.iter().collect();
     checkpoints.sort_by_key(|(entity, ..)| *entity);
     for (mut hero, body) in &mut heroes {
-        if body.0.state == HeroState::Dead {
+        if matches!(body.0.state, HeroState::Dead | HeroState::FallOut) {
             continue;
         }
         let feet = body.0.position;
@@ -468,6 +482,34 @@ mod tests {
     }
 
     #[test]
+    fn falling_out_of_the_level_brings_the_hero_back_healed() {
+        let (mut app, hero) = app();
+        // Off the floor's edge, 20 u over the kill height.
+        app.world_mut()
+            .get_mut::<HeroBody>(hero)
+            .unwrap()
+            .0
+            .position = Vec3::new(60.0, 0.0, 0.0);
+        app.world_mut().get_mut::<Health>(hero).unwrap().current = 4;
+        let mut fell_out = None;
+        for tick in 0..400 {
+            ticks(&mut app, 1);
+            let state = body(&app, hero).state;
+            match fell_out {
+                None if state == HeroState::FallOut => fell_out = Some(tick),
+                Some(start) if state != HeroState::FallOut => {
+                    assert_eq!(tick - start, 121);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(body(&app, hero).state, HeroState::Idle);
+        assert_eq!(body(&app, hero).position, Vec3::ZERO);
+        assert_eq!(app.world().get::<Health>(hero).unwrap().current, 10);
+    }
+
+    #[test]
     fn a_fatal_hurt_kills_and_the_hero_comes_back_healed() {
         let (mut app, hero) = app();
         ticks(&mut app, 2);
@@ -498,10 +540,20 @@ mod tests {
         ticks(&mut app, 60);
         assert_eq!(body(&app, hero).state, HeroState::Dead);
         let profile = HeroProfile::uya();
-        ticks(&mut app, profile.death.ticks as usize);
+        let mut cursor = app
+            .world()
+            .resource::<Messages<HeroRespawned>>()
+            .get_cursor();
+        let mut announced = Vec::new();
+        for _ in 0..profile.death.ticks {
+            ticks(&mut app, 1);
+            let messages = app.world().resource::<Messages<HeroRespawned>>();
+            announced.extend(cursor.read(messages).copied());
+        }
         assert_eq!(body(&app, hero).state, HeroState::Idle);
         assert_eq!(body(&app, hero).position, Vec3::ZERO);
         assert_eq!(app.world().get::<Health>(hero).unwrap().current, 10);
+        assert_eq!(announced, [HeroRespawned { player: 0 }]);
     }
 
     #[test]
