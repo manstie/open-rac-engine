@@ -488,7 +488,8 @@ weapon that allows lock-on.
 - The camera ends the frame by clearing the virtual stick (`camera_end_of_frame`).
 - **The look point and the aim:** with a target, each frame also sets the look point's
   horizontal spring to 0.03 / 0.2 and turns on the aim's blend towards the look point
-  (step 8). Deadlocked's (0x51A660) does the same.
+  (step 8). Deadlocked's (0x51A660) does the same, with the target at hero + 0x5F0,
+  which DL's campaign never sets (`hero-controller.md`, "Deadlocked's lock-on").
 - **In the kit:** `rac_hero::camera`, `lock_turn`; its profile's `lock_turn`,
   `lock_ramp_ticks` and `lock_look_spring`.
 

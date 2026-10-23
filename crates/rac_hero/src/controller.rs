@@ -23,7 +23,7 @@ use crate::{
     collision::{BodyId, CollisionWorld, Material},
     gun::{GunArm, GunHand, Hold, Shield},
     motor::{self, Ground},
-    profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring},
+    profile::{HeroProfile, JumpParams, Spring, SwimProfile, TurnSpring, WalkProfile},
     rail::{GrindRail, RailKind, RailPoint},
     stick::{Stick, StickPresses, read_axes, read_stick},
     water,
@@ -61,8 +61,20 @@ pub enum JumpKind {
     Grind,
     /// Across to another rail.
     GrindSwitch,
+    /// Round to face the other way along the rail (DL's state 63).
+    GrindTurn,
     /// Out of the water from its surface.
     Water,
+}
+
+impl JumpKind {
+    /// A jump off a rail, which follows it underneath.
+    pub fn follows_rail(self) -> bool {
+        matches!(
+            self,
+            JumpKind::Grind | JumpKind::GrindSwitch | JumpKind::GrindTurn
+        )
+    }
 }
 
 /// Which way a shimmy goes, seen from the hero facing the wall.
@@ -151,6 +163,7 @@ impl HeroState {
             HeroState::GrindAttack(_) => 42,
             HeroState::Jump(JumpKind::Grind) => 40,
             HeroState::Jump(JumpKind::GrindSwitch) => 41,
+            HeroState::Jump(JumpKind::GrindTurn) => 63,
             HeroState::UnderwaterSwim => 50,
             HeroState::UnderwaterIdle => 51,
             HeroState::UnderwaterFast => 52,
@@ -208,8 +221,10 @@ impl HeroState {
     }
 }
 
-/// Which way the stick points while strafing, relative to the camera: UYA's four 90°
-/// sectors (0x4EAA78), where an exact diagonal counts as forward.
+/// Which way the stick points while strafing, relative to the camera (UYA 0x4EAA78, DL
+/// 0x67C5F8): within `back_degrees` of straight back, else within 45° of a side, else
+/// forward, so an exact diagonal counts as forward. UYA's back is 45° either side, DL's
+/// 60°, which it takes from the sides.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StrafeSide {
     Left,
@@ -221,13 +236,13 @@ pub enum StrafeSide {
 
 impl StrafeSide {
     /// The sector of a stick vector, x to the right and y forward.
-    pub fn of(stick: Vec2) -> Self {
-        if stick.x > stick.y.abs() {
+    pub fn of(stick: Vec2, back_degrees: f32) -> Self {
+        if stick.y < 0.0 && ops::atan2(stick.x.abs(), -stick.y) < back_degrees.to_radians() {
+            StrafeSide::Back
+        } else if stick.x > stick.y.abs() {
             StrafeSide::Right
         } else if -stick.x > stick.y.abs() {
             StrafeSide::Left
-        } else if -stick.y > stick.x.abs() {
-            StrafeSide::Back
         } else {
             StrafeSide::Forward
         }
@@ -479,6 +494,8 @@ pub struct HeroMotion {
     climb_speed: f32,
     /// The current hit kills him when it ends.
     hit_fatal: bool,
+    /// How long this hit lasts on the ground: a blow's, or a hazard floor's.
+    hit_ticks: u32,
     /// Ticks left in which a crouch press starts a charge.
     charge_window: u32,
     /// Ticks left before a charge can start again.
@@ -493,8 +510,9 @@ pub struct HeroMotion {
     grind_base: f32,
     grind_slope: f32,
     grind_speed: f32,
-    /// The way the rail ridden goes.
+    /// The way the rail ridden goes, and how far round from it the hero rides.
     rail_yaw: f32,
+    grind_stance: f32,
     /// How far the hero still is from the rail he got on, and how fast he closes it.
     rail_offset: Vec3,
     rail_pull: f32,
@@ -608,6 +626,7 @@ impl HeroMotion {
             no_grab_ticks: 0,
             climb_speed: 0.0,
             hit_fatal: false,
+            hit_ticks: 0,
             charge_window: 0,
             charge_cooldown: 0,
             charge_steer: 0.0,
@@ -617,6 +636,7 @@ impl HeroMotion {
             grind_slope: 0.0,
             grind_speed: 0.0,
             rail_yaw: 0.0,
+            grind_stance: 0.0,
             rail_offset: Vec3::ZERO,
             rail_pull: 0.0,
             switch_from: None,
@@ -768,13 +788,8 @@ impl HeroMotion {
     /// the wall and a climb's on the ledge, so they don't count.
     fn pushing_off_ground(&self, profile: &HeroProfile) -> bool {
         match self.state {
-            HeroState::Jump(
-                JumpKind::Wall
-                | JumpKind::Ledge
-                | JumpKind::Grind
-                | JumpKind::GrindSwitch
-                | JumpKind::Water,
-            ) => false,
+            HeroState::Jump(kind) if kind.follows_rail() => false,
+            HeroState::Jump(JumpKind::Wall | JumpKind::Ledge | JumpKind::Water) => false,
             HeroState::Jump(kind) => self.ticks < jump_params(profile, kind).pushoff_ticks,
             _ => false,
         }
@@ -855,6 +870,11 @@ pub fn jump_params(profile: &HeroProfile, kind: JumpKind) -> &JumpParams {
         JumpKind::Ledge => &profile.ledge.climb,
         JumpKind::Grind => &profile.grind.jump,
         JumpKind::GrindSwitch => &profile.grind.switch_jump,
+        JumpKind::GrindTurn => profile
+            .grind
+            .turn_round
+            .as_ref()
+            .map_or(&profile.grind.jump, |turn_round| &turn_round.hop),
         JumpKind::Water => &profile.swim.jump,
     }
 }
@@ -969,13 +989,16 @@ pub fn hurt(hero: &mut HeroMotion, knockback: Vec3, fatal: bool, profile: &HeroP
     }
     hero.safe_ticks = profile.hit.safe_ticks;
     hero.hit_fatal = fatal;
+    hero.hit_ticks = profile.hit.ticks;
     hero.state = HeroState::Hit;
     hero.ticks = 0;
 }
 
-/// The push a hazard surface gives: up, and back the way he came.
-pub fn hazard_knockback(hero: &HeroMotion, profile: &HeroProfile) -> Vec3 {
-    -hero.facing() * profile.hit.hazard_knockback + Vec3::Y * profile.hit.hazard_lift
+/// Hurts the hero on a hazard surface (UYA's material 17, state 177): he stops where he
+/// stands for the hazard's length, on the hit's update. With `fatal` he dies after it.
+pub fn hurt_by_floor(hero: &mut HeroMotion, fatal: bool, profile: &HeroProfile) {
+    hurt(hero, Vec3::ZERO, fatal, profile);
+    hero.hit_ticks = profile.hit.hazard_ticks;
 }
 
 /// Kills the hero at once.
@@ -1022,7 +1045,7 @@ pub fn step(
     if !hero.strafing {
         hero.strafing_back = false;
     } else if stick.is_active() {
-        hero.strafe_side = StrafeSide::of(stick.vector);
+        hero.strafe_side = StrafeSide::of(stick.vector, profile.strafe.back_degrees);
         hero.strafing_back =
             hero.strafe_side == StrafeSide::Back && stick.magnitude > profile.strafe.back_stick;
         hero.strafe_heading = wish.normalize_or_zero();
@@ -1491,7 +1514,8 @@ fn ground_tick(
         }
     }
 
-    if hero.strafing && stick.is_active() {
+    let pushed = walk_pushed(hero, stick, walk);
+    if hero.strafing && pushed {
         hero.set_state(HeroState::Walk);
         hero.stop_ticks = 0;
         hero.skidding = false;
@@ -1510,7 +1534,7 @@ fn ground_tick(
         return;
     }
 
-    if stick.is_active() {
+    if pushed {
         let target_yaw = yaw_of(wish_direction);
         let error = wrap(target_yaw - hero.yaw).abs();
         hero.stop_ticks = 0;
@@ -1652,14 +1676,24 @@ fn ground_tick(
     hero.velocity.y = 0.0;
 }
 
+/// Whether the stick walks him: standing needs more of it than walking does (both games'
+/// transitions, UYA 0x503B68 and DL 0x69EA40).
+fn walk_pushed(hero: &HeroMotion, stick: &Stick, walk: &WalkProfile) -> bool {
+    if hero.state == HeroState::Walk {
+        stick.magnitude >= walk.keep_from
+    } else {
+        stick.magnitude > walk.start_above
+    }
+}
+
 /// What the walk does each tick while strafing, before the speed (UYA 0x4EA628): changing
 /// sides damps the speed, and he turns to the camera.
 fn strafe_walk(hero: &mut HeroMotion, profile: &HeroProfile) {
     let strafe = &profile.strafe;
     hero.after_right = hero.after_right.saturating_sub(1);
     hero.after_left = hero.after_left.saturating_sub(1);
-    // The game's two timers aren't symmetric: right to left stops him for a couple of
-    // ticks, left to right eases him in.
+    // UYA's two timers aren't symmetric: right to left stops him for a couple of ticks,
+    // left to right eases him in.
     match hero.strafe_side {
         StrafeSide::Left => {
             hero.after_left = strafe.reverse_ticks;
@@ -1669,9 +1703,11 @@ fn strafe_walk(hero: &mut HeroMotion, profile: &HeroProfile) {
         }
         StrafeSide::Right => {
             hero.after_right = strafe.reverse_ticks;
-            if hero.after_left > 0 {
+            if hero.after_left > 0 && strafe.reverse_eases {
                 let ticks = strafe.reverse_ticks as f32;
                 hero.speed *= (ticks - hero.after_left as f32) / ticks;
+            } else if hero.after_left > 0 {
+                hero.speed = 0.0;
             }
         }
         StrafeSide::Forward | StrafeSide::Back => {}
@@ -1714,15 +1750,12 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
         blocked: false,
     };
     // A water jump keeps the velocity it swam with.
-    if !matches!(
-        kind,
-        JumpKind::Flip
-            | JumpKind::Wall
-            | JumpKind::Ledge
-            | JumpKind::Grind
-            | JumpKind::GrindSwitch
-            | JumpKind::Water
-    ) {
+    if !kind.follows_rail()
+        && !matches!(
+            kind,
+            JumpKind::Flip | JumpKind::Wall | JumpKind::Ledge | JumpKind::Water
+        )
+    {
         let direction = if hero.strafing {
             hero.strafe_heading
         } else {
@@ -1745,18 +1778,18 @@ fn start_jump(hero: &mut HeroMotion, kind: JumpKind, profile: &HeroProfile) {
 }
 
 /// Which way a flip from here would go (UYA 0x4FB758): where the stick points while
-/// strafing, otherwise the stick against his facing, in the same 90° sectors. A centred
-/// stick is forward, which doesn't flip.
+/// strafing, otherwise the stick against his facing, in four 90° sectors. A centred stick
+/// is forward, which doesn't flip.
 fn flip_side(hero: &HeroMotion, wish_direction: Vec3) -> StrafeSide {
     if hero.strafing {
         return hero.strafe_side;
     }
     let facing = hero.facing();
     let right = facing.cross(Vec3::Y);
-    StrafeSide::of(Vec2::new(
-        wish_direction.dot(right),
-        wish_direction.dot(facing),
-    ))
+    StrafeSide::of(
+        Vec2::new(wish_direction.dot(right), wish_direction.dot(facing)),
+        45.0,
+    )
 }
 
 /// Crouch held, in a game whose hero crouches. DL's doesn't: its code reads the button
@@ -2147,7 +2180,7 @@ fn hit_tick(hero: &mut HeroMotion, profile: &HeroProfile) {
         hero.set_state(HeroState::Fall);
         return;
     }
-    if hero.ticks >= hit.ticks && (on_ground || hero.height_above_ground <= hit.fall_above) {
+    if hero.ticks >= hero.hit_ticks && (on_ground || hero.height_above_ground <= hit.fall_above) {
         if hero.hit_fatal {
             hero.set_state(HeroState::Dead);
         } else {
@@ -2356,21 +2389,32 @@ fn try_get_on_rail(hero: &mut HeroMotion, profile: &HeroProfile, world: &dyn Col
             && rise > -grind.below
             && rise < grind.above
         {
-            start_grind(hero, rail, at);
+            start_grind(hero, rail, at, profile);
             return;
         }
     }
 }
 
-fn start_grind(hero: &mut HeroMotion, rail: &GrindRail, at: RailPoint) {
-    // From a grind jump the speed carries on; otherwise it starts as the hero's velocity
-    // along the rail, which can be backwards.
-    if !matches!(
-        hero.state,
-        HeroState::Jump(JumpKind::Grind | JumpKind::GrindSwitch)
-    ) {
+/// Starts the grind (state 39) at `at`, from off a rail, a jump off one, or the end of a
+/// rail chained to this one.
+fn start_grind(hero: &mut HeroMotion, rail: &GrindRail, at: RailPoint, profile: &HeroProfile) {
+    // From the grind's own states the speed carries on; otherwise it starts as the hero's
+    // velocity along the rail, which can be backwards.
+    let from_grind = hero.state.is_grinding()
+        || matches!(hero.state, HeroState::Jump(kind) if kind.follows_rail());
+    if !from_grind {
         hero.grind_base = hero.velocity.dot(rail.direction(at));
         hero.grind_slope = 0.0;
+    }
+    // The stance is picked afresh each time, as the games' entry to the grind does. DL's
+    // hero rides backwards on a rail that runs towards the camera.
+    let grind = &profile.grind;
+    hero.rail_yaw = yaw_of(flat(rail.direction(at)));
+    hero.grind_stance = grind.stance_degrees.to_radians();
+    if let Some(turn_round) = &grind.turn_round
+        && wrap(hero.rail_yaw - hero.camera_yaw).abs() > turn_round.back_degrees.to_radians()
+    {
+        hero.grind_stance = wrap(hero.grind_stance + PI);
     }
     hero.rail_offset = hero.position - rail.position(at);
     hero.rail_pull = 0.0;
@@ -2380,7 +2424,7 @@ fn start_grind(hero: &mut HeroMotion, rail: &GrindRail, at: RailPoint) {
     hero.wall = None;
     hero.ground = None;
     hero.velocity = Vec3::ZERO;
-    hero.set_state(HeroState::Grind);
+    hero.restart_state(HeroState::Grind);
 }
 
 /// One tick on a rail (states 39 and 42): the grind, or the grind attack riding it.
@@ -2416,6 +2460,19 @@ fn grind_tick(
         air_tick(hero, input, stick, wish, profile);
         return;
     }
+    // DL hops round once the camera has come too far round from his front.
+    if let Some(turn_round) = &grind.turn_round
+        && hero.state == HeroState::Grind
+        && wrap(hero.rail_yaw + hero.grind_stance - hero.camera_yaw).abs()
+            > turn_round.hop_degrees.to_radians()
+    {
+        hero.grind_stance = wrap(hero.grind_stance + PI);
+        hero.set_horizontal_velocity(flat(along) * hero.grind_speed);
+        start_jump(hero, JumpKind::GrindTurn, profile);
+        hero.rail = Some(at);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    }
     melee::grind_attack_transitions(hero, profile);
 
     // The speed: a base towards 12 u/s, plus a term for the rail's slope.
@@ -2435,14 +2492,14 @@ fn grind_tick(
         approach(hero.grind_slope, target, rate * TICK).clamp(grind.slope_min, grind.slope_max);
     hero.grind_speed = (hero.grind_base + hero.grind_slope).max(0.0);
     hero.speed = hero.grind_speed;
-    // Side on to the rail.
-    turn(
-        hero,
-        hero.rail_yaw + grind.stance_degrees.to_radians(),
-        grind.turn,
-    );
+    turn(hero, hero.rail_yaw + hero.grind_stance, grind.turn);
 
     if !rail.advance(&mut at, hero.grind_speed * TICK) {
+        // DL rides on along a rail that starts where this one ends.
+        if let Some(next) = chained_rail(hero, at, profile, world.rails()) {
+            start_grind(hero, &world.rails()[next.rail], next, profile);
+            return;
+        }
         // Off the end, flying on the way the rail went.
         hero.no_rail_ticks = grind.no_rail_ticks;
         leave_rail(hero, along * hero.grind_speed);
@@ -2455,6 +2512,29 @@ fn grind_tick(
     hero.rail_offset = hero.rail_offset.normalize_or_zero() * (gap - hero.rail_pull).max(0.0);
     let target = rail.position(at) + hero.rail_offset;
     hero.velocity = (target - hero.position) / TICK;
+}
+
+/// DL's rail to ride on along from `end`, the end of the rail ridden: the first that
+/// starts close by, not too far under the hero. A loop's own start counts.
+fn chained_rail(
+    hero: &HeroMotion,
+    end: RailPoint,
+    profile: &HeroProfile,
+    rails: &[GrindRail],
+) -> Option<RailPoint> {
+    let chain = profile.grind.chain.as_ref()?;
+    let end = rails.get(end.rail)?.position(end);
+    rails.iter().enumerate().find_map(|(index, rail)| {
+        let start = *rail.points.first()?;
+        (rail.kind == RailKind::Grind
+            && start.distance(end) < chain.within
+            && hero.position.y - start.y < chain.above)
+            .then_some(RailPoint {
+                rail: index,
+                segment: 0,
+                t: 0.0,
+            })
+    })
 }
 
 fn leave_rail(hero: &mut HeroMotion, velocity: Vec3) {
@@ -2477,9 +2557,12 @@ fn follow_rail_in_air(
     profile: &HeroProfile,
     world: &dyn CollisionWorld,
 ) {
-    let HeroState::Jump(kind @ (JumpKind::Grind | JumpKind::GrindSwitch)) = hero.state else {
+    let HeroState::Jump(kind) = hero.state else {
         return;
     };
+    if !kind.follows_rail() {
+        return;
+    }
     let grind = &profile.grind;
     let rails = world.rails();
     let Some(mut at) = hero.rail.filter(|at| at.rail < rails.len()) else {
@@ -2522,11 +2605,7 @@ fn follow_rail_in_air(
     hero.velocity.x = (target.x - hero.position.x) / TICK;
     hero.velocity.z = (target.z - hero.position.z) / TICK;
     hero.rail_yaw = yaw_of(flat(rail.direction(at)));
-    turn(
-        hero,
-        hero.rail_yaw + grind.stance_degrees.to_radians(),
-        grind.turn,
-    );
+    turn(hero, hero.rail_yaw + hero.grind_stance, grind.turn);
 }
 
 /// Another rail to the side the stick points, for a switch jump: looked for that far
@@ -3178,7 +3257,7 @@ fn air_tick(
                 }
                 JumpKind::Long => {}
                 // Following a rail, or flying on from its end (`follow_rail_in_air`).
-                JumpKind::Grind | JumpKind::GrindSwitch => {}
+                JumpKind::Grind | JumpKind::GrindSwitch | JumpKind::GrindTurn => {}
                 JumpKind::Flip => flip_tick(hero, stick, falling, to_land, profile),
                 JumpKind::Wall => {
                     // Off the wall along its normal, turning to face that way.

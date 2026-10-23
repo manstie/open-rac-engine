@@ -158,6 +158,49 @@ fn going_from_left_to_right_eases_in_by_thirds() {
 }
 
 #[test]
+fn deadlocked_stops_him_going_from_left_to_right_too() {
+    let mut rig = Rig::new(0.0);
+    rig.profile = HeroProfile::dl();
+    rig.ticks(20, &strafe(Some(LEFT)));
+    rig.tick(&strafe(Some(RIGHT)));
+    assert!(close(rig.hero.speed, STEP), "{}", rig.hero.speed);
+    rig.tick(&strafe(Some(RIGHT)));
+    assert!(close(rig.hero.speed, STEP), "{}", rig.hero.speed);
+    rig.tick(&strafe(Some(RIGHT)));
+    assert!(close(rig.hero.speed, 2.0 * STEP), "{}", rig.hero.speed);
+}
+
+#[test]
+fn deadlockeds_back_reaches_60_degrees_round_from_straight_back() {
+    let round = |degrees: f32| {
+        let angle = degrees.to_radians();
+        Vec2::new(angle.sin(), -angle.cos())
+    };
+    for (degrees, uya, dl) in [
+        (40.0, StrafeSide::Back, StrafeSide::Back),
+        // An exact diagonal is forward in UYA.
+        (45.0, StrafeSide::Forward, StrafeSide::Back),
+        (50.0, StrafeSide::Right, StrafeSide::Back),
+        (70.0, StrafeSide::Right, StrafeSide::Right),
+    ] {
+        let stick = if degrees == 45.0 {
+            Vec2::new(1.0, -1.0)
+        } else {
+            round(degrees)
+        };
+        assert_eq!(StrafeSide::of(stick, 45.0), uya, "{degrees}");
+        assert_eq!(StrafeSide::of(stick, 60.0), dl, "{degrees}");
+    }
+
+    // A gentle push back walks backwards in DL, past 0.05 against UYA's 0.15. (UYA's
+    // cut-off would ignore a stick this short.)
+    let mut rig = Rig::new(0.0);
+    rig.profile = HeroProfile::dl();
+    rig.tick(&strafe(Some([0, -59])));
+    assert!(rig.hero.strafing_back);
+}
+
+#[test]
 fn a_strafe_jump_flips_only_with_the_stick_well_over_to_a_side_or_back() {
     for (stick, flips) in [
         (RIGHT, true),
@@ -372,6 +415,19 @@ fn pressing_lock_on_picks_the_best_target_near_the_middle_of_the_view() {
     let mut lock = Lock::new(&[floor()]);
     lock.update(-FRAC_PI_2 / 2.0, &press_lock());
     assert_eq!(lock.lock.target, Some(entity(2)));
+}
+
+#[test]
+fn deadlocked_never_picks_a_target_but_still_strafes() {
+    let mut lock = Lock::new(&[floor()]);
+    lock.profile = HeroProfile::dl();
+    lock.update(0.0, &press_lock());
+    assert_eq!(lock.lock.target, None);
+
+    let mut rig = Rig::new(0.0);
+    rig.profile = HeroProfile::dl();
+    rig.tick(&input(Some(RIGHT), &[Action::LockOn], &[]));
+    assert!(rig.hero.strafing);
 }
 
 #[test]

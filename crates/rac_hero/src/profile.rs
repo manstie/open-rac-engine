@@ -80,10 +80,22 @@ pub struct StickProfile {
     pub dead_zone: f32,
     /// Counts past the dead zone that reach full output.
     pub live_range: f32,
-    /// Stick vectors shorter than this are ignored.
+    /// Stick vectors shorter than this are ignored. DL's hero code has no cut-off (0).
     pub cut_off: f32,
+    /// How hard the stick counts as pushed.
+    pub magnitude: StickMagnitude,
     /// What counts as a flick of the stick, which the crouch flip looks for.
     pub flick: FlickProfile,
+}
+
+/// The stick's magnitude m from its vector (`hero-controller.md`, "Input"), at most 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StickMagnitude {
+    /// `(max(|x|, |y|) + length) / 2`, so a diagonal counts as fuller than its length
+    /// (UYA).
+    LargestAndLength,
+    /// The length (DL).
+    Length,
 }
 
 /// UYA's pad layer marks a flick of the stick as a press of its own (0x45D5C8;
@@ -132,6 +144,10 @@ impl ScaledTurnSpring {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WalkProfile {
+    /// Standing, the stick walks him once m is over `start_above`; walking, he carries
+    /// on while it is at least `keep_from`. A cut-off past both hides them.
+    pub start_above: f32,
+    pub keep_from: f32,
     pub speed: f32,
     pub accel: f32,
     /// Braking towards a lower target speed.
@@ -350,8 +366,13 @@ pub struct StrafeProfile {
     pub turn: TurnSpring,
     /// Changing sides: for `reverse_ticks - 1` ticks after strafing right, strafing left
     /// stops him, and after strafing left, strafing right scales his speed by 1/3, then
-    /// 2/3 (with 3).
+    /// 2/3 (with 3), or with `reverse_eases` off stops him too (DL, whose code divides
+    /// the thirds as integers).
     pub reverse_ticks: u32,
+    pub reverse_eases: bool,
+    /// The stick is back within this of straight back, tested before the sides; left,
+    /// right and forward are each 45° either side.
+    pub back_degrees: f32,
     /// Whether a jump from a strafing walk can flip. UYA's walk flips; DL's computes the
     /// flip and then always jumps, so there a strafing jump is a standing jump.
     pub flips: bool,
@@ -376,6 +397,9 @@ pub struct StrafeProfile {
 /// "Lock-on").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LockOnProfile {
+    /// Whether the pair picks a target at all. UYA's does; DL's campaign never sets one,
+    /// though both triggers still strafe (`hero-controller.md`, "Deadlocked's lock-on").
+    pub enabled: bool,
     /// Which target: scored as the wrench's aim is, around the camera's direction, or
     /// failing that around his facing.
     pub aim: AimProfile,
@@ -647,10 +671,14 @@ pub struct GrindProfile {
     pub slope_fall: f32,
     pub slope_min: f32,
     pub slope_max: f32,
-    /// Turning to face the rail: he rides side on, turned `stance_degrees` from the way
-    /// it goes.
+    /// Turning to face the rail: he rides turned `stance_degrees` from the way it goes,
+    /// side on in UYA and facing along it in DL.
     pub turn: TurnSpring,
     pub stance_degrees: f32,
+    /// DL turns him round to keep his back to the camera; UYA's stance never turns.
+    pub turn_round: Option<GrindTurnRound>,
+    /// DL rides on from a rail's end onto a rail that starts there; UYA's hero falls off.
+    pub chain: Option<GrindChain>,
     /// A jump press this recent jumps off the rail.
     pub jump_press_window: u32,
     /// The grind jump and the switch jump (states 40 and 41).
@@ -668,6 +696,28 @@ pub struct GrindProfile {
     pub switch_far: f32,
     pub switch_step: f32,
     pub switch_ticks: u32,
+}
+
+/// Deadlocked's turning round on a rail (`hero-controller.md`, "Deadlocked's grinding"),
+/// measured against the camera's yaw.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GrindTurnRound {
+    /// Getting on a rail that runs more than `back_degrees` from the camera's yaw, he rides
+    /// it backwards.
+    pub back_degrees: f32,
+    /// Riding, he hops round (DL's state 63) when he faces more than `hop_degrees` from
+    /// the camera's yaw.
+    pub hop_degrees: f32,
+    pub hop: JumpParams,
+}
+
+/// Deadlocked's chained rails (`hero-controller.md`, "Deadlocked's grinding"): at a rail's
+/// end the hero rides on along another whose start is within `within` of it, if he is
+/// less than `above` over that start.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GrindChain {
+    pub within: f32,
+    pub above: f32,
 }
 
 /// Zip lines, UYA's state 118 (`hero-controller.md`, "Zip lines"): rails of
@@ -1168,10 +1218,11 @@ pub struct HitProfile {
     /// After a hit, and after a hazard's, the hero can't be hurt again for this long.
     pub safe_ticks: u32,
     pub hazard_safe_ticks: u32,
-    /// What a hazard surface takes, and how hard it throws the hero up and back.
-    pub hazard_damage: u32,
-    pub hazard_knockback: f32,
-    pub hazard_lift: f32,
+    /// A hazard surface takes his most health over `hazard_divisor`, rounded down, and
+    /// holds him where he stands for `hazard_ticks`, on the hit's update (UYA's material
+    /// 17 and state 177).
+    pub hazard_divisor: u32,
+    pub hazard_ticks: u32,
     pub max_health: u32,
 }
 
@@ -1618,7 +1669,8 @@ mod tests {
         assert_eq!(
             differences(&HeroProfile::uya(), &HeroProfile::dl()),
             // In the order of the field names, as RON's maps keep them. (The default
-            // camera setting differs too, but RON reads both names as the same value.)
+            // camera setting and the stick's magnitude differ too, but RON reads both
+            // names of each as the same value.)
             [
                 "camera.distance",
                 "camera.free_look.end_sphere_radius",
@@ -1645,6 +1697,10 @@ mod tests {
                 "fall.air_speed",
                 "glide.sink",
                 "glide.speed",
+                // "Deadlocked's grinding".
+                "grind.chain",
+                "grind.stance_degrees",
+                "grind.turn_round",
                 // "Deadlocked's hits".
                 "hit.fall_after_tick",
                 "hit.safe_ticks",
@@ -1667,6 +1723,8 @@ mod tests {
                 "ledge.shimmy_blend_ticks",
                 "ledge.shimmy_cycle_frames",
                 "ledge.shimmy_step_scale",
+                // "Deadlocked's lock-on".
+                "lock_on.enabled",
                 // "Deadlocked's melee".
                 "melee.blend_creeps",
                 "melee.chain_throw",
@@ -1703,7 +1761,12 @@ mod tests {
                 "melee.thrown.radius",
                 "name",
                 "run_jump.air_speed",
+                // "Input" and "Deadlocked's strafing".
+                "stick.cut_off",
+                "strafe.back_degrees",
+                "strafe.back_stick",
                 "strafe.flips",
+                "strafe.reverse_eases",
                 "swim.dives",
                 "swim.jump.air_speed",
                 // "Deadlocked's moves": no crouch and no wall jump.

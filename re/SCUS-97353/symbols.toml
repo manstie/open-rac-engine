@@ -77,7 +77,7 @@ name = "hero_transitions"
 address = 0x00503B68
 kind = "function"
 confidence = "medium"
-note = "Switch on the hero state that picks the next state from input and the detectors: jumps, wall jump (needs the wall window and X within 7 frames), ledge grab (when the ledge block's found flag is set), ledge controls, get-hit recovery."
+note = "Switch on the hero state that picks the next state from input and the detectors: idle walks with m over 0.22, the walk keeps on at 0.17; jumps, wall jump (needs the wall window and X within 7 frames), ledge grab (when the ledge block's found flag is set), ledge controls, get-hit recovery."
 
 [[symbol]]
 name = "hero_detect_wall"
@@ -112,7 +112,7 @@ name = "hero_floor_material"
 address = 0x004E3EF0
 kind = "function"
 confidence = "medium"
-note = "Reacts to the ground's collision material: 1 lava, 3 water, 4 slide, 11 and 17 (damage, state 177) and others."
+note = "Reacts to the ground's collision material: 1 lava, 3 water, 4 slide, 11, and 17: hero_max_health / 8 of damage, a 90-frame repeat timer (0x1A4DBC) and state 177, whose entry zeroes the motion (0x4E9828) and which stands 41 frames on the get-hit update."
 
 [[symbol]]
 name = "hero_crouch_jump"
@@ -471,7 +471,7 @@ name = "hero_stick_move_angle"
 address = 0x004EAA78
 kind = "function"
 confidence = "medium"
-note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length. While strafing it also sorts the stick into strafe_direction (left 0, right 1, forward 2, back 3; 45-degree sectors either side of each, an exact diagonal counting as forward) and sets strafe_back for back with the stick past 0.15."
+note = "Sets the move angle from the camera-relative stick (the yaw when released) and the speed target to its argument × the stick's length; with a mode of 1 it first zeroes an axis under 0.12 while the other is over 0.7. While strafing it also sorts the stick into strafe_direction (left 0, right 1, forward 2, back 3; 45-degree sectors either side of each, an exact diagonal counting as forward) and sets strafe_back for back with the stick past 0.15."
 
 [[symbol]]
 name = "anim_table_over_step"

@@ -32,7 +32,8 @@ session is working on the task now; notes on problems met stay with their task (
 - **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
-  DL's code lacks (crouch, wall jump, zip lines, dive) and give it its own flips. He has the follow camera with
+  DL's code lacks (crouch, wall jump, zip lines, dive, campaign lock-on) and give it its
+  own flips, stick, strafing and grinding. He has the follow camera with
   lock-on, the lock-strafe and first-person cameras with the free look's aim assist and
   their blends (P1.7), melee for both games (P1.8), and all twenty of UYA's guns with their
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
@@ -65,9 +66,10 @@ session is working on the task now; notes on problems met stay with their task (
 **Next actions, in order:**
 1. **Owner:** push `re/hero-movement` so CI runs (it needs the owner's credentials). Then
    fix anything Windows-specific it finds (P0.7).
-2. RE.3 and P1.5 for DL: the `dl.ron` sections still marked "not read in DL", lock-on
-   first (DL's flips, crouch, glide, wall jump, ledges, hits, zip lines and swimming are
-   done, the wall jump and ledges traced too).
+2. RE.3 and P1.5: a trace of a death in UYA or DL for `death.ticks`, since the respawn is
+   the level's code. DL's movement sections are read; left in `dl.ron` as UYA's are
+   smaller items (the flick, the landing, the strafe flip's stick, the wrench's line, the
+   gun arm, some camera numbers, and grinding's reach, switch search and speed).
 3. The guns' effects from the disc (P3.18), with the whip's links and shield, then
    P1.10's nanotech, explosive and doubler crates ("Ammo
    pickups, crates and the vendor").
@@ -381,16 +383,24 @@ committed (names, addresses, layouts, derived constants).
     melee (UYA's and DL's), swimming, zip lines, strafing, DL's charge boots, the
     animation each state plays, the moves that need items, and DL's differences from UYA:
     among them, DL flips only as a strafing jump lands, and has no crouch (nor the long
-    jump, heli jump or crouch flips), no glide and no wall jump; its ledge's lip stays
+    jump, heli jump or crouch flips), no glide, no wall jump and, in the campaign, no
+    lock-on (only multiplayer levels set a target); its ledge's lip stays
     where the top's cast hit, so he hangs against the wall, and its shimmy runs 32-frame
     cycles of 0.60 u (`hero-controller.md`, "Deadlocked's moves", "Deadlocked's
     ledges").
   - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
     rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
-    clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides;
-    and in DL, the missing zip lines and dive, hits (a 47- or 70-frame safe time by
-    camera) and swimming (UYA's otherwise): "Deadlocked's moves", "Deadlocked's hits",
-    "Deadlocked's swimming".
+    clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides,
+    the walk's start at m 0.22 and stop under 0.17; and in DL, the missing zip lines and
+    dive, hits (a 47- or 70-frame safe time by camera), swimming (UYA's otherwise), the
+    stick with no cut-off and its length as m, strafing's 60° back, 0.05 back stick
+    and side change that stops both ways, grinding facing along the rail with its back
+    to the camera (a hop round past 120°, state 63) and chained rails, and death, which
+    reports 10 frames in: "Deadlocked's moves", "Deadlocked's hits", "Deadlocked's
+    swimming", "Input", "Deadlocked's strafing", "Deadlocked's grinding", "Getting hit
+    and dying".
+  - Both games' death ends by reporting to the level's code, which respawns the hero (not
+    read), so `death.ticks` needs a trace of a death.
   - DL's lock-strafe camera is read and traced under RE.4 (`camera.md`, "Deadlocked's
     camera").
   - `hero-controller.md` had DL's skid crouch on R1 "as UYA"; DL's code works out R1's
@@ -403,13 +413,16 @@ committed (names, addresses, layouts, derived constants).
     so it is 0.2 u in both games. Corrected in both profiles.
   - Both games' climbs hang still through the push-off and a frame more (traces), where
     the kit pressed the hero down and left a frame early. Fixed in the kit.
-  - To do (`hero-controller.md`, "Next steps"): the `dl.ron` sections still marked "not
-    read in DL" (lock-on, grinding, the hazard floor, death, the surface float, the
-    stick's cut-off), lock-on first: find DL's counterpart of UYA's `hero_lock_on` from
-    `hero_common_transitions` (0x6A5248); wading (state
-    117); how the games carry the hero on moving platforms; and a diagonal part-tilted
+  - To do (`hero-controller.md`, "Next steps"): a trace of a death in either game; the
+    smaller items `dl.ron` still marks "not read in DL"; which callers of
+    the move-angle function snap the stick's axes ("Input", 5); wading (state 117); how the games carry the hero on moving platforms; and a diagonal part-tilted
     stick on NTSC (the dead zone, the 0.25 cut-off and the speed's scaling are verified
     with `AXIS_SCALE` keys).
+  - DL's chained rails swap only the spline pointer and keep the segment index, so where
+    on the new rail he lands wasn't worked out; the kit starts at the new rail's start
+    ("Deadlocked's grinding").
+  - Next step: a capture of a death on UYA NTSC, from any savestate where the hero can
+    be killed, logging the frames from state 57 to the respawn.
 - [x] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
   - Done, UYA NTSC: the follow camera with its height modes, obstacles and collision
     (clearance point, sweep, pull-in, the 30-frame and 30 u resets, the collision masks);
@@ -577,23 +590,31 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     (grab, hang, shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge
     boots; the ability flags; grinding, side on; swimming; zip lines; strafing and lock-on
     (`lock_on.rs`); melee (P1.8); DL's own flips, ledges (traced) and hits, and its
-    missing crouch, wall jump, zip lines and dive (`strafe.landing_window`,
-    `walk.crouches`, `wall_jump.enabled`, `zip_line.enabled`, `swim.dives`, `dl.ron`'s
-    `ledge` and `hit`). Tests: `rac_hero/tests/` and
+    missing crouch, wall jump, zip lines, dive and lock-on (`strafe.landing_window`,
+    `walk.crouches`, `wall_jump.enabled`, `zip_line.enabled`, `swim.dives`,
+    `lock_on.enabled`, `dl.ron`'s `ledge` and `hit`); DL's stick and strafe sides
+    (`stick.magnitude`, `walk.start_above`, `strafe.back_degrees`,
+    `strafe.reverse_eases`); DL's grinding facing along the rail, its hop round
+    (`JumpKind::GrindTurn`) and chained rails (`grind.turn_round`, `grind.chain`). Tests: `rac_hero/tests/` and
     `rac_demo/tests/greybox_moves.rs`.
   - **To do:** auto-jumping rails, wading, and DL's open items under RE.3.
   - The motor dropped a skin's width of every slide along a wall, cutting each of DL's
     shimmy steps (which point into the wall) by 0.0016 u; it now keeps all the motion it
     didn't travel (`motor.rs`).
   - The grind faced along the rail; UYA's code turns him 90° to its right (a stance
-    offset missed in the first reading). It is now `grind.stance_degrees`.
+    offset missed in the first reading). It is now `grind.stance_degrees`, which DL's
+    profile sets to 0: DL's hero does face along the rail.
   - The crouch turned on the walk's setting-off spring, about four times faster than UYA's
     own, which closed the crouch flip's window; it now has the game's (`walk.crouch_turn`),
     verified on UYA NTSC.
   - The rig took a flip's side from its velocity, which a crouch flip from a run points
     forward; the controller now records the side (`HeroMotion::flip_side`).
-  - **Placeholders:** the death's length, the hazard's damage and push, the starting
-    health, and the end of the charge's bounce.
+  - **Placeholders:** the death's length, DL's starting health, and the end of the
+    charge's bounce.
+  - The hazard surface threw the hero up and back with made-up numbers; both games stop
+    him where he stands for 41 ticks and take the most health / 8 (`hit.hazard_ticks`,
+    `hazard_divisor`; `hero-controller.md`, "Getting hit and dying"). The rig still plays
+    the get-hit's animation for it **[simplified]**.
   - **Known mismatch:** a long jump from a 7-tick crouch leaves at 8.2 u/s in the kit and
     7.8 u/s in the trace: the game's first crouch frame brakes less, and its jump frame
     brakes once more. A crouch flip from a run carries one crouch tick's braking more

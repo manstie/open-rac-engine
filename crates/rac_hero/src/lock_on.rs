@@ -56,7 +56,11 @@ pub fn update(
     profile: &LockOnProfile,
     world: &dyn CollisionWorld,
 ) {
-    if !lock.allowed || !input.held(Action::LockOn) || hero.state == HeroState::Dead {
+    if !profile.enabled
+        || !lock.allowed
+        || !input.held(Action::LockOn)
+        || hero.state == HeroState::Dead
+    {
         lock.target = None;
         return;
     }

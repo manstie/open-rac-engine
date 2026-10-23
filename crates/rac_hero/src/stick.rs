@@ -3,7 +3,7 @@
 use bevy::{math::ops, prelude::*};
 use std::f32::consts::TAU;
 
-use crate::profile::{FlickProfile, StickProfile};
+use crate::profile::{FlickProfile, StickMagnitude, StickProfile};
 
 /// The stick as the hero code sees it.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -11,8 +11,7 @@ pub struct Stick {
     /// Each axis in −1..=1 after the dead zone: x right, y forward. Zero when the stick is
     /// under the cut-off.
     pub vector: Vec2,
-    /// How hard it is pushed, 0..=1: `(max(|x|, |y|) + length) / 2`, so diagonals count
-    /// as fuller than their length.
+    /// How hard it is pushed, 0..=1, by the profile's [`StickMagnitude`].
     pub magnitude: f32,
 }
 
@@ -38,10 +37,13 @@ pub fn read_stick(counts: [i8; 2], profile: &StickProfile) -> Stick {
     if length < profile.cut_off {
         return Stick::default();
     }
-    let largest = vector.x.abs().max(vector.y.abs());
+    let magnitude = match profile.magnitude {
+        StickMagnitude::LargestAndLength => (vector.x.abs().max(vector.y.abs()) + length) / 2.0,
+        StickMagnitude::Length => length,
+    };
     Stick {
         vector,
-        magnitude: ((largest + length) / 2.0).clamp(0.0, 1.0),
+        magnitude: magnitude.clamp(0.0, 1.0),
     }
 }
 
@@ -139,6 +141,23 @@ mod tests {
         // About half the axis's travel is needed (`hero-controller.md`: "about 67 counts").
         assert!(!read(66, 0).is_active());
         assert!(read(68, 0).is_active());
+    }
+
+    #[test]
+    fn deadlocked_keeps_short_vectors_and_takes_the_length() {
+        let dl = HeroProfile::dl().stick;
+        // 0.2 of full output on one axis, which UYA cuts off.
+        let counts = (48.0 + 0.2 * 76.0) as i8;
+        let output = (f32::from(counts) - 48.0) / 76.0;
+        assert!(close(read_stick([counts, 0], &dl).magnitude, output));
+        // Half on both axes: UYA counts the diagonal fuller than its length.
+        let length = 0.5 * std::f32::consts::SQRT_2;
+        assert!(close(read_stick([86, 86], &dl).magnitude, length));
+        assert!(close(read(86, 86).magnitude, (0.5 + length) / 2.0));
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-3
     }
 
     /// Feeds stick counts through [`StickPresses`] and says which ticks pressed.

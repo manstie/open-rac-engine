@@ -267,7 +267,13 @@ fn move_heroes(
             .iter_mut()
             .find(|(hero, ..)| hero.player == hurt.player)
         {
-            hurt_hero(&mut body.0, health, hurt.damage, hurt.knockback, profile);
+            hurt_hero(
+                &mut body.0,
+                health,
+                hurt.damage,
+                Some(hurt.knockback),
+                profile,
+            );
         }
     }
 
@@ -287,14 +293,8 @@ fn move_heroes(
             &scene.0,
         );
         if events.hazard {
-            let knockback = controller::hazard_knockback(&body.0, profile);
-            hurt_hero(
-                &mut body.0,
-                &mut health,
-                profile.hit.hazard_damage,
-                knockback,
-                profile,
-            );
+            let damage = health.max / profile.hit.hazard_divisor;
+            hurt_hero(&mut body.0, &mut health, damage, None, profile);
             body.0.stay_safe_for(profile.hit.hazard_safe_ticks);
         }
         let teleport = body.0.position.y < hero.respawn_below || body.0.respawn_due(profile);
@@ -372,11 +372,13 @@ fn lock_on_targets(
     }
 }
 
+/// Takes `damage` and knocks him back with `knockback`, or for `None` holds him as a
+/// hazard surface does.
 fn hurt_hero(
     body: &mut HeroMotion,
     health: &mut Health,
     damage: u32,
-    knockback: Vec3,
+    knockback: Option<Vec3>,
     profile: &HeroProfile,
 ) {
     if !body.can_be_hurt() {
@@ -388,7 +390,11 @@ fn hurt_hero(
         return;
     }
     health.current = health.current.saturating_sub(damage);
-    controller::hurt(body, knockback, health.current == 0, profile);
+    let fatal = health.current == 0;
+    match knockback {
+        Some(knockback) => controller::hurt(body, knockback, fatal, profile),
+        None => controller::hurt_by_floor(body, fatal, profile),
+    }
 }
 
 /// Moves a hero's spawn point to any [`Checkpoint`] he stands in.

@@ -7,6 +7,8 @@
 //! The traces show the pad one frame before the hero acts on it, so a press on trace row
 //! n is a press on the tick of row n + 1 here.
 
+use std::f32::consts::PI;
+
 use bevy::prelude::*;
 use rac_hero::{
     BodyPlacement, Collider, GrindRail, HeroMotion, HeroProfile, HeroState, JumpKind, ParryWorld,
@@ -48,6 +50,17 @@ impl Rig {
         for _ in 0..count {
             self.tick(input);
         }
+    }
+
+    /// A tick with the camera looking along `camera_yaw` (0 is along −z).
+    fn tick_seen_from(&mut self, camera_yaw: f32, input: &PlayerInput) {
+        step(
+            &mut self.hero,
+            input,
+            camera_yaw,
+            &self.profile,
+            &self.world,
+        );
     }
 
     fn horizontal_speed(&self) -> f32 {
@@ -123,6 +136,30 @@ fn deadlocked_walks_at_7_25() {
     assert!((rig.hero.speed - 37.0 / 60.0).abs() < TOLERANCE);
     rig.ticks(15, &forward);
     assert_eq!(rig.hero.speed, 7.25);
+}
+
+/// DL's hero code has no cut-off: the idle's 0.22 and the walk's 0.17 decide (both games'
+/// transitions; `hero-controller.md`, "Input").
+#[test]
+fn deadlocked_walks_on_a_stick_over_0_22_and_keeps_on_down_to_0_17() {
+    let stick = |counts: i8| input(Some([0, counts]), &[], &[]);
+    // 0.237 of the stick: under UYA's cut-off.
+    let mut uya = Rig::new(HeroProfile::uya());
+    uya.ticks(10, &stick(66));
+    assert_eq!(uya.hero.state, HeroState::Idle);
+
+    let mut dl = Rig::new(HeroProfile::dl());
+    // 0.197, as in dlntsc-dreadzone-camhalf-0.5-1, stands still.
+    dl.ticks(10, &stick(63));
+    assert_eq!(dl.hero.state, HeroState::Idle);
+    dl.ticks(10, &stick(66));
+    assert_eq!(dl.hero.state, HeroState::Walk);
+    assert!((dl.hero.speed - 7.25 * 18.0 / 76.0).abs() < TOLERANCE);
+    // 0.184 keeps him walking; 0.145 stops him.
+    dl.ticks(10, &stick(62));
+    assert_eq!(dl.hero.state, HeroState::Walk);
+    dl.ticks(10, &stick(59));
+    assert_eq!(dl.hero.state, HeroState::Idle);
 }
 
 #[test]
@@ -376,4 +413,157 @@ fn deadlocked_has_no_grind_attack() {
     rig.tick(&melee());
     rig.ticks(5, &input(None, &[], &[]));
     assert_eq!(rig.hero.state, HeroState::Grind);
+}
+
+// --- Grinding ("Deadlocked's grinding") ---------------------------------------------------
+
+/// The hero riding the first of `rails` with the camera along `camera_yaw`, after falling
+/// onto it from 1 u above, just past its start.
+fn grinding(profile: HeroProfile, rails: Vec<GrindRail>, camera_yaw: f32) -> Rig {
+    let above = rails[0].points[0] + Vec3::new(0.0, 1.0, -1.0);
+    let mut rig = Rig::new(profile);
+    rig.world = ParryWorld::new(&[]).with_rails(rails);
+    rig.hero = HeroMotion::new(above, 0.0);
+    for _ in 0..30 {
+        rig.tick_seen_from(camera_yaw, &input(None, &[], &[]));
+    }
+    assert_eq!(rig.hero.state, HeroState::Grind);
+    rig
+}
+
+/// A straight rail 2 u up along −z (yaw 0).
+fn rail_along_minus_z(length: f32) -> GrindRail {
+    GrindRail::new(vec![Vec3::new(0.0, 2.0, 0.0), Vec3::new(0.0, 2.0, -length)])
+}
+
+#[test]
+fn deadlocked_rides_facing_along_the_rail_where_uya_rides_side_on() {
+    for (profile, yaw) in [
+        (HeroProfile::dl(), 0.0),
+        (HeroProfile::uya(), -std::f32::consts::FRAC_PI_2),
+    ] {
+        let mut rig = grinding(profile, vec![rail_along_minus_z(500.0)], 0.0);
+        rig.ticks(60, &input(None, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Grind);
+        assert!((rig.hero.yaw - yaw).abs() < 0.01, "yaw {}", rig.hero.yaw);
+    }
+}
+
+#[test]
+fn deadlocked_rides_a_rail_towards_the_camera_backwards() {
+    // The rail runs 180° from the camera's yaw, past the entry's 90°: stance 180°.
+    let mut rig = grinding(HeroProfile::dl(), vec![rail_along_minus_z(500.0)], PI);
+    for _ in 0..60 {
+        rig.tick_seen_from(PI, &input(None, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Grind);
+    }
+    assert!(
+        (rig.hero.yaw.abs() - PI).abs() < 0.01,
+        "yaw {}",
+        rig.hero.yaw
+    );
+    assert!(rig.hero.velocity.z < -11.0, "{}", rig.hero.velocity);
+}
+
+#[test]
+fn deadlocked_hops_round_on_the_rail_when_the_camera_turns_past_120_degrees() {
+    let mut rig = grinding(HeroProfile::dl(), vec![rail_along_minus_z(500.0)], 0.0);
+    rig.ticks(60, &input(None, &[], &[]));
+    // 110° round is within the 120°: he rides on.
+    let turned = 110f32.to_radians();
+    rig.ticks(1, &input(None, &[], &[]));
+    rig.tick_seen_from(turned, &input(None, &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Grind);
+
+    // 130° hops him round (state 63), over the rail all the way. With nothing held its
+    // target height is 1.0 u and a step, and it peaks lower ("Vertical model").
+    let turned = 130f32.to_radians();
+    rig.tick_seen_from(turned, &input(None, &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::GrindTurn));
+    assert_eq!(rig.hero.state.game_number(), 63);
+    let mut highest: f32 = 0.0;
+    for _ in 0..120 {
+        rig.tick_seen_from(turned, &input(None, &[], &[]));
+        highest = highest.max(rig.hero.position.y - 2.0);
+        assert!(rig.hero.position.x.abs() < 0.01, "{}", rig.hero.position);
+        if rig.hero.state == HeroState::Grind {
+            break;
+        }
+    }
+    assert_eq!(rig.hero.state, HeroState::Grind);
+    assert!(highest > 0.6 && highest < 0.8, "{highest}");
+    // He lands facing back up the rail, within 60° of the camera, at the grind's speed.
+    for _ in 0..60 {
+        rig.tick_seen_from(turned, &input(None, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Grind);
+    }
+    assert!(
+        (rig.hero.yaw.abs() - PI).abs() < 0.01,
+        "yaw {}",
+        rig.hero.yaw
+    );
+    assert!(rig.hero.speed > 11.0, "{}", rig.hero.speed);
+
+    // UYA's hero never turns round.
+    let mut rig = grinding(HeroProfile::uya(), vec![rail_along_minus_z(500.0)], 0.0);
+    for _ in 0..60 {
+        rig.tick_seen_from(PI, &input(None, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Grind);
+    }
+}
+
+#[test]
+fn deadlocked_rides_on_along_a_rail_that_starts_where_one_ends() {
+    // The second rail starts 0.37 u from the first's end, inside DL's 0.5.
+    let chained = || {
+        vec![
+            rail_along_minus_z(20.0),
+            GrindRail::new(vec![
+                Vec3::new(0.3, 2.1, -20.2),
+                Vec3::new(0.3, 2.1, -200.0),
+            ]),
+        ]
+    };
+    let mut rig = grinding(HeroProfile::dl(), chained(), 0.0);
+    for _ in 0..200 {
+        rig.tick(&input(None, &[], &[]));
+        assert_eq!(rig.hero.state, HeroState::Grind);
+    }
+    assert_eq!(rig.hero.rail.map(|at| at.rail), Some(1));
+    assert!(rig.hero.speed > 11.0, "{}", rig.hero.speed);
+    assert!(
+        (rig.hero.position.x - 0.3).abs() < 0.01,
+        "{}",
+        rig.hero.position
+    );
+
+    // UYA's hero falls off the end.
+    let mut rig = grinding(HeroProfile::uya(), chained(), 0.0);
+    for _ in 0..200 {
+        rig.tick(&input(None, &[], &[]));
+        if rig.hero.state != HeroState::Grind {
+            break;
+        }
+    }
+    assert_eq!(rig.hero.state, HeroState::Fall);
+
+    // So does DL's when the next rail starts 0.6 u away.
+    let mut rig = grinding(
+        HeroProfile::dl(),
+        vec![
+            rail_along_minus_z(20.0),
+            GrindRail::new(vec![
+                Vec3::new(0.6, 2.0, -20.0),
+                Vec3::new(0.6, 2.0, -200.0),
+            ]),
+        ],
+        0.0,
+    );
+    for _ in 0..200 {
+        rig.tick(&input(None, &[], &[]));
+        if rig.hero.state != HeroState::Grind {
+            break;
+        }
+    }
+    assert_eq!(rig.hero.state, HeroState::Fall);
 }

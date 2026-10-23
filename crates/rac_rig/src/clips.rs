@@ -127,7 +127,8 @@ impl RigMove {
                 JumpKind::Wall => RigMove::WallJump,
                 JumpKind::Water => RigMove::WaterJump,
                 JumpKind::Ledge => RigMove::LedgeJump,
-                JumpKind::Grind => RigMove::GrindJump,
+                // DL's hop round on the rail; its own animation isn't read.
+                JumpKind::Grind | JumpKind::GrindTurn => RigMove::GrindJump,
                 JumpKind::GrindSwitch => RigMove::GrindSwitch,
             },
             HeroState::DoubleJump => RigMove::DoubleJump,

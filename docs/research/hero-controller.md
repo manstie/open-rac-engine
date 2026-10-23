@@ -99,14 +99,27 @@ to the d-pad when the stick is near the centre.
    - **Verified on UYA NTSC** (the same trace): the left stick held at 0.1974 for 2 s left
      the hero's stick at 0 and him standing. The fallback reads the real d-pad (pad
      +0x1B0), not the direction bits the stick sets in +0x1A0.
+   - **DL has neither [code, DL NTSC, 2026-10-23]:** its per-frame update (0x6A9CE8, and
+     0x6A7D48) copies the stick (pad +0x108, minus +0x10C) to hero + 0x120 as it is. A
+     short stick counts, and the d-pad doesn't move him. A stick at 0.1974 still left
+     him standing in the DL trace, by the walk's own start (item 4).
 3. **Magnitude, in the hero code [verified on R&C3 PAL]:**
    - `m = clamp((max(|x|, |y|) + length) / 2, 0, 1)`.
    - A diagonal therefore counts as fuller than its Euclidean length.
    - **On UYA NTSC** (2026-10-17, `uyantsc-veldin-camhalf-0.75-{1,2}`, keys at 0.6184
      straight ahead): the walk's speed target was 0.06359 u a frame, `6.17 / 60 × 0.6184`.
      A diagonal isn't checked on NTSC.
-4. **Direction:** the stick vector rotated by the camera yaw.
-5. **The stick as presses [code, UYA NTSC 0x45D5C8; seen in
+   - **DL's is the length,** at most 1 (0x67C570, into hero + 0x2E08) **[code]**.
+4. **Starting and stopping the walk [code, UYA 0x503B68, DL 0x69EA40]:** standing, he
+   walks once m is over 0.22 (or to step round to the camera while strafing); walking,
+   he carries on while m is at least 0.17 and stops below. Behind UYA's cut-off they
+   only meet a diagonal just past it (m about 0.213). In DL they decide when a part-pushed
+   stick walks.
+5. **Direction:** the stick vector rotated by the camera yaw.
+   - **An axis snap [code, both games]:** the move-angle function (UYA 0x4EAA78, DL
+     0x67C5F8) called with a mode of 1 zeroes an axis under 0.12 while the other is over
+     0.7. Which callers pass 1 isn't read; the kit has no snap.
+6. **The stick as presses [code, UYA NTSC 0x45D5C8; seen in
    `uyantsc-veldin-crouchflip-1`]:** the pad update also turns the stick into button
    presses, kept with the others in its 30-frame history (`pad_pressed_within`).
    - Each axis sets a d-pad bit while it is past its dead zone (x below 0 left, 0x8000;
@@ -118,7 +131,7 @@ to the d-pad when the stick is near the centre.
      angle is 0, so a push from rest flicks for 4 frames, as long as it points more than
      55 degrees from "right".
    - The crouch flip looks for any of these (the mask 0x1F000; "Flips").
-6. **Buttons on UYA [verified on UYA NTSC]:**
+7. **Buttons on UYA [verified on UYA NTSC]:**
    - X jumps.
    - R1 crouches.
    - Square swings the wrench.
@@ -298,6 +311,52 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
   - **The camera turns to look past him at the target** (`camera.md`, "Lock-on"), so he
     ends up facing it.
   - Weapons read the target, and `lock_reticle` draws rings on it.
+- **Also dropped** in the vehicle state (49), in both games.
+
+### Deadlocked's strafing [code, DL NTSC, 2026-10-23]
+
+DL's strafe walk (0x67BEC0) and its sorting of the stick (in 0x67C5F8, the counterpart of
+UYA's `hero_stick_move_angle`) are UYA's but for three numbers. The lock block is at
+hero + 0x5E0 ("Deadlocked's lock-on"): the side at + 0x5F7, walking backwards at + 0x5F6,
+the side-change timers at + 0x608.
+- **Back is 60° either side of straight back** (1.0471976), tested first as in UYA, so it
+  takes from the sides: right runs from 45° in front of the side to 30° behind it. UYA's
+  is 45°, which makes an exact back diagonal forward; in DL it is back.
+- **Walking backwards needs the stick past 0.05**, against UYA's 0.15.
+- **Changing sides stops him both ways:** left to right scales the speed by
+  (3 − timer) / 3 in integers (`div`, then the float conversion), so by 0 where UYA's
+  floats give 1/3 and 2/3. Right to left zeroes it, as UYA.
+- Not sorted in state 16; UYA clears the strafe flag in that state instead.
+- **In the kit:** `dl.ron`'s `strafe.back_degrees` (60), `back_stick` (0.05) and
+  `reverse_eases` (false).
+
+### Deadlocked's lock-on [code, DL NTSC, 2026-10-23]
+
+**DL's campaign never locks on.** Read on the DreadZone Station image (addresses in
+`re/SCUS-97465/symbols.toml`); untraced, since there is nothing to see.
+- **The lock block** is at hero + 0x5E0, laid out as UYA's at 0x1A6000: the target at
+  hero + 0x5F0, the strafe flag at hero + 0x5F4.
+- **DL's `hero_lock_on`** (0x688410, from `hero_transitions`) is only UYA's second half: a
+  target is dropped beyond 30 u, when L2 and R2 aren't both held, when it dies, and in
+  state 49. Nothing in it picks one: no press, no item flag, no camera test.
+- **Who sets a target:** a scan of the image for stores at offset 0x5F0 and 0x5F4 found
+  every writer. Apart from the clearing ones, two set a target, both only while the
+  global 0x21E824 is 1:
+  - a gun's update (0x44C7A8) puts the target its shot aims at there while firing, and
+    sets the strafe flag, if the byte 0x22064C (not identified) is also set;
+  - the weapon-change code (0x676888) puts a `target_search` result there while item 13
+    (libdl's hacker ray) is in hand: within 8 u, 90° round and up or down, class
+    category 0x11, in sight.
+- **0x21E824 is the multiplayer-level flag.** `main_loop` (0x528098) sets it before its
+  loop: 1 on level 0 and on levels from 40 on, the multiplayer maps, and 0 on levels 1 to
+  39, the campaign, where 0x21E828 is 1 in two-player co-op. So no campaign target, co-op
+  included.
+- **Both triggers still strafe** (0x67BD58): outside the lock-strafe and first-person
+  views (0x68DE60 returns DL's camera byte) the flag is 1 while the strafe action is held
+  in the pad's HUD bits, which in the campaign is L2 or R2 (`pad_action_mask`); in those
+  views the camera's code sets it ("Deadlocked's camera" in `camera.md`).
+- **The follow camera's lock-on turn** (0x51A660) reads hero + 0x5F0 as UYA's reads its
+  target, so in the campaign it never runs.
 
 ### In the kit [code numbers; simplified where marked]
 
@@ -306,7 +365,8 @@ writers of the hero's lock-on block at 0x1A6000, libuya's `HeroLockOn`.
   The trace's corrections went in the same day: the stop that waits for him to face the
   camera, and the standing jump.
 - `rac_hero::lock_on`: a `LockOn` component on each hero, `lock_on::update` each tick, and
-  the camera turn in `FollowCamera`. The profile's `lock_on` section holds the search.
+  the camera turn in `FollowCamera`. The profile's `lock_on` section holds the search;
+  `dl.ron` turns it off (`lock_on.enabled`), as DL's campaign.
   - **[simplified]** The kit's sight line stops 0.75 u short of the target's middle,
     because the kit's targets can be solid, and a line into one would always be blocked.
     The game's ray probably ignores objects.
@@ -1423,15 +1483,41 @@ slide along a wall, which had cut each of DL's shimmy steps by 0.0016 u.
     12.5, he falls instead.
 - **Health:** idle or walking with health below 1 also starts the death state.
 - **Floor materials** set by the ground probe trigger states:
-  - Material 17 damages: its amount is a global divided by 8, with a 90-frame repeat
-    timer, and it starts state 177, which shares the get-hit update.
+  - **Material 17 damages [code, 2026-10-23]** (`hero_floor_material`, 0x4E3EF0): it
+    takes the most health (`hero_max_health`, 0x142668; 10 on a new game) divided by 8,
+    rounded down, so 1 at first, and sets a 90-frame repeat timer. Then state 177: its
+    entry zeroes every velocity (0x4E9828) and plays sequence 99 over a 12-frame blend;
+    it shares the get-hit update, which has nothing left to brake, so he stands; after
+    41 frames he idles, or dies with no health. No push and no lift.
   - Material 1 (lava) gives the lava jump (56), or death (57) at no health.
   - Material 3 (quicksand, corrected 2026-10-13: see "Swimming") gives state 106, or
     the 125 sink when health is 0. In UYA's single-player code, 125 (libuya's "charge")
     sinks the hero at 1 u/s with the quicksand type.
   - Material 4 gives the slide (48).
-- **Death (57):** the hero brakes like a landing while the death animation plays. The
-  respawn timing is in the death code, which has not been read yet.
+- **Death (57):** the hero brakes like a landing while the death animation plays.
+  - **[code, 2026-10-23]** Its entry sets type 20 and plays sequence 64 over a 12-frame
+    blend. Its transitions wait for a flag of the animation's (0x1A57E8 & 2, probably
+    the sequence's end; not read), then run out a timer at 0x1A4DFE (no writer found by
+    its address), then call 0x4EA040: that counts the death in the stats and sets
+    0x1A71D2, which the level's code takes up for the respawn (not read). A hero who
+    drowned (108) uses its own counter (0x1A4E1C) instead.
+  - So the hero's part lasts about sequence 64's length; the fade and the respawn are
+    the level's, still to read or trace. The kit's `death.ticks` stays a placeholder.
+- **Deadlocked's death [code, DL NTSC, 2026-10-23]:**
+  - **Entry** (0x699F48, shared by 57 and 148): type 20, sequence 58 over a 12-frame
+    blend (UYA 64), and a 10-frame counter at hero+0x3F8 unless the byte hero+0x266D is
+    set (not read).
+  - **Transitions** (shared by 57, 106, 127, 129 and 148):
+    - while the animation's flag (hero+0x648 & 2) and a done byte (hero+0x2667) are both
+      clear, the counter runs, and when it runs out the death is reported;
+    - once either is set, a timer at hero+0x3DC runs out (setting the done byte), then
+      the death is reported once the state is more than 80 frames old (1 frame on
+      multiplayer levels).
+  - **The report** (0x67A4F8) does nothing while hero+0x420 is set. In single player it
+    counts the death in the stats and sets 0x368BE8, which the level takes up for the
+    respawn (not read).
+  - So DL reports a death 10 frames in, where UYA waits for the animation. As in UYA, the
+    respawn's timing is the level's: a trace of a death will give `death.ticks`.
 
 ### Deadlocked's hits [code, DL NTSC, 2026-10-20]
 
@@ -1442,11 +1528,17 @@ from frame 11, and the return after 28 frames, or death with no health.
 - **The fall:** more than 1 u over the ground past the animation's frame 16 (UYA 12.5).
 - **Can't be hurt again** (hero+0x39C, which the damage code at 0x67916C tests): 47
   frames with DL's camera byte non-zero (lock-strafe or first person, the default) and
-  70 in third person, while the global at 0x21E824 is 0 as in single player (0 there in
-  the savestates); 47 otherwise. UYA's is 77.
+  70 in third person, off multiplayer levels (the global 0x21E824 is 0: "Deadlocked's
+  lock-on"); 47 otherwise. UYA's is 77.
 - **Also on entry:** the pad rumbles (0x533730), and a 45-frame timer at hero+0x3D2 runs
   that `hero_back_moby_update` fades by.
-- **Not read:** the hazard floor's damage, and death and the respawn.
+- **The damaging floor** (0x672298, DL's floor-material check) is UYA's under other
+  numbers: material 5 (DL renumbers its materials), the most health (a float, hero +
+  0x2F24) over 8 in integers, the 90-frame repeat on hero + 0x39C, and state 144
+  (libdl's `ELECTRIC_GET_HIT`), which zeroes the motion (0x6781B8 through the hero's
+  table), plays sequence 59 and stands 41 frames on the get-hit update **[code,
+  2026-10-23]**.
+- **Not read:** death and the respawn.
 - **In the kit:** `dl.ron`'s `hit` (`fall_after_tick` 16, `safe_ticks` 47 for the
   default camera). **[simplified]** The kit doesn't vary the timer with the camera.
 
@@ -1664,6 +1756,62 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
   - no solid ground is needed under a rail;
   - the fall from a rail with nothing under it isn't there;
   - the stance is always −90°; the object that turns it the other way isn't modelled.
+
+### Deadlocked's grinding (states 39–42, 62, 63) [code, DL NTSC, 2026-10-23; untraced]
+
+Read in DL's shared grind update (in the hero update, 0x690F18), the grind's transitions
+and its entry in `hero_change_state` (0x69AE64), side by side with UYA's. DL's arenas
+can't be played from a new game yet, so none of it is traced.
+- **The same, with DL's per-second literals:** the shared update for 39–42 and 62 (the
+  sparks, following the rail, the fall from a rail more than 1.07 u above the ground for
+  6 frames once 30 frames in, the turn spring 0.015, 0.15 and 0.1047 rad a frame, and the
+  0.04, 0.2 turn on rails that jump a gap), the grind jump (40) and the switch jump (41)
+  with UYA's numbers, and the timers set at the rail's end.
+- **He rides facing along the rail, not side on.** The entry sets the stance (hero+0x4C8)
+  to 0, where UYA's sets −90°. Then:
+  - **An object** (hero+0x518, UYA's 0x1A5228) more than 90° from that facing turns it to
+    +90°, and sets hero+0x4CC to 1, as in UYA. The object wasn't read.
+  - **Backwards to the camera:** if the rail's heading (hero+0x4BC, towards its next
+    point) is more than 90° from the camera's yaw (`GameCamera` + 0x18), the stance is
+    180°, so he rides backwards with his back to the camera. This test comes last and
+    wins over the object's.
+  - The entry plays sequence 107, blending over 6 frames. Whatever the state before, it
+    runs again each time state 39 starts, from a jump or a chained rail too.
+- **Turning round on the rail (state 63, DL only).** In the grind (39), once neither X
+  (the grind jump, within 7 frames) nor the rail's end nor the fall from a rail with
+  nothing under it applies:
+  - **When:** his facing, the rail's heading plus the stance, is more than 120°
+    (2.0944 rad) from the camera's yaw.
+  - **What:** hero+0x53C is set to +1 or −1, the way round, and the stance turns by
+    180°. The hero hops (state 63, type 15, the grind's): 1.0–1.5 u, hold 17, push-off 5,
+    gravity 27 (its entry at 0x69B844).
+  - **In the air** it is a grind jump: the shared update carries him along the rail and
+    turns him to the new stance on the grind's spring. State 63 sets two joint springs to
+    0.5 (hero+0xA24, 0xA28). It shares the grind jumps' transitions, so he lands back on
+    the rail.
+  - So with the camera behind him he keeps his back to it, and turning the camera more
+    than 120° round turns him round.
+- **Chaining rails (DL only).** When the hero reaches the rail's next point (within
+  0.001 u), before the rail's end is tested:
+  - **The search:** the level's rail list (0x222BF4, count at 0x222BF8, entries 0x20
+    bytes as UYA's) for a rail whose flag word (+0x18) is 0 and whose spline's first
+    point is within 0.5 u of that point (in 3D), with the hero less than 0.9 u above it.
+  - **The first one found** becomes the rail ridden (hero+0x4A0), and the grind starts
+    again (state 39). The speed carries on, as from any state of the grind's type.
+  - **Only the spline pointer changes:** the segment index and fraction (hero+0x4A4,
+    0x4A8) are kept, and the spline follow (0x5D4F60) wraps an index past the end. Where
+    on the new rail the hero then is wasn't worked out.
+  - Without one, the rail ends as in UYA.
+- **No grind attack:** its code is there, but nothing starts it ("Deadlocked's melee").
+- **Not read in DL:** getting on (`hero_find_rail`'s reach), the switch jump's search
+  for a rail and the speed model's numbers, which `dl.ron` copies from UYA.
+- **In the kit:** `dl.ron`'s grind has `stance_degrees: 0`, `turn_round` (the backwards
+  start past 90° and the hop past 120°) and `chain` (0.5 u, 0.9 u). Its hop is
+  `JumpKind::GrindTurn`, which the rig plays as the grind jump. Tested in
+  `rac_hero/tests/deadlocked.rs`. **[simplified]:** a chained rail is ridden from its
+  start, so a loop chains to itself; any rail of the grind kind can be chained to (the
+  flag word isn't modelled); chains are looked for at the rail's end only, not at each
+  point along it; and the camera's yaw is the kit's, whichever camera is in use.
 
 ## Zip lines (state 118) [code, then verified on UYA NTSC, 2026-10-15]
 
@@ -1969,8 +2117,11 @@ transitions, side by side with UYA's.
   under water, reached only through the every-16-frames probe, the hero has no way to
   swim on or surface but rising.
 - **Entering with no health** goes to state 106 (UYA 108), with a 70-frame timer.
-- **Not read in DL:** the surface float and bob (UYA 0x501458), wading (117) and
-  drowning.
+- **The surface float and bob** (0x6871C0, UYA 0x501458) are UYA's: the same springs and
+  0.12 u, scaled by the frame-time globals to UYA's per-frame values at 60 Hz (read
+  2026-10-23). It has no Clank's 0.05, and skips the surface spring in states 126 and 153
+  where UYA skips 129 and 80.
+- **Not read in DL:** wading (117) and drowning.
 - **In the kit:** `dl.ron`'s `swim` keeps UYA's numbers, which DL's code matches, with
   `dives: false`. Tested in `rac_hero/tests/moves.rs`
   (`deadlocked_swims_on_the_surface_without_diving`).
@@ -2197,12 +2348,14 @@ functions in the same order, with the literals scaled by `frame_dt` at run time.
     and run jumps. All of it is unreachable: DL never glides ("Deadlocked's moves").
 - **The stick in DL [verified on DL NTSC, 2026-10-17, `dlntsc-dreadzone-camhalf-0.5-{1,2}`]:**
   the pad layer's dead zone is UYA's (the bytes 191 and 64 gave 0.2105 and 0.1974), and
-  a left stick held at 0.1974 left the hero standing in both camera settings, as UYA's
-  0.25 cut-off would; the cut-off itself isn't read in DL's code.
-- **Not read in DL yet:** lock-on and grinding (DL has no wall jump and no zip lines:
-  "Deadlocked's moves"; its ledges, hits and swimming: "Deadlocked's ledges",
-  "Deadlocked's hits", "Deadlocked's swimming"). The kit's DL profile keeps UYA's numbers
-  for them, marked as such. Melee is read ("Deadlocked's melee"), and so are the strafe
+  a left stick held at 0.1974 left the hero standing in both camera settings. That isn't
+  a cut-off: DL's hero code has none, nor the d-pad fallback, and its magnitude is the
+  length; the walk's own 0.22 start holds him (2026-10-23, "Input").
+- **Not read in DL yet:** death (DL has no wall jump and no zip lines: "Deadlocked's
+  moves"; its ledges, hits, swimming and grinding: "Deadlocked's ledges", "Deadlocked's
+  hits", "Deadlocked's swimming", "Deadlocked's grinding"; its campaign never locks on:
+  "Deadlocked's lock-on"). The kit's DL profile keeps UYA's numbers for it, marked as
+  such. Melee is read ("Deadlocked's melee"), and so are the strafe
   turn and the camera (2026-10-16, `camera.md`, "Deadlocked's camera"): UYA's strafe turn,
   and a follow camera 6 u back. The flips, the crouch and the glide are read (2026-10-20,
   "Deadlocked's moves").
@@ -2284,8 +2437,8 @@ Read in DL's code on 2026-10-20 (`re/SCUS-97465/symbols.toml`), and traced in
 - **Buttons per camera (`pad_action_mask`, 0x5BE808):** the hero asks for a button by
   UYA's pad bit, and with
   DL's camera byte (0x171DE0 + player) not 0, R1 and L1 become L2, Triangle becomes
-  Triangle or R2, and X becomes X or L1. While the global at 0x21E824 isn't 1 (not
-  identified), L2 becomes L2 or R2.
+  Triangle or R2, and X becomes X or L1. Off multiplayer levels (the global 0x21E824
+  isn't 1: "Deadlocked's lock-on"), L2 becomes L2 or R2.
 - **Letting go of the walk with a gun in hand:** one frame braking at 30 u/s², then idle
   at 1.5 u/s less one frame of 17.7 u/s². UYA's trace (the wrench in hand) skids two frames
   at 17 first. The release skid depends on the held item, not on the game: UYA's walk arms
@@ -2355,8 +2508,8 @@ The state numbers match libuya's `PlayerState`, and the types match `PlayerType`
 | 101 | skid to position (scripted move) | 24 NPC | R&C3 |
 
 Also read in code but not seen in a trace:
-- in DL's: 121, the bounce off a wall after a charge (type 10), and 125, the charge
-  (type 28);
+- in DL's: 63, turning round on a rail (type 15, "Deadlocked's grinding"), 121, the
+  bounce off a wall after a charge (type 10), and 125, the charge (type 28);
 - in UYA's: 18, the water jump; 50–52, swimming under water (type 17); and 53–54,
   swimming on the surface (type 18).
 - UYA's code uses 117 for wading, where libuya's names say "get hit under water", so
@@ -2379,11 +2532,15 @@ Also read in code but not seen in a trace:
 1. **More on Deadlocked NTSC.** The charge (2026-10-12), the walk, jumps and double jump
    (2026-10-15), and the flips, the missing crouch, the barred glide, the missing wall
    jump and the ledges, shimmy and climb (2026-10-20) are verified ("Deadlocked's moves",
-   "Deadlocked's ledges"). Next: the parts of the kit's DL profile still marked "not read
-   in DL" (lock-on, grinding, the hazard floor, death, the surface float, the stick's
-   cut-off), and the code behind the 0.43 u step limit. The lock-strafe camera is read
-   and traced (2026-10-16, `camera.md`, "Deadlocked's camera"), and the kit has it, as
-   `dl.ron`'s default camera (P1.7).
+   "Deadlocked's ledges"). Next: a trace of a death in either game (both hand the
+   respawn to the level's code: "Getting hit and dying"), the smaller items the kit's DL
+   profile still marks "not read in DL", and the code behind the 0.43 u step limit.
+   Lock-on, the stick, strafing, the surface float, the damaging floor, grinding and
+   death are read (2026-10-23, "Deadlocked's lock-on", "Input", "Deadlocked's
+   strafing", "Deadlocked's swimming", "Deadlocked's hits", "Deadlocked's grinding",
+   "Getting hit and dying"). The lock-strafe camera is
+   read and traced (2026-10-16, `camera.md`, "Deadlocked's camera"), and the kit has it,
+   as `dl.ron`'s default camera (P1.7).
 2. **Moves that need a particular place:** wall jump, ledge grab and jump, grinding and
    swimming. Swimming, ledges and the wall jump were traced on 2026-10-13, and zip lines
    on 2026-10-15. UYA has no rail to grind on (section "Grinding"), so grinding waits for

@@ -491,6 +491,25 @@ fn a_hit_knocks_back_at_most_7_and_ends_after_28_ticks() {
 }
 
 #[test]
+fn a_hazard_floor_holds_him_where_he_stands_for_41_ticks() {
+    // UYA's material 17 and state 177 (DL's 5 and 144).
+    let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
+    let forward = input(Some([0, 127]), &[], &[]);
+    rig.ticks(20, &forward);
+    controller::hurt_by_floor(&mut rig.hero, false, &rig.profile);
+    assert_eq!(rig.hero.velocity, Vec3::ZERO);
+    let start = rig.hero.position;
+    let held = rig.until(60, &forward, |hero| hero.state != HeroState::Hit);
+    // 41 ticks in the state, then the tick that ends it, as the hit's 28.
+    assert_eq!(held, 42);
+    assert!(
+        rig.hero.position.distance(start) < 0.2,
+        "{}",
+        rig.hero.position
+    );
+}
+
+#[test]
 fn a_fatal_hit_ends_in_death_and_a_respawn() {
     let mut rig = Rig::new(&[floor()], Vec3::ZERO, 0.0);
     controller::hurt(&mut rig.hero, Vec3::new(0.0, 4.0, 3.0), true, &rig.profile);

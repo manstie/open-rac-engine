@@ -16,7 +16,7 @@ name = "hero_change_state"
 address = 0x00699C70
 kind = "function"
 confidence = "medium"
-note = "Counterpart of Gladiator PAL's. Same per-second constants; frame counts scaled by about 6/5 (standing-jump hold 17 frames against 14)."
+note = "Counterpart of Gladiator PAL's. Same per-second constants; frame counts scaled by about 6/5 (standing-jump hold 17 frames against 14). State 39's entry (0x69AE64) picks the grind's stance from the camera; DL's state 63 (entry 0x69B844) hops round on the rail (hero-controller.md, \"Deadlocked's grinding\")."
 
 [[symbol]]
 name = "hero_jump_vertical"
@@ -89,7 +89,7 @@ name = "hero_update_state"
 address = 0x00690F18
 kind = "function"
 confidence = "medium"
-note = "Per-frame motion of the current state. State 125 (charge) sets the speed target, steering and ground-hugging spring."
+note = "Per-frame motion of the current state. State 125 (charge) sets the speed target, steering and ground-hugging spring. States 39-42, 62 and 63 share the grind update, which in DL chains onto a rail starting within 0.5 u of the point reached (rail_list)."
 
 [[symbol]]
 name = "hero_transitions"
@@ -124,7 +124,7 @@ name = "hero_stick_move"
 address = 0x0067C5F8
 kind = "function"
 confidence = "medium"
-note = "Turns the stick into a camera-relative move direction and a target speed (scale × stick length)."
+note = "Turns the stick (hero+0x120) into a camera-relative move direction and a target speed (scale × stick length), as UYA's hero_stick_move_angle, mode 1 snapping an axis under 0.12 to 0 while the other is over 0.7. While strafing, outside state 16, sorts the stick into the side (hero+0x5F7): back within 60 degrees of straight back (UYA 45), tested first, then right and left within 45, else forward; walking backwards (hero+0x5F6) past m 0.05 (UYA 0.15)."
 
 [[symbol]]
 name = "hero_turn_by"
@@ -281,7 +281,7 @@ name = "main_loop"
 address = 0x00528098
 kind = "function"
 confidence = "medium"
-note = "The per-frame game loop; each frame it first checks level_change_request."
+note = "The per-frame game loop; each frame it first checks level_change_request. Before the loop it sets multiplayer_flag from the level number (0x21DE10), and on the campaign the player count and coop_flag."
 
 [[symbol]]
 name = "request_level_change"
@@ -826,8 +826,8 @@ note = "The last collision query: +0x18 the moby hit, +0x1C the surface word, +0
 name = "multiplayer_flag"
 address = 0x0021E824
 kind = "data"
-confidence = "low"
-note = "0 in single player; the melee code reads other damage columns and limits when it is set."
+confidence = "medium"
+note = "1 on a multiplayer level: main_loop sets it on level 0 and levels 40 on, and clears it on the campaign's 1-39. The melee code reads other damage columns and limits when it is set; only while it is set does anything set the hero's lock target."
 
 # Seeded 2026-10-15 from libdl (MIT, re/README.md "Sources"; PLAN.md RE.2). Deadlocked's
 # single player and multiplayer share one resident program, so libdl's fixed addresses for
@@ -1896,3 +1896,125 @@ address = 0x003B0BA0
 kind = "data"
 confidence = "high"
 note = "16 floats, the shimmy's step per animation frame (UYA's table plus a final 0); hero_update_state scales the entry by 1.5 (UYA 0.5) and points it at the hang point found 0.2 u to the side. Checked by trace on DL NTSC, 2026-10-20."
+
+# 2026-10-23, Deadlocked's lock-on (PLAN.md RE.3; hero-controller.md, "Deadlocked's
+# lock-on"). Read in code on DreadZone Station; every store to hero+0x5F0 and +0x5F4 was
+# found by scanning the image for that offset.
+
+[[symbol]]
+name = "hero_lock_on"
+address = 0x00688410
+kind = "function"
+confidence = "high"
+note = "From hero_transitions. UYA's hero_lock_on without the search: drops the target (hero+0x5F0, the lock block at hero+0x5E0 laid out as UYA's 0x1A6000) beyond 30 u, when L2 and R2 aren't both held, when it dies, and in state 49 (vehicle). Never picks one."
+
+[[symbol]]
+name = "hero_strafe_flag"
+address = 0x0067BD58
+kind = "function"
+confidence = "high"
+note = "Sets the strafe flag (hero+0x5F4) to 1 while the strafe action (pad_action_mask 1: L2, or L2 or R2 off multiplayer levels) is held in the pad's HUD bits (+0x1C0), else 0; 1 too on a multiplayer level with a lock target. While hero_camera_byte is non-zero it only counts the flag down, the camera's code setting it."
+
+[[symbol]]
+name = "hero_camera_byte"
+address = 0x0068DE60
+kind = "function"
+confidence = "high"
+note = "Returns the camera option byte (0x171DE0 + player: 1 lock-strafe, 2 first person), or 0 in third person, in states 0x1C, 0x31, 0x71, 0x8E and 0x8F, with hero+0x3F4 set, or in game modes 2 and 6 (0x21DDB4)."
+
+[[symbol]]
+name = "gun_lock_target"
+address = 0x0044C7A8
+kind = "function"
+confidence = "medium"
+note = "A gun's per-frame update (no direct callers). On a multiplayer level with the byte 0x22064C set, firing puts the gun's aim target in the hero's lock target (hero+0x5F0) and sets the strafe flag; not firing clears both."
+
+[[symbol]]
+name = "hero_weapon_change"
+address = 0x00676888
+kind = "function"
+confidence = "medium"
+note = "Changes the hand item. On a multiplayer level with item 13 (libdl's hacker ray) in hand, it puts a target_search result (8 u, 90 degrees round and up or down, class category 0x11, in sight) in the hero's lock target."
+
+[[symbol]]
+name = "coop_flag"
+address = 0x0021E828
+kind = "data"
+confidence = "medium"
+note = "1 on a campaign level with two players (main_loop)."
+
+# 2026-10-23, Deadlocked's stick and strafing (PLAN.md RE.3; hero-controller.md, "Input"
+# and "Deadlocked's strafing").
+
+[[symbol]]
+name = "hero_read_stick"
+address = 0x006A9CE8
+kind = "function"
+confidence = "high"
+note = "Part of the per-frame update: copies the pad's left stick (+0x108, minus +0x10C) to hero+0x120 with no cut-off and no d-pad fallback (UYA's hero_update has both), and its magnitude (stick_magnitude) to hero+0x2E08 and +0x2E38. 0x6A7D48 does the same after hero_strafe_flag."
+
+[[symbol]]
+name = "stick_magnitude"
+address = 0x0067C570
+kind = "function"
+confidence = "high"
+note = "A vector's length, at most 1: DL's stick magnitude m, where UYA's is (max(|x|, |y|) + length) / 2."
+
+[[symbol]]
+name = "hero_strafe_walk"
+address = 0x0067BEC0
+kind = "function"
+confidence = "high"
+note = "UYA's hero_strafe_walk: strafe heading from the move angle, the side-change timers (hero+0x608, +0x60A), then hero_strafe_turn. Left to right scales the speed by (3 - timer) / 3 in integers, so 0, where UYA's floats give 1/3 and 2/3."
+
+[[symbol]]
+name = "hero_surface_float"
+address = 0x006871C0
+kind = "function"
+confidence = "high"
+note = "UYA's hero_surface_float with its literals scaled by the frame globals: the feet 0.12 u under a tracked surface height (hero+0x1C4C, spring 0.027, 0.3) plus a bob (hero+0x1C40, rate +0x1C44). No Clank variant; the surface spring is skipped in states 126 and 153."
+
+[[symbol]]
+name = "hero_floor_material"
+address = 0x00672298
+kind = "function"
+confidence = "high"
+note = "UYA's hero_floor_material with DL's material numbers: material 5 damages by the most health (hero+0x2F24) / 8 in integers, sets the 90-frame safe timer hero+0x39C and enters state 144, which zeroes the motion (hero_stop_motion) and stands 41 frames on the get-hit update."
+
+[[symbol]]
+name = "hero_stop_motion"
+address = 0x006781B8
+kind = "function"
+confidence = "high"
+note = "The hero's vtable +0x38 (vtable 0x3B10C0): zeroes the speeds and every velocity vector, as UYA's 0x4E9828."
+
+# 2026-10-23, Deadlocked's grinding (PLAN.md RE.3; docs/research/hero-controller.md,
+# "Deadlocked's grinding"). Read in code on DreadZone Station; untraced.
+
+[[symbol]]
+name = "rail_list"
+address = 0x00222BF4
+kind = "data"
+confidence = "medium"
+note = "Pointer to the level's rails, 0x20 bytes each (the spline at +0x10, a flag word at +0x18), as UYA's; the count is at 0x222BF8. The grind's chaining takes a rail whose flag is 0 and whose first point is within 0.5 u of the point reached, with the hero under 0.9 u above it."
+
+[[symbol]]
+name = "spline_follow"
+address = 0x005D4F60
+kind = "function"
+confidence = "medium"
+note = "(distance, spline, out position, &segment, &distance into it, wrap): moves a point along a spline's points (count at +0, points from +0x10, 0x10 each, w the segment's length); returns 1 at the end unless it wraps."
+
+[[symbol]]
+name = "angle_diff"
+address = 0x0055D910
+kind = "function"
+confidence = "high"
+note = "|a - b| folded to 0..pi."
+
+[[symbol]]
+name = "hero_death_done"
+address = 0x0067A4F8
+kind = "function"
+confidence = "medium"
+note = "UYA's hero_death_done: reports the death unless hero+0x420 is set; in single player counts it in the stats and sets 0x368BE8, which the level takes up for the respawn (not read). Death (57, 148; entry 0x699F48, sequence 58) calls it when a 10-frame counter at hero+0x3F8 runs out, or once the animation is done, a timer at hero+0x3DC has run out and the state is over 80 frames old (1 on multiplayer levels)."

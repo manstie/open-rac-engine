@@ -30,16 +30,23 @@
         max_step: 0.43,
     ),
     stick: (
-        // As UYA [not read in DL]: "Input": per-axis dead zone and range [verified on R&C3
-        // PAL], and the cut-off below which the stick is ignored [code on UYA NTSC].
+        // "Input": the pad layer's dead zone and range are UYA's [verified on DL NTSC,
+        // dlntsc-dreadzone-camhalf-0.5-1]. DL's hero code (0x6A9CE8) copies the stick
+        // with no cut-off and no d-pad fallback, and takes its length as m [code; a stick
+        // at 0.1974 stood still, by walk.start_above].
         dead_zone: 48.0,
         live_range: 76.0,
-        cut_off: 0.25,
+        cut_off: 0.0, // DL
+        magnitude: Length, // DL
         // As UYA [not read in DL]: "Flips", the pad layer's flick. Only the crouch flip
         // reads it, and DL has none (walk.crouches).
         flick: (from: 0.25, to: 0.9, within_ticks: 3, swing_degrees: 55.0, swing_ticks: 4),
     ),
     walk: (
+        // hero_transitions (0x69EA40): UYA's 0.22 and 0.17 [code], which with no cut-off
+        // decide when a part-pushed stick walks.
+        start_above: 0.22,
+        keep_from: 0.17,
         // "Ground movement": DL's walk update (0x695CB8) and turn (0x67D100) hold UYA's
         // numbers apart from the speed [code; the speed and accel verified on DL NTSC].
         speed: 7.25, // DL: the walk speed global 0x3B01A0, libdl's maxWalkSpeed
@@ -226,13 +233,15 @@
             edge_drop: 3.0,
         ),
     ),
-    // Strafing, the walk with L2 or R2 held in DL's third-person camera; DL's default
-    // lock-strafe camera strafes always, which the kit doesn't have yet. The walk's speeds
-    // apply [verified on DL NTSC]; the turn and the side change are as UYA [not read in
-    // DL].
+    // Strafing, the walk with L2 or R2 held in DL's third-person camera, and always in
+    // its lock-strafe camera but with the wrench. The walk's speeds apply [verified on DL
+    // NTSC]; the turn is UYA's (0x67BDE0) [verified]. The sides and the side change
+    // (0x67C5F8, 0x67BEC0) differ ("Deadlocked's strafing") [code].
     strafe: (
         turn: (gain: 0.042, damping: 0.25, cap: 0.319977),
         reverse_ticks: 3,
+        reverse_eases: false, // DL: (3 - timer) / 3 in integers, so 0
+        back_degrees: 60.0, // DL
         // DL: 0x687430 works out the flip, then always jumps (state 7). Strafing sideways
         // and back with X gave standing jumps (dlntsc-dreadzone-moves-2) [verified].
         flips: false,
@@ -242,12 +251,16 @@
         // presses 2, 6 and 7 frames old flipped, one 9 frames old didn't].
         landing_window: 8,
         landing_ticks: 2,
-        back_stick: 0.15,
+        back_stick: 0.05, // DL
         idle_within_degrees: 2.0,
         turn_after_degrees: 10.0, // camera.md, "Lock-strafe, DL's default" [verified on DL NTSC]
     ),
-    // As UYA [not read in DL]: "Lock-on" [code, UYA NTSC].
+    // "Deadlocked's lock-on" [code, DL NTSC, 2026-10-23]: DL's hero_lock_on (0x688410)
+    // keeps and drops a target by UYA's rules but never picks one, and only multiplayer
+    // levels' guns set one, so the campaign never locks on. Both triggers still strafe.
+    // The search and sight are UYA's, unused.
     lock_on: (
+        enabled: false, // DL
         aim: (range: 25.0, cone_degrees: 35.0, rise_degrees: 70.0),
         sight_height: 0.7,
         sight_short: 0.75, // [simplified]
@@ -473,9 +486,9 @@
         bounce_gravity: 25.0,
         bounce_ticks: 54,
     ),
-    // States 39-41, "Grinding": the jumps (40, 41) read the same in DL's state entry
-    // [code]; the rest as UYA [not read in DL]. Per-frame values are given as UYA's code
-    // has them.
+    // States 39-41 and 63, "Deadlocked's grinding" [code]: the jumps (40, 41), the turn
+    // and the rail's end as UYA; getting on, the switch's search and the speed as UYA [not
+    // read in DL]. Per-frame values are given as UYA's code has them.
     grind: (
         reach: 0.9,
         reach_on_ground: 0.3,
@@ -493,8 +506,25 @@
         slope_min: -2.5, // -0.041666668 u per frame
         slope_max: 12.0, // 0.2 u per frame
         turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
-        // As UYA [not read in DL].
-        stance_degrees: -90.0,
+        stance_degrees: 0.0, // DL: facing along the rail
+        // DL: backwards past 90° from the camera's yaw getting on, and state 63's hop
+        // round past 120° riding (its entry, 0x69B844).
+        turn_round: Some((
+            back_degrees: 90.0,
+            hop_degrees: 120.0, // 2.0944 rad
+            hop: (
+                height_min: 1.0,
+                height_max: 1.5,
+                hold_ticks: 17,
+                pushoff_ticks: 5,
+                gravity: 27.0,
+                apex_gravity_factor: 1.0,
+                air_speed: 0.0, // it follows the rail
+            ),
+        )),
+        // DL: on along a rail starting within 0.5 u of the end (0.25 squared), less than
+        // 0.9 u under the hero.
+        chain: Some((within: 0.5, above: 0.9)),
         jump_press_window: 7,
         // States 40 and 41, "Jump parameters by state" [code].
         jump: (
@@ -550,7 +580,7 @@
     // States 50-54 and 18, "Swimming": DL's water entry (0x6A60A8), surface and underwater
     // motion (0x690F18, 0x699060), surface transitions and the water jump's state entry
     // read as UYA's, with per-second literals ("Deadlocked's swimming") [code; untraced in
-    // DL]. The surface float (UYA 0x501458) isn't read in DL.
+    // DL]. So does the surface float and bob (0x6871C0).
     swim: (
         dives: false, // DL: no dive from the surface, and no underwater transitions
         entry_below: 0.45,
@@ -1027,8 +1057,8 @@
         ),
     ),
     // State 22, "Getting hit and dying": DL's entry (0x69DAAC), motion and transitions
-    // are UYA's apart from the marked values ("Deadlocked's hits") [code]. The hazard
-    // floor and death are as UYA [not read in DL].
+    // are UYA's apart from the marked values ("Deadlocked's hits") [code]. Death is as
+    // UYA [not read in DL].
     hit: (
         max_speed: 7.0, // 0.11667 u per frame
         brake: 4.0,
@@ -1040,16 +1070,18 @@
         // DL: hero+0x39C, 47 frames in lock-strafe and first person (the default), 70 in
         // third person, against UYA's 77. The kit doesn't vary it with the camera.
         safe_ticks: 47,
+        // The damaging floor is UYA's under DL's numbers (0x672298): material 5 takes the
+        // most health / 8 every 90 frames and enters state 144, 41 frames standing [code].
         hazard_safe_ticks: 90,
-        // The game's hazard damage is a per-level global, and its push comes from the
-        // attacker; health is UYA's starting nanotech as remembered [placeholder].
-        hazard_damage: 1,
-        hazard_knockback: 4.0,
-        hazard_lift: 6.0,
-        max_health: 10,
+        hazard_divisor: 8,
+        hazard_ticks: 41,
+        max_health: 10, // [placeholder]
     ),
     death: (
-        ticks: 120, // [placeholder]: the death state's timing isn't read yet
+        // [placeholder]: the hero reports his death 10 frames in, or once sequence 58 is
+        // done and the state is 80 frames old, and the level respawns him ("Getting hit and
+        // dying"); the respawn's timing wants a trace.
+        ticks: 120,
     ),
     // camera.md, "Deadlocked's camera" [DL NTSC]: the follow camera is UYA's with its own
     // distance, so its sections are UYA's numbers [code: its functions pair up one for one

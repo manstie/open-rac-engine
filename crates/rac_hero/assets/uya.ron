@@ -29,6 +29,8 @@
         dead_zone: 48.0,
         live_range: 76.0,
         cut_off: 0.25,
+        // The magnitude (max(|x|, |y|) + length) / 2 [verified on R&C3 PAL].
+        magnitude: LargestAndLength,
         // "Flips": a flick, which the pad layer (0x45D5C8) marks as a press of its own:
         // from under 0.25 to past 0.9 within 3 frames, or swung more than 55 degrees
         // (0.9599311 rad) from any of the last 4 frames at past 0.9 [code; flicks seen in
@@ -36,6 +38,10 @@
         flick: (from: 0.25, to: 0.9, within_ticks: 3, swing_degrees: 55.0, swing_ticks: 4),
     ),
     walk: (
+        // hero_transitions (0x503B68): idle walks with m over 0.22, the walk keeps on at
+        // 0.17 [code]. Behind the 0.25 cut-off only a diagonal just past it meets them.
+        start_above: 0.22,
+        keep_from: 0.17,
         // "Ground movement" [verified on UYA NTSC and R&C3 PAL].
         speed: 6.17,
         accel: 37.0,
@@ -224,6 +230,8 @@
     strafe: (
         turn: (gain: 0.042, damping: 0.25, cap: 0.319977),
         reverse_ticks: 3,
+        reverse_eases: true,
+        back_degrees: 45.0, // 0x4EAA78 [code]
         flips: true,
         flip_stick: 0.9,
         // "The landing flip": X within 8 frames, on the frame a jump lands and the next
@@ -237,6 +245,7 @@
     // L2 and R2 together: "Lock-on" [code, UYA NTSC, 2026-10-15; untraced, as no
     // savestate holds a weapon that allows it]. The search is 0x503428's.
     lock_on: (
+        enabled: true,
         aim: (range: 25.0, cone_degrees: 35.0, rise_degrees: 70.0),
         sight_height: 0.7,
         sight_short: 0.75, // [simplified]
@@ -457,6 +466,8 @@
         turn: (gain: 0.015, damping: 0.15, cap: 0.10471976),
         // Side on: towards the rail's direction less 90° (0x1A51D8) [code].
         stance_degrees: -90.0,
+        turn_round: None,
+        chain: None,
         jump_press_window: 7,
         // States 40 and 41, "Jump parameters by state" [code].
         jump: (
@@ -992,16 +1003,17 @@
         fall_after_tick: 12,
         fall_above: 1.0,
         safe_ticks: 77,
+        // Material 17 (hero_floor_material, 0x4E3EF0): the most health / 8, every 90
+        // frames, and state 177 for 41 frames with the velocity zeroed [code, 2026-10-23].
         hazard_safe_ticks: 90,
-        // The game's hazard damage is a per-level global, and its push comes from the
-        // attacker; health is UYA's starting nanotech as remembered [placeholder].
-        hazard_damage: 1,
-        hazard_knockback: 4.0,
-        hazard_lift: 6.0,
-        max_health: 10,
+        hazard_divisor: 8,
+        hazard_ticks: 41,
+        max_health: 10, // hero_max_health on a new game [measured]
     ),
     death: (
-        ticks: 120, // [placeholder]: the death state's timing isn't read yet
+        // [placeholder]: the hero's part is sequence 64, then the level respawns him
+        // ("Getting hit and dying"); the respawn's timing wants a trace.
+        ticks: 120,
     ),
     // camera.md [UYA NTSC]: "How the follow camera works", "The follow point's height",
     // "Obstacles and collision", "Lock-strafe and first person" and "Blending between
