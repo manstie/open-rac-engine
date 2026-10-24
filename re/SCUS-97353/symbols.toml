@@ -1101,7 +1101,21 @@ name = "held_item"
 address = 0x001A5E08
 kind = "data"
 confidence = "medium"
-note = "The item in the hero's hand, set by hero_spawn_item_mobys; 9 in every savestate we have, where he only has the wrench."
+note = "The item in the hero's hand, set by hero_spawn_item_mobys: 9 the wrench, 0 while changing. Verified: 47 with the N60 drawn, then 0 and 9 as Square brought the wrench (uyantsc-veldin-fire-2)."
+
+[[symbol]]
+name = "hand_state"
+address = 0x001A5E04
+kind = "data"
+confidence = "medium"
+note = "i32: 2 with held_item in hand, 3 while changing, 0 empty. Square with a gun out ran 3, 0, 3, 3, 2, and the swing started the frame after (uyantsc-veldin-fire-2; weapons.md, \"Switching and firing\")."
+
+[[symbol]]
+name = "hand_ticks"
+address = 0x001A5E00
+kind = "data"
+confidence = "medium"
+note = "i32: frames the item has been in hand, counting up; restarts at 3 as the hand changes (uyantsc-veldin-fire-2)."
 
 [[symbol]]
 name = "hero_strafe_walk"
@@ -1308,7 +1322,7 @@ name = "flip_side"
 address = 0x001A5084
 kind = "data"
 confidence = "high"
-note = "i32: hero_strafe_side when the flip started (left 0, right 1, forward 2, back 3). A back flip lands with no speed."
+note = "i32: hero_strafe_side when the flip started (left 0, right 1, forward 2, back 3). A back flip lands with no speed, and an attack from it waits for frame 20 where the other flips wait for 18 (hero_attack_start)."
 
 [[symbol]]
 name = "flip_carry"

@@ -108,7 +108,12 @@ to the d-pad when the stick is near the centre.
    - A diagonal therefore counts as fuller than its Euclidean length.
    - **On UYA NTSC** (2026-10-17, `uyantsc-veldin-camhalf-0.75-{1,2}`, keys at 0.6184
      straight ahead): the walk's speed target was 0.06359 u a frame, `6.17 / 60 × 0.6184`.
-     A diagonal isn't checked on NTSC.
+   - **A diagonal on UYA NTSC** (2026-10-24, `uyantsc-veldin-diag-{0.5,0.75}-{1,2}`, two
+     keys at once): every held frame fits the rule exactly. The axes 0.2105 and 0.1974
+     gave m 0.24955 (the length is 0.2886) and a speed target of 0.025662,
+     `6.17 / 60 × m`; 0.6316 and 0.6184 gave 0.75776, and both axes at 0.1974 or 0.6184
+     gave 0.23824 and 0.74650. At half tilt neither axis passes the cut-off alone, but
+     the pair does, and he walked.
    - **DL's is the length,** at most 1 (0x67C570, into hero + 0x2E08) **[code]**.
 4. **Starting and stopping the walk [code, UYA 0x503B68, DL 0x69EA40]:** standing, he
    walks once m is over 0.22 (or to step round to the camera while strafing); walking,
@@ -812,6 +817,10 @@ the throw sends the wrench out and back (P1.8).
   item 9. Item 0x7F, which earlier notes took for a multiplayer wrench, is the Plasma
   Whip: its object (0x356110) starts the same attacks on Circle (`weapons.md`, "Plasma
   Whip").
+- **With a gun in hand, Square brings the wrench out first [traced, UYA and DL]:** the
+  hand empties and fills over 5 frames, and the attack starts on the 5th tick after the
+  press, the press still counting by the usual windows (`weapons.md`, "Switching and
+  firing"). Measured in `uyantsc-veldin-fire-2` (the N60) and DL's melee traces.
 - **Standing, walking or skidding (state types 0 and 1):**
   - Square pressed in the last 10 frames starts the combo.
   - With R1 (crouch) held as well, it throws.
@@ -820,8 +829,10 @@ the throw sends the wrench out and back (P1.8).
   - From these states:
     - the jumps (7, 9, 10, 13, 15), the wall jump (17), the glide (8) and the fall (6);
     - the double jump (14) once its animation is past frame 32, which is 20 frames in;
-    - the flips (11) once theirs is past frame 18, which is 31 frames in. One flip kind
-      waits for frame 20 instead; which kind isn't read.
+    - the flips (11) once theirs is past frame 18, which is 31 frames in; the back flip
+      (`flip_side`, 0x1A5084, at 3) once past frame 20, which is 34 frames in
+      **[traced]**, in all four back flips of our traces (`uyantsc-veldin-anim-1`,
+      `-camvert-1`, `-crouchflip-1`, `-moves-3`).
   - The state must also be at least 11 frames old.
   - Square counts if pressed in the last 14 frames, or 18 after a flip or double jump.
   - Within 0.1 u of the ground (0.57 with a flag set), this starts a combo swing.
@@ -1073,7 +1084,12 @@ Read in `hero_change_state`, `hero_update_state`, `hero_transitions` and the wre
   above, the grind attack and the clank included. Hits are tested in `rac_combat`. A
   clank is `HeroMotion::clank` for the tick, with the hit point and normal; the demo shows
   a spark there.
+- The flips' limits are `flip_after_tick` and `back_flip_after_tick`; melee with a gun
+  in hand clears `HeroMotion::gun` at once and holds attacks for `wrench_draw_ticks`.
+  Tested in `rac_hero/tests/deadlocked.rs` and `gun.rs`.
 - Simplifications:
+  - the wrench shows in his hand as soon as melee puts the gun away, where the games'
+    hand is empty for 3 frames of the 5;
   - the swing's line comes from the traced keys, at every half frame; the grind attack's
     from the keys computed above;
   - the grind attack's ball pushes at 27.5°, the middle of the game's random 20°–35°;
@@ -1201,11 +1217,19 @@ through the hero's update, so its fields come from two frames.
 - **From a double jump**, an attack can start once its animation is past frame 16 (UYA
   32) **[code]**, with the state timer at 13 ("Reading the traces").
   - In the traces, a press with the timer at 14 attacked at once.
-  - One pressed at 10 and held attacked only at 15, not 13. DL's rule also wants a
-    timer at hero+0x3BA at 0 (0x6A5248), which these traces don't record, so it may be
-    that.
-  - After a flip DL waits for frame 18 (20 when hero+0x1D44 is −1), as UYA does, but
-    its flips play sequence 17 + side, and no trace times them: the kit keeps UYA's 30.
+  - One pressed at 10 and held attacked only at 15, not 13 **[traced 2026-10-24]**: the
+    hero had a gun in hand there (+0x2318 at 2, the Dual Vipers), so the press first
+    brought the wrench out, and the attack waited for it, 5 ticks after the press as on
+    the ground ("Starting an attack"). Read from melee-5's stored hero region: the hand's
+    state +0x2314 ran 2, 3, 0, 3, 3, 2 and the item 2, 0, 1. The timer at +0x3BA, which
+    the ground's path also tests, stayed 0, and the air's path (0x6A5248) doesn't test it.
+  - After a flip DL waits for frame 18, or 20 when hero+0x1D44 is −1 (the back flip), as
+    UYA does **[code]**. Its flips play sequence 17 + side, from frame 9.5 at 0.32 a
+    tick (rate 0.64) to about 18.6, then at the rate that brings frame 30 to the landing
+    **[traced]**. So the frame passes 18 on the row with the timer at 27 and 20 on the
+    row with 31, in all five flips of flip-1 (one a back flip), read from its stored hero
+    region: from the 28th and 32nd ticks ("Reading the traces"), where UYA's are its
+    31st and 34th.
 - **The throw's button** follows the camera option: L2 in lock-strafe and first person,
   L1 or R1 in third person. In the kit it is crouch, as in UYA.
 - **The thrown wrench** hits as a ball of 0.75 u at either end (UYA 0.4) **[code]**.
@@ -2855,9 +2879,10 @@ Also read in code but not seen in a trace:
    both games (2026-10-23, "Getting hit and dying"). The kit's DL profile has nothing
    left "not read in DL", and the 0.43 u step limit's code is read (2026-10-23, "Found
    in the traces"). The one-frame rules read from DL's traces are checked against its
-   update order (2026-10-23, "Reading the traces"); still open are the window for
-   attacking after its flips (untimed) and a held press that attacked from a double
-   jump two ticks late ("From a double jump", under "Deadlocked's melee").
+   update order (2026-10-23, "Reading the traces"). The window for attacking after its
+   flips and a press that attacked from a double jump two ticks late (the wrench coming
+   out in place of a gun) are timed from the traces' stored hero regions (2026-10-24,
+   "From a double jump", under "Deadlocked's melee").
    Lock-on, the stick, strafing, the surface float, the damaging floor, grinding and
    death are read (2026-10-23, "Deadlocked's lock-on", "Input", "Deadlocked's
    strafing", "Deadlocked's swimming", "Deadlocked's hits", "Deadlocked's grinding",
@@ -2875,10 +2900,9 @@ Also read in code but not seen in a trace:
      wall and a ledge (from the owner or a scripted play-through) would let us check the
      probe distances and the shimmy speed.
    - The Gladiator traces already hold ledge grabs to compare.
-3. **Part-tilted stick on NTSC:** the dead zone, the 0.25 cut-off and the speed's scaling
-   with the magnitude are verified with keys at part tilt (`AXIS_SCALE`,
-   `docs/re-setup.md`). Still to check: a diagonal (two keys at once), for the
-   `(max + length) / 2` rule.
+3. **Part-tilted stick on NTSC:** the dead zone, the 0.25 cut-off, the speed's scaling
+   with the magnitude and the diagonal's `(max + length) / 2` are verified with keys at
+   part tilt (`AXIS_SCALE`, `docs/re-setup.md`; "Input").
 4. **Camera (RE.4):** started in [camera.md](camera.md).
 5. **Constants for the kit:** write the tables above into the hero kit's RON profiles
    (P1.5) and use them as the RE.6 tolerance tests' expected values.

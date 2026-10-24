@@ -642,7 +642,13 @@
         air_press_window_late: 18, // after a flip or double jump
         air_after_tick: 10, // the game's state timer at least 11
         double_jump_after_tick: 19, // its animation past frame 32 [traced]
-        flip_after_tick: 30, // past frame 18 [traced]; 20 for one flip kind, not read
+        flip_after_tick: 30, // past frame 18 [traced]
+        // The back flip waits for frame 20 [code, 0x501678], its 34th tick in four back
+        // flips (uyantsc-veldin-anim-1, -camvert-1, -crouchflip-1, -moves-3).
+        back_flip_after_tick: 33,
+        // Square with a gun out empties his hand, then fills it with the wrench, and the
+        // swing starts 5 ticks after the press [traced, uyantsc-veldin-fire-2].
+        wrench_draw_ticks: 5,
         combo_below_height: 0.1,
         chain_press_max: 15,
         chain_memory_ticks: 27,

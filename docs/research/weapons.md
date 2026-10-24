@@ -260,6 +260,14 @@ most once at a time, in 30 slots. Their numbers come from per-item tables in two
   - With the wrench out, L2 and R2 together bring out the gun when its lock-on mod is on.
   - The gun fires on the button in 0x1A5DF0: 0x20 (Circle) for guns, 0x80 (Square) for
     the wrench.
+- **Changing hands [traced, UYA NTSC and DL NTSC, 2026-10-24]:** the hand's state (UYA
+  0x1A5E04, DL hero+0x2314) is 2 with the item in hand, 3 while changing and 0 empty,
+  beside the item (0x1A5E08, +0x2318) and the frames it has been held (0x1A5E00,
+  +0x2310, which restarts at 3). Square with a gun out ran the state 3, 0, 3, 3, 2 and
+  the item gun, 0, wrench, so the wrench was in hand 4 frames after the press and the
+  swing started on the 5th (`uyantsc-veldin-fire-2` with the N60; four first swings and
+  a jump attack in `dlntsc-dreadzone-melee-{1..5}` with the Dual Vipers). The wrench
+  comes out faster than a gun's 17 frames ("Checked in traces").
 - **Triangle tapped** (`hero_quick_switch_button`, 0x503668): released within 20 frames
   of its press, it asks for a switch (0x1A74A0), which `hero_quick_switch` (0x5037C0)
   makes: with the wrench out, to the equipped gun; otherwise to the next of the three

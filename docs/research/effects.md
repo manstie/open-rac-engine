@@ -107,8 +107,8 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   0x2C5450 (five ints an entry, the GS's A, B, C, D and FIX): 0 normal alpha, 1 additive,
   4 brightens what's under it (Cd × (1 + As)), 6 and 7 by the frame's alpha.
   `fx_quad_draw` (0x405A58) draws it with a matrix.
-- Built on them: a camera-facing billboard (`fx_billboard` 0x4082B0: width, height, roll,
-  position, texture, colour, blend); a camera-facing beam between two points (`fx_beam`
+- Built on them: a camera-facing billboard (`fx_billboard` 0x4082B0: half its width, a
+  push toward the camera, roll, position, texture, colour, blend [code, 2026-10-24]); a camera-facing beam between two points (`fx_beam`
   0x4084B0: width, texture, blend, four colours); a quad on a moby's axes (0x408090); a
   two-texture beam (0x407240); a glow at a random angle in texture 44 (0x4076F8) and an arc
   glow in 23 (0x407A60); fans and rings of 22-vertex strips (`fx_ring_fan` 0x409A50) and
@@ -282,8 +282,202 @@ classes in italics have no model.
 | Qwack-O-Ray | 0x1BC3, 0x189B, 0x1C59, 0x1D3E | 16 17 19 35 4E 55 5A 61 66 79 | 8 11 13 14 16 57 | The beam's draw (0x37F738); lights of radius 5.5 and 7.5. |
 | RY3NO | 0x1873, 0x1DCE, *0xC41*, *0x1DF6* | 13 17 2C 55 5A 5C 61 7E 80 | 11 14 43 44 66 with −7 | A screen warp; rumble 0x2B3B90. |
 
-The calls' own arguments (colours, sizes, lives) are listed per gun in the decompiled
-output kept in `cache/`, not read one by one yet.
+### The calls' arguments [code, 2026-10-24]
+
+Read for the six first guns (PLAN.md P3.18) and written into the kit's recipes
+(`rac_demo/assets/effects.ron`). Their conventions:
+- **Sizes are halves.** `fx_billboard` draws a unit quad with corners at ±1 scaled by its
+  size, so a size of 0.6 is a billboard 1.2 units across; the recipes give full widths.
+  Particles' sizes are taken the same way. The particle renderer scales the size by a
+  sine and a cosine for each corner, so it could instead be half the diagonal, which
+  would make the particles √2 smaller than drawn (not settled).
+- **Colours** are RGBA bytes, R in the low byte, 0x80 showing the texture as it is, so
+  0xFF is about twice as bright; the recipes divide by 0x80 and keep values over 1.
+- **Levels:** guns pick colours, counts and parts by their level (V1 is level 0); the
+  recipes' `from_level` entries replace the parts they give from that level on.
+
+- **Particle types' updates** [code], as the guns use them: 0x2C fades its alpha to 0
+  over its life, grows its size by a set step a frame (500 or 1000 / 210000 here), keeps
+  a share of its velocity (its drag, 1.0 for none) and adds gravity; 0x0F shrinks to
+  nothing, lerps its colour to an end colour, falls under gravity and either keeps 0.96
+  of its velocity or, if spawned with its flag, sheds a child on odd frames; 0x61 steps
+  its size and alpha by set amounts a frame; 0x55 lerps size and alpha; 0x35 and 0x5C
+  reach halfway from start to final size (and half their alpha) by frame 5 (0x5C: a
+  phase its spawner sets), then go on to the final size and alpha 0; 0x5A is a streak
+  from its head back 0.9 of its velocity, white, fading after its first 15 frames; 0x17
+  grows by a random factor a frame and fades in before it fades out. Spins are in 1/256
+  turns a frame (assumed). A particle drawn with another type's texture has its texture
+  byte overwritten after the spawn.
+- **Shared helpers:** 0x448CD0 adds up to ±its argument to each axis of a vector;
+  0x40D020 lerps two colours, the first at t = 0; 0x4C6EC8 copies a position unless
+  0x1DB02C is set.
+
+#### Shock Blaster (0x36A790, V1–V4)
+
+- **At the muzzle,** once a shot (0x36BB68): 20 0x17 smokes (size 0.2–0.75, life 60,
+  alpha 0x30 after a 5-frame fade-in, at the muzzle ±0.3 plus 0.4 along the aim, moving
+  with the hero); 20 0x2C sparks (size 0.2–1.75, life 6, grey 0x40, alpha 0x7F, 12–16
+  units a second on a 20° cone round the aim, drag 0.95, ±0.6); two 0x0F embers (size
+  0.095, life 60–120, (0xFF, 0x7F, 0) at 0x4F fading to (0x7F, 0, 0) at 0x1F, 8–12
+  units a second along the aim plus 3.5–5.25 at 15–80° up, gravity 14.6, with
+  children); camera shake 0.04 (0.09) for 30 frames.
+- **Its draw for 8 frames** (0x36C078): eight spokes of texture 26, 4 units long, for
+  the first 2 frames; two squares of texture 61, (0xFF, 0x80, 0x80), alpha 20 falling to
+  2, flying 14 units out along the shot and growing from 3 to 35 units across, turning
+  +2° and −2.5° a frame; a texture-11 glow over the view (blend 4) and a full-screen
+  flash for 3 frames, on every shot.
+- **The rays:** 20 random within 17° of the aim and 3 at 15° down (`shock_blaster_ray`
+  0x36B888), each a class 0x1862 moby (0x1883 when charged) for 15 frames (20). Each
+  frame (0x369CC0): two 0x55 sparkles of size 2.0 in 0x35's texture at its end, life 2,
+  alpha 0x20 to 0x10, (0x80, 0x20, 0x20) and (0x80, 0x40, 0x20); two blue 0x55 glows with
+  white cores at random points along it; and ribbons (0x36A198) of texture 23 (half
+  width 1.4 at the end narrowing to 0.6, (0xFF, 0x80, 0x40) to grey 0x90, alpha 64 × the
+  time left, normal blend) and 44 (half width 0.6, (0xFF, 0x40, 0), added). Their tail
+  creeps out from the muzzle at 8 units a second. Where each ends, once (0x36A560), 15
+  0x2C embers as the N60's.
+- **Charging** (V2–V4): two 0x61 particles a held frame, coloured by the frames held;
+  once charged, rings (0x36C910) and a screen warp (0x36CB68). Rumble 0x2B3940; no
+  lights.
+
+#### N60 Storm (0x3A5928, V1–V4)
+
+Veldin's 0x1DE380 is 1 and nothing writes it (no store to it through the global
+pointer, `gp` + 0x1AD0, anywhere in the image), so the bullets always take the second
+of the two paths below: the larger muzzle flames, the tracer and the second trail.
+- **Firing** (each shot: the gun's update queues the draw 0x3A63B8 for one frame and
+  calls 0x3A6168). The barrels take turns (0x1DE3A0), the muzzle at the gun's +0x20 or
+  +0x10. The bullet flies at 60–80 units a second.
+  - Billboards for that frame, additive: texture 49 twice at random rolls, and 11 pushed
+    0.08 toward the camera, all of size 0.6 and colour (0x90, 0x40, 0x20) with alpha
+    0x3F; then 65 of size 0.75 at a roll of 30–60°, grey 0x90 with alpha 0x3F.
+  - Nine points from the muzzle, stepping back 1/30 unit along the gun's axis; at each a
+    0x55 flame of size 0.2 (0.175 without the flag), life 4, white at alpha 0x7F,
+    jittered ±0.15 (±0.1), and a 0x55 of size 1.25, life 4, colour (0x80, 0x30, 0x20) at
+    alpha 0x10 drawn with type 0x35's texture.
+- **In flight** (the bullet's update 0x35B390, each frame while it is within 96 units of
+  the camera):
+  - Its draw 0x35BBC8, additive: texture 57 three times, size 0.75, grey 0x7F at alpha
+    0x20, rolling at −1.5, 0.5 and 2.5 times a counter that grows by 1° a frame; 49
+    twice, size 0.5, yellow (0xFF, 0xFF, 0) at alpha 0x10, rolling at ±0.5 times it; 47
+    of size 0.2, grey at alpha 0x50, at a new random roll each frame.
+  - With the flag, once it has flown 2 units, a tracer (0x35B9E8): a quad of texture 63
+    along its way, facing the camera, alpha-blended, white at alpha 0x7F, starting 3.7
+    units behind it, 4.0–4.5 long and of size 0.45–0.7 across, both picked again each
+    frame.
+  - With the flag, the trail 0x35C620: a 0x2C particle every 0.1 unit of the frame's
+    path in 0x61's entry 4 or 5, size 0.2 growing 1000 / 210000 a frame, life 3–6,
+    rising 0.1–0.3 units a second, spinning ±1–3, alpha 0x60 or 0x40 fading out; V1
+    (0x7F, 0x7F, 0x10), V2 (0xFF, 0x40, 0x40) or (0xFF, 0x7F, 0x40), V3 and V4 (0xAF,
+    0x10, 0x10). From V2 also a 0x0F puff a frame in 0x35's texture, size 0.45, life
+    10–20, (0xFF, 0xDF, 0x80) or (0xFF, 0x7F, 0x40) at 0x7F (V3 and V4 (0xAF, 0x10,
+    0x10)) fading to red at 0, moving back at 1/30 of the bullet's speed, ±6 units a
+    second on each axis and 3 up, gravity 6.
+  - Without it, the trail 0x35C2A8 instead: ten 0x61 particles a frame, size 0.3
+    shrinking to 0.015, lives of 6–12, and a similar puff.
+- **Landing.** At V1 anything it hits ends it (state 1) in the shared explosion at size
+  0.14 (below), 0.1 unit back. From V2 a target hit ends it with nothing drawn, and a
+  wall (or the end of its life, 30 frames at V1, 46 after) runs 0x35BDC8 and it bounces
+  on: eight 0x2C embers of size 0.05–0.2 within ±0.1, thrown toward the camera (±80° of
+  its yaw, 0–80° up) at 0.5–1.0 units a second, growing 500 / 210000 a frame, life 30,
+  grey 0x7F at alpha 0x7F, spinning ±1–2; from V3, eight 0x5A glares toward the camera,
+  lives 25–40; from V4, five 0x5C bursts.
+
+#### Nitro Launcher (0x36E360, V1–V4)
+
+No muzzle effect; the charge (0x185A) is its model only. Its blast (class 0x1858, update
+0x35E718, 100 frames) never calls `explosion_spawn`:
+- **Frames 1–9, the implosion** (0x35FCB8): eight billboards of 73 and 74, normal blend,
+  4.8, 4.4, 3.6 and 4.0 units across times a scale falling from 1.37 to 0.33, dark blue
+  ((0x05, 0x05, 0x40), (0x05, 0x05, 0x20) at 0x7F; V3 and V4 red), turning at −1 to
+  −5° a frame; three masked discs of 71 and 72; a refraction ring of 77.
+- **Frames 11–12:** a full-screen flash, and 50 0x61 smokes a frame in 0x17's texture
+  going out level at 10 units a second, size 0.6 to 1.1, life 20–40, grey 0x60 at 0x40
+  (V3 on (0x80, 0x60, 0x40)).
+- **Frame 13, the burst:** shake 0.4 − 0.02 × the camera's distance for 25 frames; four
+  0x35 sparkles (final sizes 17.5, 12.5, 8.75, 6.25 from 0.1, life 20; blue (0x20, 0x40,
+  0x80) and (0x20, 0x40, 0x60) at 0xBF, then white at 0xC0 and 0xB0; V3 and V4 orange);
+  three 0x5C (2.1 to 2.7, 2.1 to 5.1, 4.5 to 6.0; grey 0x78 at 0x46, 0x46, 0x2D; life 24);
+  from V2, 50 0x76 acid streaks 2 units long at 20–25 units a second and an acid cloud
+  (class 0x1898).
+- **Frames 14–32:** three 0x5B glows a frame (size 0.65–0.85, (0x32, 0x32, 0x32) at 0x28
+  fading to (0x10, 0x10, 0x10) at 0x08, life 15–25) and a 0x6F streak; two torus rings
+  of texture 43 growing out to about 14 units; from V2 acid spray bands. Its fire-ring
+  strip (0x35F3E0) is drawn at alpha 0 (its pvar is never written).
+- The landing marker while aiming: two 2-unit quads of 88 and 87 (0x4C3500).
+
+#### Lava Gun (0x303F88, V1–V4)
+
+- **The stream** is a ribbon drawn by 0x305858 through up to 35 points from the nozzle:
+  a core of texture 10 ((0x9F, 0x9F, 0x9F) at 0x60, half mixed), a band of 14 (grey
+  0x7F at 0x50, added) and a glow of 43 ((0x80, 0x30, 0x10) at 0x55, added) six times as
+  wide; 0.05–0.1 units across at the nozzle (the glow 0.3–0.6), narrowing by 0.94 a
+  point; textures scrolling. Two glows of 44 at the nozzle, 0.5 and 1.0 across.
+- **What it sheds:** from each point each frame, one time in 7 a 0x6D smoke (size
+  0.125–0.25, (0x80, 0x30, 0x10) darkened by up to half, alpha 0x40–0x80 falling 1 a
+  frame, 3 units a second along the stream, drag 0.99, sinking then rising once dark,
+  growing 0.0075 a frame, darkening 0.975 a frame) and one time in 22 a 0x19 spark (size
+  0.024–0.143, white going yellow then red, life 80, gravity 22.7, stopping where it
+  lands).
+- **Pools:** a point that hits the world leaves a burning pool one time in 11 (up to 10):
+  two flat glows of 11 and two upright flames of 23 that grow over about 36 frames, hold
+  60 and shrink. No lights or shake.
+
+#### Annihilator (0x36D168, V1–V4)
+
+- **At the muzzle:** 20 0x13 streaks (0.75 long, 6–18 units a second, 20° off the aim,
+  grey 0x7F at 0x30 losing 2 a frame); 20 0x2C sparks (size 0.4–0.75, 12–16 units a
+  second on a 12° cone, drag 0.95, life 10, grey 0x40, in 0x5B's texture); 6 frames of
+  0x17 smoke (four a frame, (0x80, 0x40, 0x20), life 8) and white sparks; a light
+  (radius 8, (1.0, 0.8, 0.5) rising over 3 frames and falling over 12). Rumble 0x2B39C0.
+  The missile itself carries no light.
+- **In flight:** a 0x2C smoke every 0.15 unit (size 0.15, growing 200–1000 / 210000 a
+  frame, rising 0.2–1 units a second, life 30–55; half grey 0x7F at 0x50, added (V2 on
+  (0x80, 0x40, 0x10)), half black at 0x40, normal); at its tail three glows of 44 (1.2–
+  1.6, 0.6–0.8 and 0.3–0.4 across) and a ribbon of 23 through its last four places.
+- **Landing:** the shared explosion at size 0.6 (V1) or 1.0 (V2–V4), and from V2 four
+  0x35 sparkles (10.5, 7.5, 5.25, 3.75; blue) and three 0x5C, 0.5 unit toward the camera.
+
+#### Flux Rifle (0x3444B0, V1–V4)
+
+- **Unscoped, at the muzzle:** 10 0x74 streaks (12 at V4) 0.5 long at 5–10 units a
+  second in any direction, life 10–25, green at V1 (blue V2, orange V3, red V4); four
+  0x35 sparkles (final 5.25, 3.75, 2.625, 1.875 from 0.1, life 14, two in the level's
+  colours, two white); three 0x5C (0.84 to 1.08, 0.84 to 2.04, 1.8 to 2.4, life 20)
+  0.9 unit toward the camera; a light of radius 10 fading over 29 frames, orange.
+- **In flight** (class 0xCF7, 400 units a second, 19 frames): a beam from the muzzle to
+  the shot for 40 frames, of a 20-sided tube of 21 (0.4 across, normal blend), a glow
+  ribbon of 14 (2.0) and a thin ribbon of 23 (0.2), both added, in the level's colours
+  (teal and green at V1, blue V2, violet V3, red V4; each level's are in `effects.ron`
+  [code]); a helix of two ribbons of 14 round
+  the path; from V3 two sparkles of 54 a frame, growing from 0.6–1.0 to 1.5–2.5 units,
+  pulsing between two blues (V4 reds), life 45–60.
+- **Landing** (0x346EF0): at V1 ten 0x5A glares toward the camera, four 0x35 and three
+  0x5C; from V2 the shared explosion at size 0.2, 0.3 and 0.4 (V2, V3, V4) with the
+  counts 40, 20, 30, 40 and two glares; from V4 also ten 0x0F sparks and shells
+  (0x447D00) and shake.
+- **Scoped:** a beam of 14 from the eye 100 units along the aim (class 0x186F), 40 0x61
+  motes a frame along it, from V4 rings (0x37D1E0); the scope overlay (0x345D48).
+
+#### The shared explosion (`explosion_spawn` 0x32FE90)
+
+- **Arguments** [code, from the disassembly of every call above]: a size S; the
+  position; a shake flag; counts of four kinds of 0x61 and of 0x17 smoke, 0x5A glares
+  and debris; flags for a refraction, a dome (class 0x70), a full-screen flash, a glow, a
+  ground ring and a camera ring; nine colours (set A for the Annihilator and the Flux
+  at V4, its own set for the N60 and the Flux at V2 and V3).
+- **At the spawn** (0x330C80): six 0x55 of 3S growing to 4.5S over 30 frames in 0x5C's
+  textures; pairs of 0x61 (0.6–1.0 S and six times that in 0x35's texture) and two more
+  kinds, thrown toward the camera at 9–12 S units a second within 80°, up to 12 S up,
+  gravity 14.6, shrinking to 0.01 S over 30–50 frames.
+- **Then** (by its 60-frame timer): glares on the 2nd frame (15–20 S units a second, life
+  25–40); smoke on the 3rd (1.5 S, life 40–70); debris on the 4th; the camera ring on
+  the 5th and the ground ring on the 6th (100 0x61, or 34 when sparse, sliding out
+  level at 15 S units a second, 1.1 S, life 20–27). The flash shows on the first frame
+  only; the glow is off at every call above.
+- **At each call:** the N60 at V1 (S 0.14; counts 5, 2, 2, 2; dome; a sparse ring); the
+  Annihilator (S 0.6, then 1.0; 25, 20, 20, 20; 45 glares, 35 at V2; 2 debris; dome,
+  flash, ring; shake); its mines (S 0.6, 1.0 heavy); the Decimator's seekers (S 0.4); the
+  Eruptor's bullets (S 0.2, only while the Agents of Doom's level byte is under 2).
 
 ## Importing them (P3.18)
 
@@ -320,25 +514,52 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      (velocity, gravity, size and alpha over a life), beams and sprites on shots in
      flight, additive or alpha-blended, from recipes in `rac_demo/assets/effects.ron` by
      the game's texture numbers, with painted placeholders; and `rac_demo::ShotModels`
-     takes a game's shot models. Strips, trails, rings, lights, shake and flashes are
-     still to do.
+     takes a game's shot models.
+   - Extended (2026-10-24) for the six first guns' calls: parts by the gun's level
+     (`from_level`), random rolls and spins, end alphas and end colours, random start
+     sizes, drag, delays and spreads over ticks, bursts toward the camera or level along
+     the ground, particles drawn as streaks along their way, sprites that fly along the
+     aim, layered spinning sprites on shots, tracers behind them, trails laid by count
+     or by distance with drift, and beams along each tick of a shot's way and at each
+     hitscan ray (`ray`, `ray_end`, `wake`).
+   - Still to do: strips and ribbons with moving ends (the Shock Blaster's ray tails,
+     the Flux's helix, the Lava Gun's taper), rings and domes, discs and refraction,
+     lights, shake, rumble, screen flashes and glows, decals (the lava pools), meshes
+     the effects spawn (the explosion's dome and debris), children particles, and the
+     two-phase size curve of 0x35 and 0x5C (drawn as a straight lerp).
 4. **Recipes per gun:** each gun's calls with their arguments (texture or particle type,
    colour, sizes, life, blend), read gun by gun, starting with the six first guns. Each
-   gun's `effects` key in `uya_weapons.ron` names its recipe and sounds. The recipes so
-   far take their textures from the table above and the explosion's and N60 hit's
-   particle types from their code; their sizes, colours and lives are the kit's own.
+   gun's `effects` key in `uya_weapons.ron` names its recipe and sounds.
+   - Done (2026-10-24) for the six first guns and the shared explosion at each of their
+     calls ("The calls' arguments"): the parts the layer can draw take the game's
+     numbers, full widths being twice the game's sizes. Where the layer falls short the
+     recipe says so, or leaves the part out (see the list above). The Annihilator's
+     mines and missile share one impact, as the kit's events don't tell them apart, and
+     its missile's glow shows only without the disc's model. The other guns' recipes are
+     still the kit's own.
 5. **Sounds** with P3.13: the gadget WAD's bank per gun and the level's bank for shots,
    by the class's sound table. Done (2026-10-23) for every gun's fire, no ammo, impact
    and loops that the kit cues ("Sounds", above).
 
 ## Not read yet
 
-- The particle renderer's byte fields (+3, +9) and its table at 0x2BFDA0; each particle
-  type's own update.
+- The particle renderer's byte fields (+3, +9; 0x48 and 0x44 look like the additive
+  and normal blends), its table at 0x2BFDA0 and its streak kinds (+1 = 3); so whether a
+  particle's size is half its width or half its diagonal (√2 apart), and the streaks'
+  widths (+0x1C, +0x2C).
+- The updates of the types the guns use beyond those above (0x13, 0x19, 0x5B, 0x6D,
+  0x6F, 0x72, 0x74, 0x76, 0x80 read only in passing).
 - What the built-in textures −1 to −4 hold.
 - 0x4C4A18 and 0x4C4AD8, which every projectile runs (gated by the camera mode and
   0x1A4F48, 0x1D6740, 0x1D673C; perhaps shots placed for the first-person view).
 - Whether 0x4C3500 is the landing marker the lobbed and thrown guns show (every glove,
   the Bouncer, the Nitro guns and the Infecto-Bomb call it).
-- What the rumble patterns' bytes mean, and most of the explosion's arguments.
-- The Lava Gun's stream and the N60's bullet's own draws (0x305858; 0x35BBC8, 0x3A63B8).
+- What the rumble patterns' bytes mean; class 0x27F, which `explosion_spawn` can spawn
+  (unused at the calls read); what the dome (0x70), debris (0x7A) and chunk (0x1A50)
+  classes look like; 0x447D00's types 0x0B and 0x08.
+- Which way the Shock Blaster's charged rings face (built by VU0 microcode at 0xC80),
+  and the screen warp's 0x4A04B0.
+- The Nitro's acid arcs (0x39AA18, 0x39ACB0, 0x39B080), the V5 guns' draws (0x38B8B0,
+  0x38BA90, 0x38CB78, 0x3443F0) and the Lava Gun's P72 gravity.
+- Whether a moby updates in the frame it spawns, which sets whether the Shock Blaster's
+  rays show for 14 or 15 frames.

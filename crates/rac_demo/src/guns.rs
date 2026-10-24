@@ -15,7 +15,7 @@ use rac_hero::Hero;
 use rac_sim::SimTransform;
 
 use crate::DemoEntity;
-use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes};
+use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes, FxRng, ShotLayer, ShotStreak};
 
 /// The level the demo gives every gun: V3, where most have lock-on.
 const DEMO_LEVEL: u8 = 2;
@@ -231,6 +231,7 @@ pub(crate) struct ShotDraw<'w> {
     quad: Option<Res<'w, FxQuad>>,
     models: Res<'w, ShotModels>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
+    rng: ResMut<'w, FxRng>,
 }
 
 /// The way a shot flies, as a turn of a model's −z, or none while it stands still.
@@ -312,29 +313,83 @@ pub(crate) fn show_shots(
                     });
                 continue;
             }
-            if let (Some(sprite), Some(quad)) = (draw.recipes.shot(key), &draw.quad) {
-                let colour = sprite.colour;
-                let material = StandardMaterial {
-                    base_color: Color::srgba(colour[0], colour[1], colour[2], colour[3]),
-                    base_color_texture: draw.images.0.get(&sprite.texture).cloned(),
-                    alpha_mode: sprite.blend.alpha_mode(),
-                    unlit: true,
-                    double_sided: true,
-                    cull_mode: None,
-                    ..default()
-                };
-                let mesh = quad.0.clone();
-                let material = draw.materials.add(material);
-                commands.spawn((
-                    Name::new("shot"),
-                    DemoEntity,
-                    look,
-                    Mesh3d(mesh),
-                    MeshMaterial3d(material),
-                    Billboard { axis: None },
-                    SimTransform::from_translation(shot.position),
-                    Transform::from_translation(shot.position).with_scale(Vec3::splat(sprite.size)),
-                ));
+            let sprites = draw.recipes.shot(key, shot.level);
+            let streak = draw.recipes.streak(key, shot.level);
+            if let Some(quad) = draw
+                .quad
+                .as_ref()
+                .filter(|_| !sprites.is_empty() || streak.is_some())
+            {
+                let quad = quad.0.clone();
+                let material =
+                    |materials: &mut Assets<StandardMaterial>, texture, colour, blend| {
+                        let [r, g, b, a] = colour;
+                        materials.add(StandardMaterial {
+                            base_color: Color::srgba(r, g, b, a),
+                            base_color_texture: draw.images.0.get(&texture).cloned(),
+                            alpha_mode: crate::fx::Blend::alpha_mode(blend),
+                            unlit: true,
+                            double_sided: true,
+                            cull_mode: None,
+                            ..default()
+                        })
+                    };
+                let layers: Vec<_> = sprites
+                    .iter()
+                    .map(|sprite| {
+                        let handle = material(
+                            &mut draw.materials,
+                            sprite.texture,
+                            sprite.colour,
+                            sprite.blend,
+                        );
+                        let layer = ShotLayer {
+                            spin: sprite.spin.to_radians(),
+                            flickers: sprite.flickers,
+                        };
+                        let roll = draw.rng.roll(Some((0.0, 360.0)));
+                        (handle, layer, roll, sprite.size)
+                    })
+                    .collect();
+                let streak = streak.map(|streak| {
+                    let handle = material(
+                        &mut draw.materials,
+                        streak.texture,
+                        streak.colour,
+                        streak.blend,
+                    );
+                    (handle, streak.clone())
+                });
+                commands
+                    .spawn((
+                        Name::new("shot"),
+                        DemoEntity,
+                        look,
+                        Visibility::default(),
+                        SimTransform::from_translation(shot.position),
+                        Transform::from_translation(shot.position),
+                    ))
+                    .with_children(|parts| {
+                        for (handle, layer, roll, size) in layers {
+                            parts.spawn((
+                                Mesh3d(quad.clone()),
+                                MeshMaterial3d(handle),
+                                Billboard { axis: None, roll },
+                                layer,
+                                Transform::from_scale(Vec3::splat(size)),
+                            ));
+                        }
+                        if let Some((handle, streak)) = streak {
+                            parts.spawn((
+                                Mesh3d(quad.clone()),
+                                MeshMaterial3d(handle),
+                                Billboard::default(),
+                                ShotStreak(streak),
+                                Transform::default(),
+                                Visibility::Hidden,
+                            ));
+                        }
+                    });
                 continue;
             }
             let fire = def.map(|def| &def.fire);
@@ -351,5 +406,58 @@ pub(crate) fn show_shots(
                     .with_scale(shown.scale),
             ));
         }
+    }
+}
+
+/// Turns each shot's sprites a tick, and lays its streak along its way once it has flown
+/// far enough.
+pub(crate) fn step_shot_layers(
+    heroes: Query<(&Hero, &Arsenal)>,
+    looks: Query<&ShotLook>,
+    mut layers: Query<(&ShotLayer, &mut Billboard), Without<ShotStreak>>,
+    mut streaks: Query<
+        (
+            &ChildOf,
+            &ShotStreak,
+            &mut Billboard,
+            &mut Transform,
+            &mut Visibility,
+        ),
+        Without<ShotLayer>,
+    >,
+    mut rng: ResMut<FxRng>,
+) {
+    for (layer, mut billboard) in &mut layers {
+        billboard.roll = if layer.flickers {
+            rng.roll(Some((0.0, 360.0)))
+        } else {
+            billboard.roll + layer.spin
+        };
+    }
+    for (parent, ShotStreak(streak), mut billboard, mut transform, mut visibility) in &mut streaks {
+        let shot = looks.get(parent.parent()).ok().and_then(|look| {
+            heroes
+                .iter()
+                .filter(|(hero, _)| hero.player == look.player)
+                .find_map(|(_, arsenal)| {
+                    arsenal.shots.iter().find(|shot| shot.serial == look.serial)
+                })
+        });
+        let Some((shot, way)) = shot.and_then(|shot| Some((shot, shot.velocity.try_normalize()?)))
+        else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let flown = shot.velocity.length() * shot.ticks as f32 / 60.0;
+        if flown < streak.after {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        let length = rng.between(streak.length);
+        let width = rng.between(streak.width);
+        *visibility = Visibility::Inherited;
+        billboard.axis = Some(way);
+        transform.translation = way * (length / 2.0 - streak.behind);
+        transform.scale = Vec3::new(length, width, 1.0);
     }
 }

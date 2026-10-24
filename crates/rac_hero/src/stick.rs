@@ -156,6 +156,23 @@ mod tests {
         assert!(close(read(86, 86).magnitude, (0.5 + length) / 2.0));
     }
 
+    #[test]
+    fn a_diagonal_counts_its_largest_axis_and_its_length_as_uya_traced() {
+        // uyantsc-veldin-diag-{0.5,0.75}-{1,2}: two keys at part tilt, the bytes 191 or 64
+        // and 223 or 32. At half tilt neither axis passes the cut-off alone, but together
+        // they do, and he walked.
+        assert!(!read(64, 0).is_active());
+        for (x, y, traced) in [
+            (64, 63, 0.249_550_73),
+            (-63, 63, 0.238_244_76),
+            (96, 95, 0.757_755_64),
+            (-95, 95, 0.746_500_25),
+        ] {
+            let magnitude = read(x, y).magnitude;
+            assert!((magnitude - traced).abs() < 1e-6, "({x}, {y}): {magnitude}");
+        }
+    }
+
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-3
     }

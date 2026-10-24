@@ -43,8 +43,8 @@ session is working on the task now; notes on problems met stay with their task (
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
   the disc's textures for them, P3.18). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
-  sounds for 18 guns, effect and particle textures, and six shot models (P1.13, P3.13,
-  P3.18). He
+  sounds for 18 guns, effect and particle textures, and six shot models; the six first
+  guns' effects take the game's sizes, colours and lives (P1.13, P3.13, P3.18). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
@@ -67,14 +67,12 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. RE.3's remaining to-dos are captures: a diagonal part-tilted stick on UYA NTSC, and
-   two small DL timings left open by the update-order check (RE.3's notes). DL's
-   movement is read throughout `dl.ron`.
-2. The guns' effects from the disc (P3.18): each gun's calls' arguments for the recipes'
-   sizes, colours and lives, then the strips, trails, rings, lights and shake, the whip's
-   links and shield; then P1.10's nanotech, explosive and doubler crates ("Ammo
-   pickups, crates and the vendor").
-3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2.
+1. The guns' effects from the disc (P3.18): look at the six first guns' effects on
+   screen, then the other guns' calls' arguments; the ribbons, rings, lights and shake,
+   the whip's links and shield; then P1.10's nanotech, explosive and doubler crates
+   ("Ammo pickups, crates and the vendor").
+2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
+   moves read in code but untraced (lock-on first; RE.3's notes).
 
 ---
 
@@ -396,9 +394,14 @@ committed (names, addresses, layouts, derived constants).
     (13), and UYA's grab hangs at 14, each a tick later than the kit had; the ledge
     grab's double-jump limits were frame numbers taken for ticks (now its 31st tick in
     both games).
-  - Open from that check: DL's after-flip attack window (its flips play another sequence,
-    untimed, so the kit keeps UYA's), and a held press that attacked from a DL double
-    jump two ticks late, possibly a timer at hero+0x3BA that no trace records.
+  - Both open items from that check are timed from the traces' stored hero regions, which
+    hold fields their layouts didn't name (`re-setup.md`, "Making traces with scripted
+    play"). DL's flips are past frame 18 from their 28th tick (UYA's 31st), and both
+    games' back flips wait for frame 20, UYA's 34th tick and DL's 32nd (`flip_after_tick`,
+    `back_flip_after_tick`). The late attack was the wrench coming out in place of a gun:
+    in both games Square with a gun out empties the hand and attacks 5 ticks after the
+    press (`wrench_draw_ticks`; "Starting an attack", "Deadlocked's melee"; `weapons.md`,
+    "Switching and firing"). Both are in the kit with tests.
   - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
     rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
     clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides,
@@ -436,9 +439,9 @@ committed (names, addresses, layouts, derived constants).
     through the air, losing 2 u/s² across and 25 u/s² vertically for every frame off
     it. The kit has the carry off it; turning and the moby flags aren't modelled
     ("Moving platforms").
-  - To do (`hero-controller.md`, "Next steps"): a diagonal part-tilted stick on NTSC
-    (the dead zone, the 0.25 cut-off and the speed's scaling are verified with
-    `AXIS_SCALE` keys).
+  - The stick on UYA NTSC is verified at part tilt throughout: the dead zone, the 0.25
+    cut-off, the speed's scaling and, on a diagonal, `(max + length) / 2`
+    (`uyantsc-veldin-diag-*`; "Input"; a test in `rac_hero/src/stick.rs`).
   - DL's chained rails swap only the spline pointer and keep the segment index, so where
     on the new rail he lands wasn't worked out; the kit starts at the new rail's start
     ("Deadlocked's grinding").
@@ -459,10 +462,10 @@ committed (names, addresses, layouts, derived constants).
     exempt; DL's test lets 0.43–0.4496 u through ("Found in the traces"). The kit now
     caps DL's fall through floors too. Not modelled: the grind's cap, which only DL's
     28 u/s after a descent reaches.
-  - Next step: captures, which suit Haiku agents: a diagonal part-tilted stick on UYA
-    NTSC (two `AXIS_SCALE` keys, for the `(max + length) / 2` rule), then DL's
-    after-flip attack window (with the animation frame) and a held double-jump attack
-    (with hero+0x3BA in the layout).
+  - Still read in code only (listed above): grinding, which needs a rail (GC or DL),
+    lock-on, wading and moving platforms. Next step, at low priority: trace lock-on on
+    UYA NTSC with a gun granted as `uyantsc-veldin-fire.sh` grants one, then the others
+    as savestates with a rail, shallow water or a moving platform turn up.
 - [x] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
   - Done, UYA NTSC: the follow camera with its height modes, obstacles and collision
     (clearance point, sweep, pull-in, the 30-frame and 30 u resets, the collision masks);
@@ -648,7 +651,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Off a moving platform its last move carries him through the air, slowing at 2 u/s²
     across and 25 u/s² vertically for every tick off it (`platform` in both profiles;
     RE.3).
-  - **To do:** auto-jumping rails, and DL's open items under RE.3.
+  - **To do:** auto-jumping rails.
   - The motor dropped a skin's width of every slide along a wall, cutting each of DL's
     shimmy steps (which point into the wall) by 0.0016 u; it now keeps all the motion it
     didn't travel (`motor.rs`).
@@ -714,6 +717,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with
   hurtboxes, hit points, one hit per attack, knockback and flash. The demo has a melee
   yard and shows clanks as sparks.
+  - Melee with a gun in hand waits 5 ticks for the wrench to come out
+    (`wrench_draw_ticks`), and an attack from a back flip waits longer than from the
+    others (`back_flip_after_tick`); both traced in UYA and DL (RE.3).
   - Not modelled: DL's Scorpion Flail (state 145, read in code: `hero-controller.md`,
     "The Scorpion Flail"; with DL's guns), UYA's states 77 and 114, and the giant-Clank
     mode. DL's shuriken, glove, Walloper and magneboots attacks have no starter found in
@@ -1120,11 +1126,21 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     placeholders, and the disc's textures in their place (`openrac/src/fx_textures.rs`);
     six shot classes' meshes in flight (`openrac/src/shot_models.rs`); the sounds (P1.13,
     P3.13). Checked by screenshots of an off-screen run.
-  - Not done: the recipes' sizes, colours and lives (the kit's own; the textures and
-    particle types are the code's); strips, trails, rings, lights, shake and flashes; the
-    V5 shots' classes; the whip's links and the shield. Next step: read the six first
-    guns' effect calls' arguments into their recipes (`effects.md`, "Each gun's
-    effects").
+  - Done 2026-10-24: the six first guns' calls read with their arguments, and the
+    shared explosion at each of their calls (`effects.md`, "The calls' arguments"); their
+    recipes take the game's sizes, colours and lives by level, with the layer extended
+    for what they need (spins, fades, drag, delays, streaks, trails by distance, beams
+    along a shot's way and at each ray; `effects.md`, "Importing them" 3).
+  - Veldin's N60 always takes its bullets' second path: 0x1DE380, which picks the tracer
+    and the trail, is 1 and never written. The Nitro's blast doesn't call
+    `explosion_spawn` at all. Particle sizes are taken as halves; whether they are half
+    the diagonal instead (√2) is open.
+  - Not done: the other guns' recipes (the kit's own still); ribbons with moving ends,
+    rings and domes, lights, shake, screen flashes and glows, decals, children particles
+    and meshes the effects spawn (`effects.md`, "Importing them" 3); the V5 shots'
+    classes; the whip's links and the shield. Not checked on screen yet. Next step: look
+    at the six guns in an off-screen run with the disc, then read the next guns' calls
+    (the Plasma Whip, the Plasma Coil and the Bouncer).
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.

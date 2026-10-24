@@ -938,6 +938,11 @@ pub struct MeleeProfile {
     pub air_after_tick: u32,
     pub double_jump_after_tick: u32,
     pub flip_after_tick: u32,
+    /// The back flip's: both games wait for a later animation frame there.
+    pub back_flip_after_tick: u32,
+    /// Melee with a gun in hand puts it away and brings the wrench out, which takes this
+    /// many ticks; an attack waits for it.
+    pub wrench_draw_ticks: u32,
     /// From the air, closer to the ground than this, the attack is a combo swing.
     pub combo_below_height: f32,
     /// A press during an attack counts from the attack's `buffer_from` frame, two ticks a
@@ -1837,6 +1842,7 @@ mod tests {
                 // "Deadlocked's lock-on".
                 "lock_on.enabled",
                 // "Deadlocked's melee".
+                "melee.back_flip_after_tick",
                 "melee.blend_creeps",
                 "melee.chain_throw",
                 "melee.clank.damage",
@@ -1858,6 +1864,7 @@ mod tests {
                 "melee.combo[2].swing",
                 "melee.crouch_jump_out",
                 "melee.double_jump_after_tick",
+                "melee.flip_after_tick",
                 "melee.grind.press_window",
                 "melee.jump.hover_rate",
                 "melee.jump.hover_ticks",

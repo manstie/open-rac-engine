@@ -707,7 +707,14 @@
         // Its animation, 11 + 0.4 a tick, past frame 16 [code]: from its 13th tick
         // [traced in 15 double jumps; "Reading the traces"].
         double_jump_after_tick: 12,
-        flip_after_tick: 30, // past frame 18 [traced]; 20 for one flip kind, not read
+        // Its flips play their own sequences, from 9.5 at 0.32 a tick, so past frame 18
+        // [code] from the 28th tick, and the back flip past 20 from the 32nd [traced in
+        // dlntsc-dreadzone-flip-1's five flips; "Reading the traces"].
+        flip_after_tick: 27,
+        back_flip_after_tick: 31,
+        // As UYA's [traced in four first swings and an attack from a double jump,
+        // dlntsc-dreadzone-melee-{1..5}].
+        wrench_draw_ticks: 5,
         combo_below_height: 0.1,
         chain_press_max: 15,
         chain_memory_ticks: 27,

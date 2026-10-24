@@ -1888,14 +1888,14 @@ name = "hero_strafe_side"
 address = 0x00686728
 kind = "function"
 confidence = "high"
-note = "UYA 0x4FB758's counterpart: 0 left, 1 right, 2 forward, and -1 back where UYA's returns 3. Stored at hero+0x1D44 by the flip's entry; the flip's animation is sequence 17 + side. Verified: -1 for the back flip."
+note = "UYA 0x4FB758's counterpart: 0 left, 1 right, 2 forward, and -1 back where UYA's returns 3. Stored at hero+0x1D44 by the flip's entry; the flip's animation is sequence 17 + side. Verified: -1 for the back flip, from which an attack waits for frame 20 (18 otherwise; 0x6A5248)."
 
 [[symbol]]
 name = "hero_held_gadget"
 address = 0x006739B0
 kind = "function"
 confidence = "medium"
-note = "The gadget in hand (hero+0x2318) while hero+0x2314 is 2, else -1. The traces' third-person state holds 2 (libdl's Dual Vipers)."
+note = "The gadget in hand (hero+0x2318) while hero+0x2314 is 2, else -1. The traces' third-person state holds 2 (libdl's Dual Vipers). +0x2314 is the hand's state, as UYA's 0x1A5E04 (2 in hand, 3 changing, 0 empty), and +0x2310 the frames held; Square with a gun out ran it 3, 0, 3, 3, 2 and attacked the frame after (dlntsc-dreadzone-melee-{1..5}, 2026-10-24)."
 
 [[symbol]]
 name = "hero_init"

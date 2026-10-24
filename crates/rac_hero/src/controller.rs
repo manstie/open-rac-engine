@@ -575,6 +575,8 @@ pub struct HeroMotion {
     attack: melee::Attack,
     /// Attacks and throws so far, which number them.
     attack_serial: u32,
+    /// Ticks until the wrench melee brought out in place of a gun is in his hand.
+    wrench_coming: u32,
 }
 
 impl HeroMotion {
@@ -687,6 +689,7 @@ impl HeroMotion {
             fire_press: PressAge::NEVER,
             attack: melee::Attack::default(),
             attack_serial: 0,
+            wrench_coming: 0,
         }
     }
 

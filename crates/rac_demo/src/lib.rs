@@ -108,7 +108,8 @@ impl Plugin for DemoPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                guns::show_shots
+                (guns::show_shots, guns::step_shot_layers)
+                    .chain()
                     .in_set(SimSet::Particles)
                     .run_if(resource_exists::<guns::GunLooks>)
                     .run_if(resource_exists::<fx::FxImages>),

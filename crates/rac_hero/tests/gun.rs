@@ -243,18 +243,19 @@ fn firing_in_the_lock_strafe_camera_triples_the_strafe_turn() {
 }
 
 #[test]
-fn a_wrench_attack_puts_the_gun_away() {
+fn melee_puts_the_gun_away_and_swings_once_the_wrench_is_out() {
+    // uyantsc-veldin-fire-2, and DL's melee traces: Square with a gun out emptied his hand
+    // at once, and he swung 5 ticks later, as the wrench came into it.
     let mut rig = Rig::new(gun(false, false));
-    rig.hero.gun = rig.hand;
-    step(
-        &mut rig.hero,
-        &input(None, &[], &[Action::Melee]),
-        0.0,
-        &rig.profile,
-        &rig.world,
-    );
-    assert!(rig.hero.state.is_attacking());
+    rig.tick(&input(None, &[], &[Action::Melee]));
     assert_eq!(rig.hero.gun, GunHand::default());
+    // The weapons code puts the gun away in turn.
+    rig.hand = GunHand::default();
+    for tick in 0..5 {
+        assert!(!rig.hero.state.is_attacking(), "tick {tick}");
+        rig.tick(&idle());
+    }
+    assert_eq!(rig.hero.state, HeroState::Combo(0));
 }
 
 #[test]

@@ -243,6 +243,11 @@ fn strafing_sideways_jumps_instead_of_flipping_in_deadlocked() {
 /// `early` ticks before the first tick on the ground; the state that tick leaves him in.
 /// Held fully, the jump comes down too fast for a late press to double jump.
 fn jump_again_on_landing(profile: HeroProfile, stick: [i8; 2], early: usize) -> HeroState {
+    landed_again(profile, stick, early).hero.state
+}
+
+/// [`jump_again_on_landing`]'s rig, on the first tick on the ground.
+fn landed_again(profile: HeroProfile, stick: [i8; 2], early: usize) -> Rig {
     let jump = input(Some(stick), &[Action::Strafe], &[Action::Jump]);
     let hold = input(Some(stick), &[Action::Strafe, Action::Jump], &[]);
     let strafe = input(Some(stick), &[Action::Strafe], &[]);
@@ -266,7 +271,7 @@ fn jump_again_on_landing(profile: HeroProfile, stick: [i8; 2], early: usize) -> 
             between(tick)
         });
     }
-    rig.hero.state
+    rig
 }
 
 #[test]
@@ -400,6 +405,29 @@ fn deadlocked_attacks_from_a_double_jump_far_sooner() {
     };
     assert_eq!(first_tick(HeroProfile::dl()), Some(13));
     assert_eq!(first_tick(HeroProfile::uya()), Some(20));
+}
+
+#[test]
+fn deadlocked_attacks_from_its_flips_sooner_and_both_wait_longer_after_a_back_flip() {
+    // Both games wait for the flip's frame 18, or 20 in a back flip. flip-1: DL's run from
+    // 9.5 at 0.32 a tick, past 18 with the rows' timer at 27 and 20 at 31, so on their
+    // 28th and 32nd ticks. UYA's pass 18 on their 31st and 20 on the back flip's 34th
+    // (anim-1, camvert-1, crouchflip-1, moves-3).
+    let first_tick = |profile: HeroProfile, stick: [i8; 2]| {
+        let strafe = input(Some(stick), &[Action::Strafe], &[]);
+        let strike = input(Some(stick), &[Action::Strafe], &[Action::Melee]);
+        (1..50).find(|&delay| {
+            let mut rig = landed_again(profile.clone(), stick, 0);
+            assert_eq!(rig.hero.state, HeroState::Jump(JumpKind::Flip));
+            rig.ticks(delay - 1, &strafe);
+            rig.tick(&strike);
+            rig.hero.state == HeroState::JumpAttack
+        })
+    };
+    assert_eq!(first_tick(HeroProfile::dl(), [-127, 0]), Some(28));
+    assert_eq!(first_tick(HeroProfile::dl(), [0, -127]), Some(32));
+    assert_eq!(first_tick(HeroProfile::uya(), [-127, 0]), Some(31));
+    assert_eq!(first_tick(HeroProfile::uya(), [0, -127]), Some(34));
 }
 
 #[test]

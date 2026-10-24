@@ -12,8 +12,8 @@ use rac_input::{Action, PlayerInput};
 use std::f32::consts::FRAC_PI_2;
 
 use super::{
-    HeroMotion, HeroState, JumpKind, TICK, air_tick, approach, facing, flat_length, ground_tick,
-    start_jump, turn, wrap, yaw_of,
+    HeroMotion, HeroState, JumpKind, StrafeSide, TICK, air_tick, approach, facing, flat_length,
+    ground_tick, start_jump, turn, wrap, yaw_of,
 };
 use crate::{
     collision::CollisionWorld,
@@ -239,6 +239,7 @@ pub(super) fn try_attack(
     world: &dyn CollisionWorld,
 ) {
     let melee = &profile.melee;
+    hero.wrench_coming = hero.wrench_coming.saturating_sub(1);
     if hero.thrown.is_some() || hero.input_lock > 0 {
         return;
     }
@@ -253,6 +254,15 @@ pub(super) fn try_attack(
     } else {
         hero.melee_press
     };
+    // Square brings out the wrench (`weapons.md`, "Switching and firing") whether or not
+    // an attack can start yet, and the attack waits until it is in his hand.
+    if !whip && hero.gun.out && input.pressed(Action::Melee) {
+        hero.gun = GunHand::default();
+        hero.wrench_coming = melee.wrench_draw_ticks;
+    }
+    if hero.wrench_coming > 0 {
+        return;
+    }
     let t = hero.ticks;
     let next = match hero.state {
         HeroState::Idle | HeroState::Walk | HeroState::Skid => press
@@ -278,6 +288,9 @@ pub(super) fn try_attack(
             );
             let after = match hero.state {
                 HeroState::DoubleJump => melee.double_jump_after_tick,
+                HeroState::Jump(JumpKind::Flip) if hero.flip_side == StrafeSide::Back => {
+                    melee.back_flip_after_tick
+                }
                 HeroState::Jump(JumpKind::Flip) => melee.flip_after_tick,
                 _ => melee.air_after_tick,
             };

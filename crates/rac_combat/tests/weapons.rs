@@ -641,10 +641,13 @@ fn a_wrench_swing_puts_the_gun_away() {
     let mut yard = Yard::new(&[(N60, 0)]);
     assert!(yard.body().0.gun.out);
     yard.tick(&[], &[Action::Melee]);
-    assert!(yard.body().0.state.is_attacking());
     yard.idle(1);
     assert_eq!(yard.arsenal().hand, Hand::Wrench);
     assert!(!yard.body().0.gun.out);
+    // The swing waits for the wrench to come out.
+    assert!(!yard.body().0.state.is_attacking());
+    yard.idle(4);
+    assert!(yard.body().0.state.is_attacking());
 }
 
 #[test]
