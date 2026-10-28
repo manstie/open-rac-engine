@@ -151,6 +151,9 @@ enum Command {
         /// Bind controller 1 to the keyboard, so xdotool can play the game.
         #[arg(long)]
         keyboard_pad: bool,
+        /// Bind controller 2 to other keys as well, for Deadlocked's two-player campaign.
+        #[arg(long)]
+        keyboard_pad2: bool,
         /// With --keyboard-pad, scale both sticks (PCSX2's AxisScale), so a held key tilts
         /// a stick part-way: 0.5 gives half tilt.
         #[arg(long)]
@@ -268,6 +271,7 @@ fn main() -> Result<()> {
             slot,
             speed,
             keyboard_pad,
+            keyboard_pad2,
             axis_scale,
         } => {
             let source =
@@ -277,6 +281,7 @@ fn main() -> Result<()> {
                 pine_slot: slot,
                 speed,
                 keyboard_pad,
+                keyboard_pad2,
                 axis_scale,
             };
             if let Some(dir) = out.parent() {

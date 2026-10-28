@@ -14,6 +14,10 @@ Started 2026-10-28 from DL NTSC-U's code.
   `dlntsc-coop`. Its code reads `coop_flag` 288 times in 197 functions, so the co-op
   builds carry the same game code as the single-player ones and the flag does the work.
   Use this image to check a reading against two live heroes.
+- **In play** (2026-10-28): `dlntsc-dreadzone-coop-play.p2s`, both heroes in normal play
+  on a `boot.sh` with controller 2 on the keyboard (`PAD2=1`), and the traces
+  `dlntsc-dreadzone-coop-death-{1,2,3}` (`docs/re-setup.md`) check the start, death,
+  respawn, restart and the team moves.
 - **Labels** as in `hero-controller.md`: **[code]** read in the game's code,
   **[verified]** checked in a savestate or trace, **[inferred]** from how a value is used.
 - Addresses are DreadZone Station's build. Level code moves between levels (`engine-notes.md`,
@@ -36,8 +40,9 @@ Started 2026-10-28 from DL NTSC-U's code.
 - **Split screen** stacks the two views (staggered halves in widescreen), draws at 30
   frames a second over the 60 Hz simulation, and goes full screen for cutscenes,
   transports and menus. Either pad drives a menu, and the pause menu stops both.
-- **Player 2 replaces the battle bots,** which co-op removes with their vendor, and both
-  players clicking L3 (or R3) together with a full team meter gives a 30 s power-up.
+- **Player 2 replaces the battle bots,** which co-op removes with their vendor. With a
+  team meter filled from XP, both players clicking L3 together give both 30 s of ×4
+  damage, and R3 together a 30 s shield.
 
 ## Starting co-op [code]
 
@@ -74,7 +79,10 @@ Started 2026-10-28 from DL NTSC-U's code.
     (`camera_option` is player 1's), copied into a camera-type byte per player at
     0x171DE0. Three more words per player are copied the same way (from 0x171D50,
     0x171D80, 0x171DB0); what they hold isn't read.
-  - Where the level places player 2 at load isn't found yet.
+  - **Where they start** [verified, `dlntsc-dreadzone-coop-death-2`]: after the level
+    (re)loads, player 1 stands at the single-player start, (558.48, 330.26, 184.17) on
+    DreadZone Station, and player 2 0.9 u beside him at (557.93, 329.54, 184.17). After
+    our warp from a single-player state player 1 began at (652.0, 329.85) instead.
 - **Code that tests co-op usually tests both flags:** `multiplayer_flag == 0 &&
   coop_flag == 1`. A few places test `coop_flag < 2`, which is true in single player too.
 
@@ -139,6 +147,16 @@ Started 2026-10-28 from DL NTSC-U's code.
   pause menu and other screens change the game mode, refuses while any hero has 0
   health, and 0x5A9808, a check of the same kind that menus call, does too. In co-op
   both let it through if 0x21E904 is set; nothing in level 1's image writes 0x21E904.
+- **Checked in traces** [verified, `dlntsc-dreadzone-coop-death-{1,2,3}`, level 21]:
+  - one death: state 57, then 153 with 360 in hero+0x3B2; 361 frames later he stands
+    again (state 0) with full health and 47 frames of safe time;
+  - both dead: the tick after the second hero enters 153, the report 0x368BE8 and
+    `coop_both_dead` are set, and the level restarts (the frame counter goes back to 0);
+  - the spot: the partner's newest spot, 0.15 u from him, was skipped (under 2 u), and
+    the next one, 4 u away, was taken; then 0x5861E0 moved it, rewriting the ring's entry,
+    to (603.73, 455.29, 200.50), 131 u from the partner. So on DreadZone Station's start
+    floor a level object sends every co-op respawn to one point; elsewhere the spot is
+    the partner's.
 - **Enemies that test both heroes' health** (for example a boss at 0x4E2FD8) keep
   attacking while either player is alive; they don't fail the mission themselves.
 
@@ -148,7 +166,7 @@ Started 2026-10-28 from DL NTSC-U's code.
 |---|---|
 | Bolts: one purse, 0x171B40. A bolt pickup (0x46AE78) adds its value with no player involved; the vendor and mission rewards use the same purse. | Health (hero+0x2E20). |
 | XP: one total, 0x171B48, added by every kill. | The item in hand (hero+0x2318), saved each frame to 0x220810 + 4 × player and given back at the next level. |
-| Maximum health: one level, 0x171B50 (10 in a new game), worked out from the XP (table 0x3B6458); when it rises both heroes are healed and both get the effect (0x68F398, 0x3E0AB0). | Quick-select: 3 slots each at 0x20C690 + 0xC × player (libdl's `WEAPON_EQUIPSLOT`) [verified: player 1's were 3, 2, 0 and player 2's 2, 3, 0]. |
+| Maximum health: one level, 0x171B50 (10 in a new game), worked out from the XP (table 0x3B6458); when it rises both heroes are healed and both get the effect (0x68F398, 0x3E0AB0) [verified: XP written to 250 made both HUDs 11/11]. | Quick-select: 3 slots each at 0x20C690 + 0xC × player (libdl's `WEAPON_EQUIPSLOT`) [verified: player 1's were 3, 2, 0 and player 2's 2, 3, 0]. |
 | **One gadget box** (0x1D3F90): in the campaign every hero's box pointer (hero+0x26E4) is set to it (0x6909C8) [verified: both heroes], so guns, ammo, weapon XP, levels and mods are shared. Multiplayer levels give each player a box of their own, 0x12B0 bytes apart. | The skin (`skin_p1`, `skin_p2`). |
 | The vendor: one shop and one purse; a weapon bought goes into the shared box and is equipped for the player who bought it (`vendor_buy`, 0x632CA0). | Statistics: 0x2A0 bytes per player from about 0x20B480 (ammo picked up, kills by gadget, mod and enemy class, deaths), and a kill count at 0x35944C + 4 × player. The statistics screen shows player 1's plus player 2's (0x617FE8). |
 | Power-ups: the damage power-up (×4 damage, hero+0x2FB0, for 1800 frames, 30 s; 0x400100) and a 180-frame one (+0x41C; 0x3FFC88) are given to both heroes in co-op. | The camera setting and three other settings ("Starting co-op"). |
@@ -187,19 +205,23 @@ Started 2026-10-28 from DL NTSC-U's code.
   - Nothing else read so far scales with the second player: no change was found to
     enemy damage, enemy counts or the difficulty.
 
-## Co-op's own moves [code]
+## Co-op's own moves [code; verified in play on level 21]
 
 - **A team meter:** each hero's byte hero+0x2FB8 is set once the XP earned since the last
   reset (0x171B54 − 0x171B70) reaches one health level's span (0x171B78), with the
   progress in +0x2FBC (0x68F238). In co-op only (`hero_update_timers`, 0x684EF0), with
   the meter full:
   - **both players clicking L3 within 30 frames of each other** (`pad_pressed_within`
-    on both pads) gives the hero the damage power-up, ×4 for 1800 frames (30 s);
-  - **both clicking R3** sets +0x2FB4 to 3 for 1800 frames (timer +0x408); what that does
-    isn't read yet.
+    on both pads) gives the hero the damage power-up, ×4 (libdl's `DamageMultiplier`,
+    +0x2FB0) for 1800 frames (30 s);
+  - **both clicking R3** sets +0x2FB4 (libdl's `ArmorLevel`) to 3 for 1800 frames (timer
+    +0x408), and a bubble shield shows round the hero.
   - Then that hero's meter resets (0x68F2D8 clears his +0x2FB8 and +0x2FBC and moves the
-    shared XP baseline 0x171B70). Each hero makes the check in his own update, and both
-    run in the same frame, so both should get the power-up [inferred].
+    shared XP baseline 0x171B70). Each hero makes the check in his own update.
+  - **Checked in play:** with the meter's XP (0x171B54) written past the span, both
+    players' L3 together gave both heroes ×4 with 1771 and 1769 frames left when read,
+    and R3 together gave both armour 3 and the shield; both meters emptied. A rise in
+    the health level also resets the meter.
 
 ## Split screen [code; the layout verified in `dlntsc-dreadzone-coop.p2s`]
 
@@ -242,7 +264,10 @@ Started 2026-10-28 from DL NTSC-U's code.
 - **Player 2's controller** is the pad in port 2. Every frame in co-op, 0x529310 moves
   player 2 to the pad block at 0x1EEBC0 (index 1 in steps of 0x5C0 from player 1's;
   taken to be a multitap slot) if port 2 reports no pad and that one does, and back
-  again. In our savestate, whose port 2 is empty, player 2 is on 0x1EEBC0.
+  again. In our savestate, whose port 2 is empty, player 2 is on 0x1EEBC0; with a pad in
+  port 2 he reads 0x1EFD00, and each pad moves only its own hero [verified].
+- **The opening tutorial** on DreadZone Station runs in co-op too, its banner on the
+  split line, and both pads did each step together [seen].
 
 ## Full screen for cutscenes and transitions [code]
 
@@ -313,17 +338,15 @@ Started 2026-10-28 from DL NTSC-U's code.
 
 ## Not read yet / next steps
 
-1. **Play the co-op savestate.** `dlntsc-dreadzone-coop.p2s` is stuck in the pause menu.
-   Give `boot.sh` a second keyboard pad on port 2 (`pine-probe headless-config`), load
-   it, and save a state in normal play; then trace one player's death (the 360-frame
-   wait, the respawn spot near the partner), both players' deaths (the restart), an
-   ammo pickup (×2.4) and one gun kill by each player (the weapon XP counted twice?).
-2. **Where player 2 is placed** when the level loads.
-3. **The enemy hit-point factor** 0x2204C0 in a co-op level with enemies, and what writes
+1. **A co-op level with crates and enemies** (DreadZone Station's hub has neither): an
+   ammo pickup (×2.4), one gun kill by each player (the weapon XP counted twice?), and a
+   respawn away from the station's start floor. A new game's planets open on their
+   challenge menus ("Going straight to a level"), so this needs a save further on.
+2. **The enemy hit-point factor** 0x2204C0 in a co-op level with enemies, and what writes
    it.
-4. **Unread values:** what +0x2FB4 = 3 does (the R3 power-up); HUD bit 0x08; the
+3. **Unread values:** what armour 3 does to damage (the R3 move); HUD bit 0x08; the
    four-entry screen of exclusive choices; the three per-player settings beyond the
    camera; items 11, 12, 13 and 16; 0x21E904; player 2's moby marks (+0x74, flag 0x8000);
    whether co-op ever sets 0x2400A8; the difficulty table's other columns.
-5. **Gladiator PAL** (SCES-53285): check that its co-op is the same (RE.10 names both).
+4. **Gladiator PAL** (SCES-53285): check that its co-op is the same (RE.10 names both).
 

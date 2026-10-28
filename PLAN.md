@@ -63,7 +63,7 @@ session is working on the task now; notes on problems met stay with their task (
   draw with (`effects.md`).
   DL's two-player campaign is read in code (RE.10, `coop.md`): who player 2 is, what
   the players share, death and respawn, difficulty, split screen, menus and missions;
-  nothing is traced in play yet.
+  its deaths, respawns and team moves are checked in play on DreadZone Station.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
@@ -75,8 +75,8 @@ session is working on the task now; notes on problems met stay with their task (
    with the Plasma Whip, Plasma Coil and Bouncer; the ribbons, rings, lights and shake,
    the whip's links and shield; then P1.10's nanotech, explosive and doubler crates
    ("Ammo pickups, crates and the vendor").
-2. Co-op (RE.10): a co-op savestate in normal play (a second keyboard pad on port 2),
-   then traces of a death, both deaths, an ammo pickup and a kill by each player.
+2. Co-op (RE.10): a co-op level with crates and enemies, to trace an ammo pickup and a
+   kill by each player.
 3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
 
@@ -586,13 +586,18 @@ committed (names, addresses, layouts, derived constants).
     times as much and enemy hit points have a co-op factor (1.0 so far); the split screen
     stacks two views (staggered in widescreen), draws at 30 fps over the 60 Hz ticks and
     goes full screen for cutscenes and menus; player 2 replaces the battle bots.
-  - The savestate is stuck in the pause menu (`re-setup.md`), likely because `boot.sh`
-    leaves port 2 empty, so nothing is traced in play yet.
-  - To do (`coop.md`, "Not read yet / next steps"): a playable co-op state and traces of
-    deaths, pickups and kills; where player 2 starts; the enemy hit-point factor in a
-    level with enemies; Gladiator PAL.
-  - Next step: let `pine-probe headless-config` bind a second keyboard pad to port 2,
-    then load `dlntsc-dreadzone-coop.p2s` and save a state in normal play.
+  - Checked in play on level 21 with both pads on the keyboard (`PAD2=1 boot.sh`;
+    `dlntsc-dreadzone-coop-play.p2s` and `-coop-death-{1,2,3}` traces): where both
+    start, the 6 s wait and respawn, the restart when both are dead, the partner's spots
+    first (DreadZone Station's start floor then moves every respawn to one point), the
+    shared maximum health, and the team moves (L3: ×4 damage, R3: a shield, both 30 s).
+  - The first co-op savestate wouldn't leave its pause menu while port 2 was empty; a
+    pad in port 2 fixed it.
+  - To do (`coop.md`, "Not read yet / next steps"): an ammo pickup and a kill by each
+    player, which need a co-op level with crates and enemies (a new game's planets open
+    on their challenge menus); the enemy hit-point factor there; Gladiator PAL.
+  - Next step: find how a save unlocks a planet's challenges, or make a save further
+    on, to reach a co-op combat level.
 - [ ] **RE.11** **Renderer:**
   - For each VU program: its input packet format and meaning.
   - How the DMA chain is built, and the hook points (`VU1_sendChain`, `VU1_syncChain`,

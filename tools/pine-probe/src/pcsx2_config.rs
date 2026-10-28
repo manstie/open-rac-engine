@@ -5,7 +5,8 @@
 //! Only settings that matter for running unattended are changed: no prompts, no sound, no
 //! controllers, PINE on a separate slot, an OpenGL renderer (which works on Xvfb through
 //! Mesa's software rasteriser), and an optional speed limit. Optionally, controller 1 is
-//! bound to the keyboard so a script can play the game with xdotool (see [`KEYBOARD_PAD`]).
+//! bound to the keyboard so a script can play the game with xdotool (see [`KEYBOARD_PAD`]),
+//! and controller 2 to other keys for Deadlocked's two-player campaign ([`KEYBOARD_PAD2`]).
 
 /// The settings the headless instance changes.
 #[derive(Debug, Clone)]
@@ -19,6 +20,9 @@ pub struct HeadlessSettings {
     pub speed: f32,
     /// Bind controller 1 to the keyboard ([`KEYBOARD_PAD`]) instead of the owner's pads.
     pub keyboard_pad: bool,
+    /// Bind controller 2 to the keyboard ([`KEYBOARD_PAD2`]) as well; otherwise port 2 is
+    /// left as the owner has it.
+    pub keyboard_pad2: bool,
     /// With `keyboard_pad`, PCSX2's analog sensitivity for both sticks (`AxisScale`), so a
     /// held key tilts a stick only part-way: keys alone give full tilt, and stick-response
     /// tests need less.
@@ -27,8 +31,9 @@ pub struct HeadlessSettings {
 
 /// Controller 1's keyboard bindings with `keyboard_pad`, as (pad button, key). Return is
 /// Start; none of the keys is one of PCSX2's default hotkeys. The right stick is R, F, D
-/// and G (up, down, left, right): DL's opening tutorial waits for it.
-pub const KEYBOARD_PAD: [(&str, &str); 22] = [
+/// and G (up, down, left, right): DL's opening tutorial waits for it. L3 and R3 are for
+/// DL's co-op, whose team moves need both players to click a stick.
+pub const KEYBOARD_PAD: [(&str, &str); 24] = [
     ("Up", "Keyboard/Up"),
     ("Down", "Keyboard/Down"),
     ("Left", "Keyboard/Left"),
@@ -51,6 +56,38 @@ pub const KEYBOARD_PAD: [(&str, &str); 22] = [
     ("RDown", "Keyboard/F"),
     ("RLeft", "Keyboard/D"),
     ("RRight", "Keyboard/G"),
+    ("L3", "Keyboard/Comma"),
+    ("R3", "Keyboard/Slash"),
+];
+
+/// Controller 2's keyboard bindings with `keyboard_pad2`, none shared with controller 1 or
+/// PCSX2's default hotkeys. P is Start; the sticks are U, H, A, W and 7, 8, 9, 0 (up,
+/// down, left, right).
+pub const KEYBOARD_PAD2: [(&str, &str); 24] = [
+    ("Up", "Keyboard/Home"),
+    ("Down", "Keyboard/End"),
+    ("Left", "Keyboard/Delete"),
+    ("Right", "Keyboard/PageDown"),
+    ("Cross", "Keyboard/N"),
+    ("Circle", "Keyboard/M"),
+    ("Square", "Keyboard/B"),
+    ("Triangle", "Keyboard/Y"),
+    ("Start", "Keyboard/P"),
+    ("Select", "Keyboard/O"),
+    ("L1", "Keyboard/1"),
+    ("R1", "Keyboard/2"),
+    ("L2", "Keyboard/3"),
+    ("R2", "Keyboard/4"),
+    ("L3", "Keyboard/5"),
+    ("R3", "Keyboard/6"),
+    ("LUp", "Keyboard/U"),
+    ("LDown", "Keyboard/H"),
+    ("LLeft", "Keyboard/A"),
+    ("LRight", "Keyboard/W"),
+    ("RUp", "Keyboard/7"),
+    ("RDown", "Keyboard/8"),
+    ("RLeft", "Keyboard/9"),
+    ("RRight", "Keyboard/0"),
 ];
 
 fn overrides(s: &HeadlessSettings) -> Vec<(&'static str, &'static str, String)> {
@@ -86,6 +123,21 @@ fn overrides(s: &HeadlessSettings) -> Vec<(&'static str, &'static str, String)> 
             list.push(("Pad1", "AxisScale", scale.to_string()));
         }
     }
+    if s.keyboard_pad2 {
+        list.push(("InputSources", "Keyboard", t("true")));
+        list.push(("Pad2", "Type", t("DualShock2")));
+        list.extend(KEYBOARD_PAD2.iter().map(|&(b, k)| ("Pad2", b, t(k))));
+        if let Some(scale) = s.axis_scale {
+            list.push(("Pad2", "AxisScale", scale.to_string()));
+        }
+    }
+    // Both pads push the same InputSources key; keep the first.
+    let mut seen = Vec::new();
+    list.retain(|&(section, key, _)| {
+        let new = !seen.contains(&(section, key));
+        seen.push((section, key));
+        new
+    });
     list
 }
 
@@ -171,6 +223,7 @@ mod tests {
             pine_slot: 28012,
             speed: 0.5,
             keyboard_pad: false,
+            keyboard_pad2: false,
             axis_scale: Some(0.5),
         };
         let ini = headless_ini(source, &settings);
@@ -197,12 +250,13 @@ mod tests {
 
     #[test]
     fn binds_pad_one_to_the_keyboard() {
-        let source = "[InputSources]\nKeyboard = false\nSDL = true\n\n[Pad1]\nType = DualShock2\nCross = SDL-0/FaceSouth\nR3 = SDL-0/RightStick\n";
+        let source = "[InputSources]\nKeyboard = false\nSDL = true\n\n[Pad1]\nType = DualShock2\nCross = SDL-0/FaceSouth\nAnalog = SDL-0/Guide\n";
         let settings = HeadlessSettings {
             bios_dir: "/bios".into(),
             pine_slot: 28013,
             speed: 1.0,
             keyboard_pad: true,
+            keyboard_pad2: false,
             axis_scale: None,
         };
         let ini = headless_ini(source, &settings);
@@ -212,7 +266,7 @@ mod tests {
         assert!(ini.contains("RLeft = Keyboard/D\n"));
         assert_eq!(ini.matches("Cross =").count(), 1);
         assert!(
-            ini.contains("R3 = SDL-0/RightStick\n"),
+            ini.contains("Analog = SDL-0/Guide\n"),
             "unbound buttons keep their (disabled) SDL binding"
         );
         assert!(!ini.contains("AxisScale"));
@@ -226,10 +280,35 @@ mod tests {
             pine_slot: 28013,
             speed: 1.0,
             keyboard_pad: true,
+            keyboard_pad2: false,
             axis_scale: Some(0.5),
         };
         let ini = headless_ini(source, &settings);
         assert!(ini.contains("AxisScale = 0.5\n"));
         assert_eq!(ini.matches("AxisScale").count(), 1);
+    }
+
+    #[test]
+    fn binds_pad_two_for_co_op() {
+        let source = "[InputSources]\nKeyboard = false\n\n[Pad1]\nType = DualShock2\n\n[Pad2]\nType = None\n";
+        let settings = HeadlessSettings {
+            bios_dir: "/bios".into(),
+            pine_slot: 28019,
+            speed: 1.0,
+            keyboard_pad: true,
+            keyboard_pad2: true,
+            axis_scale: Some(0.5),
+        };
+        let ini = headless_ini(source, &settings);
+        assert_eq!(ini.matches("Keyboard = true").count(), 1);
+        assert!(ini.contains("[Pad2]\nType = DualShock2\n"));
+        assert!(ini.contains("Start = Keyboard/P\n"));
+        assert_eq!(ini.matches("AxisScale = 0.5").count(), 2);
+        assert!(
+            KEYBOARD_PAD2
+                .iter()
+                .all(|(_, k)| KEYBOARD_PAD.iter().all(|(_, k1)| k1 != k)),
+            "the two pads share no key"
+        );
     }
 }
