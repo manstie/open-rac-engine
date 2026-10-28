@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use bevy::ecs::system::SystemParam;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rac_combat::{
     Armory, Arsenal,
@@ -374,6 +375,7 @@ pub(crate) fn show_shots(
                             parts.spawn((
                                 Mesh3d(quad.clone()),
                                 MeshMaterial3d(handle),
+                                NotShadowCaster,
                                 Billboard { axis: None, roll },
                                 layer,
                                 Transform::from_scale(Vec3::splat(size)),
@@ -383,6 +385,7 @@ pub(crate) fn show_shots(
                             parts.spawn((
                                 Mesh3d(quad.clone()),
                                 MeshMaterial3d(handle),
+                                NotShadowCaster,
                                 Billboard::default(),
                                 ShotStreak(streak),
                                 Transform::default(),
@@ -394,12 +397,23 @@ pub(crate) fn show_shots(
             }
             let fire = def.map(|def| &def.fire);
             let shown = shot_look(&shot.kind, shot.velocity, fire, &draw.looks);
+            // A blast its recipe shows only through its impact keeps a hidden look, so it
+            // is still followed and dropped as the others are.
+            let visibility = if matches!(shot.kind, ShotKind::Blast { .. })
+                && !draw.recipes.blast_sphere(key, shot.level)
+            {
+                Visibility::Hidden
+            } else {
+                Visibility::default()
+            };
             commands.spawn((
                 Name::new("shot"),
                 DemoEntity,
                 look,
                 Mesh3d(shown.mesh),
                 MeshMaterial3d(shown.material),
+                NotShadowCaster,
+                visibility,
                 SimTransform::from_translation(shot.position).with_rotation(shown.rotation),
                 Transform::from_translation(shot.position)
                     .with_rotation(shown.rotation)

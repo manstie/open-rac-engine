@@ -417,7 +417,11 @@ No muzzle effect; the charge (0x185A) is its model only. Its blast (class 0x1858
   frame, 3 units a second along the stream, drag 0.99, sinking then rising once dark,
   growing 0.0075 a frame, darkening 0.975 a frame) and one time in 22 a 0x19 spark (size
   0.024–0.143, white going yellow then red, life 80, gravity 22.7, stopping where it
-  lands).
+  lands). The smokes take turns at being added and blended: 0x305710 passes the
+  particle's blend byte (+3) from the pair at 0x1DC610 by a counter's parity [code],
+  and the pair holds 0x48 and 0x44 [data, Veldin savestate]. Their size is rand(0.05,
+  0.1) × the stream's strength × 0.1, times 2.5 in the spawner (0x46F808) [code], so
+  0.125–0.25 at full strength.
 - **Pools:** a point that hits the world leaves a burning pool one time in 11 (up to 10):
   two flat glows of 11 and two upright flames of 23 that grow over about 36 frames, hold
   60 and shrink. No lights or shake.
@@ -527,6 +531,21 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      lights, shake, rumble, screen flashes and glows, decals (the lava pools), meshes
      the effects spawn (the explosion's dome and debris), children particles, and the
      two-phase size curve of 0x35 and 0x5C (drawn as a straight lerp).
+   - Checked on screen (2026-10-28): the six first guns at V3 in an off-screen run with
+     the disc, against PCSX2 video of the same guns at V3 on Veldin (`docs/re-setup.md`,
+     "UYA NTSC-U gun effects video"). Fixed: every sprite cast a shadow, as Bevy's
+     shadow pass takes blended meshes too (the effects and the kit's shot shapes are now
+     `NotShadowCaster`); the kit's sphere of the Nitro's reach hid the game's blast (a
+     recipe can now say `blast_sphere: Some(false)`); the Lava Gun's smokes were all
+     blended. Close to the game's: the Shock Blaster's fan of rays and its muzzle glow,
+     the Nitro's implosion rings and orange burst, the N60's flames, the Annihilator's
+     smoke and explosion and the Flux's beam. Still short of it: the full-screen flashes
+     (the game's Nitro whitens the whole screen for a frame), the Lava Gun's stream,
+     which the game draws as one thin bright ribbon arcing well above and ahead of the
+     hero and the kit as sprites on its points, bunched with its smoke into a cloud a
+     unit or two ahead of him (perhaps because the kit's aim bends toward where the view
+     centres, into the floor; not checked), and the smoke's rising once dark. The video runs at about a fifth of real speed, so
+     timings and how much smoke builds up can't be compared from it.
 4. **Recipes per gun:** each gun's calls with their arguments (texture or particle type,
    colour, sizes, life, blend), read gun by gun, starting with the six first guns. Each
    gun's `effects` key in `uya_weapons.ron` names its recipe and sounds.
@@ -543,8 +562,10 @@ What it takes to show the guns' effects as the game does, from the user's disc:
 
 ## Not read yet
 
-- The particle renderer's byte fields (+3, +9; 0x48 and 0x44 look like the additive
-  and normal blends), its table at 0x2BFDA0 and its streak kinds (+1 = 3); so whether a
+- The particle renderer's byte fields (+3, +9). As values of the GS's ALPHA register,
+  0x48 is Cs·As + Cd (added) and 0x44 is (Cs − Cd)·As + Cd (blended), and the Lava Gun's
+  smokes take the two in turn as +3 ("Lava Gun"), but the renderer's use of them isn't
+  read. Also its table at 0x2BFDA0 and its streak kinds (+1 = 3); so whether a
   particle's size is half its width or half its diagonal (√2 apart), and the streaks'
   widths (+0x1C, +0x2C).
 - The updates of the types the guns use beyond those above (0x13, 0x19, 0x5B, 0x6D,

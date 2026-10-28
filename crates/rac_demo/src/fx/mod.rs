@@ -16,6 +16,7 @@ mod paint;
 
 use std::collections::BTreeMap;
 
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rac_combat::{Armory, Arsenal, GunEvent, GunEventKind, WeaponId};
 use rac_hero::Hero;
@@ -301,6 +302,10 @@ pub struct GunFx {
     /// What shows where each of a hitscan's rays stops.
     #[serde(default)]
     pub ray_end: Option<Vec<Emit>>,
+    /// Whether the gun's blasts show as the kit's sphere of their reach (the default), or
+    /// only through their `impact`, as the game draws the Nitro's.
+    #[serde(default)]
+    pub blast_sphere: Option<bool>,
     #[serde(default)]
     pub from_level: BTreeMap<u8, GunFx>,
 }
@@ -393,6 +398,12 @@ impl FxRecipes {
         self.gun(key)
             .and_then(|gun| gun.at(level, |fx| fx.trail.as_deref()))
             .unwrap_or(&[])
+    }
+
+    pub fn blast_sphere(&self, key: &str, level: u8) -> bool {
+        self.part(key, level, |fx| fx.blast_sphere.as_ref())
+            .copied()
+            .unwrap_or(true)
     }
 
     pub fn wake(&self, key: &str, level: u8) -> &[Beam] {
@@ -643,11 +654,13 @@ impl Spawner<'_, '_, '_> {
         } else {
             fx.size.extend(1.0)
         };
+        // Bevy's shadow pass takes blended meshes too, and the game's effects cast none.
         self.commands.spawn((
             Name::new(name),
             DemoEntity,
             Mesh3d(self.quad.clone()),
             MeshMaterial3d(fx.material.clone()),
+            NotShadowCaster,
             billboard,
             SimTransform::from_translation(at),
             Transform::from_translation(at).with_scale(scale),
@@ -1073,6 +1086,10 @@ mod tests {
         }
         assert!(recipes.expand(recipes.impact("n60", 0)).count() > 0);
         assert!(!recipes.ray("shock_blaster", 0).is_empty());
+        // The game draws the Nitro's blast only as its effects; the kit's own keep the
+        // sphere.
+        assert!(!recipes.blast_sphere("nitro", 2));
+        assert!(recipes.blast_sphere("agents", 2));
         for (name, emits) in &recipes.sets {
             assert!(
                 !emits.iter().any(|emit| matches!(emit, Emit::Set(_))),

@@ -277,9 +277,11 @@
         // The Nitro Launcher (0x36E360; effects.md, "Each gun's effects") [code]: no
         // muzzle effect; its blast (0x35E718) implodes in 73 and 74 for 9 ticks, sends a
         // ring of smoke out, then bursts in sparkles (0x35, 0x5C) and from V2 acid
-        // streaks (0x76), and glows (0x5B) linger 19 ticks; V3 and V4 orange.
+        // streaks (0x76), and glows (0x5B) linger 19 ticks; V3 and V4 orange. The blast
+        // (class 0x1858) has no model and shows only these.
         "nitro": (
             fire: Some([]),
+            blast_sphere: Some(false),
             impact: Some([
                 Glow(texture: Effect(73), size: 6.576, end_size: 1.584, ticks: 9, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                 Glow(texture: Effect(74), size: 6.028, end_size: 1.452, ticks: 9, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
@@ -356,7 +358,8 @@
         // a ribbon (0x305858), drawn here as sprites on each of its blobs: a glow (43), a
         // band (14) and a core (10); two glows (44) at the nozzle; and the stream sheds
         // smoke (0x6D) that darkens as it drifts and sparks (0x19) going from white to red
-        // as they fall.
+        // as they fall. Its smokes take turns at being added and blended (0x305710 [code],
+        // 0x48 and 0x44 at 0x1DC610 [data]), each darkened by up to half.
         "lava": (
             fire: Some([
                 Glow(texture: Effect(44), size: 0.5, end_size: 0.5, ticks: 4, colour: (0.99, 0.375, 0.125, 0.99), end_alpha: 0.99, roll: Some((0.0, 360.0))),
@@ -368,7 +371,8 @@
                 (texture: Effect(10), size: 0.15, colour: (1.24, 1.24, 1.24, 0.47), blend: Alpha),
             ]),
             trail: Some([
-                (per_tick: 0.14, textures: [Particle(0x6D, 0)], colours: [(1.0, 0.375, 0.125, 0.75)], size: 0.375, end_size: 1.9, ticks: 64, ticks_to: 128, back: -0.1, gravity: 2.7, keep: 0.99, spin: 1.4, end_colour: Some((0.09, 0.03, 0.01)), blend: Alpha),
+                (per_tick: 0.07, textures: [Particle(0x6D, 0)], colours: [(0.938, 0.352, 0.117, 0.75), (0.813, 0.305, 0.102, 0.75), (0.688, 0.258, 0.086, 0.75), (0.563, 0.211, 0.07, 0.75)], size: 0.375, end_size: 1.9, ticks: 64, ticks_to: 128, back: -0.1, gravity: 2.7, keep: 0.99, spin: 1.4, end_colour: Some((0.09, 0.03, 0.01))),
+                (per_tick: 0.07, textures: [Particle(0x6D, 0)], colours: [(0.938, 0.352, 0.117, 0.75), (0.813, 0.305, 0.102, 0.75), (0.688, 0.258, 0.086, 0.75), (0.563, 0.211, 0.07, 0.75)], size: 0.375, end_size: 1.9, ticks: 64, ticks_to: 128, back: -0.1, gravity: 2.7, keep: 0.99, spin: 1.4, end_colour: Some((0.09, 0.03, 0.01)), blend: Alpha),
                 (per_tick: 0.045, textures: [Particle(0x19, 0)], colours: [(1.99, 1.99, 1.99, 1.0)], size: 0.17, end_size: 0.02, ticks: 80, ticks_to: 80, back: -0.1, gravity: 22.7, end_colour: Some((0.4, 0.0, 0.0))),
             ]),
             impact: Some([
