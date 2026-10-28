@@ -105,8 +105,10 @@
             Burst(texture: Particle(0x17, 0), count: 2, speed: 0.28, speed_from: Some(0.14), toward: Camera, cone: Some(90.0), size: 0.42, end_size: 0.546, ticks: 40, ticks_to: Some(70), colour: (0.992, 0.742, 0.25, 0.5), spin: 1.4, jitter: 0.14, delay: 2, blend: Alpha),
             Burst(texture: Particle(0x5C, 0), count: 34, toward: Level, speed: 1.26, speed_from: Some(0.7), size: 0.308, end_size: 0.336, ticks: 20, ticks_to: Some(27), colour: (1.992, 1.742, 0.375, 0.617), delay: 5),
         ],
-        // The Annihilator's V1 missile (0x397A30): S 0.6, colour set A.
+        // The Annihilator's V1 missile (0x397A30): S 0.6, colour set A. Its flash flag
+        // brightens the whole view on the first frame (0x3317C8: grey 0x80 added at 0x80).
         "annihilator blast": [
+            Screen(ticks: 1, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0),
             Glow(texture: Particle(0x5C, 0), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
             Glow(texture: Particle(0x5C, 0), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
             Glow(texture: Particle(0x5C, 5), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
@@ -123,6 +125,7 @@
         ],
         // V2-V4 (0x397B08, 0x397E8C, 0x398214): S 1.0 (V2 has 35 glares).
         "annihilator big blast": [
+            Screen(ticks: 1, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0),
             Glow(texture: Particle(0x5C, 0), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
             Glow(texture: Particle(0x5C, 0), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
             Glow(texture: Particle(0x5C, 5), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
@@ -196,8 +199,10 @@
             // At the muzzle once a shot (0x36BB68): smoke (0x17), sparks (0x2C) in a cone
             // round the aim and two embers (0x0F, without the children they shed). Then,
             // for 8 ticks (0x36C078), two squares of light (61) turning opposite ways
-            // as they fly 14 u out and grow from 3 to 35 u across.
+            // as they fly 14 u out and grow from 3 to 35 u across, and for 3 ticks the
+            // whole view brightened (grey 0x80 added at alpha 32 × 3/3, 2/3, 1/3).
             fire: Some([
+                Screen(ticks: 3, colour: (1.0, 1.0, 1.0, 0.25)),
                 Burst(texture: Particle(0x17, 0), count: 20, speed: 0.0, size: 0.4, size_to: Some(1.5), end_size: 0.54, ticks: 60, ticks_to: Some(60), colour: (1.99, 1.99, 1.99, 0.375), spin: 1.4, jitter: 0.3, blend: Alpha),
                 Burst(texture: Particle(0x2C, 0), count: 20, speed: 16.0, speed_from: Some(12.0), cone: Some(20.0), keep: 0.95, size: 0.4, size_to: Some(3.5), end_size: 0.4, ticks: 6, ticks_to: Some(6), colour: (0.5, 0.5, 0.5, 0.99), spin: 1.4, jitter: 0.6),
                 Burst(texture: Particle(0x0F, 0), count: 2, speed: 12.0, speed_from: Some(8.0), cone: Some(40.0), gravity: 14.6, keep: 0.98, size: 0.19, end_size: 0.0, ticks: 60, ticks_to: Some(120), colour: (1.99, 0.99, 0.0, 0.62), end_alpha: 0.24, end_colour: Some((0.99, 0.0, 0.0))),
@@ -277,12 +282,14 @@
         // The Nitro Launcher (0x36E360; effects.md, "Each gun's effects") [code]: no
         // muzzle effect; its blast (0x35E718) implodes in 73 and 74 for 9 ticks, sends a
         // ring of smoke out, then bursts in sparkles (0x35, 0x5C) and from V2 acid
-        // streaks (0x76), and glows (0x5B) linger 19 ticks; V3 and V4 orange. The blast
-        // (class 0x1858) has no model and shows only these.
+        // streaks (0x76), and glows (0x5B) linger 19 ticks; V3 and V4 orange. As the
+        // smoke goes out the whole view flashes (0x35FC70: grey 0x80 added at 0x80). The
+        // blast (class 0x1858) has no model and shows only these.
         "nitro": (
             fire: Some([]),
             blast_sphere: Some(false),
             impact: Some([
+                Screen(ticks: 2, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0, delay: 10),
                 Glow(texture: Effect(73), size: 6.576, end_size: 1.584, ticks: 9, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                 Glow(texture: Effect(74), size: 6.028, end_size: 1.452, ticks: 9, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                 Glow(texture: Effect(73), size: 4.932, end_size: 1.188, ticks: 9, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
@@ -300,6 +307,7 @@
             from_level: {
                 1: (
                     impact: Some([
+                        Screen(ticks: 2, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0, delay: 10),
                         Glow(texture: Effect(73), size: 6.576, end_size: 1.584, ticks: 9, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                         Glow(texture: Effect(74), size: 6.028, end_size: 1.452, ticks: 9, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                         Glow(texture: Effect(73), size: 4.932, end_size: 1.188, ticks: 9, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
@@ -318,6 +326,7 @@
                 ),
                 2: (
                     impact: Some([
+                        Screen(ticks: 2, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0, delay: 10),
                         Glow(texture: Effect(73), size: 6.576, end_size: 1.584, ticks: 9, colour: (0.125, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                         Glow(texture: Effect(74), size: 6.028, end_size: 1.452, ticks: 9, colour: (0.25, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                         Glow(texture: Effect(73), size: 4.932, end_size: 1.188, ticks: 9, colour: (0.125, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
@@ -336,6 +345,7 @@
                 ),
                 3: (
                     impact: Some([
+                        Screen(ticks: 2, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0, delay: 10),
                         Glow(texture: Effect(73), size: 6.576, end_size: 1.584, ticks: 9, colour: (0.5, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                         Glow(texture: Effect(74), size: 6.028, end_size: 1.452, ticks: 9, colour: (0.25, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
                         Glow(texture: Effect(73), size: 4.932, end_size: 1.188, ticks: 9, colour: (0.5, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),

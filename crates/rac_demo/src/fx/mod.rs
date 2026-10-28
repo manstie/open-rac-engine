@@ -166,6 +166,18 @@ pub enum Emit {
         #[serde(default)]
         blend: Blend,
     },
+    /// The whole view brightened by `colour`, added as the game's full-screen flashes are,
+    /// for `ticks` as its alpha goes to `end_alpha`; shown `delay` ticks after the event.
+    /// The colour is the game's bytes over 0x80 as elsewhere, though with no texture
+    /// under it 0x80 adds half of full white.
+    Screen {
+        ticks: u32,
+        colour: [f32; 4],
+        #[serde(default)]
+        end_alpha: f32,
+        #[serde(default)]
+        delay: u32,
+    },
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
 }
@@ -176,7 +188,7 @@ impl Emit {
             Emit::Flash { texture, .. }
             | Emit::Glow { texture, .. }
             | Emit::Burst { texture, .. } => Some(*texture),
-            Emit::Set(_) => None,
+            Emit::Screen { .. } | Emit::Set(_) => None,
         }
     }
 }
@@ -466,6 +478,15 @@ pub struct Billboard {
     pub roll: f32,
 }
 
+/// A sprite kept just in front of the camera and wide enough to cover its view.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
+struct CoversView;
+
+/// How far in front of the eye a [`CoversView`] sprite sits, and how wide it is: wide
+/// enough for any field of view under 175°, with room for the camera moving between the
+/// frame that places it and the next.
+const VIEW_COVER: (f32, f32) = (1.0, 100.0);
+
 /// A sprite or particle living out its ticks.
 #[derive(Component, Debug, Clone)]
 struct Fx {
@@ -647,7 +668,7 @@ impl Spawner<'_, '_, '_> {
         })
     }
 
-    fn spawn(&mut self, at: Vec3, billboard: Billboard, fx: Fx, name: &'static str) {
+    fn spawn(&mut self, at: Vec3, billboard: Billboard, fx: Fx, name: &'static str) -> Entity {
         // Hidden while it waits.
         let scale = if fx.wait > 0 {
             Vec3::ZERO
@@ -655,17 +676,19 @@ impl Spawner<'_, '_, '_> {
             fx.size.extend(1.0)
         };
         // Bevy's shadow pass takes blended meshes too, and the game's effects cast none.
-        self.commands.spawn((
-            Name::new(name),
-            DemoEntity,
-            Mesh3d(self.quad.clone()),
-            MeshMaterial3d(fx.material.clone()),
-            NotShadowCaster,
-            billboard,
-            SimTransform::from_translation(at),
-            Transform::from_translation(at).with_scale(scale),
-            fx,
-        ));
+        self.commands
+            .spawn((
+                Name::new(name),
+                DemoEntity,
+                Mesh3d(self.quad.clone()),
+                MeshMaterial3d(fx.material.clone()),
+                NotShadowCaster,
+                billboard,
+                SimTransform::from_translation(at),
+                Transform::from_translation(at).with_scale(scale),
+                fx,
+            ))
+            .id()
     }
 
     /// Shows `emit` at `at`, where a shot heading `way` was fired or landed, seen from
@@ -811,6 +834,30 @@ impl Spawner<'_, '_, '_> {
                     };
                     self.spawn(from, billboard, fx, "particle");
                 }
+            }
+            Emit::Screen {
+                ticks,
+                colour,
+                end_alpha,
+                delay,
+            } => {
+                let [r, g, b, a] = colour;
+                let material = self.materials.add(StandardMaterial {
+                    base_color: Color::srgba(r * 0.5, g * 0.5, b * 0.5, a),
+                    alpha_mode: Blend::Add.alpha_mode(),
+                    unlit: true,
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                });
+                let size = Vec2::splat(VIEW_COVER.1);
+                let fx = Fx {
+                    wait: delay,
+                    end_alpha,
+                    ..Fx::still(ticks, size, size, a, material)
+                };
+                let entity = self.spawn(eye, Billboard::default(), fx, "screen flash");
+                self.commands.entity(entity).insert(CoversView);
             }
             Emit::Set(_) => {}
         }
@@ -1043,16 +1090,25 @@ fn step_fx(
     }
 }
 
-/// Turns the sprites to the camera.
+/// Turns the sprites to the camera, and keeps those that cover its view in front of it.
 fn face_camera(
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    mut sprites: Query<(&Billboard, &mut Transform, &GlobalTransform)>,
+    mut sprites: Query<(
+        &Billboard,
+        &mut Transform,
+        &GlobalTransform,
+        Has<CoversView>,
+    )>,
 ) {
     let Some((_, camera)) = cameras.iter().find(|(camera, _)| camera.is_active) else {
         return;
     };
     let (eye, facing) = (camera.translation(), camera.rotation());
-    for (billboard, mut transform, place) in &mut sprites {
+    for (billboard, mut transform, place, covers) in &mut sprites {
+        if covers {
+            // After the interpolation has put it where the simulation left it.
+            transform.translation = eye + facing * Vec3::NEG_Z * VIEW_COVER.0;
+        }
         let rolled = facing * Quat::from_rotation_z(billboard.roll);
         transform.rotation = match billboard.axis {
             None => rolled,
@@ -1090,6 +1146,13 @@ mod tests {
         // sphere.
         assert!(!recipes.blast_sphere("nitro", 2));
         assert!(recipes.blast_sphere("agents", 2));
+        let flashes = |emits: &[Emit]| {
+            recipes
+                .expand(emits)
+                .any(|emit| matches!(emit, Emit::Screen { .. }))
+        };
+        assert!(flashes(recipes.fire("shock_blaster", 0)));
+        assert!((0..4).all(|level| flashes(recipes.impact("nitro", level))));
         for (name, emits) in &recipes.sets {
             assert!(
                 !emits.iter().any(|emit| matches!(emit, Emit::Set(_))),

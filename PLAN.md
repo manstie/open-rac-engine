@@ -71,8 +71,9 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. The guns' effects from the disc (P3.18): the other guns' calls' arguments, starting
-   with the Plasma Whip, Plasma Coil and Bouncer; the ribbons, rings, lights and shake,
+1. The guns' effects from the disc (P3.18): recipes for the Bouncer, Plasma Coil and
+   Plasma Whip from their read calls, then the other guns'; the ribbons, rings, lights
+   and shake,
    the whip's links and shield; then P1.10's nanotech, explosive and doubler crates
    ("Ammo pickups, crates and the vendor").
 2. Co-op (RE.10): a co-op level with crates and enemies, to trace an ammo pickup and a
@@ -1131,8 +1132,6 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Uncapped frame rates through interpolation.
   - Support for user-supplied high-resolution texture packs.
 - [~] **P3.18** The guns' **effects from the disc** (`effects.md`, "Importing them"):
-  - In progress (2026-10-28): reading the Plasma Whip's, Plasma Coil's and Bouncer's
-    calls.
   - Read the level's effect and particle textures and particle definitions from its core
     (`rac_formats`), and the shot classes' meshes (`Core::moby_class`).
   - An ISO-free effects layer in the kit: billboards, beams, strips, trails, rings, point
@@ -1158,18 +1157,22 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     of the same guns (`effects.md`, "Importing them" 3). The effects cast shadows (Bevy's
     shadow pass takes blended meshes; now `NotShadowCaster`), the kit's sphere hid the
     Nitro's blast (`blast_sphere`), and the Lava Gun's smokes are half added, half
-    blended, as the game's.
+    blended, as the game's. The full-screen flashes of the Shock Blaster, the Nitro and
+    the Annihilator's explosions, read in code and drawn (`Screen`). The Plasma Whip's,
+    Plasma Coil's and Bouncer's calls read with their arguments (`effects.md`, "The
+    calls' arguments"), not yet in recipes.
   - Veldin's N60 always takes its bullets' second path: 0x1DE380, which picks the tracer
     and the trail, is 1 and never written. The Nitro's blast doesn't call
     `explosion_spawn` at all. Particle sizes are taken as halves; whether they are half
     the diagonal instead (√2) is open.
   - Not done: the other guns' recipes (the kit's own still); ribbons with moving ends,
-    rings and domes, lights, shake, screen flashes and glows, decals, children particles
+    rings and domes, lights, shake, glows over the view, decals, children particles
     and meshes the effects spawn (`effects.md`, "Importing them" 3); the V5 shots'
     classes; the whip's links and the shield; the Lava Gun's stream as one ribbon, and
-    why the kit's bunches a unit or two ahead of the hero where the game's arcs far
-    ahead (its aim, perhaps; `effects.md`, "Importing them" 3). Next step: read the
-    next guns' calls (the Plasma Whip, the Plasma Coil and the Bouncer).
+    a reference take of it with no enemy in reach (`effects.md`, "Importing them" 3).
+    Next step: write the Bouncer's, Plasma Coil's and Plasma Whip's recipes from
+    `effects.md` (the Bouncer's needs nothing new; the coil's arcs and the whip's rope
+    need ribbons, and both a light), then read the next guns' calls.
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.
