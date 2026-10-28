@@ -290,8 +290,10 @@ code, with its notices, not here; what may be reused is in `CLAUDE.md`'s legal r
 ## Co-op and split-screen (for Goal 4)
 
 - **Deadlocked's story co-op** is built as separate split-screen builds of every campaign
-  level: DL levels 21–35 mirror levels 1–15, each with its own overlay. Player 2 replaces
-  the combat bots.
+  level: DL levels 21–35 mirror levels 1–15, each with its own overlay, running the same
+  game code, which tests a co-op flag set from the level number. Player 2 replaces the
+  combat bots **[code, 2026-10-28]**. The rules (what is shared, death and respawn, split
+  screen, menus) are in [coop.md](coop.md).
 - **Split-screen multiplayer maps** also have their own builds: UYA levels 50–55 and DL
   levels 61–74.
 - **The single-player code in R&C1–UYA assumes one hero.** A co-op backport therefore needs

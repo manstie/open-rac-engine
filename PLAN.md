@@ -16,6 +16,7 @@ The source of truth for **scope, strategy, decisions, status and next steps**.
   - [gameplay-format.md](docs/research/gameplay-format.md): levels' gameplay files (P3.10).
   - [effects.md](docs/research/effects.md): particles, effect textures, beams, lights
     and the guns' effects (P3.18).
+  - [coop.md](docs/research/coop.md): Deadlocked's two-player campaign (RE.10).
 - The reverse-engineering setup, and the catalogue of savestates, recordings and traces:
   [docs/re-setup.md](docs/re-setup.md).
 
@@ -60,6 +61,9 @@ session is working on the task now; notes on problems met stay with their task (
   their V5 variants included (`weapons.md`, "Next steps" 4 has the few left), how
   firing affects the hero, the guns' aim indicators, and the effects engine the guns
   draw with (`effects.md`).
+  DL's two-player campaign is read in code (RE.10, `coop.md`): who player 2 is, what
+  the players share, death and respawn, difficulty, split screen, menus and missions;
+  nothing is traced in play yet.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
   from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
@@ -71,7 +75,9 @@ session is working on the task now; notes on problems met stay with their task (
    screen, then the other guns' calls' arguments; the ribbons, rings, lights and shake,
    the whip's links and shield; then P1.10's nanotech, explosive and doubler crates
    ("Ammo pickups, crates and the vendor").
-2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
+2. Co-op (RE.10): a co-op savestate in normal play (a second keyboard pad on port 2),
+   then traces of a death, both deaths, an ammo pickup and a kill by each player.
+3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
 
 ---
@@ -568,15 +574,25 @@ committed (names, addresses, layouts, derived constants).
   50/60 Hz menu choice.
 - [ ] **RE.9** **Engine structure:** the main loop, tick order, VSync and threads, overlay
   loading and `lvl.vtbl` dispatch. UYA/DL first, then R&C1/GC.
-- [ ] **RE.10** **Gladiator's co-op mechanics**, from DL NTSC-U and Gladiator PAL:
-  - Who player 2 is.
-  - Respawn and revive rules.
-  - What is shared versus per player: bolts, ammo, weapons, upgrades, health.
-  - Camera.
-  - How missions and cutscenes handle two players.
-  - The split-screen level builds (21–35).
-  - Difficulty scaling.
-  - Output: `docs/research/coop.md`. Feeds Phase 6.
+- [~] **RE.10** **Gladiator's co-op mechanics**, from DL NTSC-U and Gladiator PAL:
+  - Read in DL NTSC-U's code (`coop.md`, "In short"; names in
+    `re/SCUS-97465/symbols.toml`), with the layout, heroes, cameras and shared gadget box
+    checked in a level-21 savestate (`dlntsc-dreadzone-coop.p2s`): co-op is levels 21–35,
+    chosen by the level number, running the same code as 1–15 with progress shared with
+    them; player 2 is a second hero with his own skin, camera, settings, pad, health, gun
+    in hand and quick-select; bolts, XP, maximum health and one gadget box are shared;
+    a dead player respawns after 6 s near where the partner stood, and only both dead at
+    once restarts the level (no revive); difficulty isn't raised, ammo pickups give 2.4
+    times as much and enemy hit points have a co-op factor (1.0 so far); the split screen
+    stacks two views (staggered in widescreen), draws at 30 fps over the 60 Hz ticks and
+    goes full screen for cutscenes and menus; player 2 replaces the battle bots.
+  - The savestate is stuck in the pause menu (`re-setup.md`), likely because `boot.sh`
+    leaves port 2 empty, so nothing is traced in play yet.
+  - To do (`coop.md`, "Not read yet / next steps"): a playable co-op state and traces of
+    deaths, pickups and kills; where player 2 starts; the enemy hit-point factor in a
+    level with enemies; Gladiator PAL.
+  - Next step: let `pine-probe headless-config` bind a second keyboard pad to port 2,
+    then load `dlntsc-dreadzone-coop.p2s` and save a state in normal play.
 - [ ] **RE.11** **Renderer:**
   - For each VU program: its input packet format and meaning.
   - How the DMA chain is built, and the hook points (`VU1_sendChain`, `VU1_syncChain`,

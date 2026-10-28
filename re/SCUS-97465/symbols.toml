@@ -1323,8 +1323,8 @@ note = "libdl's GAME_CLIENT_ID. Read or written by 10 instructions in this image
 name = "local_player_count"
 address = 0x00172174
 kind = "data"
-confidence = "low"
-note = "libdl's PLAYER_LOCAL_COUNT. Read or written by 7 instructions in this image. It holds 1 in single player."
+confidence = "high"
+note = "libdl's PLAYER_LOCAL_COUNT, reached through the pointer at 0x21DDA4: 1 in single player, 2 on the co-op levels 21-35 (checked in dlntsc-dreadzone-coop.p2s), the player count in multiplayer."
 
 [[symbol]]
 name = "player_1_id"
@@ -1975,8 +1975,8 @@ note = "Changes the hand item. On a multiplayer level with item 13 (libdl's hack
 name = "coop_flag"
 address = 0x0021E828
 kind = "data"
-confidence = "medium"
-note = "1 on a campaign level with two players (main_loop)."
+confidence = "high"
+note = "1 on the campaign's two-player levels 21-35 (main_loop, coop_level); code tests multiplayer_flag == 0 && coop_flag == 1. 1 in dlntsc-dreadzone-coop.p2s."
 
 # 2026-10-23, Deadlocked's stick and strafing (PLAN.md RE.3; hero-controller.md, "Input"
 # and "Deadlocked's strafing").
@@ -2066,7 +2066,7 @@ name = "hero_death_done"
 address = 0x0067A4F8
 kind = "function"
 confidence = "medium"
-note = "UYA's hero_death_done: reports the death unless hero+0x420 is set; in single player counts it in the stats and sets 0x368BE8, which the level takes up for the respawn (not read). Death (57, 148; entry 0x699F48, sequence 58) calls it when a 10-frame counter at hero+0x3F8 runs out, or once the animation is done, a timer at hero+0x3DC has run out and the state is over 80 frames old (1 on multiplayer levels)."
+note = "UYA's hero_death_done: reports the death unless hero+0x420 is set. In single player counts it (0x21EBE4, 0x21DA74, 0x171F70 by level) and sets the report 0x368BE8, and main_loop restarts the level. In co-op counts it in the player's stats, sets hero+0x3B2 to 360 frames and enters state 153, whose countdown ends in hero_respawn, or restarts the level if the other hero is in 153 too (docs/research/coop.md). Death (57, 148; entry 0x699F48, sequence 58) calls it when a 10-frame counter at hero+0x3F8 runs out, or once the animation is done, a timer at hero+0x3DC has run out and the state is over 80 frames old (1 on multiplayer levels)."
 
 # 2026-10-23, the step limit (PLAN.md RE.3; docs/research/hero-controller.md, "Found in the
 # traces").
@@ -2086,3 +2086,321 @@ address = 0x0068B258
 kind = "function"
 confidence = "medium"
 note = "UYA's hero_platform_carry with per-second literals × frame_dt: off the platform 2 u/s² (20 with the moby's flag 0x10) across and 25 u/s² vertically × frames off the ground; no critter-mode clause. hero_move_step skips it on multiplayer levels (multiplayer_flag)."
+
+# 2026-10-28, Deadlocked's co-op (PLAN.md RE.10; docs/research/coop.md). DreadZone
+# Station's build; checked in the co-op savestate dlntsc-dreadzone-coop.p2s where high.
+
+[[symbol]]
+name = "coop_level"
+address = 0x00666600
+kind = "function"
+confidence = "medium"
+note = "True on the campaign's two-player builds, levels 21-35 (level - 21 < 15); main_loop's only test for co-op (docs/research/coop.md)."
+
+[[symbol]]
+name = "hero_by_index"
+address = 0x006658C0
+kind = "function"
+confidence = "medium"
+note = "Returns player i's hero, 0x368F60 + i x 0x31F0."
+
+[[symbol]]
+name = "hero_create"
+address = 0x006A8420
+kind = "function"
+confidence = "medium"
+note = "Sets up player i's hero: index (+0x2F10, +0x2FEA), camera 0x230280 + i x 0x470 (+0x2EFC), pad (+0x2F00), constants, per-player camera options, health from health_level, the item saved in held_item_saved; player 2's moby marks in co-op."
+
+[[symbol]]
+name = "level_start_heroes"
+address = 0x0057CA50
+kind = "function"
+confidence = "medium"
+note = "Creates hero 0 at a level's start, and hero 1 on a campaign level in co-op."
+
+[[symbol]]
+name = "hero_respawn"
+address = 0x0067ACB0
+kind = "function"
+confidence = "medium"
+note = "Brings a hero back: health to maximum (+0x2F24), placed at coop_respawn_spot's spot in co-op, else at the fallback point +0x2F70/+0x2F80; in co-op also coop_respawn_hoverbike. State 153 calls it when hero+0x3B2 runs out."
+
+[[symbol]]
+name = "coop_respawn_spot"
+address = 0x00585E78
+kind = "function"
+confidence = "medium"
+note = "Co-op respawn spot: searches the partner's safe_spots first, then the hero's own, then his newest spot."
+
+[[symbol]]
+name = "safe_spot_find"
+address = 0x00585F50
+kind = "function"
+confidence = "medium"
+note = "Newest-first search of a hero's safe_spots ring for a spot at least 2 u from the given hero that passes the vetoes and a ground probe."
+
+[[symbol]]
+name = "safe_spot_add"
+address = 0x00585DE0
+kind = "function"
+confidence = "medium"
+note = "Adds the hero's place to his safe_spots ring when safe_spot_due agrees."
+
+[[symbol]]
+name = "safe_spot_due"
+address = 0x00586068
+kind = "function"
+confidence = "medium"
+note = "True when the hero stands on something and is at least 4 u from his newest safe spot."
+
+[[symbol]]
+name = "coop_respawn_hoverbike"
+address = 0x006B33D8
+kind = "function"
+confidence = "medium"
+note = "Co-op respawn on a hoverbike (class 0x2054): puts the hero on the free bike nearest the partner when he or the partner rode one recently."
+
+[[symbol]]
+name = "split_screen_loop"
+address = 0x00529F38
+kind = "function"
+confidence = "medium"
+note = "main_loop's frame while split_mode is set: draws every view, then two game ticks (three if the frame overran), then the cameras, so 30 drawn frames a second over 60 ticks."
+
+[[symbol]]
+name = "split_screen_borders"
+address = 0x00527CE0
+kind = "function"
+confidence = "medium"
+note = "Draws the line between split-screen views and, in widescreen, the tinted strips beside the halves."
+
+[[symbol]]
+name = "view_layout"
+address = 0x00548C48
+kind = "function"
+confidence = "medium"
+note = "Maps (split_mode, view) to a layout of view_layout_table."
+
+[[symbol]]
+name = "pad_p2_pick"
+address = 0x00529310
+kind = "function"
+confidence = "medium"
+note = "Co-op, each frame: player 2 reads port 2's pad, or the block 0x1EEBC0 while port 2 reports none."
+
+[[symbol]]
+name = "game_mode_request"
+address = 0x005A9608
+kind = "function"
+confidence = "medium"
+note = "Asks for a game mode (the pause menu's 3 among them); refuses while a hero has 0 health, unless 0x21E904 is set in co-op."
+
+[[symbol]]
+name = "menu_input"
+address = 0x005D8CD0
+kind = "function"
+confidence = "medium"
+note = "A menu's new presses from either co-op player's pad, noting which player in 0x21EFE8."
+
+[[symbol]]
+name = "ui_screen_set"
+address = 0x005D87A0
+kind = "function"
+confidence = "medium"
+note = "Sets a player's UI screen; outside multiplayer it works on player 1's, and in co-op copies the HUD screen to player 2 and sends player 2 back to his HUD for any other."
+
+[[symbol]]
+name = "moby_destroy"
+address = 0x00586E80
+kind = "function"
+confidence = "medium"
+note = "Destroys a moby; co-op calls it on the battle bots (0x268B) and their vendor (0x2643) at their first update."
+
+[[symbol]]
+name = "mission_id"
+address = 0x006C12A8
+kind = "function"
+confidence = "medium"
+note = "(level, challenge index) to a mission id: the planet record's first id plus the index; the planet comes from level % 20."
+
+[[symbol]]
+name = "ammo_pickup_update"
+address = 0x003D7900
+kind = "function"
+confidence = "medium"
+note = "Ammo pickup: the nearest living player with room takes max ammo x difficulty_table +0xC (x 0.5 for items 2 and 7), x 2.4 in co-op, into the shared box."
+
+[[symbol]]
+name = "bolt_collect"
+address = 0x0046AE78
+kind = "function"
+confidence = "medium"
+note = "Adds a bolt moby's value to bolts (and a per-level count); no player involved."
+
+[[symbol]]
+name = "gadget_box_attach"
+address = 0x006909C8
+kind = "function"
+confidence = "medium"
+note = "Points hero+0x26E4 at the gadget box: gadget_box for every hero on the campaign, 0x1D3F90 + i x 0x12B0 in multiplayer; fills a new box (item 7 only in co-op)."
+
+[[symbol]]
+name = "health_level_update"
+address = 0x0068F398
+kind = "function"
+confidence = "medium"
+note = "Recomputes health_level from xp_total (table 0x3B6458); when it rises heals the hero and, in co-op, player 2 too."
+
+[[symbol]]
+name = "coop_scale_hp"
+address = 0x0064ED20
+kind = "function"
+confidence = "medium"
+note = "Co-op only: multiplies a moby's maximum hit points by coop_hp_scale and refills them, at the level's moby set-up."
+
+[[symbol]]
+name = "enemy_attack_scale"
+address = 0x0064EEA8
+kind = "function"
+confidence = "low"
+note = "x x difficulty_table +0x14, x 0.75 while the player is in third person or rides class 0x20AE (co-op: both in third person, or either riding); enemy shots pass 75.0."
+
+[[symbol]]
+name = "player_heroes"
+address = 0x003660F8
+kind = "data"
+confidence = "high"
+note = "Hero pointer per player: player 1, then player 2 at 0x3660FC (0 in single player). Checked in dlntsc-dreadzone-coop.p2s: 0x368F60 and 0x36C150."
+
+[[symbol]]
+name = "split_mode"
+address = 0x0021E818
+kind = "data"
+confidence = "medium"
+note = "Views beyond the first: 0 single player, 1 co-op, player count - 1 in multiplayer; menus and cutscenes drop it to 0 for a while."
+
+[[symbol]]
+name = "split_mode_request"
+address = 0x0021E81C
+kind = "data"
+confidence = "medium"
+note = "Pending split_mode, -1 for none; main_loop applies it at the end of the frame (the old value to 0x21E820)."
+
+[[symbol]]
+name = "split_mode_saved"
+address = 0x00222EE4
+kind = "data"
+confidence = "high"
+note = "split_mode kept while a menu shows one view; 1 in dlntsc-dreadzone-coop.p2s, paused with split_mode 0."
+
+[[symbol]]
+name = "view_layout_table"
+address = 0x003B65B0
+kind = "data"
+confidence = "high"
+note = "Split-screen layouts, 0x28 bytes: x0 x1 y0 y1, scale, offset, flag, aspect. Co-op: 1 top half, 2 bottom half; widescreen's staggered halves at 0x3B6740. Read in both images."
+
+[[symbol]]
+name = "widescreen"
+address = 0x00171DEB
+kind = "data"
+confidence = "low"
+note = "Taken to be the 16:9 option: divides the vertical field by 4/3 and staggers co-op's halves. 1 in our savestates."
+
+[[symbol]]
+name = "bolts"
+address = 0x00171B40
+kind = "data"
+confidence = "medium"
+note = "int: the bolt purse, one for both co-op players."
+
+[[symbol]]
+name = "xp_total"
+address = 0x00171B48
+kind = "data"
+confidence = "medium"
+note = "int: the hero XP total, shared in co-op."
+
+[[symbol]]
+name = "health_level"
+address = 0x00171B50
+kind = "data"
+confidence = "medium"
+note = "short: every hero's maximum health, from xp_total; 10 in a new game."
+
+[[symbol]]
+name = "gadget_box"
+address = 0x001D3F90
+kind = "data"
+confidence = "high"
+note = "The campaign's gadget box (libdl GadgetBox, 0x12B0 bytes), shared by both co-op heroes: both point at it in dlntsc-dreadzone-coop.p2s."
+
+[[symbol]]
+name = "held_item_saved"
+address = 0x00220810
+kind = "data"
+confidence = "medium"
+note = "int per player: the item in hand, written every frame and given back at the next level's set-up."
+
+[[symbol]]
+name = "difficulty"
+address = 0x0021DF64
+kind = "data"
+confidence = "medium"
+note = "int 0-4, 1 the default; co-op doesn't change it."
+
+[[symbol]]
+name = "difficulty_table"
+address = 0x003BD3D0
+kind = "data"
+confidence = "medium"
+note = "Nine floats per difficulty 0-4; +0xC the ammo pickup fraction, +0x14 the enemy attack scale; the rest not read."
+
+[[symbol]]
+name = "coop_hp_scale"
+address = 0x002204C0
+kind = "data"
+confidence = "low"
+note = "float: enemy hit-point scale in co-op (coop_scale_hp); 1.0 on levels 1 and 21, writer not found."
+
+[[symbol]]
+name = "safe_spots"
+address = 0x00269EC0
+kind = "data"
+confidence = "medium"
+note = "Per player, 0x110 bytes: the last 8 safe spots (position and rotation, 0x20 each), newest index +0x100, count +0x104."
+
+[[symbol]]
+name = "coop_both_dead"
+address = 0x001711B9
+kind = "data"
+confidence = "medium"
+note = "Set with the death report 0x368BE8 when both co-op players are dead at once, before the restart."
+
+[[symbol]]
+name = "mission_current"
+address = 0x0021EBD8
+kind = "data"
+confidence = "medium"
+note = "The current challenge's index on its planet."
+
+[[symbol]]
+name = "level_save"
+address = 0x001F8AF0
+kind = "data"
+confidence = "medium"
+note = "Per-level records, 0x304 bytes, indexed by (level - 1) % 20, so a co-op level shares its single-player level's."
+
+[[symbol]]
+name = "hud_masks"
+address = 0x0032ED64
+kind = "data"
+confidence = "medium"
+note = "Per-player HUD element bits, 0x10 apart: 0x37 single player, 0x3F co-op."
+
+[[symbol]]
+name = "ui_screens"
+address = 0x0031B2F8
+kind = "data"
+confidence = "medium"
+note = "Per-player UI screen state, 0x54 apart."
