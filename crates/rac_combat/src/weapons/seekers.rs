@@ -154,8 +154,8 @@ pub(super) fn coil_shot(
         );
         for index in struck {
             let target = &targets[index];
-            out.event(
-                shot.weapon,
+            out.shot_event(
+                shot,
                 GunEventKind::Arc {
                     from: shot.position,
                     to: target.centre,
@@ -176,7 +176,7 @@ pub(super) fn coil_shot(
     if let Some(target) = in_ball(targets, shot.position, fire.radius, None).find(|t| t.alive) {
         let push = shot.velocity * TICK * fire.push;
         out.hits.push(shot.hit(target.entity, shot.damage, push));
-        out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
         shot.kind = ShotKind::Ball {
             stuck: Some((Some(target.entity), 0)),
         };
@@ -186,7 +186,7 @@ pub(super) fn coil_shot(
     match flight.world.cast_ray(shot.position, motion) {
         Some(hit) => {
             shot.position += motion * hit.fraction + hit.normal * STICK_GAP;
-            out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+            out.shot_event(shot, GunEventKind::Impact { at: shot.position });
             shot.kind = ShotKind::Ball {
                 stuck: Some((None, 0)),
             };
@@ -211,7 +211,7 @@ fn storm_ball(
     born: &mut Vec<Shot>,
 ) -> bool {
     if shot.ticks >= storm.fly_ticks + storm.fade_ticks {
-        out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
         return false;
     }
     if shot.ticks >= storm.fly_ticks {
@@ -262,8 +262,8 @@ fn storm_ball(
         }
         room -= 1;
         arced.push((target.entity, now));
-        out.event(
-            shot.weapon,
+        out.shot_event(
+            shot,
             GunEventKind::Arc {
                 from: at,
                 to: target.centre,
@@ -336,7 +336,9 @@ pub(super) fn disc(
 
 /// A disc (0x36FA78): it flies at its target, or curves, and bounces off the world; a
 /// target it touches takes its damage. From V2 a bounce turns it at a new enemy; from V3
-/// it bounces off enemies too, hitting each; from V4 its end is a blast.
+/// it bounces off enemies too, hitting each; from V4 its end is a blast. Each bounce is a
+/// [`GunEventKind::Bounce`] and its end, wherever it comes, an impact, as the game sparks
+/// at each (0x370CD8) and bursts at its end.
 pub(super) fn disc_shot(
     shot: &mut Shot,
     fire: &Disc,
@@ -394,8 +396,8 @@ fn disc_tick(
     if !ended && let Some((entity, centre)) = touching {
         let push = shot.velocity * TICK * fire.push;
         out.hits.push(shot.hit(entity, shot.damage, push));
-        out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
         if through {
+            out.shot_event(shot, GunEventKind::Bounce { at: shot.position });
             // Off the enemy, and at another it can see.
             let away = (shot.position - centre).normalize_or(-shot.velocity.normalize_or_zero());
             if shot.velocity.dot(away) < 0.0 {
@@ -439,8 +441,8 @@ fn disc_tick(
                 out.hits
                     .push(shot.hit(near.entity, shot.damage * blast.share, Vec3::ZERO));
             }
-            out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
         }
+        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
         return false;
     }
     let motion = shot.velocity * TICK;
@@ -448,6 +450,7 @@ fn disc_tick(
         Some(hit) => {
             shot.position += motion * hit.fraction + hit.normal * BOUNCE_GAP;
             shot.velocity = shot.velocity.reflect(hit.normal);
+            out.shot_event(shot, GunEventKind::Bounce { at: shot.position });
             if retargets {
                 target = retarget(targets, flight, shot.position, fire.retarget_range, last);
             }
@@ -644,7 +647,7 @@ fn rocket_tick(
             out.hits.push(shot.hit(near.entity, shot.damage, push));
         }
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 
@@ -771,7 +774,7 @@ pub(super) fn spit(shot: &mut Shot, fire: &Hydra, flight: &Flight, out: &mut Out
     };
     let from = shot.position;
     for &to in ends {
-        out.event(shot.weapon, GunEventKind::Arc { from, to });
+        out.shot_event(shot, GunEventKind::Arc { from, to });
     }
     if *life >= fire.spit_strike && shot.ticks == life - fire.spit_strike {
         let blast = fire.spit_blast.at(shot.level).unwrap_or(0.0);
@@ -797,7 +800,7 @@ pub(super) fn spit(shot: &mut Shot, fire: &Hydra, flight: &Flight, out: &mut Out
                 out.hits
                     .push(shot.hit(near.entity, shot.damage, Vec3::ZERO));
             }
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
         }
     }
     shot.ticks < *life

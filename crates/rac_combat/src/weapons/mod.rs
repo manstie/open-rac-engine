@@ -52,6 +52,9 @@ pub struct GunEvent {
     pub player: usize,
     pub weapon: WeaponId,
     pub kind: GunEventKind,
+    /// The kind of the gun's shot that did it, by [`ShotKind::name`] (a turret that fires,
+    /// a canister's bomblet that bursts); `None` for the gun itself.
+    pub shot: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,6 +65,9 @@ pub enum GunEventKind {
     Ray { from: Vec3, to: Vec3 },
     /// A shot hit something, burst or splashed.
     Impact { at: Vec3 },
+    /// A shot glanced off something and flew on, as the Disc Blade's off walls and, from
+    /// V3, off enemies.
+    Bounce { at: Vec3 },
     /// The shock mod's arc from the target hit to another.
     Arc { from: Vec3, to: Vec3 },
     /// The gun reached a new level.
@@ -261,11 +267,12 @@ pub(crate) fn fire_guns(
             health.current = (health.current + outcome.heal).min(health.max);
         }
         afflictions.extend(outcome.afflictions.iter().map(|&a| (hero.player, a)));
-        for (weapon, kind) in outcome.events {
+        for (weapon, kind, shot) in outcome.events {
             events.write(GunEvent {
                 player: hero.player,
                 weapon,
                 kind,
+                shot,
             });
         }
         for gun in &arsenal.guns {
@@ -325,6 +332,7 @@ pub(crate) fn fire_guns(
             player,
             weapon: hit.weapon,
             kind: GunEventKind::Arc { from, to },
+            shot: None,
         });
         shock_arcs.0.push(Arc {
             player,
@@ -459,6 +467,7 @@ pub(crate) fn fire_guns(
                 player,
                 weapon,
                 kind: GunEventKind::LevelUp { level: up.level },
+                shot: None,
             });
         }
     }

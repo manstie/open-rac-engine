@@ -13,17 +13,25 @@
 //!   they don't touch the simulation.
 
 mod paint;
+mod panel;
+mod ribbon;
+mod sweep;
 
 use std::collections::BTreeMap;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+#[cfg(doc)]
+use rac_combat::weapons::ShotKind;
 use rac_combat::{Armory, Arsenal, GunEvent, GunEventKind, WeaponId};
 use rac_hero::Hero;
 use rac_sim::SimTransform;
 use serde::Deserialize;
 
 pub use paint::{Paint, Shape};
+pub use panel::{Panel, Panels};
+pub use ribbon::Ribbon;
+pub use sweep::Sweep;
 
 use crate::DemoEntity;
 
@@ -94,7 +102,8 @@ pub enum Emit {
     },
     /// A sprite facing the camera, `size` across growing to `end_size` as its alpha goes to
     /// `end_alpha`, turned by an angle within `roll` and turning `spin` a tick, and going
-    /// `ahead` units a second along the shot's way; shown `delay` ticks after the event.
+    /// `ahead` units a second along the shot's way; shown `delay` ticks after the event,
+    /// `nearer` units toward the camera (as the game keeps a spark off the wall it is on).
     Glow {
         texture: Tex,
         size: f32,
@@ -113,11 +122,14 @@ pub enum Emit {
         #[serde(default)]
         delay: u32,
         #[serde(default)]
+        nearer: f32,
+        #[serde(default)]
         blend: Blend,
     },
     /// `count` particles thrown out at up to `speed` units a second (from `speed_from`, or
-    /// 0.4 of it), all round or within `cone` degrees of the way they head, falling at
-    /// `gravity` and keeping `keep` of their speed each tick. Each is `size` across (or
+    /// 0.4 of it), all round or within `cone` degrees of the way they head, and rising at
+    /// between the two of `rise` on top; falling at `gravity` and keeping `keep` of their
+    /// speed each tick. Each is `size` across (or
     /// between it and `size_to`), changing to `end_size` in proportion while its alpha goes
     /// to `end_alpha` and its colour to `end_colour` over `ticks` (to `ticks_to`, or give
     /// or take a third). They start at any roll and turn up to `spin` a tick either way.
@@ -134,6 +146,8 @@ pub enum Emit {
         cone: Option<f32>,
         #[serde(default)]
         toward: Toward,
+        #[serde(default)]
+        rise: (f32, f32),
         #[serde(default)]
         gravity: f32,
         #[serde(default = "whole")]
@@ -194,7 +208,7 @@ impl Emit {
 }
 
 /// A beam from one point to another, `width` across, fading over `ticks` as it narrows
-/// to `end_width` (to nothing if not given).
+/// to `end_width` (to nothing if not given); bent, with a `jag`, through points aside.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Beam {
     pub texture: Tex,
@@ -206,6 +220,67 @@ pub struct Beam {
     pub colour: [f32; 4],
     #[serde(default)]
     pub blend: Blend,
+    #[serde(default)]
+    pub jag: Option<Jag>,
+    /// Laid through the points of the beam before it in its list, as a glow round a core.
+    #[serde(default)]
+    pub same_bends: bool,
+}
+
+/// A beam's bends, as the lightning bolt's (0x34DFD0): `points` points along it, ends
+/// included, each between them lifted `wave` × the sine of its angle, moved level across
+/// the beam `around` × its cosine, and lifted up to `jitter` more either way; the angles
+/// go up `turn` degrees a point from one at random. With `bows`, the points lie on the
+/// Plasma Coil's curve (0x30D500) instead: at t along the way, less w1 t(1 − t)² and
+/// w2 t²(1 − t), each axis of w1 and w2 up to between the two of its range either way.
+/// Drawn afresh each time the beam is.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct Jag {
+    pub points: u32,
+    #[serde(default)]
+    pub wave: f32,
+    #[serde(default)]
+    pub around: f32,
+    #[serde(default)]
+    pub turn: f32,
+    #[serde(default)]
+    pub jitter: f32,
+    #[serde(default)]
+    pub bows: Option<((f32, f32), (f32, f32))>,
+}
+
+impl Jag {
+    /// The points a beam from `from` to `to` bends through, both ends included.
+    pub(crate) fn points(&self, from: Vec3, to: Vec3, rng: &mut FxRng) -> Vec<Vec3> {
+        let way = to - from;
+        // As the bolt's draw (0x34E688) lays them: across is level, up square to both.
+        let across = way.cross(Vec3::Y).try_normalize().unwrap_or(Vec3::X);
+        let up = across.cross(way.normalize_or_zero());
+        let start = rng.between((0.0, std::f32::consts::TAU));
+        // Each axis a wavering amplitude × the sine of its own phase, as 0x30C5D8 sets.
+        let mut bow =
+            |range| {
+                Vec3::from_array([0; 3].map(|_| {
+                    rng.between(range) * ops::sin(rng.between((0.0, std::f32::consts::TAU)))
+                }))
+            };
+        let bows = self.bows.map(|(first, second)| (bow(first), bow(second)));
+        let last = self.points.max(2) - 1;
+        (0..=last)
+            .map(|point| {
+                if point == 0 || point == last {
+                    return if point == 0 { from } else { to };
+                }
+                let t = point as f32 / last as f32;
+                let angle = start + (self.turn * point as f32).to_radians();
+                let lift = self.wave * ops::sin(angle) + rng.between((-self.jitter, self.jitter));
+                let bent = bows.map_or(Vec3::ZERO, |(first, second)| {
+                    -first * t * (1.0 - t) * (1.0 - t) - second * t * t * (1.0 - t)
+                });
+                from + way * t + bent + up * lift + across * (self.around * ops::cos(angle))
+            })
+            .collect()
+    }
 }
 
 /// One of the sprites drawn on each of a gun's shots in flight, in place of the kit's
@@ -240,8 +315,9 @@ pub struct Streak {
     pub blend: Blend,
 }
 
-/// Particles a shot leaves along its way: `per_tick` a tick (a fraction being a chance)
-/// and one for every `spacing` units of the tick's path, spread along it. Each is in one of `textures` and
+/// Particles a shot leaves along its way, until it is `until` ticks old if that is given:
+/// `per_tick` a tick (a fraction being a chance) and one for every `spacing` units of the
+/// tick's path, spread along it. Each is in one of `textures` and
 /// `colours`, growing from `size` to `end_size` as its alpha goes to `end_alpha` and its
 /// colour to `end_colour` over `ticks` to `ticks_to`. It sets off rising at `rise` units
 /// a second, going back at `back` times the shot's speed and up to `scatter` units a
@@ -253,6 +329,8 @@ pub struct Trail {
     pub per_tick: f32,
     #[serde(default)]
     pub spacing: f32,
+    #[serde(default)]
+    pub until: Option<u32>,
     pub textures: Vec<Tex>,
     pub colours: Vec<[f32; 4]>,
     pub size: f32,
@@ -307,17 +385,42 @@ pub struct GunFx {
     /// Beams laid along each tick of a shot's way, as the Flux Rifle's.
     #[serde(default)]
     pub wake: Option<Vec<Beam>>,
+    /// Ribbons through the gun's shots of a kind in flight, as the Lava Gun's stream.
+    #[serde(default)]
+    pub ribbon: Option<Vec<Ribbon>>,
+    /// Sprites in the plane of a shot of the kind once it stands, as the Holo Shield's
+    /// wall, in place of the kit's.
+    #[serde(default)]
+    pub panels: Option<Panels>,
+    /// Flat ribbons through where each shot has been, as the Disc Blade's.
+    #[serde(default)]
+    pub sweep: Option<Vec<Sweep>>,
     #[serde(default)]
     pub impact: Option<Vec<Emit>>,
+    /// What shows where a shot glances off something and flies on.
+    #[serde(default)]
+    pub bounce: Option<Vec<Emit>>,
     #[serde(default)]
     pub ray: Option<Vec<Beam>>,
     /// What shows where each of a hitscan's rays stops.
     #[serde(default)]
     pub ray_end: Option<Vec<Emit>>,
+    /// The beams of each arc from what a shot hit to another target: the shock mod's, the
+    /// Plasma Coil's and the Spitting Hydra's.
+    #[serde(default)]
+    pub arc: Option<Vec<Beam>>,
+    /// What shows where each arc ends.
+    #[serde(default)]
+    pub arc_end: Option<Vec<Emit>>,
     /// Whether the gun's blasts show as the kit's sphere of their reach (the default), or
     /// only through their `impact`, as the game draws the Nitro's.
     #[serde(default)]
     pub blast_sphere: Option<bool>,
+    /// What the gun's shots of each kind show, by the kit's name for the kind
+    /// ([`ShotKind::name`]), in place of what this gives: the events of a turret and its
+    /// pellets, a canister's bomblets, and the look and trails of each in flight.
+    #[serde(default)]
+    pub shots: BTreeMap<String, GunFx>,
     #[serde(default)]
     pub from_level: BTreeMap<u8, GunFx>,
 }
@@ -348,8 +451,6 @@ pub struct FxRecipes {
     pub sets: BTreeMap<String, Vec<Emit>>,
     /// What a gun shows that its recipe doesn't name.
     pub default: GunFx,
-    /// The shock mod's arcs.
-    pub arc: Beam,
     pub guns: BTreeMap<String, GunFx>,
 }
 
@@ -360,67 +461,108 @@ impl Default for FxRecipes {
 }
 
 impl FxRecipes {
-    fn gun(&self, key: &str) -> Option<&GunFx> {
-        self.guns.get(key)
+    /// What `part` gives for gun `key`'s `shot` (by [`ShotKind::name`], `None` for the gun
+    /// itself) at `level`: the gun's entry for that kind of shot, else the defaults' entry
+    /// for it (the lightning bolt four guns share), else the gun's own.
+    fn own<'a, T: ?Sized>(
+        &'a self,
+        key: &str,
+        level: u8,
+        shot: Option<&str>,
+        part: impl Fn(&'a GunFx) -> Option<&'a T> + Copy,
+    ) -> Option<&'a T> {
+        let gun = self.guns.get(key)?;
+        let kind = |fx: &'a GunFx| shot.and_then(|shot| fx.shots.get(shot));
+        kind(gun)
+            .and_then(|fx| fx.at(level, part))
+            .or_else(|| kind(&self.default).and_then(|fx| fx.at(level, part)))
+            .or_else(|| gun.at(level, part))
     }
 
-    /// What `part` gives for gun `key` at `level`, else the defaults'.
+    /// The same, else the defaults'.
     fn part<'a, T: ?Sized>(
         &'a self,
         key: &str,
         level: u8,
+        shot: Option<&str>,
         part: impl Fn(&'a GunFx) -> Option<&'a T> + Copy,
     ) -> Option<&'a T> {
-        let own = self.gun(key).and_then(|gun| gun.at(level, part));
-        own.or_else(|| self.default.at(level, part))
+        self.own(key, level, shot, part)
+            .or_else(|| self.default.at(level, part))
     }
 
-    pub fn fire(&self, key: &str, level: u8) -> &[Emit] {
-        self.part(key, level, |fx| fx.fire.as_deref())
+    pub fn fire(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
+        self.part(key, level, shot, |fx| fx.fire.as_deref())
             .unwrap_or(&[])
     }
 
-    pub fn impact(&self, key: &str, level: u8) -> &[Emit] {
-        self.part(key, level, |fx| fx.impact.as_deref())
+    pub fn impact(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
+        self.part(key, level, shot, |fx| fx.impact.as_deref())
             .unwrap_or(&[])
     }
 
-    pub fn ray(&self, key: &str, level: u8) -> &[Beam] {
-        self.part(key, level, |fx| fx.ray.as_deref()).unwrap_or(&[])
+    pub fn bounce(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
+        self.part(key, level, shot, |fx| fx.bounce.as_deref())
+            .unwrap_or(&[])
     }
 
-    pub fn ray_end(&self, key: &str, level: u8) -> &[Emit] {
-        self.part(key, level, |fx| fx.ray_end.as_deref())
+    pub fn arc(&self, key: &str, level: u8, shot: Option<&str>) -> &[Beam] {
+        self.part(key, level, shot, |fx| fx.arc.as_deref())
+            .unwrap_or(&[])
+    }
+
+    pub fn arc_end(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
+        self.part(key, level, shot, |fx| fx.arc_end.as_deref())
+            .unwrap_or(&[])
+    }
+
+    pub fn ray(&self, key: &str, level: u8, shot: Option<&str>) -> &[Beam] {
+        self.part(key, level, shot, |fx| fx.ray.as_deref())
+            .unwrap_or(&[])
+    }
+
+    pub fn ray_end(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
+        self.part(key, level, shot, |fx| fx.ray_end.as_deref())
             .unwrap_or(&[])
     }
 
     /// A shot's sprites; none, and it is drawn as the kit's ball.
-    pub fn shot(&self, key: &str, level: u8) -> &[ShotSprite] {
-        self.gun(key)
-            .and_then(|gun| gun.at(level, |fx| fx.shot.as_deref()))
+    pub fn shot(&self, key: &str, level: u8, shot: Option<&str>) -> &[ShotSprite] {
+        self.own(key, level, shot, |fx| fx.shot.as_deref())
             .unwrap_or(&[])
     }
 
-    pub fn streak(&self, key: &str, level: u8) -> Option<&Streak> {
-        self.gun(key)
-            .and_then(|gun| gun.at(level, |fx| fx.streak.as_ref()))
+    pub fn streak(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Streak> {
+        self.own(key, level, shot, |fx| fx.streak.as_ref())
     }
 
-    pub fn trail(&self, key: &str, level: u8) -> &[Trail] {
-        self.gun(key)
-            .and_then(|gun| gun.at(level, |fx| fx.trail.as_deref()))
+    pub fn trail(&self, key: &str, level: u8, shot: Option<&str>) -> &[Trail] {
+        self.own(key, level, shot, |fx| fx.trail.as_deref())
             .unwrap_or(&[])
     }
 
-    pub fn blast_sphere(&self, key: &str, level: u8) -> bool {
-        self.part(key, level, |fx| fx.blast_sphere.as_ref())
+    pub fn blast_sphere(&self, key: &str, level: u8, shot: Option<&str>) -> bool {
+        self.part(key, level, shot, |fx| fx.blast_sphere.as_ref())
             .copied()
             .unwrap_or(true)
     }
 
-    pub fn wake(&self, key: &str, level: u8) -> &[Beam] {
-        self.gun(key)
-            .and_then(|gun| gun.at(level, |fx| fx.wake.as_deref()))
+    pub fn wake(&self, key: &str, level: u8, shot: Option<&str>) -> &[Beam] {
+        self.own(key, level, shot, |fx| fx.wake.as_deref())
+            .unwrap_or(&[])
+    }
+
+    pub fn ribbon(&self, key: &str, level: u8, shot: Option<&str>) -> &[Ribbon] {
+        self.own(key, level, shot, |fx| fx.ribbon.as_deref())
+            .unwrap_or(&[])
+    }
+
+    pub fn panels(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Panels> {
+        self.own(key, level, shot, |fx| fx.panels.as_ref())
+    }
+
+    pub fn sweep(&self, key: &str, level: u8, shot: Option<&str>) -> &[Sweep] {
+        self.own(key, level, shot, |fx| fx.sweep.as_deref())
             .unwrap_or(&[])
     }
 
@@ -435,20 +577,25 @@ impl FxRecipes {
     /// Every texture the recipes draw with.
     pub fn textures(&self) -> Vec<Tex> {
         fn gun(fx: &GunFx, textures: &mut Vec<Tex>) {
-            let beams = fx.ray.iter().chain(&fx.wake).flatten();
+            let beams = fx.ray.iter().chain(&fx.wake).chain(&fx.arc).flatten();
             textures.extend(beams.map(|beam| beam.texture));
             textures.extend(fx.shot.iter().flatten().map(|shot| shot.texture));
             textures.extend(fx.streak.as_ref().map(|streak| streak.texture));
+            textures.extend(fx.ribbon.iter().flatten().map(|ribbon| ribbon.texture));
+            textures.extend(fx.sweep.iter().flatten().map(|sweep| sweep.texture));
+            let panels = fx.panels.iter().flat_map(|panels| &panels.layers);
+            textures.extend(panels.map(|panel| panel.texture));
             let trails = fx.trail.iter().flatten();
             textures.extend(trails.flat_map(|trail| trail.textures.iter().copied()));
-            for emits in fx.fire.iter().chain(&fx.impact).chain(&fx.ray_end) {
+            let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
+            for emits in emits.chain(&fx.ray_end).chain(&fx.arc_end) {
                 textures.extend(emits.iter().filter_map(Emit::texture));
             }
-            for fx in fx.from_level.values() {
+            for fx in fx.from_level.values().chain(fx.shots.values()) {
                 gun(fx, textures);
             }
         }
-        let mut textures = vec![self.arc.texture];
+        let mut textures = Vec::new();
         for fx in std::iter::once(&self.default).chain(self.guns.values()) {
             gun(fx, &mut textures);
         }
@@ -602,6 +749,9 @@ impl Plugin for FxPlugin {
         app.init_resource::<FxRecipes>()
             .insert_resource(FxRng(0x6F1D_2C35))
             .init_resource::<TrailFrom>()
+            .init_resource::<ribbon::Ribbons>()
+            .init_resource::<sweep::Sweeps>()
+            .init_resource::<panel::ShownPanels>()
             .add_systems(Startup, paint_placeholders)
             .add_systems(
                 FixedUpdate,
@@ -610,7 +760,12 @@ impl Plugin for FxPlugin {
                     .in_set(rac_sim::SimSet::Particles)
                     .run_if(resource_exists::<FxQuad>),
             )
-            .add_systems(Update, face_camera);
+            .add_systems(Update, face_camera)
+            .add_systems(
+                Update,
+                (ribbon::draw_ribbons, sweep::draw_sweeps, panel::draw_panels)
+                    .run_if(resource_exists::<FxImages>),
+            );
     }
 }
 
@@ -642,6 +797,25 @@ fn paint_placeholders(
     commands.insert_resource(FxQuad(meshes.add(Rectangle::new(1.0, 1.0))));
 }
 
+/// An unlit material of `texture` in `colour`, seen from both sides.
+fn fx_material(
+    materials: &mut Assets<StandardMaterial>,
+    images: &FxImages,
+    texture: Tex,
+    colour: [f32; 4],
+    blend: Blend,
+) -> Handle<StandardMaterial> {
+    materials.add(StandardMaterial {
+        base_color: Color::srgba(colour[0], colour[1], colour[2], colour[3]),
+        base_color_texture: images.0.get(&texture).cloned(),
+        alpha_mode: blend.alpha_mode(),
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    })
+}
+
 /// What spawning a sprite needs.
 struct Spawner<'w, 's, 'a> {
     commands: Commands<'w, 's>,
@@ -657,15 +831,7 @@ impl Spawner<'_, '_, '_> {
         colour: [f32; 4],
         blend: Blend,
     ) -> Handle<StandardMaterial> {
-        self.materials.add(StandardMaterial {
-            base_color: Color::srgba(colour[0], colour[1], colour[2], colour[3]),
-            base_color_texture: self.images.0.get(&texture).cloned(),
-            alpha_mode: blend.alpha_mode(),
-            unlit: true,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        })
+        fx_material(self.materials, self.images, texture, colour, blend)
     }
 
     fn spawn(&mut self, at: Vec3, billboard: Billboard, fx: Fx, name: &'static str) -> Entity {
@@ -724,6 +890,7 @@ impl Spawner<'_, '_, '_> {
                 spin,
                 ahead,
                 delay,
+                nearer,
                 blend,
             } => {
                 let material = self.material(texture, colour, blend);
@@ -731,6 +898,7 @@ impl Spawner<'_, '_, '_> {
                     axis: None,
                     roll: rng.roll(roll),
                 };
+                let at = at + (eye - at).normalize_or_zero() * nearer;
                 let fx = Fx {
                     velocity: way.map_or(Vec3::ZERO, Vec3::normalize_or_zero) * ahead,
                     wait: delay,
@@ -753,6 +921,7 @@ impl Spawner<'_, '_, '_> {
                 speed_from,
                 cone,
                 toward,
+                rise,
                 gravity,
                 keep,
                 size,
@@ -785,7 +954,7 @@ impl Spawner<'_, '_, '_> {
                     if toward == Toward::Level {
                         velocity = Vec3::new(velocity.x, 0.0, velocity.z).normalize_or(Vec3::X);
                     }
-                    let velocity = velocity * speed;
+                    let velocity = velocity * speed + Vec3::Y * rng.between(rise);
                     let life = match ticks_to {
                         Some(to) => rng.ticks(ticks, to),
                         None => (ticks as f32 * (0.67 + 0.67 * rng.unit())).max(1.0) as u32,
@@ -863,7 +1032,23 @@ impl Spawner<'_, '_, '_> {
         }
     }
 
-    fn beam(&mut self, beam: &Beam, from: Vec3, to: Vec3) {
+    /// Each of `beams` from `from` to `to`, bent as its recipe has it.
+    fn beams(&mut self, beams: &[Beam], from: Vec3, to: Vec3, rng: &mut FxRng) {
+        let mut points = vec![from, to];
+        for beam in beams {
+            if !beam.same_bends {
+                points = beam
+                    .jag
+                    .map_or_else(|| vec![from, to], |jag| jag.points(from, to, rng));
+            }
+            for pair in points.windows(2) {
+                self.segment(beam, pair[0], pair[1]);
+            }
+        }
+    }
+
+    /// A straight piece of `beam`.
+    fn segment(&mut self, beam: &Beam, from: Vec3, to: Vec3) {
         let length = from.distance(to);
         if length < 1e-3 {
             return;
@@ -933,26 +1118,35 @@ fn emit_gun_fx(
             .get(event.weapon)
             .map_or("", |def| def.effects.as_str());
         let level = level(&heroes, event.player, event.weapon);
+        let shot = event.shot;
         match event.kind {
             GunEventKind::Fired { at, direction } => {
-                for emit in recipes.expand(recipes.fire(key, level)) {
+                for emit in recipes.expand(recipes.fire(key, level, shot)) {
                     spawner.emit(emit, at, Some(direction), eye, &mut rng);
                 }
             }
             GunEventKind::Impact { at } => {
-                for emit in recipes.expand(recipes.impact(key, level)) {
+                for emit in recipes.expand(recipes.impact(key, level, shot)) {
+                    spawner.emit(emit, at, None, eye, &mut rng);
+                }
+            }
+            GunEventKind::Bounce { at } => {
+                for emit in recipes.expand(recipes.bounce(key, level, shot)) {
                     spawner.emit(emit, at, None, eye, &mut rng);
                 }
             }
             GunEventKind::Ray { from, to } => {
-                for beam in recipes.ray(key, level) {
-                    spawner.beam(beam, from, to);
-                }
-                for emit in recipes.expand(recipes.ray_end(key, level)) {
+                spawner.beams(recipes.ray(key, level, shot), from, to, &mut rng);
+                for emit in recipes.expand(recipes.ray_end(key, level, shot)) {
                     spawner.emit(emit, to, Some(to - from), eye, &mut rng);
                 }
             }
-            GunEventKind::Arc { from, to } => spawner.beam(&recipes.arc, from, to),
+            GunEventKind::Arc { from, to } => {
+                spawner.beams(recipes.arc(key, level, shot), from, to, &mut rng);
+                for emit in recipes.expand(recipes.arc_end(key, level, shot)) {
+                    spawner.emit(emit, to, Some(to - from), eye, &mut rng);
+                }
+            }
             GunEventKind::LevelUp { .. } | GunEventKind::Empty { .. } => {}
         }
     }
@@ -987,8 +1181,9 @@ fn emit_trails(
             let key = armory
                 .get(shot.weapon)
                 .map_or("", |def| def.effects.as_str());
-            let trails = recipes.trail(key, shot.level);
-            let wake = recipes.wake(key, shot.level);
+            let kind = Some(shot.kind.name());
+            let trails = recipes.trail(key, shot.level, kind);
+            let wake = recipes.wake(key, shot.level, kind);
             if trails.is_empty() && wake.is_empty() {
                 continue;
             }
@@ -997,11 +1192,12 @@ fn emit_trails(
             let Some(&last) = from.0.get(&id) else {
                 continue;
             };
-            for beam in wake {
-                spawner.beam(beam, last, shot.position);
-            }
+            spawner.beams(wake, last, shot.position, &mut rng);
             let path = shot.position - last;
             for trail in trails {
+                if trail.until.is_some_and(|until| shot.ticks >= until) {
+                    continue;
+                }
                 let count = trail.count(path.length(), rng.unit());
                 for index in 0..count {
                     let (Some(&texture), Some(&colour)) =
@@ -1140,31 +1336,157 @@ mod tests {
         for texture in recipes.textures() {
             assert!(recipes.placeholders.contains_key(&texture), "{texture:?}");
         }
-        assert!(recipes.expand(recipes.impact("n60", 0)).count() > 0);
-        assert!(!recipes.ray("shock_blaster", 0).is_empty());
+        assert!(recipes.expand(recipes.impact("n60", 0, None)).count() > 0);
+        assert!(!recipes.ray("shock_blaster", 0, None).is_empty());
         // The game draws the Nitro's blast only as its effects; the kit's own keep the
         // sphere.
-        assert!(!recipes.blast_sphere("nitro", 2));
-        assert!(recipes.blast_sphere("agents", 2));
+        assert!(!recipes.blast_sphere("nitro", 2, None));
+        assert!(recipes.blast_sphere("agents", 2, None));
         let flashes = |emits: &[Emit]| {
             recipes
                 .expand(emits)
                 .any(|emit| matches!(emit, Emit::Screen { .. }))
         };
-        assert!(flashes(recipes.fire("shock_blaster", 0)));
-        assert!((0..4).all(|level| flashes(recipes.impact("nitro", level))));
+        assert!(flashes(recipes.fire("shock_blaster", 0, None)));
+        assert!((0..4).all(|level| flashes(recipes.impact("nitro", level, None))));
+        // A canister's burst flashes and its bomblets' don't; the Annihilator's mines are
+        // the same bomblets from V2.
+        assert!(flashes(recipes.impact("bouncer", 0, None)));
+        let bomblet = Some("bomblet");
+        assert!(!flashes(recipes.impact("bouncer", 0, bomblet)));
+        assert!(!flashes(recipes.impact("bouncer", 4, bomblet)));
+        assert_ne!(
+            recipes.impact("bouncer", 4, bomblet),
+            recipes.impact("bouncer", 0, bomblet)
+        );
+        assert_eq!(
+            recipes.impact("annihilator", 1, bomblet),
+            recipes.impact("bouncer", 0, bomblet)
+        );
+        // A kind of shot a recipe doesn't name shows the gun's own.
+        assert_eq!(
+            recipes.impact("bouncer", 0, Some("canister")),
+            recipes.impact("bouncer", 0, None)
+        );
+        // The glove's throw shows nothing; its turret's shots and their hits do, blue from
+        // V3.
+        assert!(recipes.fire("turret", 0, None).is_empty());
+        assert!(!recipes.fire("turret", 0, Some("turret")).is_empty());
+        let pellet = Some("pellet");
+        let tracer = |level| recipes.streak("turret", level, pellet).map(|s| s.colour);
+        assert!(tracer(0).is_some());
+        assert_ne!(tracer(1), tracer(2));
+        assert!(!recipes.impact("turret", 0, pellet).is_empty());
+        assert_ne!(
+            recipes.impact("turret", 0, Some("turret")),
+            recipes.impact("turret", 0, pellet)
+        );
+        // An agent's end at V1, its comet's and its bullets' are each their own, and the
+        // bullets' hits turn to embers from V3.
+        let agents = |level, shot| recipes.impact("agents", level, Some(shot));
+        assert_ne!(agents(0, "agent"), agents(1, "comet"));
+        assert_ne!(agents(1, "slug"), agents(2, "slug"));
+        assert_eq!(agents(3, "slug"), agents(2, "slug"));
+        assert!(recipes.fire("agents", 0, None).is_empty());
+        // The coil's arcs are its own, five bowed cores each with its glow; other guns'
+        // are the default lightning.
+        let coil = recipes.arc("coil", 0, None);
+        assert_eq!(coil.len(), 10);
+        assert!(
+            coil.iter()
+                .step_by(2)
+                .all(|core| core.jag.is_some_and(|jag| jag.bows.is_some()))
+        );
+        assert!(coil.iter().skip(1).step_by(2).all(|glow| glow.same_bends));
+        assert_eq!(recipes.arc("hydra", 0, None)[0].texture, Tex::Effect(47));
+        assert!(recipes.arc_end("hydra", 0, None).is_empty());
+        // The four guns' bolts are the defaults' lightning, the Rift Ripper's in its own
+        // colour; each strikes where it reaches.
+        let bolt = Some("bolt");
+        let lightning = recipes.arc("hydra", 0, bolt);
+        assert_eq!(lightning.len(), 4);
+        assert!(lightning.iter().step_by(2).all(|core| core.jag.is_some()));
+        assert!(
+            lightning
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .all(|glow| glow.same_bends)
+        );
+        assert_eq!(recipes.arc("holo", 2, bolt), lightning);
+        assert_eq!(recipes.arc("shield", 4, bolt), lightning);
+        assert_ne!(recipes.arc("rift", 4, bolt), lightning);
+        assert!(recipes.arc_end("hydra", 0, bolt).is_empty());
+        // The Lava Gun's stream is three ribbons through its points, the glow six times
+        // as wide as the core; its points show nothing of their own.
+        let stream = recipes.ribbon("lava", 0, Some("stream"));
+        assert_eq!(stream.len(), 3);
+        assert_eq!(stream[0].width.0, stream[2].width.0 * 6.0);
+        assert!(recipes.shot("lava", 0, Some("stream")).is_empty());
+        assert!(!recipes.trail("lava", 0, Some("stream")).is_empty());
+        // A holo shield flies as its sprites and unfolds in puffs where it lands.
+        let barrier = Some("barrier");
+        assert_eq!(recipes.shot("holo", 0, barrier).len(), 5);
+        assert!(recipes.shot("holo", 0, None).is_empty());
+        assert!(!recipes.impact("holo", 0, barrier).is_empty());
+        // It stands as its wall's sprites, in clouds of 67 from V3.
+        let wall = |level| {
+            recipes
+                .panels("holo", level, barrier)
+                .map(|p| p.layers.clone())
+        };
+        assert!(wall(0).is_some_and(|layers| layers.len() == 8));
+        assert_eq!(wall(1), wall(0));
+        assert!(wall(2).is_some_and(|layers| layers.iter().any(|l| l.texture == Tex::Effect(67))));
+        assert_ne!(
+            recipes.impact("holo", 2, bolt),
+            recipes.impact("holo", 2, None)
+        );
+        // A disc glances and bursts by level: its sprites to V4, its trail from V2, longer
+        // kept at V5, which bursts small and red.
+        let disc = Some("disc");
+        assert_eq!(recipes.shot("disc", 3, disc).len(), 6);
+        assert!(recipes.shot("disc", 4, disc).is_empty());
+        assert!(recipes.sweep("disc", 0, disc).is_empty());
+        let kept = |level| {
+            recipes
+                .sweep("disc", level, disc)
+                .first()
+                .map(|s| (s.every, s.points))
+        };
+        assert_eq!(kept(1), Some((6, 6)));
+        assert_eq!(kept(3), Some((6, 6)));
+        assert_eq!(kept(4), Some((4, 4)));
+        let bursts: Vec<_> = (0..5)
+            .map(|level| recipes.impact("disc", level, disc))
+            .collect();
+        assert_eq!(bursts[0], bursts[1]);
+        assert!(bursts.windows(2).skip(1).all(|pair| pair[0] != pair[1]));
+        assert_ne!(
+            recipes.bounce("disc", 1, disc),
+            recipes.bounce("disc", 2, disc)
+        );
+        assert!(recipes.bounce("n60", 0, None).is_empty());
         for (name, emits) in &recipes.sets {
             assert!(
                 !emits.iter().any(|emit| matches!(emit, Emit::Set(_))),
                 "{name} nests"
             );
         }
-        for fx in recipes.guns.values() {
-            for emit in fx.fire.iter().chain(&fx.impact).flatten() {
+        fn named(fx: &GunFx, recipes: &FxRecipes) {
+            let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
+            let emits = emits.chain(&fx.ray_end);
+            for emit in emits.chain(&fx.arc_end).flatten() {
                 if let Emit::Set(name) = emit {
                     assert!(recipes.sets.contains_key(name), "no set {name}");
                 }
             }
+            for fx in fx.from_level.values().chain(fx.shots.values()) {
+                named(fx, recipes);
+            }
+        }
+        for fx in recipes.guns.values() {
+            named(fx, &recipes);
         }
     }
 
@@ -1174,7 +1496,6 @@ mod tests {
             r#"(
                 placeholders: {},
                 default: (ray: Some([(texture: Effect(43), width: 0.1, ticks: 1)])),
-                arc: (texture: Effect(47), width: 0.1, ticks: 1),
                 guns: {
                     "gun": (
                         fire: Some([]),
@@ -1189,13 +1510,13 @@ mod tests {
         )
         .unwrap();
         let impacts: Vec<_> = (0..6)
-            .map(|level| recipes.impact("gun", level).len())
+            .map(|level| recipes.impact("gun", level, None).len())
             .collect();
         assert_eq!(impacts, [1, 1, 0, 0, 2, 2]);
-        assert_eq!(recipes.fire("gun", 3).len(), 0);
-        assert_eq!(recipes.fire("gun", 4).len(), 1);
+        assert_eq!(recipes.fire("gun", 3, None).len(), 0);
+        assert_eq!(recipes.fire("gun", 4, None).len(), 1);
         // What no level gives comes from the defaults.
-        assert!(!recipes.ray("gun", 5).is_empty());
+        assert!(!recipes.ray("gun", 5, None).is_empty());
     }
 
     #[test]
@@ -1206,6 +1527,50 @@ mod tests {
         let tilted = along(Vec3::X, Vec3::new(1.0, 3.0, 0.0)).unwrap();
         assert!((tilted * Vec3::Z).abs_diff_eq(Vec3::Y, 1e-5));
         assert_eq!(along(Vec3::X, Vec3::X), None);
+    }
+
+    #[test]
+    fn a_bent_beam_keeps_its_ends_and_bends_within_its_reach() {
+        let jag = Jag {
+            points: 10,
+            wave: 0.1,
+            around: 0.5,
+            turn: 36.0,
+            jitter: 0.2,
+            bows: None,
+        };
+        let mut rng = FxRng(7);
+        let (from, to) = (Vec3::ZERO, Vec3::new(9.0, 0.0, 0.0));
+        let points = jag.points(from, to, &mut rng);
+        assert_eq!(points.len(), 10);
+        assert_eq!((points[0], points[9]), (from, to));
+        // Each its share of the way along, lifted up to 0.3 and moved up to 0.5 across.
+        for (index, point) in points.iter().enumerate() {
+            assert!((point.x - index as f32).abs() < 1e-4);
+            assert!(point.y.abs() <= 0.3 + 1e-4 && point.z.abs() <= 0.5 + 1e-4);
+        }
+        assert!(points[1..9].iter().any(|point| point.y.abs() > 1e-3));
+        // Bowed as the coil's arcs, at most 4/27 of each bow's reach off the way.
+        let bowed = Jag {
+            points: 24,
+            wave: 0.0,
+            around: 0.0,
+            turn: 0.0,
+            jitter: 0.0,
+            bows: Some(((3.25, 6.75), (1.25, 4.75))),
+        };
+        let points = bowed.points(from, to, &mut rng);
+        assert_eq!((points.len(), points[0], points[23]), (24, from, to));
+        let most = 4.0 / 27.0 * (6.75 + 4.75) * 3f32.sqrt();
+        let off = |(index, point): (usize, &Vec3)| point.distance(to * index as f32 / 23.0);
+        assert!(
+            points
+                .iter()
+                .enumerate()
+                .map(off)
+                .all(|off| off <= most + 1e-4)
+        );
+        assert!(points.iter().enumerate().map(off).any(|off| off > 0.1));
     }
 
     #[test]

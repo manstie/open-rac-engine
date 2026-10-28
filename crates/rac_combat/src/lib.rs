@@ -267,6 +267,7 @@ fn strike_targets(
                         player: hero.player,
                         weapon,
                         kind: GunEventKind::LevelUp { level: up.level },
+                        shot: None,
                     });
                 }
             }

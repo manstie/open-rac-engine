@@ -88,8 +88,8 @@ pub enum ShotKind {
     /// The Spitting Hydra's spit: arcs from the gun reaching for `ends`, for `life`
     /// ticks.
     Spit { life: u32, ends: Vec<Vec3> },
-    /// A lightning bolt (0x34DAA0) on `target`, striking it as it goes in `left` ticks,
-    /// pushed `push` along it.
+    /// A lightning bolt (0x34DAA0) on `target` for `left` ticks more, striking it
+    /// [`BOLT_STRIKE_TICKS`] in, pushed `push` along it.
     Bolt {
         target: Entity,
         left: u32,
@@ -131,6 +131,48 @@ pub enum ShotKind {
     Duck(DuckState),
     /// A duck's egg, living `life` ticks.
     Egg { life: u32 },
+}
+
+impl ShotKind {
+    /// The kind's name, by which a game tells apart what a gun's shots of each kind do
+    /// ([`super::GunEvent::shot`]).
+    pub fn name(&self) -> &'static str {
+        match self {
+            ShotKind::Bullet { .. } => "bullet",
+            ShotKind::Beam { .. } => "beam",
+            ShotKind::Charge { .. } => "charge",
+            ShotKind::Blast { .. } => "blast",
+            ShotKind::Stream => "stream",
+            ShotKind::Missile { .. } => "missile",
+            ShotKind::Rocket(_) => "rocket",
+            ShotKind::Ball { .. } => "ball",
+            ShotKind::Arc { .. } => "arc",
+            ShotKind::Storm { .. } => "storm",
+            ShotKind::Canister { .. } => "canister",
+            ShotKind::Bomblet { .. } => "bomblet",
+            ShotKind::Blob { .. } => "blob",
+            ShotKind::Bomb => "bomb",
+            ShotKind::Disc { .. } => "disc",
+            ShotKind::Spit { .. } => "spit",
+            ShotKind::Bolt { .. } => "bolt",
+            ShotKind::Rift(_) => "rift",
+            ShotKind::Thing { .. } => "thing",
+            ShotKind::Turret(_) => "turret",
+            ShotKind::Pellet => "pellet",
+            ShotKind::Guided { .. } => "guided",
+            ShotKind::Seeker { .. } => "seeker",
+            ShotKind::Barrier(_) => "barrier",
+            ShotKind::Pod => "pod",
+            ShotKind::Agent(_) => "agent",
+            ShotKind::Slug => "slug",
+            ShotKind::Comet { .. } => "comet",
+            ShotKind::Wave => "wave",
+            ShotKind::Cut { .. } => "cut",
+            ShotKind::Pulse { .. } => "pulse",
+            ShotKind::Duck(_) => "duck",
+            ShotKind::Egg { .. } => "egg",
+        }
+    }
 }
 
 /// A duck: the way it faces, the ticks before it turns and lays, the enemy it is after,
@@ -330,7 +372,7 @@ pub(crate) fn step(
             FireMode::Lobbed(fire) => {
                 let keep = charge(shot, fire, world, targets);
                 if !keep {
-                    out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+                    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
                     if let Some(spray) = fire
                         .blast
                         .eruption
@@ -482,7 +524,7 @@ fn bullet(
                     out.hits.push(shot.hit(other.entity, shot.damage, push));
                 }
             }
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
             false
         }
         Meets::World(t, normal) if *bounces > 0 => {
@@ -499,7 +541,7 @@ fn bullet(
                     out.hits.push(shot.hit(target.entity, shot.damage, push));
                 }
             }
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
             false
         }
         Meets::Nothing => {
@@ -553,7 +595,7 @@ fn beam(
             shot.kind = ShotKind::Beam { hit: true };
             shot.position = at;
             shot.velocity = Vec3::ZERO;
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
         }
         None => shot.position += motion,
     }
@@ -625,7 +667,7 @@ fn slug(shot: &mut Shot, rules: &SlugRules, flight: &Flight, out: &mut Outcome) 
         out.hits
             .push(shot.hit(target.entity, shot.damage, motion * rules.push));
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 
@@ -741,12 +783,12 @@ fn stream_point(
                         .push(shot.hit(other.entity, shot.splash, Vec3::ZERO));
                 }
             }
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
             false
         }
         Meets::World(t, _) => {
-            out.event(
-                shot.weapon,
+            out.shot_event(
+                shot,
                 GunEventKind::Impact {
                     at: shot.position + motion * t,
                 },
@@ -846,7 +888,7 @@ fn missile(
                 .push(shot.hit(near.entity, shot.splash, Vec3::ZERO));
         }
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     Course::Burst(at)
 }
 
@@ -958,36 +1000,46 @@ pub(super) fn seeker(
     for near in in_ball(flight.targets, at, missile.blast_radius, None) {
         out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 
-/// A lightning bolt (0x34DD38, its strike 0x34DFD0): it holds on its target, and as it goes
-/// the target, if it still lives, takes the bolt's damage, pushed along it.
+/// When a lightning bolt strikes, in ticks from when it's made: its strike timer starts at
+/// 6 (0x34DF10) and it strikes as it runs out (0x34DFD0) [code].
+pub const BOLT_STRIKE_TICKS: u32 = 6;
+
+/// A lightning bolt (0x34DD38, its strike 0x34DFD0): it holds on its target, which, if it
+/// still lives, takes the bolt's damage [`BOLT_STRIKE_TICKS`] in, pushed along it; the
+/// bolt goes on to the end of its life.
 fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
-    let ShotKind::Bolt { target, left, push } = &mut shot.kind else {
+    let ShotKind::Bolt { target, .. } = shot.kind else {
         return false;
     };
     let Some(struck) = targets
         .iter()
-        .find(|candidate| candidate.entity == *target && candidate.alive)
+        .find(|candidate| candidate.entity == target && candidate.alive)
     else {
         return false;
     };
-    out.event(
-        shot.weapon,
+    out.shot_event(
+        shot,
         GunEventKind::Arc {
             from: shot.position,
             to: struck.centre,
         },
     );
+    let ShotKind::Bolt { left, push, .. } = &mut shot.kind else {
+        return false;
+    };
     *left = left.saturating_sub(1);
-    if *left > 0 {
-        return true;
+    let (more, push) = (*left > 0, *push);
+    // A bolt too short to reach its strike strikes as it goes.
+    if shot.ticks == BOLT_STRIKE_TICKS || (!more && shot.ticks < BOLT_STRIKE_TICKS) {
+        let push = (struck.centre - shot.position).normalize_or_zero() * push;
+        out.hits.push(shot.hit(struck.entity, shot.damage, push));
+        out.shot_event(shot, GunEventKind::Impact { at: struck.centre });
     }
-    let push = (struck.centre - shot.position).normalize_or_zero() * *push;
-    out.hits.push(shot.hit(struck.entity, shot.damage, push));
-    false
+    more
 }
 
 #[cfg(test)]

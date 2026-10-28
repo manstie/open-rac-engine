@@ -5,8 +5,8 @@
 
 use bevy::{ecs::message::MessageCursor, prelude::*, time::TimeUpdateStrategy};
 use rac_combat::{
-    Afflicted, Affliction, Armory, Arsenal, Burns, CombatPlugin, Destroyed, GunEvent, GunEventKind,
-    Hitpoints, Hostile, KillXp, WeaponId, target_bundle,
+    Afflicted, Affliction, Armory, Arsenal, Burns, CombatPlugin, CombatTuning, Destroyed, GunEvent,
+    GunEventKind, Hitpoints, Hostile, KillXp, WeaponId, target_bundle,
     weapons::{Hand, Mods, ShotKind, block_shot},
 };
 use rac_hero::{
@@ -912,6 +912,15 @@ fn the_bouncers_canister_bursts_into_17_bomblets_that_find_the_enemy() {
     }
     assert_eq!(most, 17);
     assert!(yard.hitpoints(enemy) <= 970.0, "{}", yard.hitpoints(enemy));
+    // The canister's burst, then each bomblet's, on the enemy or at the end of its life.
+    let impacts = |shot: &str| {
+        yard.events
+            .iter()
+            .filter(|event| matches!(event.kind, GunEventKind::Impact { .. }))
+            .filter(|event| event.shot == Some(shot))
+            .count()
+    };
+    assert_eq!((impacts("canister"), impacts("bomblet")), (1, 17));
 }
 
 #[test]
@@ -951,6 +960,64 @@ fn the_disc_blade_gun_fires_every_30_ticks_and_its_disc_finds_the_enemy() {
     assert_eq!(Yard::fired_ticks(&log), [0, 30, 60]);
     yard.idle(120);
     assert_eq!(yard.hitpoints(enemy), 925.0);
+}
+
+#[test]
+fn a_disc_glances_off_walls_and_from_v3_enemies_and_bursts_where_it_ends() {
+    // Its glances and its end, in order: true for a glance.
+    let marks = |yard: &Yard| -> Vec<bool> {
+        yard.events
+            .iter()
+            .filter(|event| event.weapon == DISC)
+            .filter_map(|event| match event.kind {
+                GunEventKind::Bounce { .. } => Some(true),
+                GunEventKind::Impact { .. } => Some(false),
+                _ => None,
+            })
+            .collect()
+    };
+    // At V1 it ends on the enemy it meets.
+    let mut yard = Yard::new(&[(DISC, 0)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(60);
+    assert_eq!(marks(&yard), [false]);
+    assert_eq!(yard.hitpoints(enemy), 975.0);
+    // Boxed in, with nothing to hit, it glances off the walls until its life is up.
+    let mut yard = Yard::new(&[(DISC, 0)]);
+    for (x, z, across) in [
+        (6.0, 0.0, true),
+        (-6.0, 0.0, true),
+        (0.0, 6.0, false),
+        (0.0, -6.0, false),
+    ] {
+        let half_extents = if across {
+            Vec3::new(0.5, 3.0, 7.0)
+        } else {
+            Vec3::new(7.0, 3.0, 0.5)
+        };
+        yard.app.world_mut().spawn((
+            Collider::Cuboid { half_extents },
+            Transform::from_xyz(x, 3.0, z),
+        ));
+    }
+    yard.idle(1);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(210);
+    let boxed = marks(&yard);
+    assert!(boxed.len() > 2, "{boxed:?}");
+    assert_eq!(boxed.iter().filter(|&&glance| !glance).count(), 1);
+    assert_eq!(boxed.last(), Some(&false));
+    // From V3 it glances off the enemy too, and flies on to its end.
+    let mut yard = Yard::new(&[(DISC, 2)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(210);
+    let through = marks(&yard);
+    assert_eq!(through.first(), Some(&true), "{through:?}");
+    assert_eq!(through.iter().filter(|&&glance| !glance).count(), 1);
+    assert_eq!(through.last(), Some(&false));
+    assert!(yard.hitpoints(enemy) < 1000.0);
 }
 
 #[test]
@@ -1002,6 +1069,11 @@ fn the_sights_name_the_guns_target_and_marks_for_a_hud() {
 #[test]
 fn the_hydra_marks_while_held_and_strikes_each_mark_without_a_round() {
     let mut yard = Yard::new(&[(HYDRA, 0)]);
+    // Without the kit's placeholder recovery from a gun's hit, which would take the bolt's.
+    yard.app
+        .world_mut()
+        .resource_mut::<CombatTuning>()
+        .gun_recovery_ticks = 0;
     let enemies: Vec<Entity> = [-2.0, 0.0, 2.0, 4.0]
         .into_iter()
         .map(|x| yard.enemy(Vec3::new(x, 1.0, -15.0), 1000.0))
@@ -1015,13 +1087,22 @@ fn the_hydra_marks_while_held_and_strikes_each_mark_without_a_round() {
         .count();
     assert_eq!(struck, 3);
     assert_eq!(yard.ammo(HYDRA), 15);
-    // Each one's bolt strikes it again for half as it goes.
-    yard.idle(15);
-    let struck = enemies
-        .iter()
-        .filter(|&&enemy| yard.hitpoints(enemy) == 985.0)
-        .count();
-    assert_eq!(struck, 3);
+    // Each one's bolt strikes it again for half 6 ticks in, and lasts to its 15th.
+    let bolts = |yard: &Yard| yard.count_shots(|kind| matches!(kind, ShotKind::Bolt { .. }));
+    let struck = |yard: &Yard, hitpoints: f32| {
+        enemies
+            .iter()
+            .filter(|&&enemy| yard.hitpoints(enemy) == hitpoints)
+            .count()
+    };
+    yard.idle(4);
+    assert_eq!((struck(&yard, 990.0), bolts(&yard)), (3, 3));
+    yard.idle(1);
+    assert_eq!((struck(&yard, 985.0), bolts(&yard)), (3, 3));
+    yard.idle(8);
+    assert_eq!(bolts(&yard), 3);
+    yard.idle(1);
+    assert_eq!(bolts(&yard), 0);
     // A tap fizzles; held long enough with nothing marked, it spits, taking a round.
     yard.hold(&[Action::Fire], 10);
     yard.idle(1);
@@ -1191,6 +1272,17 @@ fn a_holo_shield_stands_where_it_lands_and_takes_shots_crossing_it() {
     let armory = Armory::uya();
     let at = yard.arsenal().shots[0].position;
     assert!(at.y.abs() < 0.05 && at.z < -1.0, "{at}");
+    // It unfolds where it lands.
+    let landed: Vec<_> = yard
+        .events
+        .iter()
+        .filter(|event| event.shot == Some("barrier"))
+        .filter_map(|event| match event.kind {
+            GunEventKind::Impact { at } => Some(at),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(landed, [at]);
     let mut arsenal = yard.arsenal_mut();
     // A shot coming at him through it is stopped halfway along its step.
     let from = at + Vec3::new(0.0, 1.0, -0.5);

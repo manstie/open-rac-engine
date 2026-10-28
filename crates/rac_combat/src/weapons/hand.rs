@@ -161,7 +161,7 @@ pub(super) fn wave(shot: &mut Shot, fire: &Whip, flight: &Flight, out: &mut Outc
             for target in in_ball(flight.targets, at, wave.radius, None) {
                 out.hits.push(shot.hit(target.entity, shot.damage, push));
             }
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
         }
     }
     shot.ticks < wave.ticks

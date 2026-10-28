@@ -46,6 +46,8 @@ pub enum Cue {
     Empty,
     /// A shot hit, burst or splashed.
     Impact,
+    /// A shot glanced off something.
+    Bounce,
     /// The shock mod's arc struck.
     Arc,
     /// The gun went up a level.
@@ -66,6 +68,7 @@ impl Cue {
             GunEventKind::Fired { at, .. } => Some((Cue::Fire, Some(at))),
             GunEventKind::Empty { at } => Some((Cue::Empty, Some(at))),
             GunEventKind::Impact { at } => Some((Cue::Impact, Some(at))),
+            GunEventKind::Bounce { at } => Some((Cue::Bounce, Some(at))),
             GunEventKind::Arc { to, .. } => Some((Cue::Arc, Some(to))),
             GunEventKind::LevelUp { .. } => Some((Cue::LevelUp, None)),
             GunEventKind::Ray { .. } => None,
@@ -470,6 +473,7 @@ mod tests {
                 at,
                 direction: Vec3::NEG_Z,
             },
+            shot: None,
         };
         let voices = |app: &App| app.world().resource::<KitMixer>().lock().voices();
         app.world_mut()

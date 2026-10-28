@@ -1000,8 +1000,9 @@ pub struct Hydra {
     /// Each marked target is struck within `strike_radius` of its middle.
     pub strike_radius: f32,
     pub push: f32,
-    /// The bolt that strikes it (0x34DAA0) does this share of the damage again when it
-    /// goes, `bolt_ticks` later.
+    /// The bolt that strikes it (0x34DAA0), lasting `bolt_ticks`, does this share of the
+    /// damage again as it strikes ([`BOLT_STRIKE_TICKS`](super::shots::BOLT_STRIKE_TICKS)
+    /// in).
     pub bolt_share: f32,
     pub bolt_ticks: u32,
     /// With none marked, the spit: the level's most targets of arcs reach for
@@ -1041,8 +1042,8 @@ pub struct Rift {
 }
 
 /// The Rift Ripper (0x373990 from V5): open, each tick each enemy within its size +
-/// `reach` has a 1 in `odds` chance of a bolt (0x34DAA0) striking it for `share` of the
-/// rift's damage as it goes after `bolt_ticks`, pushed `push`.
+/// `reach` has a 1 in `odds` chance of a bolt (0x34DAA0), lasting `bolt_ticks`, striking
+/// it for `share` of the rift's damage, pushed `push`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Ripper {
     pub from_level: u8,
@@ -1239,8 +1240,8 @@ pub struct Barrier {
     pub half_width: f32,
     pub height: f32,
     /// From this level each hit sends a bolt (0x34DAA0) at the first living enemy within
-    /// `bolt_range`, `bolt_after` ticks later, which strikes for the gun's damage as it
-    /// goes `bolt_ticks` after, pushed `bolt_push`.
+    /// `bolt_range`, `bolt_after` ticks later, which lasts `bolt_ticks` and strikes for the
+    /// gun's damage, pushed `bolt_push`.
     pub bolt_from: Option<u8>,
     pub bolt_range: f32,
     pub bolt_after: u32,
@@ -1428,8 +1429,8 @@ pub struct ShieldCharger {
 
 /// The Tesla Barrier (0x3410E8 from V5): a tick at a time, while fewer than `most` bolts
 /// are out, a new one (0x34DAA0) strikes an enemy within `reach` that has none, for the
-/// damage as it goes after a random `bolt_ticks`, pushed `push`; after `bolts` bolts the
-/// shield goes.
+/// damage, pushed `push`, and lasts a random `bolt_ticks`; after `bolts` bolts the shield
+/// goes.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Tesla {
     pub from_level: u8,

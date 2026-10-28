@@ -45,7 +45,9 @@ session is working on the task now; notes on problems met stay with their task (
   the disc's textures for them, P3.18). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
   sounds for 18 guns, effect and particle textures, and six shot models; the six first
-  guns' effects take the game's sizes, colours and lives (P1.13, P3.13, P3.18). He
+  guns' effects, most of the Bouncer's, Plasma Coil's, Plasma Whip's, Miniturret's and
+  Agents of Doom's, the lightning bolt four guns share and the Holo Shield's flight take
+  the game's sizes, colours and lives (P1.13, P3.13, P3.18). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
@@ -71,10 +73,9 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. The guns' effects from the disc (P3.18): recipes for the Bouncer, Plasma Coil and
-   Plasma Whip from their read calls, then the other guns'; the ribbons, rings, lights
-   and shake,
-   the whip's links and shield; then P1.10's nanotech, explosive and doubler crates
+1. The guns' effects from the disc (P3.18): the other guns' calls and recipes, then
+   strips for the whip's rope; rings,
+   lights and shake, the whip's links; then P1.10's nanotech, explosive and doubler crates
    ("Ammo pickups, crates and the vendor").
 2. Co-op (RE.10): a co-op level with crates and enemies, to trace an ammo pickup and a
    kill by each player.
@@ -1160,7 +1161,24 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     blended, as the game's. The full-screen flashes of the Shock Blaster, the Nitro and
     the Annihilator's explosions, read in code and drawn (`Screen`). The Plasma Whip's,
     Plasma Coil's and Bouncer's calls read with their arguments (`effects.md`, "The
-    calls' arguments"), not yet in recipes.
+    calls' arguments") and in recipes as far as the layer goes (`effects.md`,
+    "Importing them" 4), and the Miniturret Glove's with the small blast (0x4488B8) its
+    turret ends in, and the Agents of Doom's: gun events name the kind of shot that sent them, so recipes
+    give parts per kind (`shots`; the bomblets and the Annihilator's mines), guns give
+    their own arcs, and the canister is drawn at its code's 3×. The Bouncer and the coil's ball checked on screen with the disc.
+    The lightning bolt four guns share (0x34DAA0; `effects.md`, "The lightning bolt"):
+    bent beams (`jag`), one recipe in the defaults' `shots`, and the kit's bolt now
+    strikes 6 ticks in, as the game's. The Holo Shield in flight and unfolding, seen on
+    screen (`effects.md`, "Holo Shield Glove"). Ribbons through a gun's shots
+    (`rac_demo::fx::ribbon`), drawn for the Lava Gun's stream and seen on screen. The
+    coil's five bowed arcs a target (`bows`, `same_bends`), the Miniturret and the Agents
+    of Doom seen on screen through scripted replays of the demo that reach the arena
+    (`docs/re-setup.md`, "Kit demo arena replays"). The Holo Shield's standing wall as
+    sprites in its plane (`panels`; 0x378A20, 0x378298), seen on screen at V3. The Disc
+    Blade Gun's (`effects.md`, "Disc Blade Gun"): its glances as a `Bounce` gun event
+    with its own recipe part and sound cue, its end an Impact wherever it comes, its
+    trail as a flat ribbon through points it keeps (`rac_demo::fx::sweep`) and glows
+    pushed toward the camera (`nearer`); seen on screen at V3.
   - Veldin's N60 always takes its bullets' second path: 0x1DE380, which picks the tracer
     and the trail, is 1 and never written. The Nitro's blast doesn't call
     `explosion_spawn` at all. Particle sizes are taken as halves; whether they are half
@@ -1168,11 +1186,28 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Not done: the other guns' recipes (the kit's own still); ribbons with moving ends,
     rings and domes, lights, shake, glows over the view, decals, children particles
     and meshes the effects spawn (`effects.md`, "Importing them" 3); the V5 shots'
-    classes; the whip's links and the shield; the Lava Gun's stream as one ribbon, and
-    a reference take of it with no enemy in reach (`effects.md`, "Importing them" 3).
-    Next step: write the Bouncer's, Plasma Coil's and Plasma Whip's recipes from
-    `effects.md` (the Bouncer's needs nothing new; the coil's arcs and the whip's rope
-    need ribbons, and both a light), then read the next guns' calls.
+    classes; the whip's links and the shield; a reference take of the Lava Gun with no
+    enemy in reach, its ribbon's scrolling texture, and the kit's muzzle for it, above
+    and behind the disc model's barrel tip (`effects.md`, "Importing them" 3);
+    what the recipes leave out (`effects.md`, "Importing them" 4: the whip's rope, hit
+    sparks and light, the coil's gun and lightning, its arcs' reach and waver, the
+    bolt's growth and second line past the target, the shield's lights, its strips'
+    masks (a custom material: a texture's alpha weighting another's turning colour) and
+    folding draws), and an on-screen look at the whip's V4 wave and the bolts (in the
+    arena replays the Hydra spits but never marks a target; why is open).
+    Next step: the remaining guns' calls (`cache/w4/fx/pergun.txt`: the Shield Charger,
+    Infector, Rift Inducer, Suck Cannon, Qwack-O-Ray and RY3NO), then strips through
+    points that aren't shots for the whip's rope (it needs the whip's links).
+  - A shot's firing event (the Miniturret's turret) plays its glove's fire sound, as
+    `rac_demo::sfx` cues by gun, not by shot; so the agents' guns send none yet, and a
+    bolt's strike and the shield's landing play their gun's impact cue. Still open: cue
+    shots' sounds from their own classes (P1.13).
+  - The bolt's strike, 6 ticks after the Hydra's own hit on a mark, falls in the kit's
+    placeholder 8-tick recovery from a gun's hit (`CombatTuning::gun_recovery_ticks`),
+    so in play the bolt's half is lost; the test turns the recovery off. Still open: the
+    game leaves it to each enemy's code (P1.8).
+  - The Tesla Barrier's `rand(20, 60)` is each slot's wait before its next bolt, not a
+    bolt's life (0x3410E8), but the kit's tesla bolts last that long. Still open.
 - **Done when:** every level of each finished release renders correctly in both paths:
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.

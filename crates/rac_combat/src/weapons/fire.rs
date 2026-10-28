@@ -45,7 +45,8 @@ pub struct Hit {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Outcome {
     pub hits: Vec<Hit>,
-    pub events: Vec<(WeaponId, GunEventKind)>,
+    /// Each event, with the name of the kind of shot that did it (`None`: the gun).
+    pub events: Vec<(WeaponId, GunEventKind, Option<&'static str>)>,
     /// What his moves should know this tick.
     pub hand: GunHand,
     /// The gun he would lock on with has its lock-on mod.
@@ -68,7 +69,13 @@ pub struct Afflict {
 
 impl Outcome {
     pub(crate) fn event(&mut self, weapon: WeaponId, kind: GunEventKind) {
-        self.events.push((weapon, kind));
+        self.events.push((weapon, kind, None));
+    }
+
+    /// An event of `shot`'s, by its kind as it is now.
+    pub(crate) fn shot_event(&mut self, shot: &Shot, kind: GunEventKind) {
+        self.events
+            .push((shot.weapon, kind, Some(shot.kind.name())));
     }
 }
 
@@ -281,7 +288,7 @@ pub fn step(
         // Each shot, and each of a stream's rounds, starts the firing animation again.
         let fired = out.events[before..]
             .iter()
-            .any(|(_, kind)| matches!(kind, GunEventKind::Fired { .. }));
+            .any(|(_, kind, _)| matches!(kind, GunEventKind::Fired { .. }));
         if fired {
             arsenal.shots_fired = arsenal.shots_fired.wrapping_add(1);
             arsenal.trigger.dry = true;

@@ -30,11 +30,19 @@ pub fn demo_arsenal(armory: &Armory) -> Arsenal {
     arsenal
 }
 
-/// The look of one shot in flight: which hero's, and its number.
+/// The look of one shot in flight: which hero's, its number, and whether it was made for
+/// the shot [`standing`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ShotLook {
     player: usize,
     serial: u32,
+    standing: bool,
+}
+
+/// Whether a shot stands where it landed: a holo shield flies as its recipe's sprites and
+/// stands as the kit's wall.
+fn standing(kind: &ShotKind) -> bool {
+    matches!(kind, ShotKind::Barrier(state) if state.landed.is_some())
 }
 
 /// Meshes and materials for the guns' effects, made once.
@@ -262,7 +270,7 @@ pub(crate) fn show_shots(
             .iter()
             .filter(|(hero, _)| hero.player == look.player)
             .find_map(|(_, arsenal)| arsenal.shots.iter().find(|shot| shot.serial == look.serial));
-        let Some(shot) = shot else {
+        let Some(shot) = shot.filter(|shot| standing(&shot.kind) == look.standing) else {
             commands.entity(entity).despawn();
             continue;
         };
@@ -289,6 +297,7 @@ pub(crate) fn show_shots(
             let look = ShotLook {
                 player: hero.player,
                 serial: shot.serial,
+                standing: standing(&shot.kind),
             };
             if seen.contains(&look) {
                 continue;
@@ -314,8 +323,15 @@ pub(crate) fn show_shots(
                     });
                 continue;
             }
-            let sprites = draw.recipes.shot(key, shot.level);
-            let streak = draw.recipes.streak(key, shot.level);
+            let name = Some(shot.kind.name());
+            let (sprites, streak) = if look.standing {
+                (&[][..], None)
+            } else {
+                (
+                    draw.recipes.shot(key, shot.level, name),
+                    draw.recipes.streak(key, shot.level, name),
+                )
+            };
             if let Some(quad) = draw
                 .quad
                 .as_ref()
@@ -397,11 +413,16 @@ pub(crate) fn show_shots(
             }
             let fire = def.map(|def| &def.fire);
             let shown = shot_look(&shot.kind, shot.velocity, fire, &draw.looks);
-            // A blast its recipe shows only through its impact keeps a hidden look, so it
-            // is still followed and dropped as the others are.
-            let visibility = if matches!(shot.kind, ShotKind::Blast { .. })
-                && !draw.recipes.blast_sphere(key, shot.level)
-            {
+            // A blast its recipe shows only through its impact, or a shot drawn as a
+            // ribbon through it and its fellows, keeps a hidden look, so it is still
+            // followed and dropped as the others are.
+            let hidden = match shot.kind {
+                ShotKind::Blast { .. } => !draw.recipes.blast_sphere(key, shot.level, name),
+                // A standing shot drawn as its recipe's panels.
+                _ if look.standing => draw.recipes.panels(key, shot.level, name).is_some(),
+                _ => !draw.recipes.ribbon(key, shot.level, name).is_empty(),
+            };
+            let visibility = if hidden {
                 Visibility::Hidden
             } else {
                 Visibility::default()

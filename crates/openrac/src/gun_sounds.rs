@@ -139,8 +139,18 @@ pub const UYA_GUN_SOUNDS: &[(u16, &[CueSound])] = &[
     // Spitting Hydra (0x31FB90, both classes): entry 1 as it fires. It also loops entry 2
     // while held and plays 0 and 5 as it finds targets, which the kit doesn't cue.
     (0x47, &[gun(Cue::Fire, 0, 1), gun(Cue::Empty, 0, 3)]),
-    // Disc Blade Gun (0x36EFC0, both classes).
-    (0x4F, &[gun(Cue::Fire, 0, 1), gun(Cue::Empty, 0, 2)]),
+    // Disc Blade Gun (0x36EFC0, both classes); its disc (0x36FA78) plays 1 as it glances
+    // off a wall and 4 as it bursts. Off an enemy, from V3, it plays 2 or 3 by what the
+    // enemy is made of, which the kit doesn't know, so 1 there too.
+    (
+        0x4F,
+        &[
+            gun(Cue::Fire, 0, 1),
+            gun(Cue::Empty, 0, 2),
+            shot(Cue::Bounce, 0, 0x1867, 1),
+            shot(Cue::Impact, 0, 0x1867, 4),
+        ],
+    ),
     // Agents of Doom (0x35C9F0): the glove only clicks, empty or with eight agents out.
     (0x57, &[gun(Cue::Empty, 0, 0)]),
     // Rift Inducer (0x372990, both classes).

@@ -6,7 +6,9 @@
 // texture, `Particle(type, n)` entry n of a particle type's list. Which ones each gun draws
 // with follows that gun's code ("Each gun's effects") [code]. The six first guns' recipes
 // and the explosions they set off take the game's sizes, colours and lives ("The calls'
-// arguments") [code]; the other guns' are still the kit's own. Without the user's disc
+// arguments") [code], as do the Bouncer's, the Plasma Coil's, the Plasma Whip's, the
+// Miniturret's, the Agents of Doom's, the Holo Shield's, the Disc Blade's and the
+// lightning bolt's where the layer can draw them; the other guns' are still the kit's own. Without the user's disc
 // each texture is a placeholder painted as `placeholders` says.
 //
 // Sizes are world units across: twice the sizes the game's calls take, which are halves.
@@ -17,26 +19,35 @@
 // V1.
 (
     placeholders: {
+        Effect(8): (shape: Ring, colour: (0.6, 0.75, 1.0)),
         Effect(10): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Effect(11): (shape: Glow, colour: (1.0, 0.95, 0.85)),
         Effect(14): (shape: Streak, colour: (1.0, 0.45, 0.55)),
         Effect(21): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Effect(23): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Effect(26): (shape: Streak, colour: (0.6, 0.85, 1.0)),
+        Effect(27): (shape: Ring, colour: (0.55, 0.8, 1.0)),
+        Effect(29): (shape: Streak, colour: (0.85, 0.95, 1.0)),
+        Effect(42): (shape: Glow, colour: (0.7, 0.75, 1.0)),
         Effect(43): (shape: Streak, colour: (0.85, 0.9, 1.0)),
         Effect(44): (shape: Glow, colour: (0.55, 0.75, 1.0)),
         Effect(47): (shape: Bolt, colour: (0.7, 0.9, 1.0)),
         Effect(49): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Effect(54): (shape: Star, colour: (1.0, 1.0, 1.0)),
         Effect(57): (shape: Star, colour: (1.0, 1.0, 1.0)),
+        Effect(60): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Effect(61): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Effect(62): (shape: Flame, colour: (1.0, 0.75, 0.25)),
         Effect(63): (shape: Flame, colour: (1.0, 0.55, 0.15)),
         Effect(65): (shape: Star, colour: (1.0, 1.0, 1.0)),
+        Effect(67): (shape: Smoke, colour: (0.85, 0.85, 0.9)),
+        Effect(72): (shape: Glow, colour: (0.9, 0.9, 1.0)),
         Effect(73): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Effect(74): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Effect(75): (shape: Ring, colour: (0.65, 0.35, 0.95)),
+        Effect(76): (shape: Ring, colour: (0.9, 0.9, 0.95)),
         Effect(78): (shape: Feather, colour: (0.95, 0.95, 0.9)),
+        Particle(0x0B, 0): (shape: Smoke, colour: (1.0, 0.6, 0.2)),
         Particle(0x0F, 0): (shape: Smoke, colour: (1.0, 0.8, 0.5)),
         Particle(0x13, 0): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Particle(0x17, 0): (shape: Smoke, colour: (0.18, 0.17, 0.16)),
@@ -90,6 +101,92 @@
             Burst(texture: Particle(0x2C, 0), count: 8, speed: 6.0, gravity: 9.0, size: 0.15, end_size: 0.05, ticks: 15),
             Glow(texture: Particle(0x5A, 0), size: 0.4, end_size: 0.8, ticks: 6),
         ],
+        // Where a disc glances off something (0x370CD8): at V1 and V2 glares (0x5A) toward
+        // the camera, each turned a little more aside than the last; from V3 the Flux
+        // Rifle's muzzle again, streaks (0x74), sparkles (0x35) and bursts (0x5C), 0.4 unit
+        // toward the camera, blue at V3 and V4 and red from V5.
+        "disc glance": [
+            Burst(texture: Particle(0x5A, 0), count: 15, speed: 12.0, speed_from: Some(6.0), toward: Camera, cone: Some(45.0), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.135), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99)),
+        ],
+        "disc glance blue": [
+            Burst(texture: Particle(0x74, 0), count: 10, speed: 10.0, speed_from: Some(5.0), size: 0.1, end_size: 0.2, streak: Some(0.9), ticks: 15, ticks_to: Some(25), colour: (0.25, 0.5, 1.0, 1.0), end_alpha: 1.0),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 7.0, ticks: 14, colour: (0.25, 0.5, 1.0, 1.492), roll: Some((0.0, 360.0)), spin: 1.4, nearer: 0.4),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 5.0, ticks: 14, colour: (0.25, 0.5, 0.75, 1.492), roll: Some((0.0, 360.0)), spin: -1.4, nearer: 0.4),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 3.5, ticks: 14, colour: (1.992, 1.992, 1.992, 1.5), roll: Some((0.0, 360.0)), spin: 1.4, nearer: 0.4),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 2.5, ticks: 14, colour: (1.992, 1.992, 1.992, 1.375), roll: Some((0.0, 360.0)), spin: -1.4, nearer: 0.4),
+            Glow(texture: Particle(0x5C, 2), size: 1.4, end_size: 1.8, ticks: 20, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: 2.8, nearer: 0.4),
+            Glow(texture: Particle(0x5C, 2), size: 1.4, end_size: 3.4, ticks: 20, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: -1.4, delay: 1, nearer: 0.4),
+            Glow(texture: Particle(0x5C, 2), size: 3.0, end_size: 4.0, ticks: 20, colour: (0.938, 0.938, 0.938, 0.352), roll: Some((0.0, 360.0)), spin: 1.4, delay: 1, nearer: 0.4),
+        ],
+        "disc glance red": [
+            Burst(texture: Particle(0x74, 0), count: 10, speed: 10.0, speed_from: Some(5.0), size: 0.1, end_size: 0.2, streak: Some(0.9), ticks: 15, ticks_to: Some(25), colour: (1.0, 0.5, 0.25, 1.0), end_alpha: 1.0),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 7.0, ticks: 14, colour: (1.992, 0.5, 0.25, 1.492), roll: Some((0.0, 360.0)), spin: 1.4, nearer: 0.4),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 5.0, ticks: 14, colour: (1.992, 0.5, 0.25, 1.492), roll: Some((0.0, 360.0)), spin: -1.4, nearer: 0.4),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 3.5, ticks: 14, colour: (1.992, 1.992, 1.992, 1.5), roll: Some((0.0, 360.0)), spin: 1.4, nearer: 0.4),
+            Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 2.5, ticks: 14, colour: (1.992, 1.992, 1.992, 1.375), roll: Some((0.0, 360.0)), spin: -1.4, nearer: 0.4),
+            Glow(texture: Particle(0x5C, 2), size: 1.4, end_size: 1.8, ticks: 20, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: 2.8, nearer: 0.4),
+            Glow(texture: Particle(0x5C, 2), size: 1.4, end_size: 3.4, ticks: 20, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: -1.4, delay: 1, nearer: 0.4),
+            Glow(texture: Particle(0x5C, 2), size: 3.0, end_size: 4.0, ticks: 20, colour: (0.938, 0.938, 0.938, 0.352), roll: Some((0.0, 360.0)), spin: 1.4, delay: 1, nearer: 0.4),
+        ],
+        // A disc's end, wherever it comes (0x36FA78's state 1): at V1 and V2 S 0.3, colour
+        // set A, one of each spark and 20 smoke; at V3 the same in blue (set A with red and
+        // blue swapped), doing no damage; at V4 S 0.5 in blue with 25, 20 and 20 sparks,
+        // 45 glares and its ground ring, and a shake; from V5 S 0.5, red, 10 smoke. Its
+        // dome, its distortion at V4, its debris and the shake aren't drawn.
+        "disc blast": [
+            Glow(texture: Particle(0x5C, 0), size: 1.8, end_size: 2.7, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 1.8, end_size: 2.7, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 1.8, end_size: 2.7, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 1.8, end_size: 2.7, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 1.8, end_size: 2.7, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 1.8, end_size: 2.7, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.36, size_to: Some(0.6), end_size: 0.006, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.051),
+            Burst(texture: Particle(0x35, 0), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 2.16, size_to: Some(3.6), end_size: 0.012, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.051),
+            Burst(texture: Particle(0x61, 5), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.45, size_to: Some(0.9), end_size: 0.006, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.051),
+            Burst(texture: Particle(0x61, 3), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.36, size_to: Some(0.6), end_size: 0.006, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.051),
+            Burst(texture: Particle(0x17, 0), count: 20, speed: 0.6, speed_from: Some(0.3), toward: Camera, cone: Some(90.0), size: 0.9, end_size: 1.17, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.3, delay: 2, blend: Alpha),
+        ],
+        "disc blast blue": [
+            Glow(texture: Particle(0x5C, 0), size: 1.8, end_size: 2.7, ticks: 30, colour: (0.438, 1.109, 1.93, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 1.8, end_size: 2.7, ticks: 30, colour: (0.0, 0.773, 1.93, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 1.8, end_size: 2.7, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 1.8, end_size: 2.7, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 1.8, end_size: 2.7, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 1.8, end_size: 2.7, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.36, size_to: Some(0.6), end_size: 0.006, ticks: 30, ticks_to: Some(50), colour: (0.5, 0.992, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.051),
+            Burst(texture: Particle(0x35, 0), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 2.16, size_to: Some(3.6), end_size: 0.012, ticks: 30, ticks_to: Some(50), colour: (0.0, 0.25, 1.992, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.051),
+            Burst(texture: Particle(0x61, 5), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.45, size_to: Some(0.9), end_size: 0.006, ticks: 30, ticks_to: Some(50), colour: (0.0, 1.117, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.051),
+            Burst(texture: Particle(0x61, 3), count: 1, speed: 3.6, speed_from: Some(2.7), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.36, size_to: Some(0.6), end_size: 0.006, ticks: 30, ticks_to: Some(50), colour: (0.375, 0.781, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.051),
+            Burst(texture: Particle(0x17, 0), count: 20, speed: 0.6, speed_from: Some(0.3), toward: Camera, cone: Some(90.0), size: 0.9, end_size: 1.17, ticks: 40, ticks_to: Some(70), colour: (0.75, 1.25, 1.992, 0.5), spin: 1.4, jitter: 0.3, delay: 2, blend: Alpha),
+        ],
+        "disc blast big": [
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.438, 1.109, 1.93, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.0, 0.773, 1.93, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 25, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (0.5, 0.992, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x35, 0), count: 25, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 3.6, size_to: Some(6.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (0.0, 0.25, 1.992, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 5), count: 20, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.75, size_to: Some(1.5), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (0.0, 1.117, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 3), count: 20, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (0.375, 0.781, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x5A, 0), count: 45, speed: 10.0, speed_from: Some(7.5), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.13), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 20, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(90.0), size: 1.5, end_size: 1.95, ticks: 40, ticks_to: Some(70), colour: (0.75, 1.25, 1.992, 0.5), spin: 1.4, jitter: 0.5, delay: 2, blend: Alpha),
+            Burst(texture: Particle(0x5C, 0), count: 100, toward: Level, speed: 7.5, speed_from: Some(7.5), size: 1.1, end_size: 1.2, ticks: 20, ticks_to: Some(27), colour: (0.375, 0.781, 1.992, 0.617), delay: 5),
+        ],
+        "disc blast red": [
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.992, 0.609, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.992, 0.398, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.992, 0.609, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.992, 0.609, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.992, 0.609, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.992, 0.609, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 1, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.617, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x35, 0), count: 1, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 3.6, size_to: Some(6.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 5), count: 1, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.75, size_to: Some(1.5), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 3), count: 1, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.375, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x17, 0), count: 10, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(90.0), size: 1.5, end_size: 1.95, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.5, delay: 2, blend: Alpha),
+        ],
         // The N60's V1 hit (0x35B390): S 0.14, colour set N, a sparse ground ring.
         "n60 blast": [
             Glow(texture: Particle(0x5C, 0), size: 0.84, end_size: 1.26, ticks: 30, colour: (1.93, 1.234, 0.445, 0.781), roll: Some((0.0, 360.0))),
@@ -140,6 +237,165 @@
             Burst(texture: Particle(0x17, 0), count: 20, speed: 2.0, speed_from: Some(1.0), toward: Camera, cone: Some(90.0), size: 3.0, end_size: 3.9, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 1.0, delay: 2, blend: Alpha),
             Burst(texture: Particle(0x5C, 0), count: 100, toward: Level, speed: 15.0, speed_from: Some(15.0), size: 2.2, end_size: 2.4, ticks: 20, ticks_to: Some(27), colour: (1.992, 0.781, 0.375, 0.617), delay: 5),
         ],
+        // The Bouncer's canister (0x31D6C0): S 0.7 and then 1.0, colour set A, the flash; its
+        // distortion isn't drawn.
+        "bouncer blast": [
+            Screen(ticks: 1, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0),
+            Glow(texture: Particle(0x5C, 0), size: 4.2, end_size: 6.3, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 4.2, end_size: 6.3, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 4.2, end_size: 6.3, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 4.2, end_size: 6.3, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 4.2, end_size: 6.3, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 4.2, end_size: 6.3, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 14, speed: 8.4, speed_from: Some(6.3), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.84, size_to: Some(1.4), end_size: 0.014, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.119),
+            Burst(texture: Particle(0x35, 0), count: 14, speed: 8.4, speed_from: Some(6.3), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 5.04, size_to: Some(8.4), end_size: 0.028, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.119),
+            Burst(texture: Particle(0x61, 5), count: 10, speed: 8.4, speed_from: Some(6.3), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.05, size_to: Some(2.1), end_size: 0.014, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.119),
+            Burst(texture: Particle(0x61, 3), count: 15, speed: 8.4, speed_from: Some(6.3), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.84, size_to: Some(1.4), end_size: 0.014, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.119),
+            Burst(texture: Particle(0x5A, 0), count: 20, speed: 14.0, speed_from: Some(10.5), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.182), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 10, speed: 1.4, speed_from: Some(0.7), toward: Camera, cone: Some(90.0), size: 2.1, end_size: 2.73, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.7, delay: 2, blend: Alpha),
+        ],
+        "bouncer big blast": [
+            Screen(ticks: 1, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0),
+            Glow(texture: Particle(0x5C, 0), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 14, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.2, size_to: Some(2.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.17),
+            Burst(texture: Particle(0x35, 0), count: 14, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 7.2, size_to: Some(12.0), end_size: 0.04, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.17),
+            Burst(texture: Particle(0x61, 5), count: 10, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.5, size_to: Some(3.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.17),
+            Burst(texture: Particle(0x61, 3), count: 15, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.2, size_to: Some(2.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.17),
+            Burst(texture: Particle(0x5A, 0), count: 20, speed: 20.0, speed_from: Some(15.0), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.26), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 10, speed: 2.0, speed_from: Some(1.0), toward: Camera, cone: Some(90.0), size: 3.0, end_size: 3.9, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 1.0, delay: 2, blend: Alpha),
+        ],
+        // A bomblet's (0x31ECC8): S 0.6, colour set A; the Heavy Bouncer's S 1.2, the
+        // Annihilator's heavy mines S 1.0.
+        "bomblet blast": [
+            Glow(texture: Particle(0x5C, 0), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.6, end_size: 5.4, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 6, speed: 7.2, speed_from: Some(5.4), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.72, size_to: Some(1.2), end_size: 0.012, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.102),
+            Burst(texture: Particle(0x35, 0), count: 6, speed: 7.2, speed_from: Some(5.4), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 4.32, size_to: Some(7.2), end_size: 0.024, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.102),
+            Burst(texture: Particle(0x61, 5), count: 5, speed: 7.2, speed_from: Some(5.4), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.9, size_to: Some(1.8), end_size: 0.012, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.102),
+            Burst(texture: Particle(0x61, 3), count: 6, speed: 7.2, speed_from: Some(5.4), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.72, size_to: Some(1.2), end_size: 0.012, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.102),
+            Burst(texture: Particle(0x5A, 0), count: 10, speed: 12.0, speed_from: Some(9.0), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.156), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 8, speed: 1.2, speed_from: Some(0.6), toward: Camera, cone: Some(90.0), size: 1.8, end_size: 2.34, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.6, delay: 2, blend: Alpha),
+        ],
+        "heavy bomblet blast": [
+            Glow(texture: Particle(0x5C, 0), size: 7.2, end_size: 10.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 7.2, end_size: 10.8, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 7.2, end_size: 10.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 7.2, end_size: 10.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 7.2, end_size: 10.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 7.2, end_size: 10.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 6, speed: 14.4, speed_from: Some(10.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.44, size_to: Some(2.4), end_size: 0.024, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.204),
+            Burst(texture: Particle(0x35, 0), count: 6, speed: 14.4, speed_from: Some(10.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 8.64, size_to: Some(14.4), end_size: 0.048, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.204),
+            Burst(texture: Particle(0x61, 5), count: 5, speed: 14.4, speed_from: Some(10.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.8, size_to: Some(3.6), end_size: 0.024, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.204),
+            Burst(texture: Particle(0x61, 3), count: 6, speed: 14.4, speed_from: Some(10.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.44, size_to: Some(2.4), end_size: 0.024, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.204),
+            Burst(texture: Particle(0x5A, 0), count: 10, speed: 24.0, speed_from: Some(18.0), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.312), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 8, speed: 2.4, speed_from: Some(1.2), toward: Camera, cone: Some(90.0), size: 3.6, end_size: 4.68, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 1.2, delay: 2, blend: Alpha),
+        ],
+        "heavy mine blast": [
+            Glow(texture: Particle(0x5C, 0), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 6.0, end_size: 9.0, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 6, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.2, size_to: Some(2.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.17),
+            Burst(texture: Particle(0x35, 0), count: 6, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 7.2, size_to: Some(12.0), end_size: 0.04, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.17),
+            Burst(texture: Particle(0x61, 5), count: 5, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.5, size_to: Some(3.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.17),
+            Burst(texture: Particle(0x61, 3), count: 6, speed: 12.0, speed_from: Some(9.0), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.2, size_to: Some(2.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.17),
+            Burst(texture: Particle(0x5A, 0), count: 10, speed: 20.0, speed_from: Some(15.0), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.26), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 8, speed: 2.0, speed_from: Some(1.0), toward: Camera, cone: Some(90.0), size: 3.0, end_size: 3.9, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 1.0, delay: 2, blend: Alpha),
+        ],
+        // The Plasma Whip's V4 shock wave on the ground (0x393690): S 0.5, blue.
+        "whip wave blast": [
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.125, 0.359, 1.992, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.25, 1.0, 1.992, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.125, 0.359, 1.992, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.125, 0.359, 1.992, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.125, 0.359, 1.992, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (0.125, 0.359, 1.992, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 2, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (0.5, 0.992, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x35, 0), count: 2, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 3.6, size_to: Some(6.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (0.25, 0.375, 1.992, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 5), count: 2, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.75, size_to: Some(1.5), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (0.742, 1.117, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 3), count: 2, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (0.25, 1.0, 1.992, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x5A, 0), count: 2, speed: 10.0, speed_from: Some(7.5), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.13), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 5, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(90.0), size: 1.5, end_size: 1.95, ticks: 40, ticks_to: Some(70), colour: (0.375, 0.375, 1.992, 0.5), spin: 1.4, jitter: 0.5, delay: 2, blend: Alpha),
+        ],
+        // The small blast a turret, the small missiles and some shots end in (0x4488B8), at
+        // S 0.5: three fireballs (0x0B, orange and some white) of 3.8 S across thrown at
+        // 8-10 S u/s, each splitting into four at 85% of its 15-20 ticks, twice, then
+        // fading as smoke for two or three times as long; drawn as three waves fading over
+        // three times their life. Its two domes (class 0x70) and light aren't drawn.
+        "small blast": [
+            Burst(texture: Particle(0x0B, 0), count: 3, speed: 5.0, speed_from: Some(4.0), keep: 0.9, gravity: -3.0, size: 1.905, end_size: 1.905, ticks: 45, ticks_to: Some(60), colour: (1.992, 0.992, 0.0, 0.617), end_colour: Some((0.992, 0.383, 0.0)), jitter: 0.0),
+            Burst(texture: Particle(0x0B, 0), count: 12, speed: 3.75, speed_from: Some(3.0), keep: 0.9, gravity: -3.0, size: 1.905, end_size: 1.905, ticks: 45, ticks_to: Some(60), colour: (1.992, 0.992, 0.0, 0.617), end_colour: Some((0.992, 0.383, 0.0)), jitter: 0.4, delay: 14, over: 3),
+            Burst(texture: Particle(0x0B, 0), count: 48, speed: 2.812, speed_from: Some(2.25), keep: 0.9, gravity: -3.0, size: 1.905, end_size: 1.905, ticks: 45, ticks_to: Some(60), colour: (1.992, 0.992, 0.0, 0.617), end_colour: Some((0.992, 0.383, 0.0)), jitter: 0.8, delay: 26, over: 6),
+        ],
+        // An agent's end at V1 (0x3C2140): S 0.5, colour set A, its ground ring; its dome,
+        // camera ring and debris aren't drawn.
+        "agent blast": [
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 3.0, end_size: 4.5, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 20, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x35, 0), count: 20, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 3.6, size_to: Some(6.0), end_size: 0.02, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 5), count: 20, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.75, size_to: Some(1.5), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x61, 3), count: 20, speed: 6.0, speed_from: Some(4.5), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.6, size_to: Some(1.0), end_size: 0.01, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.085),
+            Burst(texture: Particle(0x17, 0), count: 20, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(90.0), size: 1.5, end_size: 1.95, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.5, delay: 2, blend: Alpha),
+            Burst(texture: Particle(0x5C, 0), count: 100, toward: Level, speed: 7.5, speed_from: Some(7.5), size: 1.1, end_size: 1.2, ticks: 20, ticks_to: Some(27), colour: (1.992, 0.781, 0.375, 0.617), delay: 5),
+        ],
+        // The agents' comet where it lands (0x394068): S 0.9, colour set A; its distortion
+        // and dome aren't drawn.
+        "comet blast": [
+            Glow(texture: Particle(0x5C, 0), size: 5.4, end_size: 8.1, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 5.4, end_size: 8.1, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 5.4, end_size: 8.1, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 5.4, end_size: 8.1, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 5.4, end_size: 8.1, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 5.4, end_size: 8.1, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 10, speed: 10.8, speed_from: Some(8.1), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.08, size_to: Some(1.8), end_size: 0.018, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.153),
+            Burst(texture: Particle(0x35, 0), count: 10, speed: 10.8, speed_from: Some(8.1), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 6.48, size_to: Some(10.8), end_size: 0.036, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.153),
+            Burst(texture: Particle(0x61, 5), count: 10, speed: 10.8, speed_from: Some(8.1), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.35, size_to: Some(2.7), end_size: 0.018, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.153),
+            Burst(texture: Particle(0x61, 3), count: 10, speed: 10.8, speed_from: Some(8.1), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.08, size_to: Some(1.8), end_size: 0.018, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.153),
+            Burst(texture: Particle(0x5A, 0), count: 10, speed: 18.0, speed_from: Some(13.5), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.234), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 10, speed: 1.8, speed_from: Some(0.9), toward: Camera, cone: Some(90.0), size: 2.7, end_size: 3.51, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.9, delay: 2, blend: Alpha),
+        ],
+        // The small bullet's hit while the Agents of Doom are under V3 (0x35D9C0): S 0.2,
+        // colour set A.
+        "slug blast": [
+            Glow(texture: Particle(0x5C, 0), size: 1.2, end_size: 1.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 1.2, end_size: 1.8, ticks: 30, colour: (1.93, 0.773, 0.0, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 1.2, end_size: 1.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 1.2, end_size: 1.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 1.2, end_size: 1.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 1.2, end_size: 1.8, ticks: 30, colour: (1.93, 1.109, 0.438, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x61, 1), count: 5, speed: 2.4, speed_from: Some(1.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.24, size_to: Some(0.4), end_size: 0.004, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.992, 0.5, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.034),
+            Burst(texture: Particle(0x35, 0), count: 5, speed: 2.4, speed_from: Some(1.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 1.44, size_to: Some(2.4), end_size: 0.008, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.25, 0.0, 0.375), end_alpha: 0.375, spin: 14.0, jitter: 0.034),
+            Burst(texture: Particle(0x61, 5), count: 2, speed: 2.4, speed_from: Some(1.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.3, size_to: Some(0.6), end_size: 0.004, ticks: 30, ticks_to: Some(50), colour: (1.992, 1.117, 0.0, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.034),
+            Burst(texture: Particle(0x61, 3), count: 2, speed: 2.4, speed_from: Some(1.8), toward: Camera, cone: Some(80.0), gravity: 14.6, size: 0.24, size_to: Some(0.4), end_size: 0.004, ticks: 30, ticks_to: Some(50), colour: (1.992, 0.781, 0.375, 0.992), end_alpha: 0.99, spin: 7.0, jitter: 0.034),
+            Burst(texture: Particle(0x5A, 0), count: 2, speed: 4.0, speed_from: Some(3.0), gravity: 14.6, size: 0.1, end_size: 0.1, streak: Some(0.052), ticks: 25, ticks_to: Some(40), colour: (1.99, 1.99, 1.99, 0.99), delay: 1),
+            Burst(texture: Particle(0x17, 0), count: 2, speed: 0.4, speed_from: Some(0.2), toward: Camera, cone: Some(90.0), size: 0.6, end_size: 0.78, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.2, delay: 2, blend: Alpha),
+        ],
+        // The Plasma Coil's burst of sparkles (0x35) where its ball sticks or an arc
+        // arrives (0x30E388, 10 pairs in its mode 1): each pair a blue one and a grey one 0.7
+        // its size, half of them thrown 1.5 times as fast for 60 ticks, half pushed on toward
+        // the camera for 40.
+        "coil burst": [
+            Burst(texture: Particle(0x35, 0), count: 5, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 0.3, ticks: 60, ticks_to: Some(60), colour: (0.0, 0.0, 1.0, 0.992), spin: 1.4, jitter: 0.15),
+            Burst(texture: Particle(0x35, 0), count: 5, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 0.21, ticks: 60, ticks_to: Some(60), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15),
+            Burst(texture: Particle(0x35, 0), count: 5, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 0.25, ticks: 40, ticks_to: Some(40), colour: (0.0, 0.0, 1.0, 0.992), spin: 1.4, jitter: 0.15),
+            Burst(texture: Particle(0x35, 0), count: 5, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 0.175, ticks: 40, ticks_to: Some(40), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15),
+        ],
         // The Flux Rifle's V2 hit (0x346EF0): S 0.2, blue.
         "flux blast 2": [
             Glow(texture: Particle(0x5C, 0), size: 1.2, end_size: 1.8, ticks: 30, colour: (0.438, 1.109, 1.93, 0.781), roll: Some((0.0, 360.0))),
@@ -184,15 +440,36 @@
             Burst(texture: Particle(0x17, 0), count: 40, speed: 0.8, speed_from: Some(0.4), toward: Camera, cone: Some(90.0), size: 1.2, end_size: 1.56, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.4, delay: 2, blend: Alpha),
         ],
     },
-    // What a gun shows that its own recipe leaves out.
+    // What a gun shows that its own recipe leaves out; arcs (the shock mod's and the Hydra's
+    // spit) in lightning (47).
     default: (
         impact: Some([
             Glow(texture: Effect(11), size: 0.3, end_size: 0.6, ticks: 8, colour: (1.0, 0.9, 0.6, 1.0)),
         ]),
         ray: Some([(texture: Effect(43), width: 0.05, ticks: 10)]),
+        arc: Some([(texture: Effect(47), width: 0.25, ticks: 10, colour: (0.75, 0.9, 1.0, 1.0))]),
+        shots: {
+            // The lightning bolt the Spitting Hydra, Holo Shield, Shield Charger and Rift
+            // Inducer share (0x34DAA0; effects.md, "The lightning bolt") [code]: each tick
+            // two bent lines, each a core of 23 and a glow of 14 in its colour, (0x20, 0x40,
+            // 0x7F); from its strike to its end five pairs of sparkles a tick and one still.
+            // Its second line, which the game draws on past the target, goes only to it.
+            "bolt": (
+                arc: Some([
+                    (texture: Effect(23), width: 0.05, end_width: Some(0.05), ticks: 1, colour: (0.992, 0.992, 0.992, 1.0), jag: Some((points: 10, wave: 0.1, turn: 36.0, jitter: 0.2))),
+                    (texture: Effect(14), width: 0.5, end_width: Some(0.5), ticks: 1, colour: (0.25, 0.5, 0.992, 0.5), same_bends: true),
+                    (texture: Effect(23), width: 0.05, end_width: Some(0.05), ticks: 1, colour: (0.992, 0.992, 0.992, 1.0), jag: Some((points: 11, wave: 0.75, around: 0.5, turn: 57.0, jitter: 0.2))),
+                    (texture: Effect(14), width: 0.5, end_width: Some(0.5), ticks: 1, colour: (0.25, 0.5, 0.992, 0.5), same_bends: true),
+                ]),
+                arc_end: Some([]),
+                impact: Some([
+                    Burst(texture: Particle(0x35, 0), count: 45, speed: 6.0, speed_from: Some(1.0), size: 0.8, size_to: Some(1.6), end_size: 0.24, ticks: 15, ticks_to: Some(15), colour: (0.25, 0.5, 0.992, 0.992), spin: 5.6, delay: 0, over: 8),
+                    Burst(texture: Particle(0x35, 0), count: 45, speed: 6.0, speed_from: Some(1.0), size: 0.4, size_to: Some(0.8), end_size: 0.12, ticks: 15, ticks_to: Some(15), colour: (0.992, 0.992, 0.992, 0.375), spin: 5.6, delay: 0, over: 8),
+                    Burst(texture: Particle(0x35, 0), count: 9, speed: 0.0, size: 0.3, size_to: Some(6.0), end_size: 0.03, ticks: 12, ticks_to: Some(12), colour: (0.25, 0.5, 0.992, 0.992), spin: 11.2, delay: 0, over: 8),
+                ]),
+            ),
+        },
     ),
-    // The shock mod's arcs and the Hydra's spit and bolts: lightning (47).
-    arc: (texture: Effect(47), width: 0.25, ticks: 10, colour: (0.75, 0.9, 1.0, 1.0)),
     guns: {
         // The Shock Blaster (0x36A790; effects.md, "Each gun's effects") [code].
         "shock_blaster": (
@@ -365,8 +642,10 @@
             },
         ),
         // The Lava Gun (0x303F88; effects.md, "Each gun's effects") [code]: its stream is
-        // a ribbon (0x305858), drawn here as sprites on each of its blobs: a glow (43), a
-        // band (14) and a core (10); two glows (44) at the nozzle; and the stream sheds
+        // three ribbons through its points (0x305CA0) narrowing 0.94 a point, blended by
+        // the GS's fixed alpha (FIX) rather than their own: a core (10) mixed at 0x40, a
+        // band (14) added at 0x40 and a glow (43) six times as wide added at 0x50; two
+        // glows (44) at the nozzle; and the stream sheds
         // smoke (0x6D) that darkens as it drifts and sparks (0x19) going from white to red
         // as they fall. Its smokes take turns at being added and blended (0x305710 [code],
         // 0x48 and 0x44 at 0x1DC610 [data]), each darkened by up to half.
@@ -375,11 +654,15 @@
                 Glow(texture: Effect(44), size: 0.5, end_size: 0.5, ticks: 4, colour: (0.99, 0.375, 0.125, 0.99), end_alpha: 0.99, roll: Some((0.0, 360.0))),
                 Glow(texture: Effect(44), size: 1.0, end_size: 1.0, ticks: 4, colour: (0.49, 0.188, 0.063, 0.49), end_alpha: 0.49, roll: Some((0.0, 360.0))),
             ]),
-            shot: Some([
-                (texture: Effect(43), size: 0.45, colour: (1.0, 0.375, 0.125, 0.43)),
-                (texture: Effect(14), size: 0.15, colour: (0.99, 0.99, 0.99, 0.39)),
-                (texture: Effect(10), size: 0.15, colour: (1.24, 1.24, 1.24, 0.47), blend: Alpha),
-            ]),
+            shots: {
+                "stream": (
+                    ribbon: Some([
+                        (texture: Effect(43), width: (0.3, 0.6), narrow: 0.94, colour: (1.0, 0.375, 0.125, 0.625)),
+                        (texture: Effect(14), width: (0.05, 0.1), narrow: 0.94, colour: (0.992, 0.992, 0.992, 0.5)),
+                        (texture: Effect(10), width: (0.05, 0.1), narrow: 0.94, colour: (1.242, 1.242, 1.242, 0.5), blend: Alpha),
+                    ]),
+                ),
+            },
             trail: Some([
                 (per_tick: 0.07, textures: [Particle(0x6D, 0)], colours: [(0.938, 0.352, 0.117, 0.75), (0.813, 0.305, 0.102, 0.75), (0.688, 0.258, 0.086, 0.75), (0.563, 0.211, 0.07, 0.75)], size: 0.375, end_size: 1.9, ticks: 64, ticks_to: 128, back: -0.1, gravity: 2.7, keep: 0.99, spin: 1.4, end_colour: Some((0.09, 0.03, 0.01))),
                 (per_tick: 0.07, textures: [Particle(0x6D, 0)], colours: [(0.938, 0.352, 0.117, 0.75), (0.813, 0.305, 0.102, 0.75), (0.688, 0.258, 0.086, 0.75), (0.563, 0.211, 0.07, 0.75)], size: 0.375, end_size: 1.9, ticks: 64, ticks_to: 128, back: -0.1, gravity: 2.7, keep: 0.99, spin: 1.4, end_colour: Some((0.09, 0.03, 0.01)), blend: Alpha),
@@ -393,7 +676,8 @@
         // (0x13), sparks (0x5B) and 6 ticks of smoke (0x17) at the muzzle; a smoke trail
         // (0x17, every 0.15 u, half grey and added, half black) and a glow (44) and
         // ribbon (23) on the missile; the shared explosion where it lands, bigger from V2
-        // with sparkles (0x35, 0x5C) too.
+        // with sparkles (0x35, 0x5C) too, and where each of its mines bursts (V2-V4, the
+        // Bouncer's bomblets).
         "annihilator": (
             fire: Some([
                 Burst(texture: Particle(0x13, 0), count: 20, speed: 18.0, speed_from: Some(6.0), cone: Some(20.0), size: 0.1, end_size: 0.1, streak: Some(0.75), ticks: 24, ticks_to: Some(24), colour: (0.99, 0.99, 0.99, 0.375)),
@@ -431,6 +715,16 @@
                         Glow(texture: Particle(0x5C, 2), size: 2.8, end_size: 13.6, ticks: 40, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0))),
                         Glow(texture: Particle(0x5C, 2), size: 6.0, end_size: 16.0, ticks: 40, colour: (0.938, 0.938, 0.938, 0.352), roll: Some((0.0, 360.0))),
                     ]),
+                ),
+            },
+            // Its mines, from V2, are the Bouncer's bomblets, heavy at V4.
+            shots: {
+                "bomblet": (
+                    shot: Some([]),
+                    trail: Some([]),
+                    wake: Some([]),
+                    impact: Some([Set("bomblet blast")]),
+                    from_level: {3: (impact: Some([Set("heavy mine blast")]))},
                 ),
             },
         ),
@@ -562,16 +856,209 @@
             fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.8, ticks: 5, colour: (0.9, 0.95, 1.0, 1.0))]),
             impact: Some([Burst(texture: Particle(0x35, 0), count: 4, speed: 3.0, size: 0.3, end_size: 0.0, ticks: 12)]),
         ),
-        "disc": (impact: Some([Set("sparks")])),
-        "agents": (impact: Some([Set("small explosion")])),
+        // The Disc Blade Gun (0x36EFC0, disc 0x36FA78; effects.md, "Disc Blade Gun") [code]:
+        // on the disc to V4 (0x371240), added sprites turning from one phase a degree a
+        // tick, 57 three times, 49 twice and 47 at a new roll each tick; behind it to V4
+        // (0x371430) puffs in the dark smoke's texture every 0.1 unit, half added, half
+        // blended, and every other tick a 0x0F puff; from V2 its trail (0x371128); a glance
+        // and a burst by level. Not drawn: the sprites' push 0.08 toward the camera.
+        "disc": (
+            shot: Some([
+                (texture: Effect(57), size: 1.0, colour: (0.992, 0.992, 0.992, 0.25), spin: -1.5),
+                (texture: Effect(57), size: 1.0, colour: (0.992, 0.992, 0.992, 0.25), spin: 0.5),
+                (texture: Effect(57), size: 1.0, colour: (0.992, 0.992, 0.992, 0.25), spin: 2.5),
+                (texture: Effect(49), size: 0.72, colour: (1.992, 0.992, 0.0, 0.125), spin: 0.5),
+                (texture: Effect(49), size: 0.72, colour: (1.992, 0.992, 0.0, 0.125), spin: -0.5),
+                (texture: Effect(47), size: 0.22, colour: (0.992, 0.992, 0.992, 0.625), flickers: true),
+            ]),
+            trail: Some([
+                (per_tick: 1.5, textures: [Particle(0x17, 0)], colours: [(1.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, rise: (0.1, 0.2), spin: 2.8),
+                (per_tick: 1.5, textures: [Particle(0x17, 0)], colours: [(1.992, 0.5, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, rise: (0.1, 0.2), spin: 2.8, blend: Alpha),
+                (per_tick: 0.5, textures: [Particle(0x35, 0)], colours: [(1.992, 0.992, 0.5, 0.992), (1.992, 1.742, 1.0, 0.992)], size: 0.9, end_size: 0.0, ticks: 10, ticks_to: 20, rise: (3.0, 3.0), back: 0.0333, scatter: 6.0, gravity: 6.0, keep: 0.96, end_colour: Some((1.992, 0.0, 0.0))),
+            ]),
+            impact: Some([Set("disc blast")]),
+            bounce: Some([Set("disc glance")]),
+            from_level: {
+                1: (
+                    sweep: Some([(texture: Effect(29), every: 6, points: 6, width: 1.0, turn: 60.0, colour: (1.992, 1.0, 0.5, 0.867), end_colour: (1.992, 0.25, 0.0, 0.0))]),
+                ),
+                2: (
+                    shot: Some([
+                        (texture: Effect(57), size: 1.0, colour: (0.25, 0.25, 1.992, 0.25), spin: -1.5),
+                        (texture: Effect(57), size: 1.0, colour: (0.25, 0.25, 1.992, 0.25), spin: 0.5),
+                        (texture: Effect(57), size: 1.0, colour: (0.25, 0.25, 1.992, 0.25), spin: 2.5),
+                        (texture: Effect(49), size: 0.72, colour: (0.0, 0.992, 1.992, 0.125), spin: 0.5),
+                        (texture: Effect(49), size: 0.72, colour: (0.0, 0.992, 1.992, 0.125), spin: -0.5),
+                        (texture: Effect(47), size: 0.22, colour: (0.992, 0.992, 0.992, 0.625), flickers: true),
+                    ]),
+                    trail: Some([
+                        (per_tick: 1.5, textures: [Particle(0x17, 0)], colours: [(0.5, 0.992, 1.992, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, rise: (0.1, 0.2), spin: 2.8),
+                        (per_tick: 1.5, textures: [Particle(0x17, 0)], colours: [(0.5, 0.5, 1.992, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, rise: (0.1, 0.2), spin: 2.8, blend: Alpha),
+                        (per_tick: 0.5, textures: [Particle(0x35, 0)], colours: [(0.5, 0.992, 1.992, 0.992), (1.0, 1.742, 1.992, 0.992)], size: 0.9, end_size: 0.0, ticks: 10, ticks_to: 20, rise: (3.0, 3.0), back: 0.0333, scatter: 6.0, gravity: 6.0, keep: 0.96, end_colour: Some((0.0, 0.0, 1.992))),
+                    ]),
+                    impact: Some([Set("disc blast blue")]),
+                    bounce: Some([Set("disc glance blue")]),
+                    sweep: Some([(texture: Effect(29), every: 6, points: 6, width: 1.0, turn: 60.0, colour: (0.5, 1.0, 1.992, 0.867), end_colour: (0.0, 0.25, 1.992, 0.0))]),
+                ),
+                3: (
+                    impact: Some([Set("disc blast big")]),
+                    sweep: Some([(texture: Effect(60), every: 6, points: 6, width: 1.0, turn: 60.0, colour: (0.25, 0.125, 1.992, 0.617), end_colour: (0.0, 0.0, 1.992, 0.0))]),
+                ),
+                4: (
+                    shot: Some([]),
+                    trail: Some([]),
+                    impact: Some([Set("disc blast red")]),
+                    bounce: Some([Set("disc glance red")]),
+                    sweep: Some([(texture: Effect(60), every: 4, points: 4, width: 1.0, turn: 60.0, colour: (1.992, 0.125, 0.25, 0.617), end_colour: (1.992, 0.0, 0.0, 0.0))]),
+                ),
+            },
+        ),
+        // The Agents of Doom (0x35C9F0; effects.md, "Agents of Doom") [code]: nothing as the
+        // glove throws; where an agent ends at V1, the shared explosion; its comet at
+        // V2-V4 (class 0x1893) a head of fiery puffs (0x17) each tick and, where it lands,
+        // the shared explosion, sparks (0x19) and glows (11) for 15 ticks; the agents'
+        // small bullets (class 0x1855) glows of 57 and 47, a streak (63) and embers (0x17)
+        // behind them by level, and where they hit an explosion at V2 and embers (0x2C)
+        // from V3. Not drawn: the agents' sparkles as they appear, their guns' flashes.
+        "agents": (
+            fire: Some([]),
+            impact: Some([]),
+            shots: {
+                "agent": (impact: Some([Set("agent blast")])),
+                "comet": (
+                    trail: Some([
+                        (per_tick: 4.0, textures: [Particle(0x17, 0)], colours: [(1.0, 0.5, 0.25, 0.375)], size: 2.0, end_size: 1.55, ticks: 5, ticks_to: 5, spin: 5.6),
+                        (per_tick: 3.0, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.5)], size: 1.5, end_size: 1.35, ticks: 2, ticks_to: 2, spin: 4.2),
+                        (per_tick: 2.0, textures: [Particle(0x17, 0)], colours: [(1.992, 1.992, 1.992, 0.75)], size: 1.0, end_size: 0.9, ticks: 2, ticks_to: 2, spin: 4.2),
+                        (per_tick: 0.1, textures: [Particle(0x19, 0)], colours: [(1.99, 1.99, 1.99, 0.6)], size: 0.17, end_size: 0.02, ticks: 80, ticks_to: 80, scatter: 3.0, gravity: 22.7),
+                    ]),
+                    impact: Some([
+                        Set("comet blast"),
+                        Burst(texture: Particle(0x19, 0), count: 6, speed: 6.0, speed_from: Some(2.0), gravity: 22.7, size: 0.05, size_to: Some(0.29), end_size: 0.006, ticks: 80, ticks_to: Some(80), colour: (1.99, 1.99, 1.99, 0.6)),
+                        Glow(texture: Effect(11), size: 1.95, end_size: 1.95, ticks: 15, colour: (1.0, 0.375, 0.125, 0.39), end_alpha: 0.39, roll: Some((0.0, 360.0))),
+                        Glow(texture: Effect(11), size: 1.46, end_size: 1.46, ticks: 15, colour: (1.0, 0.375, 0.125, 0.47), end_alpha: 0.47, roll: Some((0.0, 360.0))),
+                        Glow(texture: Effect(11), size: 0.98, end_size: 0.98, ticks: 15, colour: (1.0, 0.375, 0.125, 0.55), end_alpha: 0.55, roll: Some((0.0, 360.0))),
+                    ]),
+                ),
+                "slug": (
+                    shot: Some([
+                        (texture: Effect(57), size: 0.36, colour: (0.992, 0.992, 0.992, 0.25), spin: -1.5),
+                        (texture: Effect(57), size: 0.36, colour: (0.992, 0.992, 0.992, 0.25), spin: 0.5),
+                        (texture: Effect(47), size: 0.1, colour: (0.992, 0.992, 0.992, 0.625), flickers: true),
+                    ]),
+                    streak: Some((texture: Effect(63), behind: 0.0, length: (1.333, 1.5), width: (0.28, 0.44), after: 0.5, colour: (1.992, 1.992, 1.992, 0.992))),
+                    impact: Some([Set("slug blast")]),
+                    from_level: {
+                        1: (
+                        trail: Some([
+                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.367, 1.367, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
+                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(0.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
+                        ]),
+                        ),
+                        2: (
+                        trail: Some([
+                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
+                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
+                        ]),
+                            impact: Some([
+                                Burst(texture: Particle(0x2C, 0), count: 20, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(80.0), size: 0.1, size_to: Some(0.4), end_size: 0.17, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 2.8, jitter: 0.1),
+                            ]),
+                        ),
+                        3: (
+                        trail: Some([
+                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 0.5, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
+                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
+                        ]),
+                        ),
+                    },
+                ),
+            },
+        ),
         // Flames (62) at the muzzle, a swirl (75) for the rift.
         "rift": (
             fire: Some([Flash(texture: Effect(62), length: 0.5, width: 0.4, ticks: 4)]),
             shot: Some([(texture: Effect(75), size: 0.8, colour: (0.7, 0.4, 1.0, 1.0))]),
             impact: Some([Glow(texture: Effect(75), size: 1.0, end_size: 3.0, ticks: 20, colour: (0.7, 0.4, 1.0, 1.0))]),
+            // The Rift Ripper's bolts, in (0x30, 0x05, 0x80) (0x34DAA0) [code].
+            shots: {
+                "bolt": (
+                    arc: Some([
+                        (texture: Effect(23), width: 0.05, end_width: Some(0.05), ticks: 1, colour: (0.992, 0.992, 0.992, 1.0), jag: Some((points: 10, wave: 0.1, turn: 36.0, jitter: 0.2))),
+                        (texture: Effect(14), width: 0.5, end_width: Some(0.5), ticks: 1, colour: (0.375, 0.039, 1, 0.5), same_bends: true),
+                        (texture: Effect(23), width: 0.05, end_width: Some(0.05), ticks: 1, colour: (0.992, 0.992, 0.992, 1.0), jag: Some((points: 11, wave: 0.75, around: 0.5, turn: 57.0, jitter: 0.2))),
+                        (texture: Effect(14), width: 0.5, end_width: Some(0.5), ticks: 1, colour: (0.375, 0.039, 1, 0.5), same_bends: true),
+                    ]),
+                    arc_end: Some([]),
+                    impact: Some([
+                        Burst(texture: Particle(0x35, 0), count: 45, speed: 6.0, speed_from: Some(1.0), size: 0.8, size_to: Some(1.6), end_size: 0.24, ticks: 15, ticks_to: Some(15), colour: (0.375, 0.039, 1, 0.992), spin: 5.6, delay: 0, over: 8),
+                        Burst(texture: Particle(0x35, 0), count: 45, speed: 6.0, speed_from: Some(1.0), size: 0.4, size_to: Some(0.8), end_size: 0.12, ticks: 15, ticks_to: Some(15), colour: (0.992, 0.992, 0.992, 0.375), spin: 5.6, delay: 0, over: 8),
+                        Burst(texture: Particle(0x35, 0), count: 9, speed: 0.0, size: 0.3, size_to: Some(6.0), end_size: 0.03, ticks: 12, ticks_to: Some(12), colour: (0.375, 0.039, 1, 0.992), spin: 11.2, delay: 0, over: 8),
+                    ]),
+                ),
+            },
         ),
-        "holo": (fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.9, ticks: 6, colour: (0.4, 0.9, 1.0, 1.0))])),
-        "whip": (impact: Some([Set("sparks")])),
+        // The Holo Shield Glove (0x3717A8; effects.md, "Holo Shield Glove") [code]: the
+        // shield in flight (0x37B108), and the blue puffs as it unfolds where it lands
+        // (0x376B88), half of them added; standing, its wall's sprites in its plane, over
+        // its whole 4 by 2.3. The glove's throw is the kit's own; its lights, the two
+        // stars of 57 facing the camera at V3 and V5's own layer aren't drawn; its bolts
+        // are the defaults'.
+        "holo": (
+            fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.9, ticks: 6, colour: (0.4, 0.9, 1.0, 1.0))]),
+            shots: {
+                "barrier": (
+                    shot: Some([
+                        (texture: Effect(57), size: 1.0, colour: (0.625, 0.625, 0.625, 0.5), spin: 2.5),
+                        (texture: Effect(42), size: 1.0, colour: (0.5, 0.25, 0.992, 0.25), spin: -1.5),
+                        (texture: Effect(44), size: 1.0, colour: (0.5, 0.25, 0.992, 0.25), spin: 1.0),
+                        (texture: Effect(49), size: 0.72, colour: (0.0, 0.992, 1.992, 0.25), spin: 0.5),
+                        (texture: Effect(47), size: 0.22, colour: (0.992, 0.992, 0.992, 0.625), flickers: true),
+                    ]),
+                    impact: Some([
+                        Burst(texture: Particle(0x17, 0), count: 68, speed: 3.0, speed_from: Some(3.0), toward: Level, gravity: 6.0, size: 2.0, end_size: 0.8, ticks: 10, ticks_to: Some(30), colour: (0.25, 0.5, 1.0, 0.992), spin: 5.6, jitter: 0.15, over: 33, blend: Alpha),
+                        Burst(texture: Particle(0x17, 0), count: 68, speed: 3.0, speed_from: Some(3.0), toward: Level, gravity: 6.0, size: 2.0, end_size: 0.8, ticks: 10, ticks_to: Some(30), colour: (0.25, 0.5, 1.0, 0.992), spin: 5.6, jitter: 0.15, over: 33),
+                    ]),
+                    // Standing, its wall (0x378A20; 0x378298 from V3): sprites in its plane,
+                    // the strips' masks (a second texture's alpha written first) not drawn.
+                    panels: Some((
+                        unfold: 34,
+                        layers: [
+                            (texture: Effect(72), size: 1.0, spin: (-1.0, -2.0), colour: (0.39, 0.0, 1.99, 1.0)),
+                            (texture: Effect(27), size: 1.15, spin: (-1.0, -2.0), colour: (0.25, 0.5, 1.0, 0.367), near: Some((13.0, 25.0))),
+                            (texture: Effect(27), size: 1.15, spin: (1.5, 2.5), colour: (0.25, 0.5, 1.0, 0.367), near: Some((13.0, 25.0))),
+                            (texture: Effect(76), size: 0.5, spin: (-1.5, -2.5), colour: (0.39, 0.0, 1.99, 0.992), near: Some((13.0, 38.0))),
+                            (texture: Effect(76), size: 0.2, spin: (1.5, 2.5), colour: (0.039, 0.039, 0.375, 0.992), near: Some((13.0, 38.0))),
+                            (texture: Effect(72), size: 1.0, offset: 0.05, spin: (1.5, 2.5), colour: (0.25, 0.5, 1.0, 1.0), near: Some((13.0, 25.0))),
+                            (texture: Effect(72), size: 1.0, offset: 0.1, spin: (0.5, 1.5), colour: (0.992, 0.25, 0.25, 1.0), near: Some((13.0, 25.0))),
+                            (texture: Effect(75), size: 0.6, spin: (-1.0, -2.0), colour: (1.0, 0.5, 0.25, 0.992), near: Some((13.0, 38.0)), blend: Alpha),
+                        ],
+                    )),
+                    from_level: {
+                        2: (
+                            panels: Some((
+                                unfold: 34,
+                                layers: [
+                                    (texture: Effect(11), size: 0.225, offset: 0.01, spin: (-1.5, -2.5), colour: (0.5, 0.25, 1.99, 0.492), near: Some((13.0, 38.0))),
+                                    (texture: Effect(11), size: 1.0, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 0.992, 0.164), near: Some((13.0, 38.0))),
+                                    (texture: Effect(27), size: 1.15, spin: (-1.0, -2.0), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
+                                    (texture: Effect(27), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0))),
+                                    (texture: Effect(67), size: 1.0, spin: (-1.0, -2.0), colour: (0.5, 0.5, 0.5, 0.367)),
+                                    (texture: Effect(67), size: 1.0, offset: 0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
+                                    (texture: Effect(67), size: 1.0, offset: -0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
+                                    (texture: Effect(67), size: 1.0, offset: 0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
+                                    (texture: Effect(67), size: 1.0, offset: -0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
+                                ],
+                            )),
+                        ),
+                    },
+                ),
+            },
+        ),
+        // The Plasma Whip (0x356110; effects.md, "Plasma Whip") [code]: its V4 shock wave's
+        // blasts on the ground. Its rope's strands and sparks, its light and the sparks
+        // where it hits aren't drawn yet.
+        "whip": (impact: Some([Set("whip wave blast")])),
         "suck": (impact: Some([Set("small explosion")])),
         // Feathers (78).
         "qwack": (
@@ -583,18 +1070,115 @@
             fire: Some([Glow(texture: Effect(11), size: 0.6, end_size: 1.2, ticks: 6, colour: (1.0, 0.8, 0.5, 1.0))]),
             impact: Some([Set("explosion")]),
         ),
-        // The ball in 44, sparkles (0x35) where it bursts.
+        // The Plasma Coil (0x315638; effects.md, "Plasma Coil") [code]: its ball in flight
+        // as glows of 49 and 11 at new rolls each tick (0x30D680), without the lightning
+        // round it; sparkles (0x35) where it sticks; and arcs of 43, grey and blue, to the
+        // enemies round it (0x30DEF0), five to each, bowed on its curve (0x30D500) but
+        // still and at their whole length from the start, where the game's reach them in
+        // 10 ticks, stay 20 and waver each frame. Where each arrives, two glows of
+        // 49 and the sparkles, five times (a burst for each of the five). Its glows and arcs
+        // on the gun aren't drawn.
         "coil": (
-            shot: Some([(texture: Effect(44), size: 0.9, colour: (0.5, 0.7, 1.0, 1.0))]),
-            impact: Some([
-                Glow(texture: Effect(44), size: 1.0, end_size: 3.0, ticks: 12, colour: (0.5, 0.7, 1.0, 1.0)),
-                Burst(texture: Particle(0x35, 0), count: 8, speed: 6.0, size: 0.4, end_size: 0.05, ticks: 18),
+            shot: Some([
+                (texture: Effect(49), size: 2.5, colour: (1.0, 0.375, 0.125, 0.688), flickers: true),
+                (texture: Effect(49), size: 1.5, colour: (1.0, 1.0, 1.0, 0.688), flickers: true),
+                (texture: Effect(11), size: 3.5, colour: (0.125, 0.375, 1.0, 0.117), flickers: true),
+                (texture: Effect(11), size: 2.25, colour: (0.125, 0.375, 1.0, 0.375), flickers: true),
+            ]),
+            impact: Some([Set("coil burst")]),
+            arc: Some([
+                (texture: Effect(43), width: 0.12, end_width: Some(0.12), ticks: 30, colour: (1.367, 1.367, 1.367, 0.75), jag: Some((points: 24, jitter: 0.075, bows: Some(((3.25, 6.75), (1.25, 4.75)))))),
+                (texture: Effect(43), width: 0.45, end_width: Some(0.45), ticks: 30, colour: (0.0, 0.0, 1.992, 0.25), same_bends: true),
+                (texture: Effect(43), width: 0.12, end_width: Some(0.12), ticks: 30, colour: (1.367, 1.367, 1.367, 0.75), jag: Some((points: 24, jitter: 0.075, bows: Some(((3.25, 6.75), (1.25, 4.75)))))),
+                (texture: Effect(43), width: 0.45, end_width: Some(0.45), ticks: 30, colour: (0.0, 0.0, 1.992, 0.25), same_bends: true),
+                (texture: Effect(43), width: 0.12, end_width: Some(0.12), ticks: 30, colour: (1.367, 1.367, 1.367, 0.75), jag: Some((points: 24, jitter: 0.075, bows: Some(((3.25, 6.75), (1.25, 4.75)))))),
+                (texture: Effect(43), width: 0.45, end_width: Some(0.45), ticks: 30, colour: (0.0, 0.0, 1.992, 0.25), same_bends: true),
+                (texture: Effect(43), width: 0.12, end_width: Some(0.12), ticks: 30, colour: (1.367, 1.367, 1.367, 0.75), jag: Some((points: 24, jitter: 0.075, bows: Some(((3.25, 6.75), (1.25, 4.75)))))),
+                (texture: Effect(43), width: 0.45, end_width: Some(0.45), ticks: 30, colour: (0.0, 0.0, 1.992, 0.25), same_bends: true),
+                (texture: Effect(43), width: 0.12, end_width: Some(0.12), ticks: 30, colour: (1.367, 1.367, 1.367, 0.75), jag: Some((points: 24, jitter: 0.075, bows: Some(((3.25, 6.75), (1.25, 4.75)))))),
+                (texture: Effect(43), width: 0.45, end_width: Some(0.45), ticks: 30, colour: (0.0, 0.0, 1.992, 0.25), same_bends: true),
+            ]),
+            arc_end: Some([
+                Glow(texture: Effect(49), size: 1.0, end_size: 1.0, ticks: 20, colour: (1.0, 0.375, 0.125, 0.688), end_alpha: 0.688, roll: Some((0.0, 360.0)), delay: 10),
+                Glow(texture: Effect(49), size: 0.6, end_size: 0.6, ticks: 20, colour: (1.0, 1.0, 1.0, 0.688), end_alpha: 0.688, roll: Some((0.0, 360.0)), delay: 10),
+                Burst(texture: Particle(0x35, 0), count: 25, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 0.3, ticks: 60, ticks_to: Some(60), colour: (0.0, 0.0, 1.0, 0.992), spin: 1.4, jitter: 0.15, delay: 10),
+                Burst(texture: Particle(0x35, 0), count: 25, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 0.21, ticks: 60, ticks_to: Some(60), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15, delay: 10),
+                Burst(texture: Particle(0x35, 0), count: 25, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 0.25, ticks: 40, ticks_to: Some(40), colour: (0.0, 0.0, 1.0, 0.992), spin: 1.4, jitter: 0.15, delay: 10),
+                Burst(texture: Particle(0x35, 0), count: 25, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 0.175, ticks: 40, ticks_to: Some(40), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15, delay: 10),
             ]),
         ),
-        "bouncer": (impact: Some([Set("explosion")])),
+        // The Bouncer (0x31C890; effects.md, "Bouncer") [code]: smoke (0x17) at the muzzle;
+        // puffs (0x17) behind the canister for its first 14 ticks; where it bursts the
+        // shared explosion twice, and where each bomblet bursts a smaller one. Its light at
+        // the muzzle isn't drawn.
+        "bouncer": (
+            fire: Some([
+                Burst(texture: Particle(0x17, 0), count: 20, speed: 0.4, speed_from: Some(0.001), size: 0.666, size_to: Some(1.428), end_size: 1.212, ticks: 120, ticks_to: Some(120), colour: (0.535, 0.535, 0.535, 0.992), jitter: 0.3),
+            ]),
+            trail: Some([
+                (per_tick: 3.0, until: Some(14), textures: [Particle(0x17, 0)], colours: [(1.0, 1.0, 1.0, 0.992)], size: 0.188, end_size: 0.188, ticks: 50, ticks_to: 50, spin: 7.0),
+            ]),
+            impact: Some([Set("bouncer blast"), Set("bouncer big blast")]),
+            shots: {
+                "bomblet": (
+                    trail: Some([]),
+                    impact: Some([Set("bomblet blast")]),
+                    from_level: {4: (impact: Some([Set("heavy bomblet blast")]))},
+                ),
+            },
+        ),
+        // The Miniturret Glove (0x346078; effects.md, "Miniturret Glove") [code]: nothing as
+        // the glove throws; for 6 ticks after each of the turret's shots three glows (44)
+        // and two flames (23) at its barrel (0x32CEB0); a tracer (14) behind each of its
+        // shots (0x32D670) and sparkles (0x35) where it hits (0x32DA38, 6 pairs on an
+        // enemy); the small blast where the turret ends (0x4488B8). Orange to V2, blue from
+        // V3.
         "turret": (
-            fire: Some([Flash(texture: Effect(63), length: 0.4, width: 0.2, ticks: 3)]),
-            impact: Some([Set("bullet hit")]),
+            fire: Some([]),
+            impact: Some([]),
+            shots: {
+                "turret": (
+                    fire: Some([
+                        Glow(texture: Effect(44), size: 0.7, end_size: 0.7, ticks: 6, colour: (0.492, 0.188, 0.062, 0.438), end_alpha: 0.438, roll: Some((0.0, 360.0))),
+                        Glow(texture: Effect(44), size: 0.35, end_size: 0.35, ticks: 6, colour: (1.0, 0.375, 0.125, 0.742), end_alpha: 0.742, roll: Some((0.0, 360.0))),
+                        Glow(texture: Effect(44), size: 0.175, end_size: 0.175, ticks: 6, colour: (0.992, 0.992, 0.992, 0.742), end_alpha: 0.742, roll: Some((0.0, 360.0))),
+                        Flash(texture: Effect(23), length: 3.0, width: 0.23, ticks: 6, colour: (1.0, 0.375, 0.125, 0.992)),
+                        Flash(texture: Effect(23), length: 3.0, width: 0.46, ticks: 6, colour: (1.0, 0.375, 0.125, 0.492)),
+                    ]),
+                    impact: Some([Set("small blast")]),
+                    from_level: {
+                        2: (
+                            fire: Some([
+                                Glow(texture: Effect(44), size: 0.7, end_size: 0.7, ticks: 6, colour: (0.062, 0.188, 0.617, 0.438), end_alpha: 0.438, roll: Some((0.0, 360.0))),
+                                Glow(texture: Effect(44), size: 0.35, end_size: 0.35, ticks: 6, colour: (0.125, 0.375, 1.0, 0.742), end_alpha: 0.742, roll: Some((0.0, 360.0))),
+                                Glow(texture: Effect(44), size: 0.175, end_size: 0.175, ticks: 6, colour: (0.992, 0.992, 0.992, 0.742), end_alpha: 0.742, roll: Some((0.0, 360.0))),
+                                Flash(texture: Effect(23), length: 3.0, width: 0.23, ticks: 6, colour: (0.125, 0.375, 1.0, 0.992)),
+                                Flash(texture: Effect(23), length: 3.0, width: 0.46, ticks: 6, colour: (0.125, 0.375, 1.0, 0.492)),
+                            ]),
+                        ),
+                    },
+                ),
+                "pellet": (
+                    streak: Some((texture: Effect(14), behind: 0.0, length: (2.1, 2.1), width: (0.1, 0.1), colour: (1.0, 0.0, 0.0, 0.5))),
+                    impact: Some([
+                        Burst(texture: Particle(0x35, 0), count: 3, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 0.35, ticks: 60, ticks_to: Some(60), colour: (1.0, 0.0, 0.0, 0.992), spin: 1.4, jitter: 0.15),
+                        Burst(texture: Particle(0x35, 0), count: 3, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 0.245, ticks: 60, ticks_to: Some(60), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15),
+                        Burst(texture: Particle(0x35, 0), count: 3, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 2.05, ticks: 40, ticks_to: Some(40), colour: (1.0, 0.0, 0.0, 0.992), spin: 1.4, jitter: 0.15),
+                        Burst(texture: Particle(0x35, 0), count: 3, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 1.435, ticks: 40, ticks_to: Some(40), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15),
+                    ]),
+                    from_level: {
+                        2: (
+                            streak: Some((texture: Effect(14), behind: 0.0, length: (2.1, 2.1), width: (0.1, 0.1), colour: (0.75, 0.75, 1.0, 0.5))),
+                            impact: Some([
+                                Burst(texture: Particle(0x35, 0), count: 3, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 0.35, ticks: 60, ticks_to: Some(60), colour: (0.75, 0.75, 1.0, 0.992), spin: 1.4, jitter: 0.15),
+                                Burst(texture: Particle(0x35, 0), count: 3, speed: 4.5, speed_from: Some(0.075), toward: Camera, cone: Some(60.0), rise: (1.5, 7.5), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 0.245, ticks: 60, ticks_to: Some(60), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15),
+                                Burst(texture: Particle(0x35, 0), count: 3, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 1.0, size_to: Some(4.0), end_size: 2.05, ticks: 40, ticks_to: Some(40), colour: (0.75, 0.75, 1.0, 0.992), spin: 1.4, jitter: 0.15),
+                                Burst(texture: Particle(0x35, 0), count: 3, speed: 6.0, speed_from: Some(0.1), toward: Camera, cone: Some(60.0), rise: (1.0, 5.0), gravity: 7.2, size: 0.7, size_to: Some(2.8), end_size: 1.435, ticks: 40, ticks_to: Some(40), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, jitter: 0.15),
+                            ]),
+                        ),
+                    },
+                ),
+            },
         ),
         "shield": (),
     },

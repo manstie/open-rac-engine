@@ -20,14 +20,15 @@ use crate::hero_model::{Builder, ImportError, ImportPaint, add_skinned, material
 /// in the app. Their V5 shots' classes aren't drawn. The Plasma Coil's ball (0xA9B,
 /// untextured) and the rift (0x186B, 0.05 units across) are drawn by their code, and the
 /// Infector's 0x1E05 is a mound of goo 1.4 units high, not its shot; those keep their
-/// sprites.
-pub const UYA_SHOT_CLASSES: &[(u16, u32)] = &[
-    (0x77, 0x185A),
-    (0x3F, 0x1894),
-    (0x4F, 0x1867),
-    (0x13, 0xE64),
-    (0x15, 0x1366),
-    (0x97, 0x1873),
+/// sprites. Each is drawn at its class's scale times the third number, as its gun's code
+/// sets it: the Bouncer's canister at three times (0x1DC8BC [data]).
+pub const UYA_SHOT_CLASSES: &[(u16, u32, f32)] = &[
+    (0x77, 0x185A, 1.0),
+    (0x3F, 0x1894, 1.0),
+    (0x4F, 0x1867, 1.0),
+    (0x13, 0xE64, 3.0),
+    (0x15, 0x1366, 1.0),
+    (0x97, 0x1873, 1.0),
 ];
 
 /// A shot's model read from the disc, waiting for its materials.
@@ -46,13 +47,14 @@ pub struct DiscShots(pub Vec<DiscShot>);
 pub fn import(core: &Core) -> Vec<Result<DiscShot, ImportError>> {
     UYA_SHOT_CLASSES
         .iter()
-        .map(|&(item, class)| {
+        .map(|&(item, class, scale)| {
             let moby = core.moby_class(class)?;
             let textures = core.moby_textures(class)?;
             let mesh = moby.mesh(PacketKind::High)?;
             let metal = moby.mesh(PacketKind::Metal)?;
             let mut builder = Builder::default();
-            add_skinned(&mut builder, &mesh, &metal, &textures, moby.unit(), |_| 0);
+            let unit = moby.unit() * scale;
+            add_skinned(&mut builder, &mesh, &metal, &textures, unit, |_| 0);
             let (surfaces, paints) = builder.finish();
             Ok(DiscShot {
                 item,
@@ -133,7 +135,7 @@ mod disc_tests {
         )
         .expect("a UYA NTSC-U disc");
         let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
-        for (shot, (item, class)) in import(&core).into_iter().zip(UYA_SHOT_CLASSES) {
+        for (shot, (item, class, _)) in import(&core).into_iter().zip(UYA_SHOT_CLASSES) {
             let shot = shot.unwrap_or_else(|error| panic!("{class:#x}: {error}"));
             assert_eq!(shot.item, *item);
             assert!(!shot.surfaces.is_empty(), "{class:#x}");

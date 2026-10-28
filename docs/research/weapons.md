@@ -1267,8 +1267,8 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
     shots), and the shock mod's check for item 0x15 (whose bit no code read sets);
   - a target that dies or goes sends it looking again.
 - **Its end:** after row +0x54's shots (20 at V1, 30 from V2), 1200 frames (20 s) after
-  landing or its last shot, or more than 30 u from the hero, it bursts (0x4488B8, with 0.5
-  and 13, not read) and goes.
+  landing or its last shot, or more than 30 u from the hero, it bursts (0x4488B8 at size 0.5
+  with a light of radius 13: `effects.md`, "The small blast") and goes.
 - **V5 and up** (the Megaturret Glove, class 0xA65 (0x343088) and turret 0x1367,
   0x32DE00): the glove throws as the Miniturret's does (1.5–11 u, 15 u/s across,
   0.00306 u a frame²), the throw leaving 20 frames after the press, with at most 6 out.
@@ -1304,7 +1304,8 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   pushed straight out, flags 0x10000.
 - **V5 and up** (the Tesla Barrier): in place of the zaps, a frame at a time, while
   fewer than four bolts are out, one living enemy within 4 u that has none gets a
-  lightning bolt (0x34DAA0, the row's damage as it goes) for a random 20–60 frames. After
+  lightning bolt (0x34DAA0, the row's damage when it strikes), and that bolt's slot waits
+  a random 20–60 frames before its next (corrected 2026-10-28: not the bolt's life). After
   its 40th bolt (0x1DD29C) the shield goes. A shield of the V1–V4 class still up once the
   gun is V5 is replaced by a V5 one, for nothing, when its points run out.
 - **Its colour** flashes on a hit and fades back (corrected 2026-10-22: it doesn't run
@@ -1500,7 +1501,9 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   - with none: once its spit timer reaches the flight time it takes a round and spits.
 - **The bolt on a marked target** (class 0x1195, 0x34DAA0; its update 0x34DD38 and strike
   0x34DFD0): it holds between the gun and the target for its life (0x1DD48C: 15 frames
-  here), and as it goes the target, if still there, takes half the Hydra's damage again
+  here), and when its strike timer of 6 runs out (its 6th frame; corrected 2026-10-28,
+  `effects.md`, "The lightning bolt") the target, if still there, takes half the Hydra's
+  damage again
   (flags 0x410000, pushed 0.5 along it). The same bolt serves the Holo Shield (the shield's
   row damage), the Rift Ripper (a tenth of the rift's) and the Tesla Barrier (the Shield
   Charger's), by its source's class.

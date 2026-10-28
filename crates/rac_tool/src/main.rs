@@ -120,6 +120,19 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// List a UYA level core's effect textures, and optionally write each as an RGBA PAM
+    /// image (`fx-NNN.pam`, which ffmpeg reads) to look at.
+    FxTextures {
+        /// The disc image (.iso).
+        #[arg(long)]
+        iso: PathBuf,
+        /// The level whose core to read them from (1 is Veldin).
+        #[arg(long, default_value_t = 1)]
+        level: usize,
+        /// Write them here (under cache/).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Unpack a packed executable (R&C3, UYA, Deadlocked, Gladiator) from a disc image,
     /// list its sections, and optionally write it as a plain ELF for Ghidra.
     UnpackElf {
@@ -245,6 +258,30 @@ fn main() -> Result<()> {
             }
             if let Some(path) = glb {
                 write_glb(&hero, "hero", &path)?;
+            }
+        }
+        Command::FxTextures { iso, level, out } => {
+            let mut disc = open_disc(&iso)?;
+            let core = Core::read_uya(&mut disc, level)
+                .with_context(|| format!("reading level {level}'s core"))?;
+            let textures = core.fx_textures().context("reading the effect textures")?;
+            if let Some(out) = &out {
+                std::fs::create_dir_all(out)
+                    .with_context(|| format!("creating {}", out.display()))?;
+            }
+            for (index, texture) in textures.iter().enumerate() {
+                println!("{index:3}: {} by {}", texture.width, texture.height);
+                if let Some(out) = &out {
+                    let path = out.join(format!("fx-{index:03}.pam"));
+                    let mut bytes = format!(
+                        "P7\nWIDTH {}\nHEIGHT {}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
+                        texture.width, texture.height
+                    )
+                    .into_bytes();
+                    bytes.extend(texture.rgba());
+                    std::fs::write(&path, bytes)
+                        .with_context(|| format!("writing {}", path.display()))?;
+                }
             }
         }
         Command::Rails { iso, level } => {

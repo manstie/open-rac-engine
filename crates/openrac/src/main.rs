@@ -314,7 +314,7 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
         }
     };
     let mut shots = Vec::new();
-    for (shot, (_, class)) in shot_models::import(&core)
+    for (shot, (_, class, _)) in shot_models::import(&core)
         .into_iter()
         .zip(shot_models::UYA_SHOT_CLASSES)
     {

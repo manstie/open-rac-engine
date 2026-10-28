@@ -47,6 +47,7 @@
     cues: {
         Empty: "click",
         Impact: "thud",
+        Bounce: "clank",
         Arc: "spark",
         LevelUp: "chime",
     },

@@ -185,7 +185,7 @@ pub(super) fn cluster_shot(
     if !near && !rolled_out && shot.ticks < fire.lifetime {
         return true;
     }
-    out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
     scatter(
         shot,
         shot.position,
@@ -257,11 +257,15 @@ pub(super) fn bomblet(
     {
         let push = shot.velocity * TICK;
         out.hits.push(shot.hit(target.entity, shot.damage, push));
-        out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
         return false;
     }
     // At the end of its life it bursts with no damage.
-    shot.ticks < life
+    if shot.ticks < life {
+        return true;
+    }
+    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+    false
 }
 
 /// The Infector (0x3688E8): a press, a while since the last, takes a round and throws a
@@ -365,7 +369,7 @@ pub(super) fn blob(shot: &mut Shot, fire: &Infect, flight: &Flight, out: &mut Ou
         out.hits
             .push(shot.hit(target.entity, fire.blast_damage, push));
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 
@@ -496,7 +500,7 @@ pub(super) fn turret_shot(
     let keep = turret_tick(shot, &mut state, fire, flight, rng, out, born);
     shot.kind = ShotKind::Turret(state);
     if !keep {
-        out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
     }
     keep
 }
@@ -576,8 +580,8 @@ fn turret_tick(
     state.fired += 1;
     state.idle = 0;
     let direction = (target.centre - barrel).normalize_or(Vec3::NEG_Z);
-    out.event(
-        shot.weapon,
+    out.shot_event(
+        shot,
         GunEventKind::Fired {
             at: barrel,
             direction,
@@ -681,7 +685,7 @@ fn guided(shot: &mut Shot, mega: &Mega, flight: &Flight, out: &mut Outcome) -> b
     for near in in_ball(flight.targets, at, mega.blast_radius, None) {
         out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 
@@ -694,8 +698,8 @@ fn pellet(shot: &mut Shot, push: f32, flight: &Flight, out: &mut Outcome) -> boo
             let along = shot.velocity.normalize_or_zero() * push;
             out.hits
                 .push(shot.hit(flight.targets[index].entity, shot.damage, along));
-            out.event(
-                shot.weapon,
+            out.shot_event(
+                shot,
                 GunEventKind::Impact {
                     at: shot.position + motion * t,
                 },
@@ -703,8 +707,8 @@ fn pellet(shot: &mut Shot, push: f32, flight: &Flight, out: &mut Outcome) -> boo
             false
         }
         Meets::World(t, _) => {
-            out.event(
-                shot.weapon,
+            out.shot_event(
+                shot,
                 GunEventKind::Impact {
                     at: shot.position + motion * t,
                 },
@@ -780,7 +784,7 @@ fn infect_bomb(
         out.hits
             .push(shot.hit(target.entity, fire.blast_damage, push));
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 
@@ -826,6 +830,8 @@ fn barrier_tick(
         }
         shot.velocity = Vec3::ZERO;
         state.landed = Some(0);
+        // It unfolds where it lands (0x376B88's state 2).
+        out.shot_event(shot, GunEventKind::Impact { at });
         return true;
     };
     *landed += 1;
@@ -928,12 +934,12 @@ fn pulse(shot: &mut Shot, fire: &Barrier, flight: &Flight, out: &mut Outcome) ->
             shot.position += motion * t;
             out.hits
                 .push(shot.hit(flight.targets[index].entity, damage, way * pulse.push));
-            out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+            out.shot_event(shot, GunEventKind::Impact { at: shot.position });
             false
         }
         Meets::World(t, _) => {
             shot.position += motion * t;
-            out.event(shot.weapon, GunEventKind::Impact { at: shot.position });
+            out.shot_event(shot, GunEventKind::Impact { at: shot.position });
             false
         }
         Meets::Nothing => {
@@ -960,8 +966,8 @@ fn drain(
             continue;
         }
         linked = true;
-        out.event(
-            shot.weapon,
+        out.shot_event(
+            shot,
             GunEventKind::Ray {
                 from,
                 to: enemy.centre,
@@ -977,8 +983,8 @@ fn drain(
     if !linked || flight.hero.distance(shot.position) >= fire.heal_reach {
         return;
     }
-    out.event(
-        shot.weapon,
+    out.shot_event(
+        shot,
         GunEventKind::Ray {
             from,
             to: flight.hero + Vec3::Y * 0.8,
@@ -1483,7 +1489,7 @@ fn agent_end(
                 let away = (near.centre - at).normalize_or_zero() * push;
                 out.hits.push(shot.hit(near.entity, shot.damage, away));
             }
-            out.event(shot.weapon, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at });
         }
         Some(AgentEnd::Comet { speed, life, .. }) => {
             let way = chased.map_or(flight.facing, |chased| {
@@ -1532,7 +1538,7 @@ fn comet(shot: &mut Shot, life: u32, fire: &Agents, flight: &Flight, out: &mut O
         let away = (near.centre - at).normalize_or_zero() * push;
         out.hits.push(shot.hit(near.entity, shot.damage, away));
     }
-    out.event(shot.weapon, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at });
     false
 }
 

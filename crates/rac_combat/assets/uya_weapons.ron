@@ -533,7 +533,7 @@
                 strike_radius: 1.0,
                 push: 0.5,
                 bolt_share: 0.5, // 0x34DFD0 [code]
-                bolt_ticks: 15, // [data]: 0x1DD48C; when in its life it strikes isn't read
+                bolt_ticks: 15, // [data]: 0x1DD48C; it strikes 6 in (0x34DF10)
                 // The spit (0x321108, 0x321580) [code].
                 spit_ticks: [(0, 30), (2, 35), (4, 40)],
                 spit_reach: 32.0,
@@ -823,9 +823,11 @@
                 fold_ticks: 20,
                 leash: 35.0,
                 hits: 7, // 10 × 0.75
-                // [placeholder]: from its scale's 2 by 1.2; its shape isn't read.
-                half_width: 1.5,
-                height: 2.0,
+                // As it is drawn [code]: its wall's sprites span ±2 across and ±1.2 up about
+                // a middle that rises 1.09 as it unfolds (0x376B88, 0x378298); what it
+                // blocks is still the kit's flat wall, its shape not read.
+                half_width: 2.0,
+                height: 2.3,
                 bolt_from: Some(2),
                 bolt_range: 7.5,
                 bolt_after: 15,
