@@ -12,6 +12,7 @@
 //!   frame, and are drawn between ticks. Their randomness is their own, never the level's:
 //!   they don't touch the simulation.
 
+mod charge;
 mod fan;
 mod light;
 mod mark;
@@ -37,6 +38,7 @@ use rac_hero::{CollisionScene, CollisionWorld, Hero};
 use rac_sim::SimTransform;
 use serde::Deserialize;
 
+pub use charge::{Charge, Crackle, Reach};
 pub use fan::Fan;
 pub use light::ShotLight;
 pub use mark::{Flame, Flat, Mark};
@@ -450,6 +452,28 @@ impl Trail {
     }
 }
 
+/// Rays fanned round a point, one laid each tick, until the shot is `until` ticks old if
+/// that is given (the Spitting Hydra's glare, 0x322B80 through 0x46FE70, type 0x6F):
+/// each its head a random `near` from the point any way round, reaching `length` straight
+/// out from it and `width` across, creeping back toward it `creep` units a tick, in
+/// `colour` throughout its `ticks`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Glare {
+    pub texture: Tex,
+    pub near: (f32, f32),
+    pub length: f32,
+    pub width: f32,
+    #[serde(default)]
+    pub creep: f32,
+    pub ticks: u32,
+    #[serde(default)]
+    pub until: Option<u32>,
+    #[serde(default = "opaque")]
+    pub colour: [f32; 4],
+    #[serde(default)]
+    pub blend: Blend,
+}
+
 /// A gun's effects; what it leaves out it takes from the defaults. From each level in
 /// `from_level` (0 is V1), what that level's entry gives takes the place of this.
 #[derive(Debug, Default, Clone, PartialEq, Deserialize)]
@@ -462,6 +486,9 @@ pub struct GunFx {
     pub streak: Option<Streak>,
     #[serde(default)]
     pub trail: Option<Vec<Trail>>,
+    /// Rays round each shot of the kind each tick, as the Spitting Hydra's spit's glare.
+    #[serde(default)]
+    pub glare: Option<Glare>,
     /// Beams laid along each tick of a shot's way, as the Flux Rifle's.
     #[serde(default)]
     pub wake: Option<Vec<Beam>>,
@@ -478,6 +505,9 @@ pub struct GunFx {
     /// Strands from a shot of the kind to each of its ends, as the Spitting Hydra's spit.
     #[serde(default)]
     pub fan: Option<Fan>,
+    /// What shows at the muzzle while the gun charges, as the Spitting Hydra's.
+    #[serde(default)]
+    pub charge: Option<Charge>,
     /// Strands through the Plasma Whip's rope while its links show.
     #[serde(default)]
     pub rope: Option<Vec<Strand>>,
@@ -680,6 +710,14 @@ impl FxRecipes {
         self.own(key, level, shot, |fx| fx.fan.as_ref())
     }
 
+    pub fn glare(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Glare> {
+        self.own(key, level, shot, |fx| fx.glare.as_ref())
+    }
+
+    pub fn charge(&self, key: &str, level: u8) -> Option<&Charge> {
+        self.own(key, level, None, |fx| fx.charge.as_ref())
+    }
+
     pub fn rope(&self, key: &str, level: u8) -> &[Strand] {
         self.own(key, level, None, |fx| fx.rope.as_deref())
             .unwrap_or(&[])
@@ -708,13 +746,20 @@ impl FxRecipes {
             textures.extend(fx.ribbon.iter().flatten().map(|ribbon| ribbon.texture));
             textures.extend(fx.sweep.iter().flatten().map(|sweep| sweep.texture));
             let fans = fx.fan.iter().flat_map(|fan| &fan.strands);
+            let charges = fx.charge.iter();
+            let crackles = charges.clone().flat_map(|charge| &charge.crackles);
             textures.extend(
                 fx.rope
                     .iter()
                     .flatten()
                     .chain(fans)
+                    .chain(crackles.flat_map(|crackle| &crackle.strands))
                     .map(|strand| strand.texture),
             );
+            let glows = charges.clone().flat_map(|charge| &charge.glow);
+            textures.extend(glows.flat_map(|glow| glow.textures.iter().copied()));
+            let glares = charges.filter_map(|charge| charge.glare.as_ref());
+            textures.extend(fx.glare.iter().chain(glares).map(|glare| glare.texture));
             let along = fx.along_rope.iter().flatten();
             textures.extend(along.filter_map(|along| along.emit.texture()));
             textures.extend(fx.mark.iter().flat_map(Mark::textures));
@@ -894,6 +939,8 @@ impl Plugin for FxPlugin {
             .init_resource::<sweep::Sweeps>()
             .init_resource::<rope::Strands>()
             .init_resource::<fan::Fans>()
+            .init_resource::<charge::Charges>()
+            .init_resource::<charge::ChargeLights>()
             .init_resource::<panel::ShownPanels>()
             .init_resource::<FxModels>()
             .init_resource::<CameraShake>()
@@ -907,6 +954,7 @@ impl Plugin for FxPlugin {
                     emit_crate_blasts,
                     emit_trails,
                     rope::emit_along_ropes,
+                    charge::emit_charges,
                     step_fx,
                     model::step_models,
                     mark::step_marks,
@@ -926,6 +974,7 @@ impl Plugin for FxPlugin {
                     sweep::draw_sweeps,
                     panel::draw_panels,
                     fan::draw_fans,
+                    charge::draw_charges,
                     shell::draw_shells,
                     rope::draw_strands.after(rac_rig::RigSystems),
                 )
@@ -1046,6 +1095,74 @@ fn on_ground(world: Option<&dyn CollisionWorld>, at: Vec3, reach: f32) -> Option
 }
 
 impl Spawner<'_, '_, '_> {
+    /// One of `trail`'s particles at `at`, `scale` times its size, from something whose
+    /// way over the last tick was `path`.
+    fn trail(&mut self, trail: &Trail, at: Vec3, path: Vec3, scale: f32, rng: &mut FxRng) {
+        let (Some(&texture), Some(&colour)) = (rng.pick(&trail.textures), rng.pick(&trail.colours))
+        else {
+            return;
+        };
+        let at = match trail.ground {
+            Some(reach) => match on_ground(self.world, at, reach) {
+                Some(at) => at,
+                None => return,
+            },
+            None => at,
+        };
+        let life = rng.ticks(trail.ticks, trail.ticks_to);
+        let billboard = Billboard {
+            axis: None,
+            roll: rng.roll(Some((0.0, 360.0))),
+        };
+        let scatter = (-trail.scatter, trail.scatter);
+        let scatter = Vec3::new(
+            rng.between(scatter),
+            rng.between(scatter),
+            rng.between(scatter),
+        );
+        // The path is one tick's, so 60 times it is the velocity.
+        let back = -path * 60.0 * trail.back;
+        let fx = Fx {
+            velocity: Vec3::Y * rng.between(trail.rise) + back + scatter,
+            gravity: trail.gravity,
+            keep: trail.keep,
+            end_alpha: trail.end_alpha,
+            fade: fade(colour, trail.end_colour),
+            spin: rng.between((-trail.spin, trail.spin)).to_radians(),
+            ..Fx::still(
+                life,
+                Vec2::splat(trail.size * scale),
+                Vec2::splat(trail.end_size * scale),
+                colour[3],
+                self.material(texture, colour, trail.blend),
+            )
+        };
+        self.spawn(at, billboard, fx, "trail");
+    }
+
+    /// One of `glare`'s rays round `at`, the sprite laid along it from its head out.
+    fn glare(&mut self, glare: &Glare, at: Vec3, rng: &mut FxRng) {
+        let out = rng.direction(None);
+        let head = at + out * rng.between(glare.near);
+        let size = Vec2::new(glare.length, glare.width);
+        let fx = Fx {
+            velocity: -out * glare.creep * 60.0,
+            end_alpha: glare.colour[3],
+            ..Fx::still(
+                glare.ticks,
+                size,
+                size,
+                glare.colour[3],
+                self.material(glare.texture, glare.colour, glare.blend),
+            )
+        };
+        let billboard = Billboard {
+            axis: Some(out),
+            roll: 0.0,
+        };
+        self.spawn(head + out * glare.length / 2.0, billboard, fx, "glare");
+    }
+
     fn material(
         &mut self,
         texture: Tex,
@@ -1485,7 +1602,10 @@ fn emit_gun_fx(
                     spawner.emit(emit, to, Some(to - from), eye, &mut rng);
                 }
             }
-            GunEventKind::LevelUp { .. } | GunEventKind::Empty { .. } => {}
+            GunEventKind::LevelUp { .. }
+            | GunEventKind::Empty { .. }
+            | GunEventKind::Marked { .. }
+            | GunEventKind::Fizzled { .. } => {}
         }
     }
 }
@@ -1512,6 +1632,11 @@ fn emit_trails(
                 .get(shot.weapon)
                 .map_or("", |def| def.effects.as_str());
             let kind = Some(shot.kind.name());
+            if let Some(glare) = recipes.glare(key, shot.level, kind)
+                && glare.until.is_none_or(|until| shot.ticks < until)
+            {
+                spawner.glare(glare, shot.position, &mut rng);
+            }
             let trails = recipes.trail(key, shot.level, kind);
             let wake = recipes.wake(key, shot.level, kind);
             if trails.is_empty() && wake.is_empty() {
@@ -1530,48 +1655,8 @@ fn emit_trails(
                 }
                 let count = trail.count(path.length(), rng.unit());
                 for index in 0..count {
-                    let (Some(&texture), Some(&colour)) =
-                        (rng.pick(&trail.textures), rng.pick(&trail.colours))
-                    else {
-                        break;
-                    };
                     let at = last + path * (index + 1) as f32 / count as f32;
-                    let at = match trail.ground {
-                        Some(reach) => match on_ground(spawner.world, at, reach) {
-                            Some(at) => at,
-                            None => continue,
-                        },
-                        None => at,
-                    };
-                    let life = rng.ticks(trail.ticks, trail.ticks_to);
-                    let billboard = Billboard {
-                        axis: None,
-                        roll: rng.roll(Some((0.0, 360.0))),
-                    };
-                    let scatter = (-trail.scatter, trail.scatter);
-                    let scatter = Vec3::new(
-                        rng.between(scatter),
-                        rng.between(scatter),
-                        rng.between(scatter),
-                    );
-                    // The path is one tick's, so 60 times it is the shot's velocity.
-                    let back = -path * 60.0 * trail.back;
-                    let fx = Fx {
-                        velocity: Vec3::Y * rng.between(trail.rise) + back + scatter,
-                        gravity: trail.gravity,
-                        keep: trail.keep,
-                        end_alpha: trail.end_alpha,
-                        fade: fade(colour, trail.end_colour),
-                        spin: rng.between((-trail.spin, trail.spin)).to_radians(),
-                        ..Fx::still(
-                            life,
-                            Vec2::splat(trail.size),
-                            Vec2::splat(trail.end_size),
-                            colour[3],
-                            spawner.material(texture, colour, trail.blend),
-                        )
-                    };
-                    spawner.spawn(at, billboard, fx, "trail");
+                    spawner.trail(trail, at, path, 1.0, &mut rng);
                 }
             }
         }

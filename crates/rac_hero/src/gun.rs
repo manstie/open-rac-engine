@@ -38,6 +38,9 @@ pub struct GunHand {
     /// Shots so far, counting round: each restarts the firing animation, as each of the
     /// game's guns calls `hero_fire_anim` (0x4E6A08) as it fires.
     pub shots: u8,
+    /// The gun keeps something up while its button is held (a charge, a stream, a vortex),
+    /// which doesn't fire it: the Spitting Hydra loops its own sequence 2 meanwhile.
+    pub sustaining: bool,
     /// The quick-select ring is open and holds his input: he takes none, as UYA blocks
     /// the pad's gameplay input some ticks after its ring opens over the running world
     /// (the kit plays the ring as UYA does with QUICK SELECT PAUSE off, so co-op peers

@@ -278,7 +278,7 @@ the banks and tables, and its disc tests check them against the image.
   | Annihilator (0x36D5A0) | 0 | 1 | | the missile's hit: 0x1894's 0 (1 at V5, 0x396A20). V5's class 0x1887 has no update of its own in the table; its two entries match. |
   | Flux Rifle (0x3444B0) | 0 | 1 | 2 zooming in, 3 zooming out | |
   | Infector (0x3688E8; 0x389F58) | 0 | 2; V5 1 | | |
-  | Spitting Hydra (0x31FB90, both) | 1 | 3 | 2, as it aims | 0 for each target found, 5 while counting |
+  | Spitting Hydra (0x31FB90, both) | 1 | 3 | 2, while held (charging) | 0 as each target is marked, 5 let go before 20 frames (a fizzle); corrected 2026-10-29 |
   | Disc Blade Gun (0x36EFC0, both) | 1 | 2 | | |
   | Agents of Doom (0x35C9F0) | | 0 (also with 8 agents out) | | |
   | Rift Inducer (0x372990, both) | 1 | 5 | | |
@@ -365,7 +365,8 @@ Inducer, Suck Cannon, Qwack-O-Ray, RY3NO and Infector (2026-10-29). Their conven
 - **Levels:** guns pick colours, counts and parts by their level (V1 is level 0); the
   recipes' `from_level` entries replace the parts they give from that level on.
 
-- **Particle types' updates** [code], as the guns use them: 0x2C fades its alpha to 0
+- **Particle types' updates** [code], as the guns use them (0x6F's, a ray from its head
+  back along its step, under "Spitting Hydra", "The glare"): 0x2C fades its alpha to 0
   over its life, grows its size by a set step a frame (500 or 1000 / 210000 here), keeps
   a share of its velocity (its drag, 1.0 for none) and adds gravity; 0x0F shrinks to
   nothing, lerps its colour to an end colour, falls under gravity and either keeps 0.96
@@ -901,7 +902,7 @@ the lightning bolt (above); the spit is drawn by the gun itself.
   (0x322A80): a light (radius 4 × 0.7), each frame with even odds a 0x2C of half 4.2 in
   (0x20, 0x40, 0x90) at alpha 6 in 0x5C's entry 1 and another of half 1.68 in (0x20,
   0x40, 0x80) at 0x7F in 0x5C's entry 0 jittered ±0.04, half added and half blended
-  (both growing 500 / 210000 a frame, life 15), and a white 0x6F glare (0x322B80).
+  (both growing 500 / 210000 a frame, life 15), and a white 0x6F ray ("The glare").
 - **The strike** (0x321580, when the timer reads 27): for each arc within 60 u whose
   line from the gun to its end meets something, the damage and blast (`weapons.md`),
   and where the line met it 20 times: a 0x17 smoke (half 0.3–0.75 growing ×1–1.01 a
@@ -909,10 +910,42 @@ the lightning bolt (above); the spit is drawn by the gun itself.
   its alpha from 0x30 (+0x2A, read as its fade's start)) and a 0x2C ember (half
   0.25–0.7 growing 500 / 210000 a frame, ±0.1, 1–2 u/s within 80° either side of the
   camera's bearing and 0–80° up, life 30, (0x40, 0x80, 0xFF) at 0x7F, in 0x61's entry 6).
-- **While held** (callback 0x321CB8): two strips of 20 points at the gun (core half
-  0.025–0.03, glow 1.5–2.5 times, FIX half the frames held) and from V3 after 20 frames
-  two of 10 (core 0.015–0.02, glow 1.2–1.8), where they meet a wall two sparkles of 57
-  and a glow of 11; their points are made elsewhere in 0x31FB90 (not read).
+- **While held** (callback 0x321CB8, points made in 0x31FB90; 2026-10-29): the charge c
+  is 0.007 a frame held, at most 0.7 (the count, 0x1E1830, stops at 150).
+  - Past 4 frames, on odd frames, two strips of 20 points (0x276B20) on the curve from
+    the muzzle (point 0) to the gun's point 1 (0x437698), t stepping 0.05 with the last
+    at 1: the bow point is the hero's up turned a random −180°…180° round the aim, times
+    rand(1, 4) + c, from the muzzle; the point beyond is the aim times c − rand(1, 4)
+    from the muzzle (behind it). Each point moved ±0.05 on each axis. So each loops out
+    from the muzzle by about 4/27 of its bow (0.15–0.7 u) and back into the gun. Drawn
+    with core half 0.025–0.03 and glow 1.5–2.5 times, FIX half the frames held (the
+    glow a third), texture 43 as the spit's.
+  - From V3, past 19 frames, every frame, two of 10 (0x276DA0): each keeps an end for a
+    timer of rand(15, 25) frames (0x1E1878); when it runs out (not in hero states 7,
+    0xB, 0xE or 0x14, which keep it) a line 3 u from the muzzle a random way
+    (0x440B30) picks a new end where it meets the world, else the floor 3 u from his
+    feet along his facing turned ±70° (0x1A4C60 + facing × 3), and that frame's points
+    aren't remade. The bow point as above; the point beyond is the way to the end times
+    rand(1, 4) + c from the muzzle; points t 0.1 apart, ±0.04. Core half 0.015–0.02,
+    glow 1.2–1.8; where a piece meets a wall two sparkles of 57 and a glow of 11.
+  - Each frame 0x322A80 at c: the light (radius 4c), the glows of 0x322C20 sized by c,
+    and from c 0.45 (65 frames: 64 × 0.007 falls just short) the glare (0x322B80).
+- **The glare** (0x322B80, each frame 0x322A80 runs at 0.45 or more: through a hold from
+  65 frames, and at 0.7 while the spit's timer is 5 or more) [code, 2026-10-29]: a point
+  a random 0.025–0.15 u from the muzzle any way round (0x440B30), and a particle of type
+  0x6F there (spawner 0x46FE70 at scale 1, life 15) moving 0.0125 u a frame back toward
+  the muzzle. 0x46FE70: colour 0x64FFFFFF (white at 0x64; 0x64FF2020, blue, at any scale
+  but 1), copied to +0xC as a second colour, added (+3 0x48), its type's first texture
+  (25 on Veldin), half width scale × 0.013 in the position's w (as 0x5A keeps 0.05
+  there), the scale at +0x3C. Its update (0x46FF70, the table's entry 0x6F): the head
+  steps by its velocity and the tail is laid scale × 1.35 behind it along that step, so
+  it is a ray from near the muzzle 1.35 u straight out; once fewer frames are left than
+  +8 (its life less 15, so never here) its alpha falls in step.
+  - The Hydra's points [data, gadget WAD on UYA NTSC-U]: class 0x184E (V1–V4) has point
+    0 at joint 8 and point 1 at joint 11, at rest (0.099, −0.822, 0) and (0.264, −0.101,
+    0) from its origin (scale 0.0405); class 0x1B4F (V5) joints 4 and 6, (0.015, −0.854,
+    0) and (0.145, −0.274, 0) (scale 0.0576). So point 1 is near the grip, 0.72 u (V5
+    0.58) back along the barrel from the muzzle and 0.165 (0.13) off its line.
 
 #### Disc Blade Gun (0x36EFC0, disc class 0x1867, update 0x36FA78) [code, 2026-10-28]
 
@@ -1514,9 +1547,22 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      off, its marked targets keeping the shared bolt. Seen on screen at V3 with the disc
      (the arena replay `-hydra.orin`): the rings growing out round him, the arcs bowing
      up and to the sides into the aim, and dark smoke rising where they struck. Not
-     drawn: the charge's strips while held, arcs cut short at walls (the kit's effects
-     have no collision), the bolt it throws ahead as it spits, its light and glare; the
-     rings show on a release at marks too.
+     drawn: arcs cut short at walls, the bolt it throws ahead as it spits; the rings show
+     on a release at marks too.
+   - Done (2026-10-29) for the Hydra's charge while held ("Spitting Hydra", "While
+     held"; `rac_demo::fx::charge`, from `Arsenal::charge_ticks`): the strips into the
+     gun and, from V3, out to the world (the kit's own ray from the muzzle, then the
+     floor ahead), alpha by the frames held, and the muzzle's glows and light sized by
+     the charge. The strips end at point 1 as an offset from the kit's muzzle (0.72 u
+     back, 0.165 up; the class's x is taken as up), not the model's posed joint. Seen
+     on screen at V3 with the disc (`-hydra-side.orin`, side on): the strips crackling
+     up and round the gun, brighter as it is held, the glow swelling at the muzzle and
+     thin strips reaching to the floor. Its glare ("The glare"; the recipes' `Glare`) from
+     65 ticks held and while the spit lasts (its first 30 ticks, as its glows), seen on
+     screen at V3 the same way: thin rays fanned round the muzzle, pinkish in the disc's
+     texture 25. Not drawn: the sparkles where a strip meets a wall, and the end kept in
+     hero states 7, 0xB, 0xE and 0x14. Over a long hold the blended half of the glows darkens the view round the
+     muzzle; whether the game's does is open (a game capture of a hold would say).
    - Done (2026-10-29) for decals and rings: the Lava Gun's burning pools ("Lava Gun") to
      V4 and their blue glows at V5; the Infector's gas clouds on the ground within 5 u
      below the blob and the V3 splash (none where there's no ground in reach), and its

@@ -706,7 +706,13 @@ fn hold_guns(
         let (Some(player), Some(skeleton)) = (held.player.as_mut(), &gun.skeleton) else {
             continue;
         };
-        let pose = player.step(&skeleton.clips, &skeleton.motion, hand.shots, seconds);
+        let pose = player.step(
+            &skeleton.clips,
+            &skeleton.motion,
+            hand.shots,
+            hand.sustaining,
+            seconds,
+        );
         for (index, &joint) in held.joints.iter().enumerate() {
             let Ok(mut transform) = transforms.get_mut(joint) else {
                 continue;
@@ -1155,6 +1161,7 @@ mod tests {
                 clips: [(0, clip(1.0)), (1, clip(2.0)), (2, clip(3.0))].into(),
                 motion: GunMotion {
                     recoil: Recoil::Cut,
+                    sustain: false,
                     early: None,
                     settle_ticks: 2.0,
                 },

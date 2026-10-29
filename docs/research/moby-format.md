@@ -85,6 +85,12 @@ libuya's `MobyClass` layout matches UYA's data:
     1 is joint 55, 2 is 99, 3 is 93, 4 is 7 and 5 is 5.
   - **The wrench's (class 0x47 and the two like it):** 0 is joint 1; 1 is joint 5, the
     tip the swing's hit line ends at; then 9, 8, 10 and 14.
+  - **The table's first word** is its count of points [data, 2026-10-29: the Spitting
+    Hydra's classes 0x184E and 0x1B4F have 2, and their lists follow the table]; each
+    list's joint numbers are bytes.
+  - **The Spitting Hydra's** [data, gadget WAD on UYA NTSC-U, 2026-10-29]: point 0, the
+    muzzle, is joint 8 (0x184E) or 4 (0x1B4F, V5); point 1, which its charge's strips
+    run back into, is joint 11 or 6, near the grip (`effects.md`, "Spitting Hydra").
   - **Checked:** the combo's traced wrench lines are reproduced by posing the hero and the
     wrench this way (`hero-controller.md`, "The grind attack").
 - **Point records** [data, UYA NTSC, 2026-10-23]: an entry's first byte is its chain's

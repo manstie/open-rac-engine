@@ -77,13 +77,17 @@ pub enum GunEventKind {
     /// The fire button found the gun in hand out of ammo: pressed, or held on from the
     /// last round (`weapons.md`, "Switching and firing"; `effects.md`, "Sounds").
     Empty { at: Vec3 },
+    /// Held, the gun marked another target to strike, at the gun: the Spitting Hydra's.
+    Marked { at: Vec3 },
+    /// Let go too soon, the gun fizzled, at the gun: the Spitting Hydra's.
+    Fizzled { at: Vec3 },
 }
 
 /// What the gun in hand keeps doing over many ticks, for a game's looping sounds and looks
 /// (`effects.md`, "Sounds"): [`Arsenal::sustain`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Sustain {
-    /// The Shock Blaster held from its charging level.
+    /// The Shock Blaster held from its charging level, and the Spitting Hydra held.
     Charging,
     /// The Lava Gun's stream flowing.
     Flowing,

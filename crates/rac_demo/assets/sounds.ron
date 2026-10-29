@@ -42,6 +42,9 @@
         "pop": (wave: Sine, from: 400.0, sweep: -1.0, seconds: 0.15, noise: 0.15, volume: 0.4),
         "clank": (wave: Square, from: 300.0, sweep: -1.0, seconds: 0.12, noise: 0.3, volume: 0.35),
         "charge_up": (wave: Sine, from: 200.0, sweep: 1.0, seconds: 0.5, attack: 0.05, overtone: 2.0, volume: 0.35),
+        "crackle": (wave: Square, from: 160.0, seconds: 0.5, attack: 0.1, noise: 0.6, overtone: 3.0, volume: 0.16, looped: true),
+        "ping": (wave: Sine, from: 1320.0, sweep: 0.3, seconds: 0.18, overtone: 2.0, volume: 0.3),
+        "fizzle": (wave: Noise, from: 1.0, seconds: 0.3, attack: 0.01, volume: 0.2),
     },
     // What a cue plays for a gun that names none of its own.
     cues: {
@@ -61,7 +64,7 @@
         "annihilator": { Fire: "whoosh", Impact: "boom" },
         "flux": { Fire: "crack", Impact: "", ZoomIn: "zoom_in", ZoomOut: "zoom_out" },
         "infector": { Fire: "blob" },
-        "hydra": { Fire: "spit" },
+        "hydra": { Fire: "spit", Charge: "crackle", Mark: "ping", Fizzle: "fizzle" },
         "disc": { Fire: "whirr" },
         "agents": { Fire: "pod" },
         "rift": { Fire: "rift" },

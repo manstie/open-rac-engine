@@ -136,9 +136,18 @@ pub const UYA_GUN_SOUNDS: &[(u16, &[CueSound])] = &[
             gun(Cue::Empty, 4, 1),
         ],
     ),
-    // Spitting Hydra (0x31FB90, both classes): entry 1 as it fires. It also loops entry 2
-    // while held and plays 0 and 5 as it finds targets, which the kit doesn't cue.
-    (0x47, &[gun(Cue::Fire, 0, 1), gun(Cue::Empty, 0, 3)]),
+    // Spitting Hydra (0x31FB90, both classes): entry 1 as it fires, its loop 2 while held,
+    // 0 as it marks each target and 5 as it fizzles.
+    (
+        0x47,
+        &[
+            gun(Cue::Fire, 0, 1),
+            gun(Cue::Empty, 0, 3),
+            gun(Cue::Charge, 0, 2),
+            gun(Cue::Mark, 0, 0),
+            gun(Cue::Fizzle, 0, 5),
+        ],
+    ),
     // Disc Blade Gun (0x36EFC0, both classes); its disc (0x36FA78) plays 1 as it glances
     // off a wall and 4 as it bursts. Off an enemy, from V3, it plays 2 or 3 by what the
     // enemy is made of, which the kit doesn't know, so 1 there too.

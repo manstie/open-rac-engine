@@ -350,6 +350,7 @@ pub fn step(
         level,
         pose: in_hand.map(|def| def.pose).unwrap_or_default(),
         shots: arsenal.shots_fired,
+        sustaining: in_hand.is_some() && arsenal.sustain.is_some(),
         selecting: blocked,
         whip: in_hand.and_then(|def| hand::whip_hand(arsenal, armory, def, level)),
         target,

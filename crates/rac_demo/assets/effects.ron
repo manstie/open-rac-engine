@@ -61,6 +61,7 @@
         Particle(0x35, 0): (shape: Star, colour: (1.0, 1.0, 1.0)),
         Particle(0x55, 0): (shape: Smoke, colour: (1.0, 0.55, 0.15)),
         Particle(0x5A, 0): (shape: Glow, colour: (1.0, 0.3, 0.2)),
+        Particle(0x6F, 0): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Particle(0x5B, 0): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Particle(0x5B, 1): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Particle(0x5B, 3): (shape: Glow, colour: (1.0, 1.0, 1.0)),
@@ -1035,11 +1036,40 @@
         // spits two rings of 61 grow out from the muzzle over 15 frames, and while it lasts
         // 0x2C glows sparkle there (0x322C20); where an arc strikes, 20 dark smokes and 20
         // blue embers (0x321580). Marked targets take the shared bolt (the defaults'
-        // "bolt"). Not drawn: the charge's arcs at the gun while held (0x321CB8), arcs cut
-        // short with smoke where they meet a wall, the bolt it also throws 10 u ahead as it
-        // spits, its light and glare; the rings show on a release at marks too, where the
-        // game's don't.
+        // "bolt"). Held (0x31FB90, drawn by 0x321CB8), past 4 ticks two strands of 20
+        // points loop from the muzzle back into the gun's point 1 (class 0x184E's joint 11,
+        // 0.72 u behind the muzzle and 0.165 off the barrel, taken as above it; 0x1B4F's
+        // joint 6 from V5, 0.58 and 0.13) [data], laid every other tick, a core of 43 in a
+        // blue glow as the spit's at FIX half the ticks held; from V3, past 19 ticks, two of
+        // 10 points reach out to a wall within 3 u or the floor 3 u ahead, each end kept
+        // 15-25 ticks; and the spit's glows and light at the muzzle, sized by 0.007 a tick
+        // held up to 0.7 (0x322A80), and from a charge of 0.45 its glare (0x322B80): a
+        // white ray of type 0x6F a tick, its head 0.025-0.15 u from the muzzle, reaching
+        // 1.35 u out (0x46FF70), half 0.013 across, creeping in 0.0125 a tick, added at
+        // 0x64 for 15 ticks; the same while the spit lasts. Not drawn: arcs cut short with
+        // smoke where they meet a wall (sparkles of 57 and a glow of 11 for the charge's),
+        // the bolt it also throws 10 u ahead as it spits; the rings show on a release at
+        // marks too, where the game's don't.
         "hydra": (
+            charge: Some((
+                growth: 0.007,
+                most: 0.7,
+                alpha_per_tick: 0.00390625,
+                crackles: [
+                    (count: 2, points: 20, after: 4, every: 2, bow: (1.0, 4.0), reach: Gun(back: 0.72, up: 0.165, past: (1.0, 4.0)), strands: [
+                        (texture: Effect(43), width: (0.05, 0.06), jitter: (0.05, 0.05), colour: (0.992, 0.992, 0.992, 1.0)),
+                        (texture: Effect(43), times: Some((1.5, 2.5)), same_points: true, colour: (0.25, 0.25, 1.992, 0.333)),
+                    ]),
+                ],
+                glow: [
+                    (per_tick: 0.5, textures: [Particle(0x5C, 1)], colours: [(0.25, 0.5, 1.125, 0.047)], size: 8.4, end_size: 8.5, ticks: 15, ticks_to: 15, spin: 1.4),
+                    (per_tick: 0.25, textures: [Particle(0x5C, 0)], colours: [(0.25, 0.5, 1.0, 0.992)], size: 3.36, end_size: 3.43, ticks: 15, ticks_to: 15, spin: 1.4),
+                    (per_tick: 0.25, textures: [Particle(0x5C, 0)], colours: [(0.25, 0.5, 1.0, 0.992)], size: 3.36, end_size: 3.43, ticks: 15, ticks_to: 15, spin: 1.4, blend: Alpha),
+                ],
+                light: Some((radius: 2.8, colour: (0.225, 0.35, 0.875))),
+                glare: Some((texture: Particle(0x6F, 0), near: (0.025, 0.15), length: 1.35, width: 0.026, creep: 0.0125, ticks: 15, colour: (1.992, 1.992, 1.992, 0.781))),
+                glare_from: 0.45,
+            )),
             fire: Some([
                 Glow(texture: Effect(61), size: 0.02, end_size: 10.52, ticks: 15, colour: (0.391, 0.25, 1.563, 0.703), nearer: 0.08),
                 Glow(texture: Effect(61), size: 0.04, end_size: 21.04, ticks: 15, colour: (0.391, 0.25, 1.563, 0.703), nearer: 0.08),
@@ -1050,6 +1080,7 @@
             shots: {
                 "spit": (
                     light: Some((radius: 2.8, colour: (0.225, 0.35, 0.875))),
+                    glare: Some((texture: Particle(0x6F, 0), near: (0.025, 0.15), length: 1.35, width: 0.026, creep: 0.0125, ticks: 15, until: Some(30), colour: (1.992, 1.992, 1.992, 0.781))),
                     fan: Some((points: 16, bow: 15.0, roll: (-107.0, 107.0), past: 30.0, stagger: (2, 7), strands: [
                         (texture: Effect(43), width: (0.1, 0.12), jitter: (0.2, 0.2), colour: (0.992, 0.992, 0.992, 0.617)),
                         (texture: Effect(43), times: Some((3.0, 5.0)), same_points: true, colour: (0.25, 0.25, 1.992, 0.203)),
@@ -1077,6 +1108,60 @@
                             ])),
                         ),
                     },
+                ),
+            },
+            // From V3 the charge also reaches out to the world; from V5 it loops into the
+            // Tempest's point 1.
+            from_level: {
+                2: (
+                    charge: Some((
+                        growth: 0.007,
+                        most: 0.7,
+                        alpha_per_tick: 0.00390625,
+                        crackles: [
+                            (count: 2, points: 20, after: 4, every: 2, bow: (1.0, 4.0), reach: Gun(back: 0.72, up: 0.165, past: (1.0, 4.0)), strands: [
+                                (texture: Effect(43), width: (0.05, 0.06), jitter: (0.05, 0.05), colour: (0.992, 0.992, 0.992, 1.0)),
+                                (texture: Effect(43), times: Some((1.5, 2.5)), same_points: true, colour: (0.25, 0.25, 1.992, 0.333)),
+                            ]),
+                            (count: 2, points: 10, after: 19, every: 1, bow: (1.0, 4.0), reach: World(reach: 3.0, spread: 70.0, keep: (15, 25), past: (1.0, 4.0)), strands: [
+                                (texture: Effect(43), width: (0.03, 0.04), jitter: (0.04, 0.04), colour: (0.992, 0.992, 0.992, 1.0)),
+                                (texture: Effect(43), times: Some((1.2, 1.8)), same_points: true, colour: (0.25, 0.25, 1.992, 0.333)),
+                            ]),
+                        ],
+                        glow: [
+                            (per_tick: 0.5, textures: [Particle(0x5C, 1)], colours: [(0.25, 0.5, 1.125, 0.047)], size: 8.4, end_size: 8.5, ticks: 15, ticks_to: 15, spin: 1.4),
+                            (per_tick: 0.25, textures: [Particle(0x5C, 0)], colours: [(0.25, 0.5, 1.0, 0.992)], size: 3.36, end_size: 3.43, ticks: 15, ticks_to: 15, spin: 1.4),
+                            (per_tick: 0.25, textures: [Particle(0x5C, 0)], colours: [(0.25, 0.5, 1.0, 0.992)], size: 3.36, end_size: 3.43, ticks: 15, ticks_to: 15, spin: 1.4, blend: Alpha),
+                        ],
+                        light: Some((radius: 2.8, colour: (0.225, 0.35, 0.875))),
+                        glare: Some((texture: Particle(0x6F, 0), near: (0.025, 0.15), length: 1.35, width: 0.026, creep: 0.0125, ticks: 15, colour: (1.992, 1.992, 1.992, 0.781))),
+                        glare_from: 0.45,
+                    )),
+                ),
+                4: (
+                    charge: Some((
+                        growth: 0.007,
+                        most: 0.7,
+                        alpha_per_tick: 0.00390625,
+                        crackles: [
+                            (count: 2, points: 20, after: 4, every: 2, bow: (1.0, 4.0), reach: Gun(back: 0.58, up: 0.13, past: (1.0, 4.0)), strands: [
+                                (texture: Effect(43), width: (0.05, 0.06), jitter: (0.05, 0.05), colour: (0.992, 0.992, 0.992, 1.0)),
+                                (texture: Effect(43), times: Some((1.5, 2.5)), same_points: true, colour: (0.25, 0.25, 1.992, 0.333)),
+                            ]),
+                            (count: 2, points: 10, after: 19, every: 1, bow: (1.0, 4.0), reach: World(reach: 3.0, spread: 70.0, keep: (15, 25), past: (1.0, 4.0)), strands: [
+                                (texture: Effect(43), width: (0.03, 0.04), jitter: (0.04, 0.04), colour: (0.992, 0.992, 0.992, 1.0)),
+                                (texture: Effect(43), times: Some((1.2, 1.8)), same_points: true, colour: (0.25, 0.25, 1.992, 0.333)),
+                            ]),
+                        ],
+                        glow: [
+                            (per_tick: 0.5, textures: [Particle(0x5C, 1)], colours: [(0.25, 0.5, 1.125, 0.047)], size: 8.4, end_size: 8.5, ticks: 15, ticks_to: 15, spin: 1.4),
+                            (per_tick: 0.25, textures: [Particle(0x5C, 0)], colours: [(0.25, 0.5, 1.0, 0.992)], size: 3.36, end_size: 3.43, ticks: 15, ticks_to: 15, spin: 1.4),
+                            (per_tick: 0.25, textures: [Particle(0x5C, 0)], colours: [(0.25, 0.5, 1.0, 0.992)], size: 3.36, end_size: 3.43, ticks: 15, ticks_to: 15, spin: 1.4, blend: Alpha),
+                        ],
+                        light: Some((radius: 2.8, colour: (0.225, 0.35, 0.875))),
+                        glare: Some((texture: Particle(0x6F, 0), near: (0.025, 0.15), length: 1.35, width: 0.026, creep: 0.0125, ticks: 15, colour: (1.992, 1.992, 1.992, 0.781))),
+                        glare_from: 0.45,
+                    )),
                 ),
             },
         ),

@@ -179,7 +179,8 @@ fn plays(class: &MobyClass) -> bool {
 
 /// What each of UYA's guns does with its own sequences as it fires (`weapons.md`, "The
 /// gun's own animation") [code]: every one goes to its rest over 2 ticks once a sequence
-/// has come round, but the Plasma Coil's, which cuts to it.
+/// has come round, but the Plasma Coil's, which cuts to it. The Spitting Hydra plays its
+/// sequence 2 while it charges, not as it fires.
 pub fn uya_motion(item: u16, level: u8) -> GunMotion {
     let recoil = match (item, level) {
         // The N90 Hurricane, the N60's V5.
@@ -188,12 +189,14 @@ pub fn uya_motion(item: u16, level: u8) -> GunMotion {
         (0x6F | 0x3F | 0x37 | 0x97 | 0x4F, _) => Recoil::Cut,
         // The Nitro Launcher and Bouncer.
         (0x77 | 0x13, _) => Recoil::Blend { ticks: 2.0 },
-        // The Spitting Hydra and Suck Cannon.
-        (0x47 | 0x87, _) => Recoil::Restart { speed: 1.0 },
+        // The Suck Cannon as it fires what it holds. Its rule isn't read whole: it also
+        // cuts to 2 while it pulls, as the Hydra does, and calls 0x441FB8 as it lets go.
+        (0x87, _) => Recoil::Restart { speed: 1.0 },
         _ => Recoil::None,
     };
     GunMotion {
         recoil,
+        sustain: item == 0x47,
         // The Annihilator and Disc Blade Gun fired while they grow in.
         early: matches!(item, 0x3F | 0x4F).then_some(4.0),
         settle_ticks: if item == 0x10 { 0.0 } else { 2.0 },

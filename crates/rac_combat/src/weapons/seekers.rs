@@ -8,7 +8,7 @@ use rac_sim::SimRng;
 use std::f32::consts::TAU;
 
 use super::{
-    GunEventKind,
+    GunEventKind, Sustain,
     aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight},
     arsenal::Arsenal,
     def::{AimAssist, Armory, Coil, Disc, Hydra, RocketBlast, Storm, Timing, Volley},
@@ -675,11 +675,11 @@ fn rocket_tick(
     false
 }
 
-/// The Spitting Hydra (0x31FB90): held, it marks an enemy every so often, up to the level's
-/// most; let go, it plays the firing animation and a bolt strikes each marked one, which
-/// takes the damage round it at once and the bolt's share as the bolt goes (no round
-/// taken). With none marked it takes a round and spits ([`spit`]). Let go too soon, it
-/// fizzles.
+/// The Spitting Hydra (0x31FB90): held, it charges, marking an enemy every so often up to
+/// the level's most; let go, it plays the firing animation and a bolt strikes each marked
+/// one, which takes the damage round it at once and the bolt's share as the bolt goes (no
+/// round taken). With none marked it takes a round and spits ([`spit`]). Let go too soon,
+/// it fizzles. Either way it doesn't charge again until the spit's time is up.
 pub(super) fn hydra(
     arsenal: &mut Arsenal,
     armory: &Armory,
@@ -691,14 +691,19 @@ pub(super) fn hydra(
 ) {
     let most = fire.most_targets.at(gun.level).unwrap_or(0);
     let aim = gun.view_aim(gun.muzzle, armory);
-    if gun_input.input.held(Action::Fire) && gun.ready && arsenal.has_ammo(gun.weapon, armory) {
-        arsenal.fire_ticks = gun.def.fire_ticks;
+    // Ticks left of the last spit's, or bolts', time (0x1DC9B0 is set until it is up).
+    arsenal.trigger.cooldown = arsenal.trigger.cooldown.saturating_sub(1);
+    if gun_input.input.held(Action::Fire)
+        && gun.ready
+        && arsenal.trigger.cooldown == 0
+        && arsenal.has_ammo(gun.weapon, armory)
+    {
+        // Charging isn't firing: the hero plays his firing animation as it is let go.
+        arsenal.sustain = Some(Sustain::Charging);
         let trigger = &mut arsenal.trigger;
-        if trigger.held >= fire.max_hold {
-            return;
-        }
-        trigger.held += 1;
+        trigger.held = (trigger.held + 1).min(fire.max_hold);
         let every = fire.mark_every.at(gun.level).unwrap_or(1).max(1);
+        // Held its longest, it looks every tick.
         if (trigger.held.is_multiple_of(every) || trigger.held == fire.max_hold)
             && trigger.marked.len() < most
         {
@@ -714,6 +719,7 @@ pub(super) fn hydra(
             );
             if let Some(&index) = next.first() {
                 trigger.marked.push(gun_input.targets[index].entity);
+                out.event(gun.weapon, GunEventKind::Marked { at: gun.muzzle });
             }
         }
         return;
@@ -725,9 +731,12 @@ pub(super) fn hydra(
     let held = std::mem::take(&mut trigger.held);
     let marked = std::mem::take(&mut trigger.marked);
     if held < fire.tap_ticks {
+        out.event(gun.weapon, GunEventKind::Fizzled { at: gun.muzzle });
         return;
     }
+    let busy = fire.spit_ticks.at(gun.level).unwrap_or(0);
     if !marked.is_empty() {
+        arsenal.trigger.cooldown = busy;
         fire_anim(arsenal, gun, out);
         for entity in marked {
             let Some(struck) = alive(gun_input.targets, entity) else {
@@ -764,6 +773,7 @@ pub(super) fn hydra(
     if !take_shot(arsenal, armory, gun, out) {
         return;
     }
+    arsenal.trigger.cooldown = busy;
     let reach = gun.muzzle + aim * fire.spit_reach;
     let jitter = fire.spit_jitter;
     let ends = (0..most)

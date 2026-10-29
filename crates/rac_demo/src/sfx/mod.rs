@@ -52,6 +52,10 @@ pub enum Cue {
     Arc,
     /// The gun went up a level.
     LevelUp,
+    /// Held, it marked a target to strike.
+    Mark,
+    /// Let go too soon, it fizzled.
+    Fizzle,
     /// Loops while the gun keeps it up ([`Sustain`]).
     Charge,
     Flow,
@@ -71,6 +75,8 @@ impl Cue {
             GunEventKind::Bounce { at } => Some((Cue::Bounce, Some(at))),
             GunEventKind::Arc { to, .. } => Some((Cue::Arc, Some(to))),
             GunEventKind::LevelUp { .. } => Some((Cue::LevelUp, None)),
+            GunEventKind::Marked { at } => Some((Cue::Mark, Some(at))),
+            GunEventKind::Fizzled { at } => Some((Cue::Fizzle, Some(at))),
             GunEventKind::Ray { .. } => None,
         }
     }

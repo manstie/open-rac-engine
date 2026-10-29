@@ -276,8 +276,9 @@ fn reach_right(b: &mut Builder, joints: &[JointDef], hand: Vec3, tip: Vec3) {
 }
 
 /// Where the right hand holds a gun, in the hero's space, and which way its barrel points:
-/// aimed ahead at chest height while it fires, at arm's length or, in both hands, closer
-/// in for the left to reach; else low ahead of him.
+/// aimed ahead at chest height while it fires or keeps something up (the Hydra's charge),
+/// at arm's length or, in both hands, closer in for the left to reach; else low ahead of
+/// him.
 const GUN_AIMED: (Vec3, Vec3) = (Vec3::new(0.1, 0.85, -0.27), Vec3::NEG_Z);
 const GUN_AIMED_IN_BOTH: (Vec3, Vec3) = (Vec3::new(0.06, 0.82, -0.14), Vec3::NEG_Z);
 const GUN_LOWERED: (Vec3, Vec3) = (Vec3::new(0.2, 0.62, -0.1), Vec3::new(0.05, -0.55, -0.83));
@@ -287,7 +288,7 @@ const GUN_SUPPORT: Vec3 = Vec3::new(0.0, -0.02, -0.11);
 
 /// The arms holding the gun out, in the states he can fire in.
 fn hold_gun(b: &mut Builder, joints: &[JointDef], gun: &GunHand) {
-    let (hand, barrel) = match (gun.firing, gun.pose.hold) {
+    let (hand, barrel) = match (gun.firing || gun.sustaining, gun.pose.hold) {
         (false, _) => GUN_LOWERED,
         (true, Hold::TwoHands) => GUN_AIMED_IN_BOTH,
         (true, _) => GUN_AIMED,
@@ -614,21 +615,26 @@ mod tests {
     }
 
     #[test]
-    fn a_gun_firing_is_aimed_ahead_and_held_low_otherwise() {
+    fn a_gun_firing_or_charging_is_aimed_ahead_and_held_low_otherwise() {
         let model = hero();
         let joints = &model.joints;
         let mut motion = HeroMotion::new(Vec3::ZERO, 0.0);
-        for (firing, ahead, down) in [(true, 0.99, false), (false, 0.7, true)] {
-            motion.gun = gun(firing, Hold::OneHand);
+        for (firing, sustaining) in [(true, false), (false, true), (false, false)] {
+            let aimed = firing || sustaining;
+            let (ahead, down) = if aimed { (0.99, false) } else { (0.7, true) };
+            motion.gun = GunHand {
+                sustaining,
+                ..gun(firing, Hold::OneHand)
+            };
             let pose = target(joints, &motion, 0.0, 0.0);
             let hand = world_rotation(joints, &pose, joint::HAND_R);
             let barrel = hand * gun_grip() * Vec3::NEG_Z;
             let top = hand * gun_grip() * Vec3::Y;
-            assert!(-barrel.z > ahead, "firing {firing}: {barrel}");
-            assert_eq!(barrel.y < -0.3, down, "firing {firing}: {barrel}");
-            assert!(top.y > 0.5, "firing {firing}: the top up, {top}");
+            assert!(-barrel.z > ahead, "aimed {aimed}: {barrel}");
+            assert_eq!(barrel.y < -0.3, down, "aimed {aimed}: {barrel}");
+            assert!(top.y > 0.5, "aimed {aimed}: the top up, {top}");
             let at = world_position(joints, &pose, joint::HAND_R);
-            assert!(at.distance(if firing { GUN_AIMED.0 } else { GUN_LOWERED.0 }) < 0.02);
+            assert!(at.distance(if aimed { GUN_AIMED.0 } else { GUN_LOWERED.0 }) < 0.02);
         }
     }
 

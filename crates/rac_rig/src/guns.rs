@@ -59,6 +59,10 @@ pub struct GunSkeleton {
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct GunMotion {
     pub recoil: Recoil,
+    /// While the gun keeps something up ([`rac_hero::GunHand::sustaining`]) it plays its
+    /// sequence 2 throughout, cutting back to its start whenever it isn't on it: the
+    /// Spitting Hydra charging (0x31FB90).
+    pub sustain: bool,
     /// Fired while it still grows in, it goes to its rest over these ticks instead.
     pub early: Option<f32>,
     /// Ticks it takes to go to its rest once a sequence has come round: 2 for UYA's guns,

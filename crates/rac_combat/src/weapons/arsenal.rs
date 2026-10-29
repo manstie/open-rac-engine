@@ -131,6 +131,12 @@ impl Arsenal {
         self.guns.iter_mut().find(|gun| gun.weapon == weapon)
     }
 
+    /// Ticks the gun in hand has been held charging, while it charges: what its charge
+    /// looks like goes by it (the Spitting Hydra's count, 0x1E1830, stops at its most).
+    pub fn charge_ticks(&self) -> Option<u32> {
+        (self.sustain == Some(Sustain::Charging)).then_some(self.trigger.held)
+    }
+
     /// Gives him a gun (`item_give`, 0x416B38): owned at V1 with its ammo full, put in the
     /// quick-select rings, and brought out by the fire button if nothing else is. Giving one
     /// he owns only tops up an empty gun.

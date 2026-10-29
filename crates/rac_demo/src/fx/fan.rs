@@ -34,23 +34,7 @@ impl Fan {
         let roll = (self.roll.0 + self.roll.1 * index as f32).to_radians();
         let control = from + Quat::from_axis_angle(way, roll) * Vec3::NEG_Y * self.bow;
         let beyond = to + way * self.past;
-        // p(t) = b t³ + (a − b) t² + (to − control) t + from, with a = control − from and
-        // b = beyond − to − a: it heads along to − control at the start and along
-        // beyond − from at the end.
-        let a = control - from;
-        let b = beyond - to - a;
-        let last = self.points.max(2) - 1;
-        (0..=last)
-            .map(|point| {
-                // The game steps 1/16 to its fifteenth point and puts its last at the end.
-                let t = if point == last {
-                    1.0
-                } else {
-                    point as f32 / self.points as f32
-                };
-                b * t * t * t + (a - b) * t * t + (to - control) * t + from
-            })
-            .collect()
+        cubic(self.points, from, to, control, beyond)
     }
 
     /// When end `index` of shot `serial` first shows, in ticks of the shot's age.
@@ -59,6 +43,28 @@ impl Fan {
         let roll = (u64::from(serial) << 8 | index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         self.stagger.0 * index as u32 + (roll >> 40) as u32 % (self.stagger.1 + 1)
     }
+}
+
+/// `points` points of the game's curve (0x4420D0) from `from` to `to`, both included: it
+/// leaves `from` heading away from `control` and comes into `to` heading on along
+/// `beyond − from`. The game steps t by 1 / `points` and puts its last point at the end.
+pub(crate) fn cubic(points: usize, from: Vec3, to: Vec3, control: Vec3, beyond: Vec3) -> Vec<Vec3> {
+    // p(t) = b t³ + (a − b) t² + (to − control) t + from, with a = control − from and
+    // b = beyond − to − a: it heads along to − control at the start and along
+    // beyond − from at the end.
+    let a = control - from;
+    let b = beyond - to - a;
+    let last = points.max(2) - 1;
+    (0..=last)
+        .map(|point| {
+            let t = if point == last {
+                1.0
+            } else {
+                point as f32 / points as f32
+            };
+            b * t * t * t + (a - b) * t * t + (to - control) * t + from
+        })
+        .collect()
 }
 
 /// The fans' strands drawn now: by player, shot, end and the strand's place in its

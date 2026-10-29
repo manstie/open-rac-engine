@@ -701,7 +701,8 @@ changes sequence by a cut (0x441BA0) or a blend over some ticks (`moby_anim_blen
   | Flux Rifle, Annihilator, Infector, RY3NO | cuts to 2 |
   | Disc Blade Gun | cuts to 2 (still drawing, it first blends to 1 over 4 ticks) |
   | Nitro Launcher, Bouncer | blends to 2 over 2 ticks |
-  | Spitting Hydra, Suck Cannon | cuts to 2 unless already on it |
+  | Spitting Hydra | nothing; but each frame it is held charging it cuts to 2 unless on it, after the rest's blend above, so 2 loops for the whole hold and settles once let go (corrected 2026-10-29: the call is in the hold's branch) |
+  | Suck Cannon | cuts to 2 unless already on it; the call (0x441C78) is in its pull branch with its looped sound, so it is while it pulls rather than per shot, and as it lets go it calls 0x441FB8 with 2 or 1 (not read; 2026-10-29) |
   | N90 Hurricane (the N60's V5) | cuts to 2 unless already on it, then plays it at speed 3 |
   | Shock Blaster, N60 V1–V4, Lava Gun, Qwack-O-Ray, Rift Inducer, the gloves, the whip | nothing |
 
@@ -1546,14 +1547,27 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   charge. Every 12 frames held (15 at V3–V4, 10 from V5, and at 150) it looks along his
   facing (the camera's aim in the aiming state and the lock-strafe camera) for targets
   within 32 u and 20° (`gun_aim_target`, at most 8), and marks them, one at a time, up
-  to the level's most.
+  to the level's most. The count stays at 150, so from then it looks every frame
+  [code, 2026-10-29].
+- **What the hold does to him and the gun** [code, 2026-10-29]: nothing calls
+  `hero_fire_anim` until it is let go, so he keeps his own animation (with the gun held)
+  and isn't `firing` (no double jump is lost); in the look (state 1) it puts him in state
+  29, as other guns do. The gun's moby plays its sequence 2 throughout ("The gun's own
+  animation"). It loops sound entry 2 from the first frame held, plays 0 as each target
+  is marked, and stops the loop as it is let go; a release before 20 frames plays 5 and
+  drops the marks (`effects.md`, "Sounds"). Its charge's strips, glow and light are in
+  `effects.md`, "Spitting Hydra".
 - **Letting go:**
-  - before 20 frames: it fizzles (a sound; seven such taps bring up a hint);
+  - before 20 frames: it fizzles (a sound; seven such taps bring up a hint), marks or
+    not;
   - with targets marked: it plays the firing animation (`hero_fire_anim`) and a lightning
     bolt (0x34DAA0) strikes each, and a 1 u ball there takes the row's damage (+0x6C),
     pushed 0.5 along the line from the hero, flags 0x410000; this takes no round (only the
     spit calls `ammo_use`);
   - with none: once its spit timer reaches the flight time it takes a round and spits.
+  - Either way the spit's timer (set to the flight time while held) then counts down,
+    and until it runs out 0x1DC9B0 stays set and holding Circle doesn't charge again
+    [code, 2026-10-29].
 - **The bolt on a marked target** (class 0x1195, 0x34DAA0; its update 0x34DD38 and strike
   0x34DFD0): it holds between the gun and the target for its life (0x1DD48C: 15 frames
   here), and when its strike timer of 6 runs out (its 6th frame; corrected 2026-10-28,
@@ -1830,8 +1844,10 @@ profiles' `gun` section):
   - the RY3NO marking the enemies its assist finds and firing a volley of 8 (16 from V2)
     missiles a round, each at the next mark, its cooldown 1.3 times longer from V2;
   - the Spitting Hydra marking an enemy every 12, 15 or 10 ticks held up to its level's
-    most, striking each mark on letting go without a round, fizzling under 20 ticks, or
-    spitting a fan of bolts for a round;
+    most (every tick once held 150), charging without firing (`Sustain::Charging`, its
+    `Marked` and `Fizzled` events), striking each mark on letting go without a round,
+    fizzling under 20 ticks, or spitting a fan of bolts for a round, then not charging
+    again until the spit's time is up;
   - the Bouncer's canister on `lob_velocity`'s throw, bursting near a target or 30 ticks
     into its roll after four bounces into 17 bomblets, which home on a bounce and burst on
     the first target with hit points once armed;

@@ -6,7 +6,7 @@
 use bevy::{ecs::message::MessageCursor, prelude::*, time::TimeUpdateStrategy};
 use rac_combat::{
     Afflicted, Affliction, Armory, Arsenal, Burns, CombatPlugin, CombatTuning, Destroyed, GunEvent,
-    GunEventKind, Hitpoints, Hostile, KillXp, WeaponId, target_bundle,
+    GunEventKind, Hitpoints, Hostile, KillXp, Sustain, WeaponId, target_bundle,
     weapons::{Hand, Mods, ShotKind, block_shot},
 };
 use rac_hero::{
@@ -1125,10 +1125,7 @@ fn the_hydra_marks_while_held_and_strikes_each_mark_without_a_round() {
     assert_eq!(bolts(&yard), 3);
     yard.idle(1);
     assert_eq!(bolts(&yard), 0);
-    // A tap fizzles; held long enough with nothing marked, it spits, taking a round.
-    yard.hold(&[Action::Fire], 10);
-    yard.idle(1);
-    assert_eq!(yard.ammo(HYDRA), 15);
+    // Held long enough with nothing marked, it spits, taking a round.
     let mut empty = Yard::new(&[(HYDRA, 0)]);
     empty.hold(&[Action::Fire], 25);
     empty.idle(1);
@@ -1137,6 +1134,45 @@ fn the_hydra_marks_while_held_and_strikes_each_mark_without_a_round() {
         empty.count_shots(|kind| matches!(kind, ShotKind::Spit { ends, .. } if ends.len() == 3)),
         1
     );
+}
+
+#[test]
+fn the_hydra_charges_while_held_without_firing_and_waits_out_its_spits_time() {
+    let mut yard = Yard::new(&[(HYDRA, 0)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -15.0), 1000.0);
+    let count = |yard: &Yard, is: fn(&GunEventKind) -> bool| {
+        yard.events.iter().filter(|event| is(&event.kind)).count()
+    };
+    let marked = |kind: &GunEventKind| matches!(kind, GunEventKind::Marked { .. });
+    let fizzled = |kind: &GunEventKind| matches!(kind, GunEventKind::Fizzled { .. });
+    // Held, it charges and marks at 12 ticks, but he isn't firing: that waits for the
+    // release (0x31FB90 calls `hero_fire_anim` only then).
+    yard.hold(&[Action::Fire], 13);
+    let gun = yard.body().0.gun;
+    assert!(gun.sustaining && !gun.firing);
+    assert_eq!(yard.arsenal().sustain, Some(Sustain::Charging));
+    assert_eq!(yard.arsenal().charge_ticks(), Some(13));
+    assert_eq!(count(&yard, marked), 1);
+    // Let go before 20 ticks, it fizzles, its mark dropped.
+    yard.idle(1);
+    assert_eq!(count(&yard, fizzled), 1);
+    assert!(!yard.body().0.gun.sustaining);
+    assert_eq!(yard.arsenal().charge_ticks(), None);
+    assert_eq!(yard.hitpoints(enemy), 1000.0);
+    // Held its longest, the count stops at 150.
+    yard.hold(&[Action::Fire], 160);
+    assert_eq!(yard.arsenal().charge_ticks(), Some(150));
+    // Let go, he fires, and the mark is struck.
+    yard.idle(1);
+    assert!(yard.body().0.gun.firing);
+    assert_eq!(yard.hitpoints(enemy), 990.0);
+    // Until V1's 30 ticks of spit are up it doesn't charge again.
+    yard.hold(&[Action::Fire], 28);
+    assert_eq!(yard.arsenal().charge_ticks(), None);
+    yard.idle(1);
+    yard.hold(&[Action::Fire], 1);
+    assert_eq!(yard.arsenal().charge_ticks(), Some(1));
+    assert_eq!(count(&yard, fizzled), 1);
 }
 
 #[test]

@@ -45,8 +45,8 @@ session is working on the task now; notes on problems met stay with their task (
   the disc's textures for them, P3.18). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
   sounds for 18 guns, effect and particle textures, and six shot models; the six first
-  guns' effects and the other guns' as far as the effects layer goes (all but the
-  Spitting Hydra's spit), and the lightning bolt four guns share, take the game's sizes,
+  guns' effects and the other guns' as far as the effects layer goes (the Spitting
+  Hydra's charge included), and the lightning bolt four guns share, take the game's sizes,
   colours and lives (P1.13, P3.13, P3.18). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
@@ -935,6 +935,14 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - An off-screen run (ALSA's null device) only showed the stream carries sound; nobody
     has listened yet. Next: listen in the app, then the other sounds (wrench, hero,
     pickups, enemies) and music.
+  - Done (2026-10-29): the Spitting Hydra's hold (0x31FB90; `weapons.md`, "Spitting
+    Hydra"): its charge loop (entry 2, `Sustain::Charging`), a ping as each target is
+    marked (0, `GunEventKind::Marked`) and a fizzle (5, `Fizzled`), with placeholders;
+    entry 2 checked looped on the disc for both classes. The hold no longer sets
+    `firing`, which had frozen him in the whole-body firing pose; the gun loops its
+    sequence 2 while held (`GunHand::sustaining`, `GunMotion::sustain`); it doesn't
+    charge again until the spit's time is up; held 150 it marks every tick. Not heard
+    yet: the run was off screen.
 - [ ] **P1.14** Platform checks:
   - Windows: pick the default backend. Today wgpu prefers Vulkan over DX12 whenever both
     exist. Test both, then set `WgpuSettings::backends` accordingly and offer the other in
@@ -982,7 +990,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     as UYA's do yet: read them first); firing poses (P1.9; DL's gadget table names each
     weapon's firing sequence: `moby-format.md`, "DL's skins"); for the back, Clank's
     blink and glow (UYA 0x4DCC10) and the head look's hold on it, which the rig has no
-    head look for yet.
+    head look for yet. The Suck Cannon's own sequence 2 is cut to while it pulls, as
+    the Hydra's is while it charges, and 0x441FB8 plays as it lets go (`weapons.md`,
+    "The gun's own animation"): read 0x441FB8, then give it `GunMotion::sustain`.
   - UYA's Clank had no arms and no propellers: the heli-pack (class 0x25F), long taken
     for Clank's "pack form", is his arms and the rotors, and wasn't worn. Fixed by wearing
     it and Clank as attachments; UYA's level textures now read as DL's
@@ -1244,7 +1254,16 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     and the trail, is 1 and never written. The Nitro's blast doesn't call
     `explosion_spawn` at all. Particle sizes are taken as halves; whether they are half
     the diagonal instead (√2) is open.
-  - Not done: the Hydra's charge strips while held (0x321CB8) and arcs cut at walls, the
+  - Done 2026-10-29: the Hydra's charge while held (`rac_demo::fx::charge`; `effects.md`,
+    "Spitting Hydra", "While held" and "The glare"): its strips into the gun (its point
+    1, an offset in the recipe from the class's point list, `moby-format.md`) and from V3
+    out to the world, faded in by the ticks held; the muzzle's glows and light sized by
+    the charge; and its glare (0x322B80, type 0x6F's rays) from a charge of 0.45 and
+    while the spit lasts. Seen on screen at V3 (`-hydra-side.orin`). Open: sparkles
+    where its strips meet a wall, the strips' ends on the model's posed joints rather
+    than an offset from the kit's muzzle, and whether the glows' blended half darkens
+    the game's view over a long hold as it does the kit's (a game capture of a hold).
+  - Not done: the Hydra's arcs cut at walls, the
     Infecto-Bomb's numbers; an open rift's own look (lens, refracting rings of 54, rays;
     the kit keeps its flight look), the Qwack-O-Ray's funnel of rings (drawn as flat
     beams), effects driven by a gun's sustain (the Suck Cannon's vortex) or by events the

@@ -6,6 +6,8 @@
 //! - Each shot does what the gun's [`Recoil`] says, mostly playing sequence 2 once.
 //! - Any sequence that comes round with no blend running goes back to its rest the same
 //!   way, so a recoil plays once and settles.
+//! - A gun whose [`GunMotion::sustain`] says so plays sequence 2 for as long as it keeps
+//!   something up: each tick after the rule above, it cuts to it if it isn't on it.
 //! - Every sequence loops, as a moby's does; a change of sequence blends from where the gun
 //!   is to the new sequence's first pose, which then plays on, at speed 1.
 //!
@@ -58,25 +60,32 @@ impl GunPlayer {
         }
     }
 
-    /// Moves on by `seconds` while the hero has fired `shots` (counting round), and returns
-    /// the gun's pose, if it has a clip for where it is.
+    /// Moves on by `seconds` while the hero has fired `shots` (counting round) and the gun
+    /// is `sustaining` or not, and returns the gun's pose, if it has a clip for where it is.
     pub fn step(
         &mut self,
         clips: &BTreeMap<u8, RigClip>,
         motion: &GunMotion,
         shots: u8,
+        sustaining: bool,
         seconds: f32,
     ) -> Option<Sample> {
         self.pending += seconds * 60.0;
         let whole = self.pending.floor();
         self.pending -= whole;
         for _ in 0..whole as u32 {
-            self.tick(clips, motion, shots);
+            self.tick(clips, motion, shots, sustaining);
         }
         self.pose(clips)
     }
 
-    fn tick(&mut self, clips: &BTreeMap<u8, RigClip>, motion: &GunMotion, shots: u8) {
+    fn tick(
+        &mut self,
+        clips: &BTreeMap<u8, RigClip>,
+        motion: &GunMotion,
+        shots: u8,
+        sustaining: bool,
+    ) {
         if shots != self.shots {
             self.shots = shots;
             self.fire(clips, motion);
@@ -88,6 +97,10 @@ impl GunPlayer {
             && clips.contains_key(&REST)
         {
             self.start(clips, REST, motion.settle_ticks);
+        }
+        // Kept up, it goes straight back (the Hydra's 0x441C78 call, after its rest's).
+        if sustaining && motion.sustain && self.sequence != RECOIL && clips.contains_key(&RECOIL) {
+            self.start(clips, RECOIL, 0.0);
         }
         self.wrapped = false;
         match &mut self.blend {
@@ -197,13 +210,18 @@ mod tests {
 
     const UYA: GunMotion = GunMotion {
         recoil: Recoil::Cut,
+        sustain: false,
         early: None,
         settle_ticks: 2.0,
     };
 
     fn run(player: &mut GunPlayer, motion: &GunMotion, shots: u8, ticks: u32) {
+        held(player, motion, shots, false, ticks);
+    }
+
+    fn held(player: &mut GunPlayer, motion: &GunMotion, shots: u8, on: bool, ticks: u32) {
         for _ in 0..ticks {
-            player.step(&clips(), motion, shots, 1.0 / 60.0);
+            player.step(&clips(), motion, shots, on, 1.0 / 60.0);
         }
     }
 
@@ -274,11 +292,43 @@ mod tests {
         let mut player = GunPlayer::new(0);
         run(&mut player, &motion, 0, 30);
         let rest = player.pose(&clips()).unwrap().0[0];
-        player.step(&clips(), &motion, 1, 1.0 / 60.0);
+        player.step(&clips(), &motion, 1, false, 1.0 / 60.0);
         let halfway = player.pose(&clips()).unwrap().0[0];
         let recoil = clips()[&RECOIL].at_time(0.0).unwrap().0[0];
         assert_eq!(player.at(), (RECOIL, true));
         assert!(halfway.angle_between(rest) > 0.01);
         assert!(halfway.angle_between(recoil) > 0.01);
+    }
+
+    #[test]
+    fn a_gun_kept_up_loops_its_sequence_2_until_let_go_then_settles() {
+        // The Spitting Hydra's: its shots do nothing to it.
+        let motion = GunMotion {
+            recoil: Recoil::None,
+            sustain: true,
+            ..UYA
+        };
+        let mut player = GunPlayer::new(0);
+        run(&mut player, &motion, 0, 30);
+        held(&mut player, &motion, 0, true, 1);
+        assert_eq!(player.at(), (RECOIL, false));
+        // Round and round, never back to its rest.
+        for _ in 0..20 {
+            held(&mut player, &motion, 0, true, 1);
+            assert_eq!(player.at(), (RECOIL, false));
+        }
+        // Let go as it fires, it plays out its loop, then settles.
+        let mut out = 0;
+        while player.at().0 == RECOIL {
+            held(&mut player, &motion, 1, false, 1);
+            out += 1;
+        }
+        assert!(out <= 7, "{out}");
+        assert_eq!(player.at(), (REST, true));
+        // A gun without the rule keeps its rest while kept up.
+        let mut player = GunPlayer::new(0);
+        run(&mut player, &UYA, 0, 30);
+        held(&mut player, &UYA, 0, true, 10);
+        assert_eq!(player.at(), (REST, false));
     }
 }
