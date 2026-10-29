@@ -53,6 +53,7 @@ pub use hull::convex_hull;
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
 pub use retarget::{LineUpError, SkeletonMap, SourceJoint};
+pub use rope::{LINK_LEAD, ROPE_POINTS, RopeModel, RopeModels, RopeShape};
 pub use wear::{
     AttachmentData, ModelData, ModelError, OPEN_MODEL, Paint, RigModel, RigModels, Surface,
     open_model,
@@ -66,6 +67,7 @@ impl Plugin for RigPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RigModels>()
             .init_resource::<RigGuns>()
+            .init_resource::<RopeModels>()
             .add_systems(
                 Startup,
                 (
@@ -83,10 +85,15 @@ impl Plugin for RigPlugin {
                     rope::draw_ropes,
                     fly_thrown_wrenches,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(RigSystems),
             );
     }
 }
+
+/// The rig's posing each frame, for what is drawn on it to come after.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RigSystems;
 
 /// The colours of one hero's model. A hero entity with one is dressed in the chosen
 /// model.
@@ -153,10 +160,19 @@ pub struct HeroRig {
     grip: Transform,
     /// The gun model in his hand.
     gun: Option<InHand>,
-    /// The Plasma Whip's rope, its links drawn in the world, and the shield bubble.
+    /// The Plasma Whip's rope, where it was last drawn, and its links drawn in the world.
     rope: rope::Rope,
+    rope_shape: Option<RopeShape>,
     links: Vec<Entity>,
-    bubble: Option<Entity>,
+    /// What the links were made as: from a game's models or the kit's, and their glow.
+    link_look: Option<rope::LinkLook>,
+}
+
+impl HeroRig {
+    /// Where the Plasma Whip's rope lies this frame, while its links show.
+    pub fn rope(&self) -> Option<&RopeShape> {
+        self.rope_shape.as_ref()
+    }
 }
 
 /// The gun model in a hero's hand.
@@ -372,8 +388,9 @@ pub fn spawn_rig(
         grip: Transform::default(),
         gun: None,
         rope: rope::Rope::default(),
+        rope_shape: None,
         links: Vec::new(),
-        bubble: None,
+        link_look: None,
     });
     (root, thrown)
 }

@@ -181,6 +181,8 @@ fn main() -> Result<AppExit> {
     app.insert_resource(hero_model::DiscModels(read.models))
         .insert_resource(gun_models::DiscGuns(read.guns))
         .insert_resource(shot_models::DiscShots(read.shots))
+        .insert_resource(shot_models::DiscEffectModels(read.effect_models))
+        .insert_resource(shot_models::DiscRopeModels(read.rope_models))
         .insert_resource(read.effect_textures)
         .add_systems(
             bevy::prelude::Startup,
@@ -188,6 +190,8 @@ fn main() -> Result<AppExit> {
                 hero_model::register_disc_models,
                 gun_models::register_disc_guns,
                 shot_models::register_disc_shots,
+                shot_models::register_disc_effect_models,
+                shot_models::register_disc_rope_models,
             ),
         )
         // After the HUD has painted its placeholders.
@@ -225,6 +229,8 @@ struct FromDisc {
     models: Vec<hero_model::Imported>,
     guns: Vec<gun_models::DiscGun>,
     shots: Vec<shot_models::DiscShot>,
+    effect_models: Vec<shot_models::DiscEffectModel>,
+    rope_models: Vec<shot_models::DiscEffectModel>,
     effect_textures: fx_textures::DiscEffectTextures,
     gun_sounds: Option<gun_sounds::DiscGunSounds>,
 }
@@ -326,11 +332,39 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
             ),
         }
     }
+    let mut effect_models = Vec::new();
+    for (model, class) in shot_models::import_effects(&core)
+        .into_iter()
+        .zip(shot_models::UYA_EFFECT_CLASSES)
+    {
+        match model {
+            Ok(model) => effect_models.push(model),
+            Err(error) => warn!(
+                "couldn't read effect class {class:#x} from {}: {error}",
+                path.display()
+            ),
+        }
+    }
+    let mut rope_models = Vec::new();
+    for (model, class) in shot_models::import_rope(&core)
+        .into_iter()
+        .zip(shot_models::UYA_ROPE_CLASSES)
+    {
+        match model {
+            Ok(model) => rope_models.push(model),
+            Err(error) => warn!(
+                "couldn't read the whip's link class {class:#x} from {}: {error}",
+                path.display()
+            ),
+        }
+    }
     FromDisc {
         animations,
         models,
         guns: guns(&mut disc, &core, &hero, &path),
         shots,
+        effect_models,
+        rope_models,
         effect_textures,
         gun_sounds,
     }

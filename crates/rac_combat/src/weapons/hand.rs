@@ -38,15 +38,17 @@ pub(super) fn whip_hand(
     };
     let weapon = arsenal.hand.gun()?;
     let ready = matches!(arsenal.hand, super::Hand::Gun { ticks, .. } if ticks >= def.ready_ticks);
-    // The rope is its links, the last carried on to 1.5 times its length as it hits.
-    let rope = fire.links as f32 + 0.5;
+    // Laid straight, its last end is a stretch a piece and a lead a link from the hand.
+    let rope = |stretch: f32| {
+        fire.links as f32 * stretch + fire.links.saturating_sub(1) as f32 * fire.lead + fire.tip
+    };
     let (swing, last_swing, jump, _) = fire.stretch;
     Some(WhipHand {
         loaded: ready && arsenal.has_ammo(weapon, armory),
         damage: def.level(level).damage,
         push: fire.push,
         lift: fire.lift,
-        reach: [swing * rope, last_swing * rope, jump * rope],
+        reach: [rope(swing), rope(last_swing), rope(jump)],
         combo_from: fire.combo_from,
         jump_from: fire.jump_from,
     })
@@ -161,7 +163,7 @@ pub(super) fn wave(shot: &mut Shot, fire: &Whip, flight: &Flight, out: &mut Outc
             for target in in_ball(flight.targets, at, wave.radius, None) {
                 out.hits.push(shot.hit(target.entity, shot.damage, push));
             }
-            out.shot_event(shot, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
         }
     }
     shot.ticks < wave.ticks

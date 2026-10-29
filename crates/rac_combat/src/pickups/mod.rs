@@ -17,9 +17,14 @@
 //! - Bolts and nanotech wait a little, fly to the nearest hero in reach and are his when
 //!   they arrive, and vanish if no one takes them [placeholder: UYA's bolts aren't read
 //!   beyond their reach].
+//! - A nanotech crate leaves orbs that wait until a hero near enough has room for them
+//!   ([`nanotech`]); an explosive crate goes off when touched or hit ([`explosive`]); a
+//!   doubler crate doubles its breaker's bolts and XP for a while ([`BoltMultiplier`]).
 //! - The numbers are in `assets/pickups.ron`.
 
 pub mod crates;
+pub mod explosive;
+pub mod nanotech;
 pub mod vendor;
 
 use bevy::prelude::*;
@@ -31,6 +36,8 @@ use crate::TICK;
 use crate::weapons::{Armory, Arsenal, Hand, WeaponId};
 
 pub use crates::{Crate, CrateKind, CrateTable};
+pub use explosive::{Blast, CrateBlast, ExplosiveTuning, Fuse};
+pub use nanotech::{NanotechOrbs, NanotechTuning, Orb, OrbCluster};
 pub use vendor::{Vendor, VendorTuning};
 
 /// The bundled tuning.
@@ -69,6 +76,10 @@ pub struct PickupTuning {
     pub ammo: AmmoRules,
     /// What each kind of crate holds.
     pub crates: CrateTable,
+    /// The nanotech crate's orbs.
+    pub nanotech: NanotechTuning,
+    /// The explosive crate's fuse and blast.
+    pub explosive: ExplosiveTuning,
     pub vendor: VendorTuning,
 }
 
@@ -171,7 +182,47 @@ pub struct Pickup(pub PickupMotion);
 
 /// The bolts a hero has collected.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[require(BoltMultiplier)]
 pub struct Bolts(pub u32);
+
+/// UYA's bolt and XP doubler (`bolt_multiplier_exp`, `bolt_multiplier_timer`; `weapons.md`,
+/// "Ammo pickups, crates and the vendor"): the bolts of what a hero kills or breaks, and
+/// his kills' XP, are doubled `exp` times while `ticks` run. Each doubler crate he breaks
+/// doubles them once more and adds its ticks.
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BoltMultiplier {
+    pub exp: u8,
+    pub ticks: u32,
+}
+
+impl BoltMultiplier {
+    /// A doubler crate's: one doubling more, for `ticks` more.
+    pub fn add(&mut self, ticks: u32) {
+        // The game shifts by the exponent's low five bits.
+        self.exp = self.exp.saturating_add(1).min(31);
+        self.ticks = self.ticks.saturating_add(ticks);
+    }
+
+    /// `value` doubled `exp` times.
+    pub fn apply(&self, value: u32) -> u32 {
+        value.saturating_mul(1 << self.exp.min(31))
+    }
+
+    /// A tick on: the doubling ends with its time.
+    pub fn step(&mut self) {
+        self.ticks = self.ticks.saturating_sub(1);
+        if self.ticks == 0 {
+            self.exp = 0;
+        }
+    }
+}
+
+/// Counts every hero's doubling down.
+pub(crate) fn step_multipliers(mut multipliers: Query<&mut BoltMultiplier>) {
+    for mut multiplier in &mut multipliers {
+        multiplier.step();
+    }
+}
 
 /// What became of a pickup this tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

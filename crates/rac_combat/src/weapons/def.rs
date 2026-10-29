@@ -1445,10 +1445,13 @@ pub struct Tesla {
 /// rope.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Whip {
-    /// The rope: `links` links, each the stretch long (swings 1 and 2, swing 3, the jump
-    /// attack, the throw).
+    /// The rope: `links` pieces, each the stretch long (swings 1 and 2, swing 3, the jump
+    /// attack, the throw), each after the first starting `lead` along the link at the
+    /// last one's end; it hits to `tip` past its last end.
     pub links: u32,
     pub stretch: (f32, f32, f32, f32),
+    pub lead: f32,
+    pub tip: f32,
     /// It hits from these ticks into the combo and the jump attack.
     pub combo_from: u32,
     pub jump_from: u32,

@@ -3755,11 +3755,39 @@ confidence = "medium"
 note = "u8: bolts and XP are shifted left by it; crate 0x1F7 adds 1, cleared when bolt_multiplier_timer ends."
 
 [[symbol]]
+name = "hero_damage"
+address = 0x004DC1C0
+kind = "function"
+confidence = "high"
+note = "(damage): health -= damage x the armor's factor (armor_damage_factors) x the help measure's, rounded, at least 1; never below 0."
+
+[[symbol]]
+name = "armor_damage_factors"
+address = 0x001DBFD0
+kind = "data"
+confidence = "high"
+note = "Five floats by armor 0-4: 1.0, 0.67, 0.5, 0.33, 0.2."
+
+[[symbol]]
+name = "help_measure"
+address = 0x003FE420
+kind = "function"
+confidence = "medium"
+note = "(level, area): a weighted sum of the level's stats (0x2C01A0, 0x1C5290); 0 in challenge mode and from level 30. hero_damage and the nanotech crate's amount use it."
+
+[[symbol]]
+name = "nanotech_amount_pick"
+address = 0x003FE4C0
+kind = "function"
+confidence = "high"
+note = "3 in challenge mode, else 3 - help_measure / 100, at least 1: which of a nanotech holder's three amounts (most / 5, / 4, / 3) it gives."
+
+[[symbol]]
 name = "bolt_multiplier_timer"
 address = 0x001A4E10
 kind = "data"
 confidence = "medium"
-note = "s32 frames: crate 0x1F7 adds 1800."
+note = "s32 frames: crate 0x1F7 adds 1800; counts down each frame, beeping at 300, 240, 180, 120, 60 and 1, and clears bolt_multiplier_exp at 0."
 
 [[symbol]]
 name = "bolt_repeat_pct"
@@ -4634,6 +4662,55 @@ confidence = "high"
 note = "The conditions under which the shield stays up."
 
 [[symbol]]
+name = "shield_arcs_draw"
+address = 0x00341DA0
+kind = "function"
+confidence = "high"
+note = "The shield's five arcs (0x279500, timers 0x1E1A10): re-anchored to its centre, alpha 32 x frames left / life, drawn as closed loops by fx_loop_strip."
+
+[[symbol]]
+name = "shield_shell_draw"
+address = 0x00342098
+kind = "function"
+confidence = "high"
+note = "The shield's shell: a camera-facing dome (0x2A5AE0) in texture 21 at alpha 0x18, blended, and a rim of 32 quads to 1.316 u in texture 11 at 0x40, added."
+
+[[symbol]]
+name = "shield_trails_draw"
+address = 0x00342478
+kind = "function"
+confidence = "high"
+note = "The shield's four orbiting trails (0x279000, counts 0x1E19C0, axes 0x1E1980): shift, turn 6 deg (10 at V5), jitter 0.025, keep 0.9-1.1 out; two 0x3E sparkles at each head; drawn by shield_trail_strip."
+
+[[symbol]]
+name = "shield_trail_strip"
+address = 0x00342848
+kind = "function"
+confidence = "medium"
+note = "A trail's core (half 0.02, colour_lerp along it) and glow (a quad a piece, ends at the farther camera distance, stretched 1.3 pieces past each end, half 0.07)."
+
+[[symbol]]
+name = "fx_loop_strip"
+address = 0x00407240
+kind = "function"
+confidence = "medium"
+note = "Two strips through points: a core +-w and a glow +-w x times, a quad a piece; with its last argument set the last piece closes back to the first point."
+
+[[symbol]]
+name = "vec_jitter"
+address = 0x00448CD0
+kind = "function"
+confidence = "high"
+note = "Adds rand_range(-a, a) to each of x, y and z."
+
+[[symbol]]
+name = "rand_direction"
+address = 0x00440B30
+kind = "function"
+confidence = "medium"
+note = "A vector of length rand_range(a, b) in a direction from two rand_angle calls."
+
+[[symbol]]
 name = "draw_callback2_add"
 address = 0x00402498
 kind = "function"
@@ -4771,7 +4848,7 @@ name = "light_add"
 address = 0x00421DE0
 kind = "function"
 confidence = "high"
-note = "(radius, ?, position, colour): one of 8 light slots, or -1."
+note = "(radius, ?, position, colour as bytes, red lowest, 0x80 = 1.0): takes the first free of the 8 light_slots, or returns -1; the caller may rewrite the slot each frame."
 
 [[symbol]]
 name = "light_remove"
@@ -4792,7 +4869,7 @@ name = "camera_shake_apply"
 address = 0x003F2A98
 kind = "function"
 confidence = "medium"
-note = "Moves the camera by amplitude x cos(2 x frames left) x (t/T)^2 along one axis (kind 2 a roll)."
+note = "(camera, channel, kind): each frame, channel n with kind n; moves the camera by amplitude x cos(2 x frames left) x (left/most)^2 along its up (kind 0, axis at 0x1E2E60) or forward (kind 1, 0x1E2E40), or rolls it by amplitude x sin(2001 deg x s - 20010 deg) x (left/most)^3 x min(6s, 1) (kind 2)."
 
 [[symbol]]
 name = "explosion_spawn"
@@ -4841,7 +4918,7 @@ name = "light_slots"
 address = 0x001F1BC0
 kind = "data"
 confidence = "medium"
-note = "8 lights."
+note = "8 lights of 0x20 bytes: colour floats, ? (+0xC), position (+0x10), radius (+0x1C); in use at 0x1F1CD0 + slot x 0x30."
 
 [[symbol]]
 name = "camera_shake"
@@ -5406,3 +5483,101 @@ address = 0x00343088
 kind = "function"
 confidence = "medium"
 note = "The Miniturret Glove's V5 (class 0xA65) update: as the V1 glove's."
+
+[[symbol]]
+name = "moby_class_index"
+address = 0x001FDC50
+kind = "data"
+confidence = "high"
+note = "A byte per class number: the class's slot in the loaded classes' tables (moby_init checks the slot's class number at 0x1FDA70, two bytes a slot). Class 0x307 is slot 20 on Veldin."
+
+[[symbol]]
+name = "moby_class_pointers"
+address = 0x001FD200
+kind = "data"
+confidence = "high"
+note = "The loaded classes by slot (moby_class_index): a pointer to each class's header. Their updates are at 0x1FD5C0, a word a slot."
+
+[[symbol]]
+name = "fx_ring_spawn"
+address = 0x003013B0
+kind = "function"
+confidence = "high"
+note = "(scale, grow, position, rotation, fade): spawns the ring class 0x307 at its class scale times scale, opacity 0x80 falling fade a frame; a rotation with a zero x, y or z stands it on the level's up at a random yaw (effects.md, 'Rings')."
+
+[[symbol]]
+name = "fx_ring_spawn_level"
+address = 0x00301508
+kind = "function"
+confidence = "high"
+note = "fx_ring_spawn with the zero rotation at 0x1D66B0: standing level at a random yaw. The Infector's burst, the whip's V4 wave and a turret landing in water call it."
+
+[[symbol]]
+name = "fx_ring_update"
+address = 0x00301530
+kind = "function"
+confidence = "high"
+note = "Class 0x307's update: its scale times its grow (pvar +0) and its opacity (+0x23) less its fade (pvar +4) each frame; removed once the opacity is no more than the fade."
+
+[[symbol]]
+name = "lava_pool_spawn"
+address = 0x003063C8
+kind = "function"
+confidence = "high"
+note = "(gun, hit point, normal x 0.1, random rotation): fills the first free of 10 burning pools of 0x530 bytes at 0x1DC608, two flames each (effects.md, 'Lava Gun')."
+
+[[symbol]]
+name = "lava_pools_update"
+address = 0x00306658
+kind = "function"
+confidence = "high"
+note = "Each pool's strength springs to 0.5 (game_spring 0.002, 0.0002, cap 0.02), holds 60 frames and springs to 0; its flames' textures scroll."
+
+[[symbol]]
+name = "lava_pools_draw"
+address = 0x00306838
+kind = "function"
+confidence = "high"
+note = "Each pool's two flames of texture 23 (one blended, one added) and two glows of 11 on the surface (0x306DF8); from V5 the glows alone, in blue."
+
+[[symbol]]
+name = "light_add_floats"
+address = 0x00421F08
+kind = "function"
+confidence = "high"
+note = "(radius, ?, r, g, b, position): light_add with the colour as floats (1.0 = 0x80)."
+
+[[symbol]]
+name = "light_moby_spawn"
+address = 0x00300650
+kind = "function"
+confidence = "high"
+note = "(template, position, ?, template override): spawns the light moby class 0x27F from a template's envelope (effects.md, 'Lights, shake, rumble and the screen')."
+
+[[symbol]]
+name = "light_moby_update"
+address = 0x00300820
+kind = "function"
+confidence = "medium"
+note = "Each frame light_add_floats at the template's radius x 0.8, each colour channel climbing by its rise to its top then falling by its fall, for its life in frames."
+
+[[symbol]]
+name = "light_template_bouncer"
+address = 0x002AE940
+kind = "data"
+confidence = "medium"
+note = "The Bouncer's muzzle light: radius 10, 10 frames, red and green climbing 0.25 a frame, blue to 1.0 and back by 0.25."
+
+[[symbol]]
+name = "light_template_explosion"
+address = 0x002AF440
+kind = "data"
+confidence = "medium"
+note = "explosion_spawn's light: 0.3 up, 60 frames, radius from its argument; red +0.17/-0.11, green +0.17/-0.13, blue to 1.0 +0.16/-0.13."
+
+[[symbol]]
+name = "light_template_small_blast"
+address = 0x002E9D20
+kind = "data"
+confidence = "medium"
+note = "The small blast's light (0x4488B8): 1.3 up, 45 frames, radius 13; red and green to 2.55 by 0.19 then down by 0.15 and 0.17, blue to 1.0 by 0.19 and back."

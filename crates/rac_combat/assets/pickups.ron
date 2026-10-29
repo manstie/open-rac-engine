@@ -39,6 +39,43 @@
         bolts: 44,
         // `ammo_crate_pick`: 2 pickups once in 5 [code].
         two_pickups_in: 5,
+        // `crate_drop`: the doubler adds 1800 frames to the bolt multiplier's [code].
+        doubler_ticks: 1800,
+    ),
+    // The nanotech crate's orbs (`nanotech_holder_update`) [code]: let out once it is broken
+    // to a hero within 10 u whose health with what orbs in flight carry is under his most,
+    // each flies 20-80 frames on a curve bowed out 5 u square to his way, fanned 25.7°
+    // apart, to 0.75 u above his feet; the first to arrive heals him his most / 5 (the
+    // game's help measure under 100), and they go 300 frames after. Before that they
+    // circle the crate's middle 0.3 u out, 3° a frame [placeholder].
+    nanotech: (
+        reach: 10.0,
+        divisor: 5,
+        orbs: 8,
+        flight: (20, 80),
+        bow: 5.0,
+        fan: 25.7,
+        height: 0.75,
+        life: 300,
+        ring: 0.3,
+        spin: 3.0,
+    ),
+    // The explosive crate (`crate_update`) [code]: touched, it goes off in 179 frames,
+    // hit in 5-14 (a random 5 to 15, cut), set off by a blast in 1. Its blast grows over 20
+    // frames, to 2 u round its middle for targets, which take 2.0, and 3 u for heroes,
+    // who take 4 pushed 1 u a frame out and up (which their hit caps). A hero touches it
+    // within 0.05 u [placeholder].
+    explosive: (
+        touched_ticks: 179,
+        hit_ticks: (5, 14),
+        blast_ticks: 20,
+        reach: 2.0,
+        damage: 2.0,
+        hero_reach: 3.0,
+        hero_damage: 4,
+        push: 60.0,
+        lift: 60.0,
+        touch: 0.05,
     ),
     // A round every 3 ticks: the N60's 150 in 7.5 s [placeholder].
     vendor: (round_ticks: 3),

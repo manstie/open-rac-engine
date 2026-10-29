@@ -40,14 +40,14 @@ session is working on the task now; notes on problems met stay with their task (
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
   models, each level's, held in one hand or both as UYA's hold layers have them) with
   their firing animations, UYA's quick-select ring, UYA's ammo
-  pickups and crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
+  pickups and bolt, ammo, nanotech, explosive and doubler crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
   the disc's textures for them, P3.18). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
   sounds for 18 guns, effect and particle textures, and six shot models; the six first
-  guns' effects, most of the Bouncer's, Plasma Coil's, Plasma Whip's, Miniturret's and
-  Agents of Doom's, the lightning bolt four guns share and the Holo Shield's flight take
-  the game's sizes, colours and lives (P1.13, P3.13, P3.18). He
+  guns' effects and the other guns' as far as the effects layer goes (all but the
+  Spitting Hydra's spit), and the lightning bolt four guns share, take the game's sizes,
+  colours and lives (P1.13, P3.13, P3.18). He
   wears the open blocky model or, from the user's
   discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
   rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
@@ -73,13 +73,10 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. The guns' effects from the disc (P3.18): the other guns' calls and recipes, then
-   strips for the whip's rope; rings,
-   lights and shake, the whip's links; then P1.10's nanotech, explosive and doubler crates
-   ("Ammo pickups, crates and the vendor").
-2. Co-op (RE.10): a co-op level with crates and enemies, to trace an ammo pickup and a
-   kill by each player.
-3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
+1. Co-op (RE.10): a co-op level with crates and enemies, to trace an ammo pickup and a
+   kill by each player. P1.10 (the vendor's menu) and P3.18 have what is left in their
+   tasks.
+2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
 
 ---
@@ -787,7 +784,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gun arm (`rac_hero::GunArm`, which also picks the arms-only firing animation) and the
     gun's aim point (`GunHand::target`), which turns his head and upper body through
     `rac_rig`'s joint springs (`springs.rs`).
-  - Next step: the whip's links and the shield from their disc classes with P3.18.
+  - Its look is drawn with P3.18 (shell, arcs and trails; its class's mesh never is);
+    V3's glow is open there.
   - Done 2026-10-22: all twenty of UYA's guns (`weapons.md`, "In the kit", "The other
     fourteen"): their RON entries, a fire mode each in `weapons/{seekers,thrown,grab,
     hand}.rs`, enemies-only searches (`Hostile`), `Affliction`s (infected, duck,
@@ -838,9 +836,20 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     reach; ammo taken before it flies, on landing, capped, never expiring; ammo crates'
     1 or 2 pickups for one gun not full, never the Flux Rifle; bolt crates' bolts in
     coins; enemies drop no ammo.
-  - Not done: nanotech, explosive and doubler crates; the vendor's menu; UYA's cap of a
-    few coins a crate with the rest banked (`bolts_drop`'s bank isn't read).
-  - Next step: the nanotech and explosive crates ("Ammo pickups, crates and the vendor").
+  - Done 2026-10-29 (`pickups/nanotech.rs`, `explosive.rs`, `BoltMultiplier`; `weapons.md`,
+    "In the kit", "The other crates"): nanotech crates' orbs let out to a hero with room
+    and healing his most / 5; explosive crates' fuses (touched 179 ticks, hit 5–14, blast
+    1), warning tint and growing blast (targets 2, heroes 4); the doubler's doubling of
+    bolts and XP for 1800 ticks a crate. The demo has each in the yard and two explosive
+    crates by the arena; seen on screen (`kitdemo-yard-crates.orin`).
+  - The hero's damage in UYA is scaled by his armor (1.0 to 0.2) and the game's help
+    measure (`hero-controller.md`, "Getting hit and dying"); the kit has no armor yet, so
+    its hits land as given.
+  - Not done: the vendor's menu; UYA's cap of a few coins a crate with the rest banked
+    (`bolts_drop`'s bank isn't read); the crates' sounds, the doubler's HUD icon and help
+    message; the help measure (0x3FE420's stats), which the nanotech amount and the
+    hero's damage use.
+  - Next step: the vendor's menu, or the bank of coins (`bolts_drop`, 0x44A0E8).
   - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
     the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
     the crates and the vendor.
@@ -1179,25 +1188,73 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     with its own recipe part and sound cue, its end an Impact wherever it comes, its
     trail as a flat ribbon through points it keeps (`rac_demo::fx::sweep`) and glows
     pushed toward the camera (`nearer`); seen on screen at V3.
+  - Done 2026-10-29: the six guns left read with their arguments and in recipes as far
+    as the layer goes (`effects.md`, their sections and "Importing them" 4): the
+    Infector (its blob drawn as class 0x1E05 at 0.275 of its scale), Shield Charger,
+    Rift Inducer, Suck Cannon, Qwack-O-Ray and RY3NO; and particle types 0x19, 0x34 and
+    0x22. The 0x35 spawner takes the final size first and the start second. The
+    Infector, Rift Inducer, RY3NO and Qwack-O-Ray seen on screen at V3 through arena
+    replays (`docs/re-setup.md`); the rift's pull drew the defaults' lightning to what it
+    pulled until its recipe turned `arc` off. The Shield Charger and Suck Cannon not seen
+    yet.
+    The Plasma Whip's rope (`rac_demo::fx::rope`, from `HeroRig::rope`): its bands and
+    strips by level and the sparkles, smoke and sparks along it, seen on screen at V3
+    (`-whip.orin`). The quad helper's blend 1 weights by the quad's own alpha, not FIX.
+    The Spitting Hydra's spit (`rac_demo::fx::fan`): its arcs on the game's curve, the
+    muzzle's rings and glows and the strike's smoke and embers, seen on screen at V3
+    (`-hydra.orin`); the arcs' roll was misread (`weapons.md`, corrected). Decals and
+    rings (`effects.md`, "Importing them" 3 and 4): `Impact` events carry the surface's
+    normal (bullets and streams so far), recipes leave marks there (`rac_demo::fx::mark`:
+    the Lava Gun's pools, 0x3063C8, on the game's spring), models by class
+    (`Emit::Model`, `FxModels`; the ring class 0x307 read from the disc, "Rings") for the
+    Infector's burst and the whip's wave, and particles laid on the ground (`ground`) for
+    the Infector's gas clouds; the pools, clouds and ring seen on screen at V3
+    (`-lava.orin`, `-infector-open.orin`). Lights and shake (`effects.md`, "Lights,
+    shake, rumble and the screen" and "Importing them" 4): `Emit::Light` with the light
+    moby's envelope (class 0x27F) and lights riding shots, within the game's eight
+    slots; `Emit::Shake` on the game's three channels (0x3F2A98), weakened by the
+    distance from the camera as the calls are; recipes for the guns whose calls are
+    read. The Flux's and Annihilator's lights seen on the floor at V3 (`-flux.orin`,
+    `-annihilator.orin`); the shake only in tests (no take lands a Nitro blast near).
+    The whip's links from classes 0x183A and 0x183C (`rac_rig::RopeModels`, read by
+    `shot_models.rs`), placed as `whip_link_place` does, seen on screen at V3. The
+    Shield Charger's shell (0x342098: the dome and rim, `rac_demo::fx::shell`, in place
+    of the rig's bubble), its five arcs (0x341DA0: closed loops out from the middle, laid
+    anew as their lives run out) and its four orbiting trails (0x342478: a core and a
+    glow of stretched quads, fading in from the tail), seen on screen at V3
+    (`-shield.orin`).
+  - The rope left out each link's own length: each piece starts at the link before's
+    joint 0, 0.194 u on, so the rope is 9 stretches and 8 × 0.194 long, and the whip's
+    hit reaches 9 × the stretch + 1.657 (9.76 u in swings 1 and 2, not 8.55); both fixed
+    (`rope.rs` `LINK_LEAD`, the whip's `lead` and `tip`; `weapons.md`, "Plasma Whip").
+    Open: the yaw `whip_link_place` adds in a combo, which the kit reads as the hand's
+    travel added to links 1 and 2.
   - Veldin's N60 always takes its bullets' second path: 0x1DE380, which picks the tracer
     and the trail, is 1 and never written. The Nitro's blast doesn't call
     `explosion_spawn` at all. Particle sizes are taken as halves; whether they are half
     the diagonal instead (√2) is open.
-  - Not done: the other guns' recipes (the kit's own still); ribbons with moving ends,
-    rings and domes, lights, shake, glows over the view, decals, children particles
-    and meshes the effects spawn (`effects.md`, "Importing them" 3); the V5 shots'
-    classes; the whip's links and the shield; a reference take of the Lava Gun with no
+  - Not done: the Hydra's charge strips while held (0x321CB8) and arcs cut at walls, the
+    Infecto-Bomb's numbers; an open rift's own look (lens, refracting rings of 54, rays;
+    the kit keeps its flight look), the Qwack-O-Ray's funnel of rings (drawn as flat
+    beams), effects driven by a gun's sustain (the Suck Cannon's vortex) or by events the
+    kit doesn't send (taking something in, ricochets); ribbons with moving ends,
+    domes and strip rings, glows over the view, the explosion's, small blast's and
+    whip's lights and the V5 guns' shakes, the whip's scorches
+    (0x359F28: the kit's whip sends no hit event), children particles and meshes the
+    effects spawn other than the ring (`effects.md`, "Importing them" 3); the V5 shots'
+    classes; the shield's V3 glow (0x409A50, its shape not worked out) and its trails'
+    head sparkles; a reference take of the Lava Gun with no
     enemy in reach, its ribbon's scrolling texture, and the kit's muzzle for it, above
     and behind the disc model's barrel tip (`effects.md`, "Importing them" 3);
-    what the recipes leave out (`effects.md`, "Importing them" 4: the whip's rope, hit
-    sparks and light, the coil's gun and lightning, its arcs' reach and waver, the
+    what the recipes leave out (`effects.md`, "Importing them" 4: the whip's hit
+    sparks and light, V5's sparkles, the coil's gun and lightning, its arcs' reach and waver, the
     bolt's growth and second line past the target, the shield's lights, its strips'
     masks (a custom material: a texture's alpha weighting another's turning colour) and
     folding draws), and an on-screen look at the whip's V4 wave and the bolts (in the
     arena replays the Hydra spits but never marks a target; why is open).
-    Next step: the remaining guns' calls (`cache/w4/fx/pergun.txt`: the Shield Charger,
-    Infector, Rift Inducer, Suck Cannon, Qwack-O-Ray and RY3NO), then strips through
-    points that aren't shots for the whip's rope (it needs the whip's links).
+    Next step: the shield's V3 glow (0x409A50 in
+    `cache/w4/seq/shield2.c` if kept: work out whether its ten rings make a disc or a
+    tube) or a game capture of the shield to compare with the kit's.
   - A shot's firing event (the Miniturret's turret) plays its glove's fire sound, as
     `rac_demo::sfx` cues by gun, not by shot; so the agents' guns send none yet, and a
     bolt's strike and the shield's landing play their gun's impact cue. Still open: cue

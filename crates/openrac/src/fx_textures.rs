@@ -74,7 +74,7 @@ pub fn register_disc_fx_images(
 }
 
 /// An effect texture as an sRGB image, its alpha doubled so the GS's 0x80 is opaque.
-fn image(texture: &Texture) -> Image {
+pub fn image(texture: &Texture) -> Image {
     Image::new(
         Extent3d {
             width: texture.width,

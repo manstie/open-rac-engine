@@ -148,6 +148,7 @@ impl Plugin for CombatPlugin {
             .add_message::<Destroyed>()
             .add_message::<GunEvent>()
             .add_message::<Afflicted>()
+            .add_message::<pickups::CrateBlast>()
             .add_systems(
                 FixedUpdate,
                 (react, weapons::fire_guns).chain().in_set(SimSet::World),
@@ -159,8 +160,13 @@ impl Plugin for CombatPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    pickups::step_multipliers,
+                    pickups::explosive::touch_crates,
+                    pickups::explosive::burn_fuses,
+                    pickups::explosive::grow_blasts,
                     pickups::crates::break_crates,
                     pickups::move_pickups,
+                    pickups::nanotech::move_orbs,
                     pickups::vendor::run_vendors,
                 )
                     .chain()
@@ -193,7 +199,12 @@ pub(crate) fn position(
 fn strike_targets(
     tuning: Res<CombatTuning>,
     armory: Res<Armory>,
-    mut heroes: Query<(&Hero, &HeroBody, Option<&mut Arsenal>)>,
+    mut heroes: Query<(
+        &Hero,
+        &HeroBody,
+        Option<&mut Arsenal>,
+        Option<&pickups::BoltMultiplier>,
+    )>,
     mut targets: Query<(
         Entity,
         &Hurtbox,
@@ -212,7 +223,7 @@ fn strike_targets(
     let mut targets: Vec<_> = targets.iter_mut().collect();
     targets.sort_by_key(|(entity, ..)| *entity);
 
-    for (hero, body, arsenal) in &mut heroes {
+    for (hero, body, arsenal, doubled) in &mut heroes {
         // The Plasma Whip's rope is the gun in his hand: its kills give that gun XP.
         let gun = arsenal.as_ref().and_then(|arsenal| arsenal.hand.gun());
         let mut kills = Vec::new();
@@ -262,6 +273,7 @@ fn strike_targets(
         }
         if let Some(arsenal) = arsenal {
             for (weapon, xp) in kills {
+                let xp = doubled.map_or(xp, |doubled| doubled.apply(xp));
                 for up in arsenal.add_xp(weapon, xp, &armory) {
                     events.write(GunEvent {
                         player: hero.player,

@@ -6,7 +6,13 @@
 //!   later kills; the kit drops them all [simplified];
 //! - an ammo crate 1 ammo pickup, or 2 once in 5, for one gun of the hero who broke it, at
 //!   random among those not full, else among all, never one crates don't serve
-//!   (`ammo_crate_pick`, 0x440E98).
+//!   (`ammo_crate_pick`, 0x440E98);
+//! - a nanotech crate its orbs, which wait for a hero with room ([`super::nanotech`]);
+//! - a doubler crate one more doubling of its breaker's bolts and XP, for 1800 ticks more
+//!   ([`BoltMultiplier`]).
+//!
+//! An explosive crate isn't broken by a hit: its fuse is lit instead, and it goes off
+//! when that runs out ([`super::explosive`]).
 //!
 //! A crate is any target with a [`Crate`] beside its hurtbox and hit points
 //! (`crate::target_bundle`); [`break_crates`] despawns it when it is [`Destroyed`].
@@ -16,7 +22,9 @@ use rac_hero::Hero;
 use rac_sim::{SimRng, SimTransform};
 use serde::{Deserialize, Serialize};
 
-use super::{PickupKind, PickupTuning, between, scatter, spawn};
+use super::explosive::Fuse;
+use super::nanotech::{NanotechOrbs, OrbCluster};
+use super::{BoltMultiplier, PickupKind, PickupTuning, between, scatter, spawn};
 use crate::weapons::{Armory, Arsenal, WeaponId};
 use crate::{Destroyed, Hurtbox, position};
 
@@ -31,6 +39,12 @@ pub enum CrateKind {
     Bolts,
     /// Ammo for the guns of whoever breaks it.
     Ammo,
+    /// Nanotech orbs, let out to a hero with room for them.
+    Nanotech,
+    /// Goes off a while after it is touched or hit.
+    Explosive,
+    /// Doubles its breaker's bolts and XP for a while.
+    Doubler,
 }
 
 /// What each kind of crate holds.
@@ -40,6 +54,8 @@ pub struct CrateTable {
     pub bolts: u32,
     /// An ammo crate throws out 2 pickups once in this many, else 1.
     pub two_pickups_in: u32,
+    /// Ticks a doubler crate adds to its breaker's doubling.
+    pub doubler_ticks: u32,
 }
 
 /// The coins bolts are dropped in, largest first (`bolts_drop`, 0x44A0E8) [code].
@@ -96,20 +112,23 @@ pub fn ammo_crate_gun(arsenal: &Arsenal, armory: &Armory, rng: &mut SimRng) -> O
     (!from.is_empty()).then(|| from[rng.below(from.len() as u32) as usize])
 }
 
-/// What a crate of `kind` holds, broken by a hero with the guns `breaker`. An ammo crate
-/// broken by a hero without guns crates serve holds nothing.
+/// The pickups a crate of `kind` throws out, broken by a hero with the guns `breaker` and
+/// the doubling `doubled`. An ammo crate broken by a hero without guns crates serve throws
+/// out nothing, nor do the crates that hold no pickups.
 pub fn contents(
     kind: CrateKind,
     table: &CrateTable,
     breaker: Option<&Arsenal>,
+    doubled: &BoltMultiplier,
     armory: &Armory,
     rng: &mut SimRng,
 ) -> Vec<PickupKind> {
     match kind {
-        CrateKind::Bolts => coins(bolts_paid(table.bolts, rng))
+        CrateKind::Bolts => coins(doubled.apply(bolts_paid(table.bolts, rng)))
             .into_iter()
             .map(PickupKind::Bolts)
             .collect(),
+        CrateKind::Nanotech | CrateKind::Explosive | CrateKind::Doubler => Vec::new(),
         CrateKind::Ammo => {
             let Some(weapon) = breaker.and_then(|arsenal| ammo_crate_gun(arsenal, armory, rng))
             else {
@@ -128,23 +147,24 @@ pub fn contents(
 }
 
 /// Breaks the crates knocked out this tick, in the order they were, scattering what they
-/// hold.
+/// hold, and lights the fuses of the explosive ones.
 pub(crate) fn break_crates(
     tuning: Res<PickupTuning>,
     armory: Res<Armory>,
     mut rng: ResMut<SimRng>,
     mut destroyed: MessageReader<Destroyed>,
-    crates: Query<(
+    mut crates: Query<(
         &Crate,
         Option<&Hurtbox>,
         Option<&Transform>,
         Option<&SimTransform>,
+        Option<&mut Fuse>,
     )>,
-    heroes: Query<(&Hero, &Arsenal)>,
+    mut heroes: Query<(&Hero, Option<&Arsenal>, Option<&mut BoltMultiplier>)>,
     mut commands: Commands,
 ) {
     for event in destroyed.read() {
-        let Ok((kind, hurtbox, transform, simulated)) = crates.get(event.target) else {
+        let Ok((kind, hurtbox, transform, simulated, fuse)) = crates.get_mut(event.target) else {
             continue;
         };
         let Some(at) = position(transform, simulated) else {
@@ -152,11 +172,45 @@ pub(crate) fn break_crates(
         };
         let middle = at + Vec3::Y * hurtbox.map_or(0.0, |hurtbox| hurtbox.height);
         let breaker = heroes
-            .iter()
-            .find(|(hero, _)| hero.player == event.player)
-            .map(|(_, arsenal)| arsenal);
-        let kinds = contents(kind.0, &tuning.crates, breaker, &armory, &mut rng);
-        spawn(&mut commands, scatter(middle, kinds, &tuning, &mut rng));
+            .iter_mut()
+            .find(|(hero, ..)| hero.player == event.player);
+        match kind.0 {
+            CrateKind::Explosive => {
+                let ticks = between(&mut rng, tuning.explosive.hit_ticks);
+                match fuse {
+                    Some(mut fuse) => fuse.cut(ticks),
+                    None => {
+                        commands.entity(event.target).insert(Fuse {
+                            left: ticks,
+                            player: event.player,
+                        });
+                    }
+                }
+                continue;
+            }
+            CrateKind::Doubler => {
+                if let Some((_, _, Some(mut doubled))) = breaker {
+                    doubled.add(tuning.crates.doubler_ticks);
+                }
+            }
+            CrateKind::Nanotech => {
+                commands.spawn((
+                    Name::new("nanotech orbs"),
+                    NanotechOrbs(OrbCluster::new(middle, &tuning.nanotech)),
+                    SimTransform::from_translation(middle),
+                ));
+            }
+            CrateKind::Bolts | CrateKind::Ammo => {
+                let (arsenal, doubled) = match &breaker {
+                    Some((_, arsenal, doubled)) => {
+                        (*arsenal, doubled.as_deref().copied().unwrap_or_default())
+                    }
+                    None => (None, BoltMultiplier::default()),
+                };
+                let kinds = contents(kind.0, &tuning.crates, arsenal, &doubled, &armory, &mut rng);
+                spawn(&mut commands, scatter(middle, kinds, &tuning, &mut rng));
+            }
+        }
         commands.entity(event.target).despawn();
     }
 }
@@ -173,7 +227,9 @@ mod tests {
     const TABLE: CrateTable = CrateTable {
         bolts: 44,
         two_pickups_in: 5,
+        doubler_ticks: 1800,
     };
+    const PLAIN: BoltMultiplier = BoltMultiplier { exp: 0, ticks: 0 };
 
     #[test]
     fn bolts_come_a_quarter_more_or_less_in_the_largest_coins() {
@@ -195,7 +251,7 @@ mod tests {
         let armory = Armory::uya();
         let mut rng = SimRng::new(3, 0);
         for _ in 0..50 {
-            let held = contents(CrateKind::Bolts, &TABLE, None, &armory, &mut rng);
+            let held = contents(CrateKind::Bolts, &TABLE, None, &PLAIN, &armory, &mut rng);
             let total: u32 = held
                 .iter()
                 .map(|kind| match kind {
@@ -205,6 +261,34 @@ mod tests {
                 .sum();
             assert!((33..=55).contains(&total), "{total}");
         }
+    }
+
+    #[test]
+    fn a_doubled_bolt_crate_pays_twice_its_bolts_and_the_doubling_runs_out() {
+        let armory = Armory::uya();
+        let mut doubled = PLAIN;
+        doubled.add(TABLE.doubler_ticks);
+        doubled.add(TABLE.doubler_ticks);
+        assert_eq!((doubled.exp, doubled.ticks), (2, 3600));
+        let mut rng = SimRng::new(3, 0);
+        for _ in 0..50 {
+            let held = contents(CrateKind::Bolts, &TABLE, None, &doubled, &armory, &mut rng);
+            let total: u32 = held
+                .iter()
+                .map(|kind| match kind {
+                    PickupKind::Bolts(value) => *value,
+                    other => panic!("{other:?}"),
+                })
+                .sum();
+            assert!(
+                (33 * 4..=55 * 4).contains(&total) && total.is_multiple_of(4),
+                "{total}"
+            );
+        }
+        (0..3599).for_each(|_| doubled.step());
+        assert_eq!((doubled.exp, doubled.apply(10)), (2, 40));
+        doubled.step();
+        assert_eq!((doubled.exp, doubled.apply(10)), (0, 10));
     }
 
     #[test]
@@ -222,7 +306,14 @@ mod tests {
         let lava = PickupKind::ammo(LAVA, &armory).unwrap();
         let mut counts = [0; 3];
         for _ in 0..500 {
-            let held = contents(CrateKind::Ammo, &TABLE, Some(&arsenal), &armory, &mut rng);
+            let held = contents(
+                CrateKind::Ammo,
+                &TABLE,
+                Some(&arsenal),
+                &PLAIN,
+                &armory,
+                &mut rng,
+            );
             assert!(held.iter().all(|kind| *kind == lava), "{held:?}");
             counts[held.len()] += 1;
         }
@@ -238,7 +329,7 @@ mod tests {
         assert!(!seen.contains(&FLUX));
         assert!(arsenal.gun(FLUX).unwrap().ammo == 0);
         // Without guns, nothing.
-        let held = contents(CrateKind::Ammo, &TABLE, None, &armory, &mut rng);
+        let held = contents(CrateKind::Ammo, &TABLE, None, &PLAIN, &armory, &mut rng);
         assert!(held.is_empty());
     }
 }

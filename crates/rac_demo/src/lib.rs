@@ -20,6 +20,7 @@ pub mod sfx;
 mod spectator;
 
 use bevy::prelude::*;
+use rac_combat::pickups::{Blast, Fuse, NanotechOrbs};
 use rac_combat::{
     Armory, CombatPlugin, Crate, CrateKind, Destroyed, HitReaction, Hitpoints, KillXp, Pushable,
     Vendor, target_bundle,
@@ -49,11 +50,12 @@ pub use spectator::SpectatorCamera;
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct DemoEntity;
 
-/// A target's look, and how it looks when hit.
+/// A target's look, how it looks when hit, and how a lit explosive crate warns.
 #[derive(Component, Debug, Clone)]
 struct Flash {
     normal: Handle<StandardMaterial>,
     lit: Handle<StandardMaterial>,
+    warn: Handle<StandardMaterial>,
 }
 
 /// A spark where the wrench clanked off something, shrinking away.
@@ -125,7 +127,14 @@ impl Plugin for DemoPlugin {
             )
             .add_systems(
                 Update,
-                (drops::dress, drops::blink, drops::spin).run_if(resource_exists::<PickupLooks>),
+                (
+                    drops::dress,
+                    drops::blink,
+                    drops::spin,
+                    drops::dress_orbs,
+                    drops::place_orbs,
+                )
+                    .run_if(resource_exists::<PickupLooks>),
             );
     }
 }
@@ -263,8 +272,40 @@ pub fn spawn_demo(
         emissive: LinearRgba::rgb(2.0, 1.6, 0.8),
         ..default()
     });
+    // The explosive crate's tint as it warns: the game's (200, 64, 64) (`crate_update`).
+    let warn = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.25, 0.2),
+        emissive: LinearRgba::rgb(3.0, 0.4, 0.3),
+        ..default()
+    });
     let bolt_crate_look = materials.add(Color::srgb(0.75, 0.5, 0.2));
     let ammo_crate_look = materials.add(Color::srgb(0.3, 0.36, 0.5));
+    // See-through, with a nanotech glow inside.
+    let nanotech_crate_look = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.45, 0.7, 0.9, 0.45),
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+    let explosive_crate_look = materials.add(Color::srgb(0.6, 0.12, 0.08));
+    let doubler_crate_look = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.95, 0.75, 0.25),
+        metallic: 0.8,
+        perceptual_roughness: 0.35,
+        ..default()
+    });
+    // A hazard band round an explosive crate, and a bright one round a doubler.
+    let hazard_band_look = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.8, 0.1),
+        emissive: LinearRgba::rgb(1.2, 0.9, 0.1),
+        ..default()
+    });
+    let doubler_band_look = materials.add(StandardMaterial {
+        base_color: Color::srgb(1.0, 0.95, 0.7),
+        emissive: LinearRgba::rgb(3.0, 2.6, 1.2),
+        unlit: true,
+        ..default()
+    });
+    let pickup_looks = PickupLooks::new(&mut meshes, &mut materials);
     // A glowing band round an ammo crate in the ammo pickups' colour.
     let band_mesh = meshes.add(Cuboid::new(
         2.0 * CRATE_HALF + 0.02,
@@ -277,11 +318,21 @@ pub fn spawn_demo(
         let (mesh, look) = match target.kind {
             TargetKind::Crate(CrateKind::Bolts) => (crate_mesh.clone(), bolt_crate_look.clone()),
             TargetKind::Crate(CrateKind::Ammo) => (crate_mesh.clone(), ammo_crate_look.clone()),
+            TargetKind::Crate(CrateKind::Nanotech) => {
+                (crate_mesh.clone(), nanotech_crate_look.clone())
+            }
+            TargetKind::Crate(CrateKind::Explosive) => {
+                (crate_mesh.clone(), explosive_crate_look.clone())
+            }
+            TargetKind::Crate(CrateKind::Doubler) => {
+                (crate_mesh.clone(), doubler_crate_look.clone())
+            }
             TargetKind::Dummy => (dummy_mesh.clone(), dummy_look.clone()),
         };
         let flash = Flash {
             normal: look.clone(),
             lit: lit.clone(),
+            warn: warn.clone(),
         };
         let mut entity = commands.spawn((
             Name::new(target.name),
@@ -307,14 +358,26 @@ pub fn spawn_demo(
                         entity.insert(children![body]);
                     }
                     // The band is the body's child, so the hit flash leaves it alone.
-                    CrateKind::Ammo => {
+                    CrateKind::Ammo | CrateKind::Explosive | CrateKind::Doubler => {
+                        let band = match kind {
+                            CrateKind::Explosive => hazard_band_look.clone(),
+                            CrateKind::Doubler => doubler_band_look.clone(),
+                            _ => band_look.clone(),
+                        };
                         entity.insert(children![(
                             body,
                             children![(
                                 Mesh3d(band_mesh.clone()),
-                                MeshMaterial3d(band_look.clone()),
+                                MeshMaterial3d(band),
                                 Transform::default(),
                             )],
+                        )]);
+                    }
+                    CrateKind::Nanotech => {
+                        let glow = pickup_looks.nanotech();
+                        entity.insert(children![(
+                            body,
+                            children![(glow, Transform::from_scale(Vec3::splat(1.6)))],
                         )]);
                     }
                 }
@@ -336,7 +399,7 @@ pub fn spawn_demo(
     }
 
     commands.insert_resource(EnemyLooks::new(&mut meshes, &mut materials));
-    commands.insert_resource(PickupLooks::new(&mut meshes, &mut materials));
+    commands.insert_resource(pickup_looks);
     for spawn in enemy_spawns() {
         let def = bestiary.get(spawn.kind);
         commands.spawn((
@@ -396,7 +459,15 @@ pub fn spawn_demo(
 /// Removes everything [`spawn_demo`] created, and the pickups left about.
 pub fn despawn_demo(
     mut commands: Commands,
-    entities: Query<Entity, Or<(With<DemoEntity>, With<Pickup>)>>,
+    entities: Query<
+        Entity,
+        Or<(
+            With<DemoEntity>,
+            With<Pickup>,
+            With<NanotechOrbs>,
+            With<Blast>,
+        )>,
+    >,
 ) {
     for entity in &entities {
         commands.entity(entity).despawn();
@@ -455,13 +526,16 @@ fn show_clanks(
     }
 }
 
-/// Lights a target up while it flashes from a hit.
+/// Lights a target up while it flashes from a hit, and tints a lit explosive crate as it
+/// warns.
 fn flash_targets(
-    targets: Query<(&HitReaction, &Flash, &Children)>,
+    targets: Query<(&HitReaction, &Flash, &Children, Option<&Fuse>)>,
     mut looks: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
-    for (reaction, flash, children) in &targets {
-        let wanted = if reaction.flash_ticks > 0 {
+    for (reaction, flash, children, fuse) in &targets {
+        let wanted = if fuse.is_some_and(Fuse::flashing) {
+            &flash.warn
+        } else if reaction.flash_ticks > 0 {
             &flash.lit
         } else {
             &flash.normal

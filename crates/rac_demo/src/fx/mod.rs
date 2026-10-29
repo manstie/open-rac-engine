@@ -12,25 +12,41 @@
 //!   frame, and are drawn between ticks. Their randomness is their own, never the level's:
 //!   they don't touch the simulation.
 
+mod fan;
+mod light;
+mod mark;
+mod model;
 mod paint;
 mod panel;
 mod ribbon;
+mod rope;
+mod shake;
+mod shell;
 mod sweep;
 
 use std::collections::BTreeMap;
 
+use bevy::ecs::system::SystemParam;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use rac_combat::pickups::CrateBlast;
 #[cfg(doc)]
 use rac_combat::weapons::ShotKind;
 use rac_combat::{Armory, Arsenal, GunEvent, GunEventKind, WeaponId};
-use rac_hero::Hero;
+use rac_hero::{CollisionScene, CollisionWorld, Hero};
 use rac_sim::SimTransform;
 use serde::Deserialize;
 
+pub use fan::Fan;
+pub use light::ShotLight;
+pub use mark::{Flame, Flat, Mark};
+pub use model::{FxModel, FxModels};
 pub use paint::{Paint, Shape};
 pub use panel::{Panel, Panels};
 pub use ribbon::Ribbon;
+pub use rope::{AlongRope, Strand};
+pub use shake::{CameraShake, Shaking};
+pub use shell::{Arcs, Dome, Rim, Shell, Trails};
 pub use sweep::Sweep;
 
 use crate::DemoEntity;
@@ -134,8 +150,10 @@ pub enum Emit {
     /// to `end_alpha` and its colour to `end_colour` over `ticks` (to `ticks_to`, or give
     /// or take a third). They start at any roll and turn up to `spin` a tick either way.
     /// They start spread over `line` back along the shot's way, and up to `jitter` from
-    /// where they would. With a `streak` length each is drawn that long along its way,
-    /// `size` across. Each shows `delay` ticks after the event, plus up to `over` more.
+    /// where they would; with `ground`, on the floor within that many units below where
+    /// they would, as the game puts its gas clouds, or not at all where there's none. With
+    /// a `streak` length each is drawn that long along its way, `size` across. Each shows
+    /// `delay` ticks after the event, plus up to `over` more.
     Burst {
         texture: Tex,
         count: u32,
@@ -172,6 +190,8 @@ pub enum Emit {
         #[serde(default)]
         jitter: f32,
         #[serde(default)]
+        ground: Option<f32>,
+        #[serde(default)]
         streak: Option<f32>,
         #[serde(default)]
         delay: u32,
@@ -192,8 +212,61 @@ pub enum Emit {
         #[serde(default)]
         delay: u32,
     },
+    /// A model of the game's class `class` (a game gives it, [`FxModels`]; else the
+    /// kit's crown), standing level at any yaw, `scale` times its size (between the two)
+    /// and growing `grow` times a tick, as its alpha goes to `end_alpha` over `ticks`: the
+    /// ring 0x307 the Infector's burst and the Plasma Whip's wave leave.
+    Model {
+        class: u32,
+        scale: (f32, f32),
+        grow: f32,
+        ticks: u32,
+        #[serde(default = "opaque")]
+        colour: [f32; 4],
+        #[serde(default)]
+        end_alpha: f32,
+        #[serde(default)]
+        blend: Blend,
+    },
+    /// A point light of `colour` reaching `radius`, `ahead` along the shot's way and
+    /// `above`, for `ticks`: climbing from nothing by `rise` a tick to its colour if
+    /// given, then falling by `fall` a tick, or evenly over its ticks if not given, as
+    /// the light moby's channels do (0x300820). 1.0 is the game's 0x80. Only the game's
+    /// eight are made at once.
+    Light {
+        radius: f32,
+        colour: [f32; 3],
+        ticks: u32,
+        #[serde(default)]
+        ahead: f32,
+        #[serde(default)]
+        above: f32,
+        #[serde(default)]
+        rise: Option<[f32; 3]>,
+        #[serde(default)]
+        fall: Option<[f32; 3]>,
+    },
+    /// The camera shaken by `amplitude` for `ticks` along each of `along`, less `lose` for
+    /// each unit the event is from the camera; from `within` of it, by `beyond` if given
+    /// (which can stop a shake: the Nitro's 0), else left as it is.
+    Shake {
+        amplitude: f32,
+        ticks: u32,
+        #[serde(default = "up")]
+        along: Vec<Shaking>,
+        #[serde(default)]
+        lose: f32,
+        #[serde(default)]
+        within: Option<f32>,
+        #[serde(default)]
+        beyond: Option<f32>,
+    },
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
+}
+
+fn up() -> Vec<Shaking> {
+    vec![Shaking::Up]
 }
 
 impl Emit {
@@ -202,7 +275,11 @@ impl Emit {
             Emit::Flash { texture, .. }
             | Emit::Glow { texture, .. }
             | Emit::Burst { texture, .. } => Some(*texture),
-            Emit::Screen { .. } | Emit::Set(_) => None,
+            Emit::Screen { .. }
+            | Emit::Model { .. }
+            | Emit::Light { .. }
+            | Emit::Shake { .. }
+            | Emit::Set(_) => None,
         }
     }
 }
@@ -322,7 +399,8 @@ pub struct Streak {
 /// colour to `end_colour` over `ticks` to `ticks_to`. It sets off rising at `rise` units
 /// a second, going back at `back` times the shot's speed and up to `scatter` units a
 /// second either way along each axis; then falls at `gravity`, keeps `keep` of its speed
-/// each tick and turns up to `spin` degrees a tick either way.
+/// each tick and turns up to `spin` degrees a tick either way. With `ground`, each is laid
+/// on the floor within that many units below, or not at all where there's none.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Trail {
     #[serde(default)]
@@ -353,6 +431,8 @@ pub struct Trail {
     pub end_alpha: f32,
     #[serde(default)]
     pub end_colour: Option<[f32; 3]>,
+    #[serde(default)]
+    pub ground: Option<f32>,
     #[serde(default)]
     pub blend: Blend,
 }
@@ -395,8 +475,26 @@ pub struct GunFx {
     /// Flat ribbons through where each shot has been, as the Disc Blade's.
     #[serde(default)]
     pub sweep: Option<Vec<Sweep>>,
+    /// Strands from a shot of the kind to each of its ends, as the Spitting Hydra's spit.
+    #[serde(default)]
+    pub fan: Option<Fan>,
+    /// Strands through the Plasma Whip's rope while its links show.
+    #[serde(default)]
+    pub rope: Option<Vec<Strand>>,
+    /// Particles laid along the Plasma Whip's rope each tick.
+    #[serde(default)]
+    pub along_rope: Option<Vec<AlongRope>>,
     #[serde(default)]
     pub impact: Option<Vec<Emit>>,
+    /// What a shot leaves on the world where it ends there, as the Lava Gun's pools.
+    #[serde(default)]
+    pub mark: Option<Mark>,
+    /// A light riding each shot of the kind, as the Holo Shield's in flight.
+    #[serde(default)]
+    pub light: Option<ShotLight>,
+    /// The shell round him while the gun's shield is up: the Shield Charger's.
+    #[serde(default)]
+    pub shell: Option<Shell>,
     /// What shows where a shot glances off something and flies on.
     #[serde(default)]
     pub bounce: Option<Vec<Emit>>,
@@ -501,6 +599,18 @@ impl FxRecipes {
             .unwrap_or(&[])
     }
 
+    pub fn mark(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Mark> {
+        self.own(key, level, shot, |fx| fx.mark.as_ref())
+    }
+
+    pub fn light(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&ShotLight> {
+        self.own(key, level, shot, |fx| fx.light.as_ref())
+    }
+
+    pub fn shell(&self, key: &str, level: u8) -> Option<&Shell> {
+        self.own(key, level, None, |fx| fx.shell.as_ref())
+    }
+
     pub fn bounce(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
         self.part(key, level, shot, |fx| fx.bounce.as_deref())
             .unwrap_or(&[])
@@ -566,6 +676,20 @@ impl FxRecipes {
             .unwrap_or(&[])
     }
 
+    pub fn fan(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Fan> {
+        self.own(key, level, shot, |fx| fx.fan.as_ref())
+    }
+
+    pub fn rope(&self, key: &str, level: u8) -> &[Strand] {
+        self.own(key, level, None, |fx| fx.rope.as_deref())
+            .unwrap_or(&[])
+    }
+
+    pub fn along_rope(&self, key: &str, level: u8) -> &[AlongRope] {
+        self.own(key, level, None, |fx| fx.along_rope.as_deref())
+            .unwrap_or(&[])
+    }
+
     /// `emits` with each [`Emit::Set`] in it replaced by its set's emits (sets don't nest).
     pub fn expand<'a>(&'a self, emits: &'a [Emit]) -> impl Iterator<Item = &'a Emit> {
         emits.iter().flat_map(move |emit| match emit {
@@ -583,6 +707,23 @@ impl FxRecipes {
             textures.extend(fx.streak.as_ref().map(|streak| streak.texture));
             textures.extend(fx.ribbon.iter().flatten().map(|ribbon| ribbon.texture));
             textures.extend(fx.sweep.iter().flatten().map(|sweep| sweep.texture));
+            let fans = fx.fan.iter().flat_map(|fan| &fan.strands);
+            textures.extend(
+                fx.rope
+                    .iter()
+                    .flatten()
+                    .chain(fans)
+                    .map(|strand| strand.texture),
+            );
+            let along = fx.along_rope.iter().flatten();
+            textures.extend(along.filter_map(|along| along.emit.texture()));
+            textures.extend(fx.mark.iter().flat_map(Mark::textures));
+            let shells = fx.shell.iter();
+            for shell in shells {
+                textures.extend([shell.dome.texture, shell.rim.texture]);
+                textures.extend(shell.arcs.iter().flat_map(|arcs| [arcs.core, arcs.glow]));
+                textures.extend(shell.trails.iter().map(|trails| trails.texture));
+            }
             let panels = fx.panels.iter().flat_map(|panels| &panels.layers);
             textures.extend(panels.map(|panel| panel.texture));
             let trails = fx.trail.iter().flatten();
@@ -751,19 +892,43 @@ impl Plugin for FxPlugin {
             .init_resource::<TrailFrom>()
             .init_resource::<ribbon::Ribbons>()
             .init_resource::<sweep::Sweeps>()
+            .init_resource::<rope::Strands>()
+            .init_resource::<fan::Fans>()
             .init_resource::<panel::ShownPanels>()
+            .init_resource::<FxModels>()
+            .init_resource::<CameraShake>()
+            .init_resource::<light::ShotLights>()
+            .init_resource::<shell::Shells>()
             .add_systems(Startup, paint_placeholders)
             .add_systems(
                 FixedUpdate,
-                (emit_gun_fx, emit_trails, step_fx)
+                (
+                    emit_gun_fx,
+                    emit_crate_blasts,
+                    emit_trails,
+                    rope::emit_along_ropes,
+                    step_fx,
+                    model::step_models,
+                    mark::step_marks,
+                    light::step_lights,
+                    light::ride_shots,
+                    shake::step_shake,
+                )
                     .chain()
                     .in_set(rac_sim::SimSet::Particles)
                     .run_if(resource_exists::<FxQuad>),
             )
-            .add_systems(Update, face_camera)
+            .add_systems(Update, (face_camera, shake::shake_cameras))
             .add_systems(
                 Update,
-                (ribbon::draw_ribbons, sweep::draw_sweeps, panel::draw_panels)
+                (
+                    ribbon::draw_ribbons,
+                    sweep::draw_sweeps,
+                    panel::draw_panels,
+                    fan::draw_fans,
+                    shell::draw_shells,
+                    rope::draw_strands.after(rac_rig::RigSystems),
+                )
                     .run_if(resource_exists::<FxImages>),
             );
     }
@@ -795,6 +960,7 @@ fn paint_placeholders(
     }
     commands.insert_resource(FxImages(handles));
     commands.insert_resource(FxQuad(meshes.add(Rectangle::new(1.0, 1.0))));
+    commands.insert_resource(model::Crown(meshes.add(model::crown())));
 }
 
 /// An unlit material of `texture` in `colour`, seen from both sides.
@@ -816,12 +982,67 @@ fn fx_material(
     })
 }
 
-/// What spawning a sprite needs.
+/// What spawning sprites, models, marks and lights and shaking the camera need.
 struct Spawner<'w, 's, 'a> {
     commands: Commands<'w, 's>,
     materials: &'a mut Assets<StandardMaterial>,
+    meshes: &'a mut Assets<Mesh>,
     images: &'a FxImages,
     quad: Handle<Mesh>,
+    models: &'a FxModels,
+    crown: Handle<Mesh>,
+    /// The world, to lay things on the floor.
+    world: Option<&'a dyn CollisionWorld>,
+    shake: &'a mut CameraShake,
+    /// The light slots not taken.
+    lights_free: usize,
+}
+
+/// A system's way to a [`Spawner`].
+#[derive(SystemParam)]
+struct Making<'w, 's> {
+    commands: Commands<'w, 's>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    images: Res<'w, FxImages>,
+    quad: Res<'w, FxQuad>,
+    models: Res<'w, FxModels>,
+    crown: Res<'w, model::Crown>,
+    scene: Option<Res<'w, CollisionScene>>,
+    shake: ResMut<'w, CameraShake>,
+    lights: Query<'w, 's, (), Or<(With<light::Lit>, With<light::Riding>)>>,
+}
+
+impl<'w> Making<'w, '_> {
+    fn spawner(&mut self) -> Spawner<'w, '_, '_> {
+        Spawner {
+            commands: self.commands.reborrow(),
+            materials: &mut self.materials,
+            meshes: &mut self.meshes,
+            images: &self.images,
+            quad: self.quad.0.clone(),
+            models: &self.models,
+            crown: self.crown.0.clone(),
+            world: self
+                .scene
+                .as_deref()
+                .map(|scene| &scene.0 as &dyn CollisionWorld),
+            lights_free: light::SLOTS.saturating_sub(self.lights.iter().count()),
+            shake: &mut self.shake,
+        }
+    }
+}
+
+/// Where something put at `at` lies on the floor within `reach` below it, just above it
+/// as the game puts its gas clouds (0x467BD8); `None` where there's no floor in reach.
+/// Without a world, where it is put.
+fn on_ground(world: Option<&dyn CollisionWorld>, at: Vec3, reach: f32) -> Option<Vec3> {
+    let Some(world) = world else {
+        return Some(at);
+    };
+    let down = Vec3::NEG_Y * reach;
+    let hit = world.cast_ray(at, down)?;
+    Some(at + down * hit.fraction + Vec3::Y * 0.05)
 }
 
 impl Spawner<'_, '_, '_> {
@@ -935,6 +1156,7 @@ impl Spawner<'_, '_, '_> {
                 spin,
                 line,
                 jitter,
+                ground,
                 streak,
                 delay,
                 over,
@@ -965,6 +1187,13 @@ impl Spawner<'_, '_, '_> {
                         0.0
                     };
                     let from = at + back * along + rng.direction(None) * jitter * rng.unit();
+                    let from = match ground {
+                        Some(reach) => match on_ground(self.world, from, reach) {
+                            Some(from) => from,
+                            None => continue,
+                        },
+                        None => from,
+                    };
                     let start = size_to.map_or(size, |to| rng.between((size, to)));
                     let end = end_size * start / size;
                     let (billboard, start, end) = match streak {
@@ -1027,6 +1256,93 @@ impl Spawner<'_, '_, '_> {
                 };
                 let entity = self.spawn(eye, Billboard::default(), fx, "screen flash");
                 self.commands.entity(entity).insert(CoversView);
+            }
+            Emit::Model {
+                class,
+                scale,
+                grow,
+                ticks,
+                colour,
+                end_alpha,
+                blend,
+            } => {
+                let parts = self.models.0.get(&class).map_or_else(
+                    || vec![(self.crown.clone(), None)],
+                    |model| model.parts.clone(),
+                );
+                let place = Transform::from_translation(at)
+                    .with_rotation(Quat::from_rotation_y(
+                        rng.between((0.0, 360.0)).to_radians(),
+                    ))
+                    .with_scale(Vec3::splat(rng.between(scale)));
+                for (mesh, image) in parts {
+                    let [r, g, b, a] = colour;
+                    let material = self.materials.add(StandardMaterial {
+                        base_color: Color::srgba(r, g, b, a),
+                        base_color_texture: image,
+                        alpha_mode: blend.alpha_mode(),
+                        unlit: true,
+                        double_sided: true,
+                        cull_mode: None,
+                        ..default()
+                    });
+                    self.commands.spawn((
+                        Name::new("model"),
+                        DemoEntity,
+                        Mesh3d(mesh),
+                        MeshMaterial3d(material.clone()),
+                        NotShadowCaster,
+                        place,
+                        model::Grows {
+                            ticks_left: ticks.max(1),
+                            total: ticks.max(1),
+                            grow,
+                            alpha: a,
+                            end_alpha,
+                            material,
+                        },
+                    ));
+                }
+            }
+            Emit::Light {
+                radius,
+                colour,
+                ticks,
+                ahead,
+                above,
+                rise,
+                fall,
+            } => {
+                if self.lights_free == 0 {
+                    return;
+                }
+                self.lights_free -= 1;
+                let ticks = ticks.max(1);
+                let fall = fall.unwrap_or(colour.map(|channel| channel / ticks as f32));
+                let lit = light::Lit::new(radius, colour, ticks, rise, fall);
+                let at = at + way.map_or(Vec3::ZERO, |way| way.normalize_or_zero() * ahead);
+                self.commands.spawn((
+                    Name::new("light"),
+                    DemoEntity,
+                    light::point_light(radius, lit.colour),
+                    Transform::from_translation(at + Vec3::Y * above),
+                    lit,
+                ));
+            }
+            Emit::Shake {
+                amplitude,
+                ticks,
+                ref along,
+                lose,
+                within,
+                beyond,
+            } => {
+                let far = at.distance(eye);
+                if let Some(amplitude) = shake::amplitude_at(amplitude, lose, within, beyond, far) {
+                    for &along in along {
+                        self.shake.set(along, amplitude, ticks);
+                    }
+                }
             }
             Emit::Set(_) => {}
         }
@@ -1094,25 +1410,39 @@ fn level(heroes: &Query<(&Hero, &Arsenal)>, player: usize, weapon: WeaponId) -> 
 
 /// Shows each gun event as its gun's recipe has it at the gun's level.
 #[allow(clippy::too_many_arguments)]
+/// The shared explosion where an explosive crate goes off, as `crate_break` sets one off
+/// with its blast; at the set's own size, not the call's (`effects.md`, "The shared
+/// explosion").
+fn emit_crate_blasts(
+    recipes: Res<FxRecipes>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut rng: ResMut<FxRng>,
+    mut blasts: MessageReader<CrateBlast>,
+    mut making: Making,
+) {
+    let mut spawner = making.spawner();
+    let eye = eye(&cameras);
+    let explosion = recipes.sets.get("explosion").map_or(&[][..], Vec::as_slice);
+    for blast in blasts.read() {
+        for emit in recipes.expand(explosion) {
+            spawner.emit(emit, blast.at, None, eye, &mut rng);
+        }
+    }
+}
+
 fn emit_gun_fx(
     recipes: Res<FxRecipes>,
     armory: Res<Armory>,
-    images: Res<FxImages>,
-    quad: Res<FxQuad>,
     heroes: Query<(&Hero, &Arsenal)>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    marks: Query<&mark::MarkPiece>,
     mut rng: ResMut<FxRng>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut events: MessageReader<GunEvent>,
-    commands: Commands,
+    mut making: Making,
 ) {
-    let mut spawner = Spawner {
-        commands,
-        materials: &mut materials,
-        images: &images,
-        quad: quad.0.clone(),
-    };
+    let mut spawner = making.spawner();
     let eye = eye(&cameras);
+    let mut shown = mark::shown(&marks);
     for event in events.read() {
         let key = armory
             .get(event.weapon)
@@ -1125,9 +1455,17 @@ fn emit_gun_fx(
                     spawner.emit(emit, at, Some(direction), eye, &mut rng);
                 }
             }
-            GunEventKind::Impact { at } => {
+            GunEventKind::Impact { at, surface } => {
                 for emit in recipes.expand(recipes.impact(key, level, shot)) {
                     spawner.emit(emit, at, None, eye, &mut rng);
+                }
+                let (Some(normal), Some(mark)) = (surface, recipes.mark(key, level, shot)) else {
+                    continue;
+                };
+                let count = shown.entry(key.to_owned()).or_insert(0);
+                if *count < mark.most && rng.ticks(1, mark.chance.max(1)) == 1 {
+                    *count += 1;
+                    spawner.mark(mark, key, at, normal, &mut rng);
                 }
             }
             GunEventKind::Bounce { at } => {
@@ -1161,20 +1499,12 @@ struct TrailFrom(BTreeMap<(usize, u32), Vec3>);
 fn emit_trails(
     recipes: Res<FxRecipes>,
     armory: Res<Armory>,
-    images: Res<FxImages>,
-    quad: Res<FxQuad>,
     heroes: Query<(&Hero, &Arsenal)>,
     mut from: ResMut<TrailFrom>,
     mut rng: ResMut<FxRng>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    commands: Commands,
+    mut making: Making,
 ) {
-    let mut spawner = Spawner {
-        commands,
-        materials: &mut materials,
-        images: &images,
-        quad: quad.0.clone(),
-    };
+    let mut spawner = making.spawner();
     let mut now = BTreeMap::new();
     for (hero, arsenal) in &heroes {
         for shot in &arsenal.shots {
@@ -1206,6 +1536,13 @@ fn emit_trails(
                         break;
                     };
                     let at = last + path * (index + 1) as f32 / count as f32;
+                    let at = match trail.ground {
+                        Some(reach) => match on_ground(spawner.world, at, reach) {
+                            Some(at) => at,
+                            None => continue,
+                        },
+                        None => at,
+                    };
                     let life = rng.ticks(trail.ticks, trail.ticks_to);
                     let billboard = Billboard {
                         axis: None,
@@ -1348,6 +1685,28 @@ mod tests {
                 .any(|emit| matches!(emit, Emit::Screen { .. }))
         };
         assert!(flashes(recipes.fire("shock_blaster", 0, None)));
+        // The Flux Rifle lights its muzzle at every level and the Nitro's blast shakes the
+        // camera; the shield's and the rift's lights ride them in flight, not the rift's
+        // bolts.
+        let has = |emits: &[Emit], which: fn(&Emit) -> bool| recipes.expand(emits).any(which);
+        let light = |emit: &Emit| matches!(emit, Emit::Light { .. });
+        let shake = |emit: &Emit| matches!(emit, Emit::Shake { .. });
+        assert!((0..4).all(|level| has(recipes.fire("flux", level, None), light)));
+        assert!((0..4).all(|level| has(recipes.impact("nitro", level, None), shake)));
+        assert!(has(recipes.impact("annihilator", 2, None), shake));
+        assert!(!has(recipes.impact("n60", 0, None), shake));
+        let barrier = recipes.light("holo", 0, Some("barrier")).unwrap();
+        assert!(barrier.flying && barrier.radius == 5.0);
+        assert!(recipes.light("rift", 0, Some("rift")).is_some());
+        assert!(recipes.light("rift", 0, Some("bolt")).is_none());
+        // The shield's shell at every level, red at V1 and green at V3, flashing blue and
+        // red.
+        let shell = |level| recipes.shell("shield", level).expect("a shell");
+        assert_eq!(shell(0).rest, [1.125, 0.25, 0.25]);
+        assert_eq!(shell(2).rest, [0.25, 0.625, 0.25]);
+        assert_eq!(shell(2).hit, [1.25, 0.375, 0.375]);
+        assert_eq!(shell(7).rest, shell(4).rest);
+        assert!(recipes.shell("agents", 0).is_none());
         assert!((0..4).all(|level| flashes(recipes.impact("nitro", level, None))));
         // A canister's burst flashes and its bomblets' don't; the Annihilator's mines are
         // the same bomblets from V2.
@@ -1389,7 +1748,8 @@ mod tests {
         assert_eq!(agents(3, "slug"), agents(2, "slug"));
         assert!(recipes.fire("agents", 0, None).is_empty());
         // The coil's arcs are its own, five bowed cores each with its glow; other guns'
-        // are the default lightning.
+        // are the default lightning, but the Hydra's spit is a fan of arcs of its own,
+        // fanned wider from V3 and V5.
         let coil = recipes.arc("coil", 0, None);
         assert_eq!(coil.len(), 10);
         assert!(
@@ -1398,8 +1758,14 @@ mod tests {
                 .all(|core| core.jag.is_some_and(|jag| jag.bows.is_some()))
         );
         assert!(coil.iter().skip(1).step_by(2).all(|glow| glow.same_bends));
-        assert_eq!(recipes.arc("hydra", 0, None)[0].texture, Tex::Effect(47));
-        assert!(recipes.arc_end("hydra", 0, None).is_empty());
+        assert_eq!(recipes.arc("n60", 0, None)[0].texture, Tex::Effect(47));
+        let spit = Some("spit");
+        assert!(recipes.arc("hydra", 0, spit).is_empty());
+        assert!(recipes.arc_end("hydra", 0, spit).is_empty());
+        let roll = |level| recipes.fan("hydra", level, spit).map(|fan| fan.roll);
+        assert_eq!(roll(0), Some((-107.0, 107.0)));
+        assert_eq!(roll(2), Some((-107.5, 52.5)));
+        assert_eq!(roll(4), Some((-90.0, 30.0)));
         // The four guns' bolts are the defaults' lightning, the Rift Ripper's in its own
         // colour; each strikes where it reaches.
         let bolt = Some("bolt");
@@ -1476,7 +1842,8 @@ mod tests {
         fn named(fx: &GunFx, recipes: &FxRecipes) {
             let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
             let emits = emits.chain(&fx.ray_end);
-            for emit in emits.chain(&fx.arc_end).flatten() {
+            let along = fx.along_rope.iter().flatten().map(|along| &along.emit);
+            for emit in emits.chain(&fx.arc_end).flatten().chain(along) {
                 if let Emit::Set(name) = emit {
                     assert!(recipes.sets.contains_key(name), "no set {name}");
                 }
@@ -1585,6 +1952,54 @@ mod tests {
         assert_eq!(trail.count(1.25, 0.2), 13);
         assert_eq!(trail.count(0.0, 0.9), 0);
         assert_eq!(trail.keep, 1.0, "keeps all its speed unless it says");
+    }
+
+    #[test]
+    fn the_lava_gun_leaves_pools_and_the_infectors_clouds_lie_on_the_ground() {
+        let recipes = FxRecipes::default();
+        let stream = Some("stream");
+        let pool = recipes.mark("lava", 0, stream).expect("a pool");
+        assert_eq!((pool.chance, pool.most, pool.hold), (11, 10, 60));
+        assert_eq!((pool.flat.len(), pool.flames.len()), (2, 2));
+        // From V5 only its glows, in blue.
+        let blue = recipes.mark("lava", 4, stream).expect("a pool");
+        assert!(blue.flames.is_empty() && blue.flat[0].colour[2] > blue.flat[0].colour[0]);
+        assert!(recipes.mark("n60", 0, None).is_none());
+        let clouds = |trails: &[Trail]| {
+            trails
+                .iter()
+                .filter(|trail| trail.textures.contains(&Tex::Particle(0x34, 0)))
+                .all(|trail| trail.ground == Some(5.0))
+        };
+        assert!(clouds(recipes.trail("infector", 0, Some("blob"))));
+        let rings = |emits: &[Emit]| {
+            recipes
+                .expand(emits)
+                .filter(|emit| matches!(emit, Emit::Model { class: 0x307, .. }))
+                .count()
+        };
+        assert_eq!(rings(recipes.impact("infector", 0, Some("blob"))), 1);
+        assert_eq!(rings(recipes.impact("whip", 3, Some("wave"))), 1);
+    }
+
+    #[test]
+    fn something_put_on_the_ground_lies_on_the_floor_below_it_if_any() {
+        use rac_hero::{BodyPlacement, Collider, ParryWorld};
+        let mut world = ParryWorld::default();
+        world.set_bodies(&[BodyPlacement::fixed(
+            Collider::Cuboid {
+                half_extents: Vec3::new(10.0, 0.5, 10.0),
+            },
+            Vec3::new(0.0, -0.5, 0.0),
+            Quat::IDENTITY,
+        )]);
+        let world: &dyn CollisionWorld = &world;
+        let at = on_ground(Some(world), Vec3::new(1.0, 3.0, 2.0), 5.0).unwrap();
+        assert!(at.distance(Vec3::new(1.0, 0.05, 2.0)) < 1e-4, "{at}");
+        assert_eq!(on_ground(Some(world), Vec3::new(1.0, 6.0, 2.0), 5.0), None);
+        assert_eq!(on_ground(Some(world), Vec3::new(20.0, 1.0, 0.0), 5.0), None);
+        let anywhere = Vec3::new(20.0, 1.0, 0.0);
+        assert_eq!(on_ground(None, anywhere, 5.0), Some(anywhere));
     }
 
     #[test]

@@ -536,9 +536,10 @@ pub const CRATE_HALF: f32 = 0.45;
 pub const DUMMY_RADIUS: f32 = 0.35;
 pub const DUMMY_HEIGHT: f32 = 1.6;
 
-/// The melee yard behind the start: a row of bolt crates with two ammo crates beside it,
-/// and a few training dummies, spaced for combos, throws and jump attacks; and crates by the
-/// arena, to fill up between fights.
+/// The melee yard behind the start: a row of bolt crates with two ammo crates, a nanotech
+/// crate and a doubler beside it, two explosive crates past it, and a few training
+/// dummies, spaced for combos, throws and jump attacks; and crates by the arena, to fill
+/// up between fights.
 pub fn melee_targets() -> Vec<Target> {
     let mut targets = Vec::new();
     let crate_at = |name: String, kind, x: f32, z: f32| Target {
@@ -577,6 +578,32 @@ pub fn melee_targets() -> Vec<Target> {
         15.0,
         16.0,
     ));
+    // Past the yard's ammo crates, a nanotech crate and a doubler; east of its bolt crates,
+    // two explosive crates close enough for one's blast to set off the other, and two
+    // more by the arena's crates.
+    targets.push(crate_at(
+        "nanotech crate".into(),
+        CrateKind::Nanotech,
+        -8.0,
+        12.0,
+    ));
+    targets.push(crate_at(
+        "doubler crate".into(),
+        CrateKind::Doubler,
+        -8.0,
+        14.0,
+    ));
+    for (i, (x, z)) in [(7.0, 8.0), (8.3, 8.8), (16.0, 20.0), (17.2, 20.8)]
+        .into_iter()
+        .enumerate()
+    {
+        targets.push(crate_at(
+            format!("explosive crate {i}"),
+            CrateKind::Explosive,
+            x,
+            z,
+        ));
+    }
     for (i, x) in [-3.0, 0.0, 3.0].into_iter().enumerate() {
         targets.push(Target {
             name: format!("dummy {i}"),
@@ -852,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn the_yard_and_the_arena_have_ammo_and_bolt_crates_and_the_start_a_vendor() {
+    fn the_yard_and_the_arena_have_their_crates_and_the_start_a_vendor() {
         let crates = |kind: CrateKind, near: Vec3| {
             melee_targets()
                 .into_iter()
@@ -866,7 +893,10 @@ mod tests {
         for near in [yard, arena] {
             assert!(crates(CrateKind::Ammo, near) >= 2, "{near}");
             assert!(crates(CrateKind::Bolts, near) >= 1, "{near}");
+            assert!(crates(CrateKind::Explosive, near) >= 2, "{near}");
         }
+        assert!(crates(CrateKind::Nanotech, yard) >= 1);
+        assert!(crates(CrateKind::Doubler, yard) >= 1);
         let pieces = greybox_level();
         let vendor = find(&pieces, "vendor pad");
         assert!(!vendor.surface.is_solid());

@@ -1,16 +1,17 @@
 //! Pickups, crates and the vendor through the whole plugin (PLAN.md P1.10): a crate the
 //! wrench breaks scatters ammo for his gun that fills it as he takes it, a bolt crate's
-//! bolts reach his purse, ammo that doesn't fit is lost, and the vendor's pad sells rounds
-//! for bolts. All on synthetic floors.
+//! bolts reach his purse, ammo that doesn't fit is lost, the vendor's pad sells rounds
+//! for bolts, explosive crates go off, nanotech crates heal and doubler crates double. All
+//! on synthetic floors.
 
 use bevy::{prelude::*, time::TimeUpdateStrategy};
-use rac_combat::pickups::{PickupMotion, PickupTuning};
+use rac_combat::pickups::{Blast, BoltMultiplier, Fuse, NanotechOrbs, PickupMotion, PickupTuning};
 use rac_combat::weapons::Hand;
 use rac_combat::{
     Armory, Arsenal, Bolts, CombatPlugin, Crate, CrateKind, Destroyed, Pickup, PickupKind, Vendor,
     WeaponId, target_bundle,
 };
-use rac_hero::{Collider, HeroPlugin, HeroProfile, hero_bundle};
+use rac_hero::{Collider, Health, HeroPlugin, HeroProfile, hero_bundle};
 use rac_input::{Action, Buttons, PlayerInput, PlayerInputs};
 use rac_sim::{SimPlugin, SimTransform, TICK_HZ};
 use std::time::Duration;
@@ -232,4 +233,131 @@ fn the_vendor_s_pad_sells_rounds_for_the_gun_in_hand_while_he_stands_on_it() {
     assert_eq!(ammo(&app, hero), 150);
     let price = Armory::uya().get(N60).unwrap().level(0).round_price;
     assert_eq!(app.world().get::<Bolts>(hero).unwrap().0, 100 - 10 * price);
+}
+
+/// An explosive crate of the demo's size whose middle is `centre`, solid to the hero.
+fn explosive_at(app: &mut App, centre: Vec3) -> Entity {
+    let crate_ = crate_at(app, CrateKind::Explosive, centre);
+    app.world_mut().entity_mut(crate_).insert(Collider::Cuboid {
+        half_extents: Vec3::splat(0.45),
+    });
+    crate_
+}
+
+fn health(app: &App, hero: Entity) -> u32 {
+    app.world().get::<Health>(hero).unwrap().current
+}
+
+fn break_crate(app: &mut App, target: Entity) {
+    app.world_mut().write_message(Destroyed {
+        target,
+        player: 0,
+        weapon: None,
+    });
+}
+
+#[test]
+fn a_hit_explosive_crate_goes_off_in_a_few_ticks_setting_off_its_neighbour_and_hurting_him() {
+    let mut app = app();
+    let hero = hero(&mut app, 0, Vec3::ZERO, 10, 0);
+    let first = explosive_at(&mut app, Vec3::new(0.0, 0.45, -2.5));
+    let second = explosive_at(&mut app, Vec3::new(1.5, 0.45, -2.5));
+    app.update(); // Starts the clock.
+    let most = health(&app, hero);
+    break_crate(&mut app, first);
+    app.update();
+    let lit = app
+        .world()
+        .get::<Fuse>(first)
+        .expect("a hit lights its fuse")
+        .left;
+    assert!((5..=14).contains(&lit), "{lit}");
+    assert!(app.world().get_entity(second).is_ok());
+    let went = (0..20).find(|_| {
+        app.update();
+        app.world().get_entity(first).is_err()
+    });
+    assert!(went.is_some(), "it never went off");
+    // Its blast reaches the second within 2 u by about half its growth, which then goes
+    // off a tick later.
+    let second_went = (0..30).find(|_| {
+        app.update();
+        app.world().get_entity(second).is_err()
+    });
+    assert!(second_went.is_some_and(|tick| tick < 15), "{second_went:?}");
+    ticks(&mut app, 30);
+    // Hurt once for 4, the second blast coming while he can't be hurt again.
+    assert_eq!(health(&app, hero), most - 4);
+}
+
+#[test]
+fn a_touched_explosive_crate_goes_off_three_seconds_on() {
+    let mut app = app();
+    hero(&mut app, 0, Vec3::ZERO, 10, 0);
+    // Its near face just past his capsule's radius.
+    let target = explosive_at(&mut app, Vec3::new(0.0, 0.45, -0.92));
+    app.update(); // Starts the clock.
+    ticks(&mut app, 2);
+    let lit = app
+        .world()
+        .get::<Fuse>(target)
+        .expect("touching lights it")
+        .left;
+    assert!((176..=179).contains(&lit), "{lit}");
+    ticks(&mut app, lit as usize - 1);
+    assert!(app.world().get_entity(target).is_ok());
+    ticks(&mut app, 2);
+    assert!(app.world().get_entity(target).is_err());
+    let blasts = app.world_mut().query::<&Blast>().iter(app.world()).count();
+    assert_eq!(blasts, 1);
+}
+
+#[test]
+fn a_broken_nanotech_crate_heals_a_hurt_hero_near_it_a_fifth_and_waits_for_a_full_one() {
+    let mut app = app();
+    let hero = hero(&mut app, 0, Vec3::ZERO, 10, 0);
+    let target = crate_at(&mut app, CrateKind::Nanotech, Vec3::new(0.0, 0.45, -4.0));
+    app.update(); // Starts the clock.
+    break_crate(&mut app, target);
+    ticks(&mut app, 100);
+    // He was full: they wait.
+    let orbs = |app: &mut App| {
+        app.world_mut()
+            .query::<&NanotechOrbs>()
+            .iter(app.world())
+            .count()
+    };
+    assert_eq!(orbs(&mut app), 1);
+    let most = health(&app, hero);
+    app.world_mut().get_mut::<Health>(hero).unwrap().current = most - 5;
+    ticks(&mut app, 90);
+    assert_eq!(health(&app, hero), most - 5 + most / 5);
+    assert_eq!(orbs(&mut app), 0);
+}
+
+#[test]
+fn a_doubler_crate_doubles_the_bolts_of_the_crates_he_breaks() {
+    let mut app = app();
+    let hero = hero(&mut app, 0, Vec3::ZERO, 10, 0);
+    let doubler = crate_at(&mut app, CrateKind::Doubler, Vec3::new(0.0, 0.45, -4.0));
+    let bolts = crate_at(&mut app, CrateKind::Bolts, Vec3::new(2.0, 0.45, -4.0));
+    app.update(); // Starts the clock.
+    break_crate(&mut app, doubler);
+    app.update();
+    let doubled = *app.world().get::<BoltMultiplier>(hero).unwrap();
+    assert_eq!(doubled.exp, 1);
+    assert!(doubled.ticks > 1790, "{}", doubled.ticks);
+    break_crate(&mut app, bolts);
+    app.update();
+    let total: u32 = pickups(&mut app)
+        .iter()
+        .map(|pickup| match pickup.kind {
+            PickupKind::Bolts(value) => value,
+            other => panic!("{other:?}"),
+        })
+        .sum();
+    assert!(
+        (66..=110).contains(&total) && total.is_multiple_of(2),
+        "{total}"
+    );
 }

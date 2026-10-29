@@ -372,7 +372,13 @@ pub(crate) fn step(
             FireMode::Lobbed(fire) => {
                 let keep = charge(shot, fire, world, targets);
                 if !keep {
-                    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+                    out.shot_event(
+                        shot,
+                        GunEventKind::Impact {
+                            at: shot.position,
+                            surface: None,
+                        },
+                    );
                     if let Some(spray) = fire
                         .blast
                         .eruption
@@ -524,7 +530,7 @@ fn bullet(
                     out.hits.push(shot.hit(other.entity, shot.damage, push));
                 }
             }
-            out.shot_event(shot, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
             false
         }
         Meets::World(t, normal) if *bounces > 0 => {
@@ -533,7 +539,7 @@ fn bullet(
             shot.velocity = shot.velocity.reflect(normal);
             shot.ticks < lifetime
         }
-        Meets::World(t, _) => {
+        Meets::World(t, normal) => {
             let at = shot.position + motion * t;
             if fire.world_radius > 0.0 {
                 let push = shot.velocity.normalize_or_zero() * fire.push;
@@ -541,7 +547,8 @@ fn bullet(
                     out.hits.push(shot.hit(target.entity, shot.damage, push));
                 }
             }
-            out.shot_event(shot, GunEventKind::Impact { at });
+            let surface = Some(normal);
+            out.shot_event(shot, GunEventKind::Impact { at, surface });
             false
         }
         Meets::Nothing => {
@@ -595,7 +602,7 @@ fn beam(
             shot.kind = ShotKind::Beam { hit: true };
             shot.position = at;
             shot.velocity = Vec3::ZERO;
-            out.shot_event(shot, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
         }
         None => shot.position += motion,
     }
@@ -667,7 +674,7 @@ fn slug(shot: &mut Shot, rules: &SlugRules, flight: &Flight, out: &mut Outcome) 
         out.hits
             .push(shot.hit(target.entity, shot.damage, motion * rules.push));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 
@@ -783,14 +790,15 @@ fn stream_point(
                         .push(shot.hit(other.entity, shot.splash, Vec3::ZERO));
                 }
             }
-            out.shot_event(shot, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
             false
         }
-        Meets::World(t, _) => {
+        Meets::World(t, normal) => {
             out.shot_event(
                 shot,
                 GunEventKind::Impact {
                     at: shot.position + motion * t,
+                    surface: Some(normal),
                 },
             );
             false
@@ -888,7 +896,7 @@ fn missile(
                 .push(shot.hit(near.entity, shot.splash, Vec3::ZERO));
         }
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     Course::Burst(at)
 }
 
@@ -1000,7 +1008,7 @@ pub(super) fn seeker(
     for near in in_ball(flight.targets, at, missile.blast_radius, None) {
         out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 
@@ -1037,7 +1045,13 @@ fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
     if shot.ticks == BOLT_STRIKE_TICKS || (!more && shot.ticks < BOLT_STRIKE_TICKS) {
         let push = (struck.centre - shot.position).normalize_or_zero() * push;
         out.hits.push(shot.hit(struck.entity, shot.damage, push));
-        out.shot_event(shot, GunEventKind::Impact { at: struck.centre });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: struck.centre,
+                surface: None,
+            },
+        );
     }
     more
 }

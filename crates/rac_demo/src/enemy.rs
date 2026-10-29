@@ -19,7 +19,7 @@ mod looks;
 pub mod shot;
 
 use bevy::prelude::*;
-use rac_combat::pickups::{self, PickupTuning};
+use rac_combat::pickups::{self, BoltMultiplier, PickupTuning};
 use rac_combat::{
     Afflicted, Affliction, Armory, Arsenal, Destroyed, Hitpoints, Hostile, Hurtbox, KillXp, Struck,
     target_bundle, weapons::block_shot,
@@ -163,6 +163,7 @@ fn run_enemies(
     mut destroyed: MessageReader<Destroyed>,
     mut afflicted: MessageReader<Afflicted>,
     heroes: Query<(&Hero, &HeroBody)>,
+    doublers: Query<(&Hero, &BoltMultiplier)>,
     mut enemies: Query<EnemyItem>,
     mut hurt: MessageWriter<HurtHero>,
     mut commands: Commands,
@@ -191,7 +192,7 @@ fn run_enemies(
         brain::struck_by(&mut body.0, hit.by, hit.push);
         hitpoints.current = (hitpoints.current - hit.damage).max(0.0);
         if hitpoints.current <= 0.0 {
-            fallen.push(i);
+            fallen.push((i, None));
         }
     }
     for afflict in afflicted.read() {
@@ -204,12 +205,11 @@ fn run_enemies(
             commands.entity(enemies[i].0).remove::<Hostile>();
         }
     }
-    fallen.extend(
-        destroyed
-            .read()
-            .filter_map(|kill| order.binary_search(&kill.target).ok()),
-    );
-    for i in fallen {
+    fallen.extend(destroyed.read().filter_map(|kill| {
+        let i = order.binary_search(&kill.target).ok()?;
+        Some((i, Some(kill.player)))
+    }));
+    for (i, killer) in fallen {
         let (entity, enemy, body, ..) = &mut enemies[i];
         if !brain::killed(&mut body.0) {
             continue;
@@ -218,7 +218,13 @@ fn run_enemies(
         commands.entity(*entity).remove::<(Hurtbox, AimTarget)>();
         let def = bestiary.get(enemy.kind);
         let at = body.0.position + Vec3::Y * (def.height / 2.0);
-        let kinds = drops::drops(&def.drops, &mut rng);
+        // A hero's kill pays his doubling (`moby_killed`).
+        let doubled = doublers
+            .iter()
+            .find(|(hero, _)| Some(hero.player) == killer)
+            .map(|(_, doubled)| *doubled)
+            .unwrap_or_default();
+        let kinds = drops::drops(&def.drops, &doubled, &mut rng);
         pickups::spawn(
             &mut commands,
             pickups::scatter(at, kinds, &pickup_tuning, &mut rng),

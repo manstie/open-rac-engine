@@ -5,16 +5,17 @@
 //! every pickup, the crates' included, with placeholder shapes made in code.
 
 use bevy::prelude::*;
-use rac_combat::pickups::{self, Pickup, PickupKind, PickupTuning};
+use rac_combat::pickups::{self, BoltMultiplier, NanotechOrbs, Pickup, PickupKind, PickupTuning};
 use rac_sim::SimRng;
 
 use crate::enemy::brain::between;
 use crate::enemy::def::DropTable;
 
-/// What a dead enemy with `table` leaves: its bolts, and nanotech by chance.
-pub fn drops(table: &DropTable, rng: &mut SimRng) -> Vec<PickupKind> {
+/// What a dead enemy with `table` leaves, killed by a hero with the doubling `doubled`:
+/// its bolts, and nanotech by chance.
+pub fn drops(table: &DropTable, doubled: &BoltMultiplier, rng: &mut SimRng) -> Vec<PickupKind> {
     let bolts = between(rng, table.bolts);
-    let mut kinds = vec![PickupKind::Bolts(table.bolt_value); bolts as usize];
+    let mut kinds = vec![PickupKind::Bolts(doubled.apply(table.bolt_value)); bolts as usize];
     if rng.unit_f32() < table.nanotech_chance {
         kinds.push(PickupKind::Nanotech(table.nanotech));
     }
@@ -53,6 +54,65 @@ impl PickupLooks {
             ammo: meshes.add(Cuboid::new(0.16, 0.28, 0.16)),
             ammo_look: ammo_look(materials),
         }
+    }
+}
+
+impl PickupLooks {
+    /// A nanotech orb's mesh and look.
+    pub(crate) fn nanotech(&self) -> (Mesh3d, MeshMaterial3d<StandardMaterial>) {
+        (
+            Mesh3d(self.nanotech.clone()),
+            MeshMaterial3d(self.nanotech_look.clone()),
+        )
+    }
+}
+
+/// One of a nanotech crate's orbs, by its place in its cluster.
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct OrbLook(usize);
+
+/// The orbs' size beside a nanotech pickup's.
+const ORB_SCALE: f32 = 0.6;
+
+/// Gives a broken nanotech crate's orbs their looks.
+pub(crate) fn dress_orbs(
+    looks: Res<PickupLooks>,
+    clusters: Query<(Entity, &NanotechOrbs), Added<NanotechOrbs>>,
+    mut commands: Commands,
+) {
+    for (entity, cluster) in &clusters {
+        commands.entity(entity).insert(Visibility::default());
+        for index in 0..cluster.0.orbs.len() {
+            commands.spawn((
+                OrbLook(index),
+                looks.nanotech(),
+                Transform::from_scale(Vec3::splat(ORB_SCALE)),
+                ChildOf(entity),
+            ));
+        }
+    }
+}
+
+/// Puts each orb where its cluster has it, and hides those that have arrived.
+pub(crate) fn place_orbs(
+    clusters: Query<&NanotechOrbs>,
+    mut orbs: Query<(&OrbLook, &ChildOf, &mut Transform, &mut Visibility)>,
+) {
+    for (look, parent, mut transform, mut visibility) in &mut orbs {
+        let Some(orb) = clusters
+            .get(parent.parent())
+            .ok()
+            .and_then(|cluster| Some((cluster.0.middle, *cluster.0.orbs.get(look.0)?)))
+        else {
+            continue;
+        };
+        let (middle, orb) = orb;
+        transform.translation = orb.position - middle;
+        visibility.set_if_neq(if orb.arrived {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
     }
 }
 
@@ -137,7 +197,7 @@ mod tests {
         let mut rng = SimRng::new(7, 0);
         let (mut counts, mut nanotech) = (Vec::new(), 0);
         for _ in 0..400 {
-            let kinds = drops(&TABLE, &mut rng);
+            let kinds = drops(&TABLE, &BoltMultiplier::default(), &mut rng);
             let bolts = kinds
                 .iter()
                 .filter(|kind| **kind == PickupKind::Bolts(5))

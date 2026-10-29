@@ -413,6 +413,28 @@ fn the_lava_guns_stream_takes_a_round_every_10_ticks_and_burns_what_it_reaches()
 }
 
 #[test]
+fn the_lava_guns_stream_says_which_way_the_floor_it_lands_on_faces() {
+    let mut yard = Yard::new(&[(LAVA, 0)]);
+    yard.hold(&[Action::Fire], 60);
+    yard.idle(60);
+    let surfaces: Vec<_> = yard
+        .events
+        .iter()
+        .filter_map(|event| match event.kind {
+            GunEventKind::Impact { surface, .. } => Some(surface),
+            _ => None,
+        })
+        .collect();
+    assert!(!surfaces.is_empty());
+    assert!(
+        surfaces
+            .iter()
+            .all(|surface| surface.is_some_and(|up| up.y > 0.99)),
+        "{surfaces:?}"
+    );
+}
+
+#[test]
 fn acid_from_the_lava_gun_burns_a_target_past_the_queue() {
     // V2's acid [text], with the table's bank 0: 2 a second for 4 s.
     let mut yard = Yard::new(&[(LAVA, 1)]);
@@ -1278,7 +1300,7 @@ fn a_holo_shield_stands_where_it_lands_and_takes_shots_crossing_it() {
         .iter()
         .filter(|event| event.shot == Some("barrier"))
         .filter_map(|event| match event.kind {
-            GunEventKind::Impact { at } => Some(at),
+            GunEventKind::Impact { at, .. } => Some(at),
             _ => None,
         })
         .collect();
@@ -1473,6 +1495,17 @@ fn the_whip_swings_on_the_fire_button_for_a_round_and_reaches_past_the_wrench() 
     assert_eq!(yard.hitpoints(far), 98.0);
     // It stays in his hand through the swing.
     assert_eq!(yard.arsenal().hand.gun(), Some(WHIP));
+}
+
+#[test]
+fn the_whips_rope_reaches_nine_stretches_and_the_links_between_them() {
+    let mut yard = Yard::new(&[(WHIP, 0)]);
+    yard.idle(2);
+    let whip = yard.body().0.gun.whip.expect("the whip in his hand");
+    // Swings 1 and 2: 9 × 0.9, eight links' 0.194 and the tip's 0.105 (0x357F10).
+    assert!((whip.reach[0] - 9.757).abs() < 1e-3, "{:?}", whip.reach);
+    assert!((whip.reach[1] - (9.0 * 0.6 + 1.657)).abs() < 1e-3);
+    assert!((whip.reach[2] - (9.0 * 0.8 + 1.657)).abs() < 1e-3);
 }
 
 #[test]

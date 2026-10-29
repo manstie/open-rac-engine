@@ -176,7 +176,13 @@ pub(super) fn coil_shot(
     if let Some(target) = in_ball(targets, shot.position, fire.radius, None).find(|t| t.alive) {
         let push = shot.velocity * TICK * fire.push;
         out.hits.push(shot.hit(target.entity, shot.damage, push));
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
         shot.kind = ShotKind::Ball {
             stuck: Some((Some(target.entity), 0)),
         };
@@ -186,7 +192,13 @@ pub(super) fn coil_shot(
     match flight.world.cast_ray(shot.position, motion) {
         Some(hit) => {
             shot.position += motion * hit.fraction + hit.normal * STICK_GAP;
-            out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+            out.shot_event(
+                shot,
+                GunEventKind::Impact {
+                    at: shot.position,
+                    surface: None,
+                },
+            );
             shot.kind = ShotKind::Ball {
                 stuck: Some((None, 0)),
             };
@@ -211,7 +223,13 @@ fn storm_ball(
     born: &mut Vec<Shot>,
 ) -> bool {
     if shot.ticks >= storm.fly_ticks + storm.fade_ticks {
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
         return false;
     }
     if shot.ticks >= storm.fly_ticks {
@@ -442,7 +460,13 @@ fn disc_tick(
                     .push(shot.hit(near.entity, shot.damage * blast.share, Vec3::ZERO));
             }
         }
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
         return false;
     }
     let motion = shot.velocity * TICK;
@@ -647,7 +671,7 @@ fn rocket_tick(
             out.hits.push(shot.hit(near.entity, shot.damage, push));
         }
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 
@@ -800,7 +824,7 @@ pub(super) fn spit(shot: &mut Shot, fire: &Hydra, flight: &Flight, out: &mut Out
                 out.hits
                     .push(shot.hit(near.entity, shot.damage, Vec3::ZERO));
             }
-            out.shot_event(shot, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
         }
     }
     shot.ticks < *life

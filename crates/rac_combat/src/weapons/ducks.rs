@@ -74,7 +74,13 @@ pub(super) fn duck_shot(
                     };
                     let keep = shot.ticks < ticks;
                     if !keep {
-                        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+                        out.shot_event(
+                            shot,
+                            GunEventKind::Impact {
+                                at: shot.position,
+                                surface: None,
+                            },
+                        );
                     }
                     (keep, state)
                 }
@@ -166,7 +172,13 @@ fn egg(shot: &mut Shot, egg: &Egg, life: u32, flight: &Flight, out: &mut Outcome
         out.hits.push(shot.hit(target.entity, shot.damage, push));
     }
     if struck.is_some() || shot.ticks >= life {
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
         return false;
     }
     true
@@ -346,7 +358,13 @@ fn blow_up(shot: &Shot, radius: f32, share: f32, flight: &Flight, out: &mut Outc
         out.hits
             .push(shot.hit(near.entity, shot.damage * share, away));
     }
-    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+    out.shot_event(
+        shot,
+        GunEventKind::Impact {
+            at: shot.position,
+            surface: None,
+        },
+    );
 }
 
 /// A random count of ticks from `low` to `high`.

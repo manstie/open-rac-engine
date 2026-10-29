@@ -167,12 +167,51 @@ Read in Ghidra on the Veldin image; names in `symbols.toml`. Nothing here is tra
   that crate was broken before (100, 40, 20, then 10%; 0x1D60C8), doubled per
   `bolt_multiplier_exp`, randomised by a quarter either way (±1 under 8), split into coins
   of 30000 down to 1 by `bolts_drop`, at most 1–4 coins, the rest banked for later kills.
-- **The explosive crate:** touched, it blows after 179 frames, beeping; hit, after 5–15
-  (1 for an explosion); its blast grows over 20 frames, damaging mobys within 2 u at full
-  size for 2.0, and the hero within 3 u (4.0 passed; whether as damage isn't read).
-- **The nanotech crate** holds three orbs (its pvars, or max health /3, /4, /5: 3, 2 and 2
-  on a new game), let out when the hero comes within 10 u and isn't full. Not read further.
-- **The doubler crate** (0x1F7) adds 1 to `bolt_multiplier_exp` for 1800 frames.
+- **The explosive crate** (0x1F9, `crate_update` 0x33A5C0) [code, 2026-10-29]:
+  - touched (the moby the hero stands on, 0x1A4E70, or runs into, 0x1A4E6C, 0x1A4F3C,
+    0x1A5118, or a record flagged 0x2000000), its fuse is lit at 179 frames (0xB3); while
+    he grinds (hero type 15) it blows at once;
+  - hit with damage, its fuse is lit at rand(5, 15) frames, or 1 for a hit flagged
+    0x20000 (an explosion's); a hit while 16 or more are left cuts it to rand(5, 15);
+  - it goes off through `crate_break` with its blast flag, which also sets off the shared
+    explosion at its middle (`explosion_spawn(1.0, 0, 0, 2.0, …)`, `effects.md`) and calls
+    0x348FF0(5.0, …) (not read);
+  - lit, it beeps (its class's sound 1) when the frames left % 60 is 57, and at 13; it is
+    tinted (200, 64, 64) (0x438908) while the frames left % 60 are 41 or more, or 14 or
+    fewer, and its own colour otherwise; at 1 left it breaks (`crate_break` with its
+    blast);
+  - the blast (state 3, 21 frames, f = frame / 20 from 0 to 1): every moby within 2f of
+    its middle takes 2.0 flagged 0x30001 (so other explosive crates go off a frame later),
+    and the hero within 3f takes 4.0, pushed 1 out and 1 up (`0x4445E0`, flags 0x30000;
+    the hero's damage, "hero-controller.md", "Getting hit and dying", scales it by his
+    armor).
+- **The nanotech crate** (0x1F5; 0x200 the purple kind) [code, 2026-10-29]: `crate_init`
+  puts a holder (class 0x326, `nanotech_holder_update` 0x301F58) inside it with three
+  amounts (the crate's pvars +0x134–0x13C, or the most health / 3, / 4 and / 5: 3, 2 and
+  2 on a new game) and eight orbs (sprites, blue (0x40, 0x40, 0x7F) or purple (0x7F, 0x40,
+  0x7F) for 0x200, size 60000) round its middle.
+  - Only once the crate is broken (state 2) are they let out: when the hero within 10 u
+    (`vec_distance`) has room, his health plus what orbs in flight carry (+0xB of the
+    first holder) under the most (0x142668), and 0x301F00 agrees (not read).
+  - Let out (state 3), each orb flies for rand_int(20, 80) frames (0x1DC4F8, 0x1DC4FC)
+    on `cubic` (0x442098, a Hermite curve) from where it was to his middle, 0.75 u above
+    his feet as he moves, with tangents (end − start) ± C: C is half the way from the
+    holder to him plus 5 u (0x1DC504) square to that way, turned i × 0.4485 rad (25.7°)
+    about it for orb i, so they fan out over half a turn and bow up to 1.25 u off the
+    line; each throws sparkles (type 0x14) on the way.
+  - The first to arrive heals him, once: the amount by the help measure (0x3FE4C0, 3 −
+    measure / 100, at least 1: the most / 5 while the measure is under 100, / 4 under 200,
+    / 3 from there), at least 1 (4 for 0x200), times 2 or a level's factor only in
+    challenge mode; a sound (class 0x1F5's or 0x200's). The others just arrive. The
+    holder goes 300 frames after letting them out.
+  - The help measure (0x3FE420) is a weighted sum of the level's stats (0x2C01A0,
+    0x1C5290; deaths and the like, not read), 0 from level 30 and in challenge mode.
+- **The doubler crate** (0x1F7, `crate_drop`) [code, 2026-10-29]: adds 1 to
+  `bolt_multiplier_exp` (no cap) and 1800 frames to `bolt_multiplier_timer`, so a second
+  stacks both, and shows a help message the first time (0x1406). The timer counts down
+  each frame (0x1D6694 ≠ 4), beeping (class 0x1F7's sound 1) at 300, 240, 180, 120, 60
+  and 1 frames left, and the exponent goes to 0 with it. `moby_killed` shifts both a
+  kill's bolts and its XP left by the exponent, crates' bolts included.
 - **The vendor** (`vendor_buy`, 0x4B8560) sells as many rounds as fit and the bolts buy at
   row +0x84 each; buy-all fills every owned gun with a round price.
 - **Enemies never drop ammo:** `moby_killed` drops only bolts.
@@ -1098,6 +1137,12 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   2026-10-22: the listing at 0x357318 picks 0x183A for links 1–8). Both link classes are
   in the core of every single-player level, 1–36, not the multiplayer maps [data]; each
   has one still sequence (0x183A: 3 joints, scale 0.04077; 0x183C: 2 joints, 0.05679).
+  Both are rigid, every vertex on joint 0, and posed as at rest [data, 2026-10-29]: at
+  the rope's 0.2 of its class's scale, 0x183A runs from 0.098 u behind where it sits to
+  0.196 u ahead along its +x, 0.14 u wide and 0.06 thick, its joint 0 0.194 u ahead and
+  joint 1 0.398; 0x183C to 0.273 u ahead, its joint 1 0.105. Each takes one strip of
+  texture 49 (128 × 128 in Veldin; four strips side by side, the links' coordinates below
+  0, 0.78–0.97 once wrapped).
   - Spawned once: the handle at its class scale × 0.3, tinted (0x40, 0x10, 0x80); each
     link at its class scale × 0.2, alpha 0x3C (about 47%), following the whip for lights
     and draw distance (`moby_follow_parent`, 0x452E70).
@@ -1108,11 +1153,16 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
     (+0x1C: 0 at rest, up to 0.9 in a swing), so the rope trails more at rest and pulls
     taut as he swings (the direction of the turn is read with medium confidence).
   - Link k sits at the lagged end of piece k − 1, turned away from that piece's joint 0
-    (yaw by atan2 + 180°, pitch from the height difference, roll 90°). In the wrench
+    (yaw by atan2 + 180°, pitch from the height difference, roll 90°), so its joint 0,
+    where piece k starts, is 0.194 u on along that piece's way. In the wrench
     combo (state 0x13) the links lie flat (no pitch or roll), and links 1, 2 and 5 add
     the hand's travel since last frame × 4, 2 and 1 (2 × (2 div k) in integer division;
-    the others none), so the first links trail the swing.
-  - So the rope is about 9 × the stretch long. The links hide with the whip, in
+    the others none), so the first links trail the swing. (Read again 2026-10-29: in
+    `whip_link_place` that term is an angle added to the link's yaw, atan2 of the whip's
+    position less a vector the whip keeps at +0x68, times 4, 2 or 1; what the vector
+    holds after the spawn isn't read, so whether it is the travel is open.)
+  - So the rope is 9 × the stretch and 8 × 0.194 u long [code, data; corrected
+    2026-10-29, the links' joint 0 having been left out]. The links hide with the whip, in
     cutscenes, and 300 frames after the ammo runs out. The stretch moves towards a goal
     by at most a step a frame (`approach`, 0x4450C0):
 
@@ -1126,11 +1176,14 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   | Jump attack after | 0.8 | 0.8 |
   | Thrown | 0.5 (1/30) | 0.9 (1/30) |
 
-  So swings 1 and 2 reach about 8 u, swing 3 5.4 u and the jump attack 7 u.
+  So swings 1 and 2 reach about 9.7 u, swing 3 7.0 u and the jump attack 8.8 u.
 - **The hit** (0x357F10): in the combo once the state is over 6 frames old, in the jump
-  attack over 20, and while the thrown end is out, every frame each link's line, from the
-  joint of the link before to its own far joint, is tested (`coll_line`, 0x357DC0), the
-  last one carried on to 1.5 times its length. Whatever it crosses takes the row's damage
+  attack over 20, and while the thrown end is out, every frame each link's line, from
+  joint 0 of the piece before to its own joint 1, is tested (`coll_line`, 0x357DC0), and
+  link 8's carried on to 1.5 times its length. Laid straight, the tip's line ends 9 ×
+  the stretch + 1.657 u from the hand (8 × 0.194 + 0.105) and link 8's longer one 8.5 ×
+  the stretch + 1.955, which reaches further only below a stretch of 0.6 [code, data,
+  2026-10-29]. Whatever it crosses takes the row's damage
   (+0x6C), pushed 0.75 along the whip's facing and 1 up, with flags 0x110000 at V1–V2 and
   0x210000 from V3. A hit on something that isn't an enemy sparks (0x359F28); each hit
   plays sound 6. Each frame's hits go through the damage queue, so a target takes at most
@@ -1319,15 +1372,17 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   frame; only in game mode 0): the class's own mesh is never drawn (its moby keeps mode
   bit 0x01, medium confidence), and nothing grows it in or fades it out. It draws, round
   hero point 10 (joint 2), all from the level's effect textures (`effects.md`):
-  - five crackling arcs of 10 points, each living 3–45 frames and jittered each frame,
-    as 4-wide strips of texture 0x17 (V1–V2), 0x0F (V3–V4) or 0x30 (V5), grey 0x7F7F7F
-    with an edge colour by level, fading with their life;
+  - five crackling arcs, loops out from the centre and back, each laid at random and
+    living 3–45 frames, keeping its shape (corrected 2026-10-29: not jittered each
+    frame), as strips of texture 0x17 (V1–V2), 0x0F (V3–V4) or 0x30 (V5) in grey
+    0x7F7F7F inside a glow four times as wide in an edge colour by level, fading with
+    their life (`effects.md`, "Shield Charger");
   - a shell: a camera-facing dome of 290 vertices (0x2A5AE0, 0.3 u, × 3: 0.9 u) in
     texture 21, the shield's colour at alpha 0x18, then a rim of 32 additive quads from
     0.9 to about 1.32 u in texture 11 at alpha 0x40;
   - four trails of 20 points orbiting 0.9–1.1 u out, turning 6° a frame (10° at V5),
-    each head throwing two sparkles, ribbons 0.02–0.07 wide of texture 0x2C (V1–V2), 0x0F
-    (V3–V4) or 0x30 (V5);
+    each head throwing two sparkles, a core 0.04 wide in a glow 0.14 wide of texture 0x2C
+    (V1–V2), 0x0F (V3–V4) or 0x30 (V5), fading in from the tail;
   - from V3 a camera-facing glow in texture 0x17 at alpha 0x1F whose texture scrolls 0.1
     a frame;
   - and from the update, eight sparkles on the 1 u sphere (texture 0x3E) and 8 pairs of
@@ -1510,8 +1565,9 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
 - **The spit** isn't bolts that fly: it is the level's number of lightning arcs
   (0x321108 sets their ends, 0x321210 redraws them). Each reaches from the gun to a point
   32 u along the aim, jittered up to 0.2 u on each axis, bowing out round the aim on the
-  way (rolled −107°, 0°, 107°… at V1–V2; from −80° by 52.5° at V3–V4; from −60° by 30°
-  from V5). Its timer counts down from the flight time; when it reads 27 (frame 3, 3, 8,
+  way (rolled −107°, 0°, 107°… at V1–V2; from −107.5° by 52.5° at V3–V4; from −90° by
+  30° from V5; corrected 2026-10-29, the code turns by its first angle twice;
+  `effects.md`, "Spitting Hydra"). Its timer counts down from the flight time; when it reads 27 (frame 3, 3, 8,
   8, 13 after the spit at V1–V5), 0x321580 strikes once for each arc within 60 u: the line
   from the gun to its end is tested with a damage record (the row's damage, pushed 0.7
   along it, flags 0x410000), so the first thing it meets takes it, and if it met anything a
@@ -1813,8 +1869,8 @@ profiles' `gun` section):
     every half second;
   - the Plasma Whip: with it in hand the fire button starts the wrench's combo, jump
     attack and throw in their windows (`rac_hero::WhipHand`), each for a round, keeping
-    the whip in hand; the rope hits along its reach (9.5 links of the stretch: 8.6, 5.7
-    and 7.6 u) from the 7th tick of a swing and the 21st of the jump attack, and the
+    the whip in hand; the rope hits along its reach (9 stretches, 8 links' 0.194 and
+    the tip's 0.105: 9.76, 7.06 and 8.86 u) from the 7th tick of a swing and the 21st of the jump attack, and the
     thrown end hits along the line from his hand; from V4 the jump attack's shock wave,
     and from V4 (the Quantum Whip) the cutting waves its swings send, striking each
     target once;
@@ -1884,10 +1940,13 @@ profiles' `gun` section):
   aims procedurally. The Plasma Whip's rope (`rac_rig/src/rope.rs`): nine links trailing from the handle by
   `whip_rope_ends`' rules (the stretch and pull by state, the links lying flat and links
   1 and 2 adding the hand's travel in a swing, kept 0.15 u off a floor taken at his feet,
-  the end following the thrown wrench), a visual only, since the kit's whip hits along a
-  straight line. The Shield Charger's shield shows 0.75 u above his feet while up. Both
-  look like the kit's own: glowing translucent segments and a 0.9 u faceted sphere, not
-  classes 0x183A, 0x183C and 0xA5C [placeholder].
+  the end following the thrown wrench; each piece after the first starting 0.194 u along
+  the link before), a visual only, since the kit's whip hits along a straight line. With
+  the disc its links are classes 0x183A and 0x183C at 0.2 of their scale, placed and
+  stood on edge as `whip_link_place` does, at the game's opacity and glow by level
+  (`rac_rig::RopeModels`, 2026-10-29); without it, glowing translucent bars from link to
+  link. The Shield Charger's shield shows as its shell, an effect (`rac_demo::fx::shell`,
+  2026-10-29), 0.75 u above his feet while up; the game never draws its class's mesh.
 - **Pickups** (`rac_combat::pickups`, P1.10, 2026-10-22): a hero reaches pickups within
   8.7 u across and 3 u up or down from his feet [code]. Ammo follows "Ammo pickups, crates
   and the vendor": taken only for a gun with room, on landing or bouncing, or as it lands
@@ -1903,6 +1962,31 @@ profiles' `gun` section):
   fly in and expire, are the kit's [placeholder]. Rounds per pickup (+0x88) and the
   vendor's price a round (+0x84) are [data]; the vendor's pad, selling a round every 3
   ticks, is the kit's own.
+- **The other crates** (`rac_combat::pickups`, P1.10, 2026-10-29), as "Ammo pickups,
+  crates and the vendor" reads them [code]:
+  - a nanotech crate leaves its eight orbs where it stood (`nanotech.rs`); they are let
+    out to the nearest living hero within 10 u whose health, with what orbs already let
+    out to him carry, is under his most, fly 20–80 ticks on the game's curves to 0.75 u
+    above his feet, and the first there heals him his most / 5, at least 1; they go 300
+    ticks after. The kit takes the help measure as under 100 (so always / 5), works the
+    amount out from his most as they arrive rather than as the crate is made, and circles
+    the waiting orbs round the crate's middle [placeholder]; the sparkles and sounds
+    aren't drawn or played.
+  - an explosive crate (`explosive.rs`) lights a 179-tick fuse when a hero's capsule comes
+    within 0.05 u of it or he stands on it [placeholder for the game's ground and wall
+    mobys], at once while he grinds; a hit lights it for 5–14 (or cuts a long one to
+    that), another's blast for 1. It tints as the game's warns; then its blast grows over
+    20 ticks, each target it reaches taking 2 (an explosive crate's fuse going to 1
+    instead) and each hero 4, pushed 60 u/s out and up, which his hit caps at 7. The kit
+    tests boxes as unturned, hurts each target once a blast, and leaves out the armor
+    and help measure in his damage (`hero_damage`; the kit has no armor), the beeps and
+    0x348FF0; the demo draws the shared explosion's set at its own size.
+  - a doubler crate gives its breaker one more doubling and 1800 ticks (`BoltMultiplier`,
+    on every hero with `Bolts`): his crates' bolts, his kills' XP and the demo's enemies'
+    bolts he kills are doubled per doubling while it runs, and it all ends together. Not
+    done: the HUD's icon, the beeps and the help message.
+  - Seen on screen (`kitdemo-yard-crates.orin`): the crates' placeholder looks, the
+    explosive pair tinting as he touches them and going off in turn, his health 10 to 6.
 - **Quick select** (`weapons/ring.rs`, 2026-10-22): two rings of eight, filled as
   `quick_select_add` does [code], worked as "The quick-select ring" reads with QUICK
   SELECT PAUSE off, so co-op stays in step: the ring opens on the press over the running
@@ -2004,8 +2088,8 @@ profiles' `gun` section):
 4. **The other guns' remaining code:** the rest of the agent's update (0x3BD298; its
    gun and walking are read), the Plasma Storm's arc (0x30A3D0), the Decimator and Lava
    Gun's V5, the target 0x447CA0 marks for the level search's +8, and the agents' coming
-   out. In the kit still to follow what is read: the whip's links and the shield from
-   their classes (0x183A, 0x183C; 0xA5C, 0x1192 at V5), with the effects (P3.18).
+   out. In the kit still to follow what is read: the shield's V3 glow, with the effects
+   (P3.18); the whip's links and the shield's shell, arcs and trails are drawn.
 5. **Deadlocked:** its `GadgetDef` table (0x3BF460, `moby-format.md`) and its mods.
 
 How this was read, to carry on: import or reuse the Veldin project (copy

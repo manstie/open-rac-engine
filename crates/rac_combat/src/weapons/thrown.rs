@@ -185,7 +185,13 @@ pub(super) fn cluster_shot(
     if !near && !rolled_out && shot.ticks < fire.lifetime {
         return true;
     }
-    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+    out.shot_event(
+        shot,
+        GunEventKind::Impact {
+            at: shot.position,
+            surface: None,
+        },
+    );
     scatter(
         shot,
         shot.position,
@@ -257,14 +263,26 @@ pub(super) fn bomblet(
     {
         let push = shot.velocity * TICK;
         out.hits.push(shot.hit(target.entity, shot.damage, push));
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
         return false;
     }
     // At the end of its life it bursts with no damage.
     if shot.ticks < life {
         return true;
     }
-    out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+    out.shot_event(
+        shot,
+        GunEventKind::Impact {
+            at: shot.position,
+            surface: None,
+        },
+    );
     false
 }
 
@@ -369,7 +387,7 @@ pub(super) fn blob(shot: &mut Shot, fire: &Infect, flight: &Flight, out: &mut Ou
         out.hits
             .push(shot.hit(target.entity, fire.blast_damage, push));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 
@@ -500,7 +518,13 @@ pub(super) fn turret_shot(
     let keep = turret_tick(shot, &mut state, fire, flight, rng, out, born);
     shot.kind = ShotKind::Turret(state);
     if !keep {
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
     }
     keep
 }
@@ -685,7 +709,7 @@ fn guided(shot: &mut Shot, mega: &Mega, flight: &Flight, out: &mut Outcome) -> b
     for near in in_ball(flight.targets, at, mega.blast_radius, None) {
         out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 
@@ -702,6 +726,7 @@ fn pellet(shot: &mut Shot, push: f32, flight: &Flight, out: &mut Outcome) -> boo
                 shot,
                 GunEventKind::Impact {
                     at: shot.position + motion * t,
+                    surface: None,
                 },
             );
             false
@@ -711,6 +736,7 @@ fn pellet(shot: &mut Shot, push: f32, flight: &Flight, out: &mut Outcome) -> boo
                 shot,
                 GunEventKind::Impact {
                     at: shot.position + motion * t,
+                    surface: None,
                 },
             );
             false
@@ -784,7 +810,7 @@ fn infect_bomb(
         out.hits
             .push(shot.hit(target.entity, fire.blast_damage, push));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 
@@ -831,7 +857,7 @@ fn barrier_tick(
         shot.velocity = Vec3::ZERO;
         state.landed = Some(0);
         // It unfolds where it lands (0x376B88's state 2).
-        out.shot_event(shot, GunEventKind::Impact { at });
+        out.shot_event(shot, GunEventKind::Impact { at, surface: None });
         return true;
     };
     *landed += 1;
@@ -934,12 +960,24 @@ fn pulse(shot: &mut Shot, fire: &Barrier, flight: &Flight, out: &mut Outcome) ->
             shot.position += motion * t;
             out.hits
                 .push(shot.hit(flight.targets[index].entity, damage, way * pulse.push));
-            out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+            out.shot_event(
+                shot,
+                GunEventKind::Impact {
+                    at: shot.position,
+                    surface: None,
+                },
+            );
             false
         }
         Meets::World(t, _) => {
             shot.position += motion * t;
-            out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+            out.shot_event(
+                shot,
+                GunEventKind::Impact {
+                    at: shot.position,
+                    surface: None,
+                },
+            );
             false
         }
         Meets::Nothing => {
@@ -1489,7 +1527,7 @@ fn agent_end(
                 let away = (near.centre - at).normalize_or_zero() * push;
                 out.hits.push(shot.hit(near.entity, shot.damage, away));
             }
-            out.shot_event(shot, GunEventKind::Impact { at });
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
         }
         Some(AgentEnd::Comet { speed, life, .. }) => {
             let way = chased.map_or(flight.facing, |chased| {
@@ -1538,7 +1576,7 @@ fn comet(shot: &mut Shot, life: u32, fire: &Agents, flight: &Flight, out: &mut O
         let away = (near.centre - at).normalize_or_zero() * push;
         out.hits.push(shot.hit(near.entity, shot.damage, away));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
 }
 

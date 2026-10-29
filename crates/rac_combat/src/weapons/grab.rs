@@ -74,7 +74,13 @@ pub(super) fn rift_shot(
     let keep = rift_tick(shot, &mut state, fire, flight, out);
     shot.kind = ShotKind::Rift(state);
     if !keep {
-        out.shot_event(shot, GunEventKind::Impact { at: shot.position });
+        out.shot_event(
+            shot,
+            GunEventKind::Impact {
+                at: shot.position,
+                surface: None,
+            },
+        );
     }
     keep
 }
@@ -320,7 +326,7 @@ pub(super) fn thing(shot: &mut Shot, fire: &Suck, flight: &Flight, out: &mut Out
             if fire.ricochet_from.is_some_and(|from| shot.level >= from) {
                 shot.position = at + normal * BOUNCE_GAP;
                 shot.velocity = shot.velocity.reflect(normal);
-                out.shot_event(shot, GunEventKind::Impact { at });
+                out.shot_event(shot, GunEventKind::Impact { at, surface: None });
                 return true;
             }
             burst(shot, flight, at, fire.radius, frame * fire.world_push, out);
@@ -343,7 +349,7 @@ fn burst(shot: &Shot, flight: &Flight, at: Vec3, radius: f32, push: Vec3, out: &
     for near in in_ball(flight.targets, at, radius, None) {
         out.hits.push(shot.hit(near.entity, shot.damage, push));
     }
-    out.shot_event(shot, GunEventKind::Impact { at });
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
 }
 
 /// The Qwack-O-Ray (0x37DEB0): held, its beam picks an enemy (0x37D7D8) and keeps a new one

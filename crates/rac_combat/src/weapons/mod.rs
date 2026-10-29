@@ -63,8 +63,10 @@ pub enum GunEventKind {
     Fired { at: Vec3, direction: Vec3 },
     /// One of a hitscan's rays, from the muzzle to where it stopped.
     Ray { from: Vec3, to: Vec3 },
-    /// A shot hit something, burst or splashed.
-    Impact { at: Vec3 },
+    /// A shot hit something, burst or splashed; where it ended on the world, the
+    /// `surface`'s normal there, for what it leaves on it (the Lava Gun's pools). Only
+    /// bullets and streams give it so far.
+    Impact { at: Vec3, surface: Option<Vec3> },
     /// A shot glanced off something and flew on, as the Disc Blade's off walls and, from
     /// V3, off enemies.
     Bounce { at: Vec3 },
@@ -197,6 +199,7 @@ pub(crate) fn fire_guns(
         &mut Arsenal,
         &mut LockOn,
         Option<&mut Health>,
+        Option<&crate::pickups::BoltMultiplier>,
     )>,
     mut targets: Query<TargetItem>,
     mut events: MessageWriter<GunEvent>,
@@ -229,7 +232,7 @@ pub(crate) fn fire_guns(
     // Each gun's damage now, which its shock arcs take a share of.
     let mut gun_damage: Vec<((usize, WeaponId), f32)> = Vec::new();
     let mut afflictions: Vec<(usize, fire::Afflict)> = Vec::new();
-    for (hero, body, arsenal, lock, health) in &mut order {
+    for (hero, body, arsenal, lock, health, _) in &mut order {
         let view = cameras
             .iter()
             .find(|(camera, _)| camera.player == hero.player)
@@ -458,10 +461,13 @@ pub(crate) fn fire_guns(
     });
 
     for (player, weapon, xp) in kills {
-        let Some((_, _, arsenal, ..)) = order.iter_mut().find(|(hero, ..)| hero.player == player)
+        let Some((_, _, arsenal, .., doubled)) =
+            order.iter_mut().find(|(hero, ..)| hero.player == player)
         else {
             continue;
         };
+        // The doubler doubles a kill's XP as it does its bolts (`moby_killed`).
+        let xp = doubled.map_or(xp, |doubled| doubled.apply(xp));
         for up in arsenal.add_xp(weapon, xp, &armory) {
             events.write(GunEvent {
                 player,
