@@ -1976,7 +1976,7 @@ name = "coop_flag"
 address = 0x0021E828
 kind = "data"
 confidence = "high"
-note = "1 on the campaign's two-player levels 21-35 (main_loop, coop_level); code tests multiplayer_flag == 0 && coop_flag == 1. 1 in dlntsc-dreadzone-coop.p2s."
+note = "1 on the campaign's two-player levels 21-35 (main_loop, coop_level); code tests multiplayer_flag == 0 && coop_flag == 1. 1 in dlntsc-dreadzone-coop.p2s. Moves with the level build: 0x21E6F8 in level 22's."
 
 # 2026-10-23, Deadlocked's stick and strafing (PLAN.md RE.3; hero-controller.md, "Input"
 # and "Deadlocked's strafing").
@@ -2361,7 +2361,7 @@ name = "coop_hp_scale"
 address = 0x002204C0
 kind = "data"
 confidence = "low"
-note = "float: enemy hit-point scale in co-op (coop_scale_hp); 1.0 on levels 1 and 21, writer not found."
+note = "float: enemy hit-point scale in co-op (coop_scale_hp); 1.0 on levels 1, 21 and 22 (0x220380 in level 22's build), only read: an initialised value in each build's data."
 
 [[symbol]]
 name = "safe_spots"
@@ -2386,10 +2386,80 @@ note = "The current challenge's index on its planet."
 
 [[symbol]]
 name = "level_save"
+address = 0x001F87F0
+kind = "data"
+confidence = "medium"
+note = "Per-level records, 0x304 bytes, indexed by (level - 1) % 20, so a co-op level shares its single-player level's. +0x8 + 12 x i: challenge i (flags: 1 listed, 2 unlocked, 4 played; +1 times won; +2 best); +0x300 the planet's flags (1 visited, 2 unlocked, 8 every challenge won, 0x10 every bonus won)."
+
+[[symbol]]
+name = "level_save_flags"
 address = 0x001F8AF0
 kind = "data"
 confidence = "medium"
-note = "Per-level records, 0x304 bytes, indexed by (level - 1) % 20, so a co-op level shares its single-player level's."
+note = "level_save +0x300 for level 1: the planet's flag byte (1 visited, 2 unlocked, 8 every challenge won, 0x10 every bonus won)."
+
+[[symbol]]
+name = "planet_of_level"
+address = 0x003C0220
+kind = "data"
+confidence = "high"
+note = "int per level % 20: the planet record's index (0 for levels with none: 3, 9, 12, 16)."
+
+[[symbol]]
+name = "planet_records"
+address = 0x003C0278
+kind = "data"
+confidence = "medium"
+note = "0x38 bytes per planet, 13: level, name and two more text ids, first and last mission id (+0x10, +0x14), its unlock rule at +0x20 (unlock_rule_met; the rule's medals and rank alone set the visited bit). Catacrom Four (planet 2) needs one medal of kind 3."
+
+[[symbol]]
+name = "mission_records"
+address = 0x003C0550
+kind = "data"
+confidence = "medium"
+note = "0x60 bytes per mission id: planet index, text ids, kind +0x14 (0 challenge, 1 bonus), unlisted +0x18, points +0x1C and bolts +0x20 (halved per earlier win), medal +0x24, items given +0x2C/+0x31/+0x50/+0x58, unlock rule at +0x38 (unlock_rule_met); with no mission to win (+0x48 = -1) it also needs the planet's every-challenge-won bit, so bonuses come last."
+
+[[symbol]]
+name = "progress_points"
+address = 0x00171B4C
+kind = "data"
+confidence = "low"
+note = "int: points from won challenges (mission +0x1C, halved per earlier win), which unlock rules require; 0 in a new game."
+
+[[symbol]]
+name = "story_bits"
+address = 0x00171C08
+kind = "data"
+confidence = "low"
+note = "Bit array of story events (scenes played set theirs, 0x630A58); unlock rules can require one."
+
+[[symbol]]
+name = "planet_progress_update"
+address = 0x00584828
+kind = "function"
+confidence = "medium"
+note = "Per level: sets the planet's visited and unlocked bits from its rule, its all-won bits, and once unlocked each challenge's listed (unless unlisted) and unlocked bits from the mission's rule. Only sets bits."
+
+[[symbol]]
+name = "challenge_listed"
+address = 0x00584DD8
+kind = "function"
+confidence = "medium"
+note = "Whether the challenge menu lists challenge i of a level: needs the listed bit; DreadZone (1, 21) shows unlocked ones in order up to 8."
+
+[[symbol]]
+name = "unlock_rule_met"
+address = 0x006C1748
+kind = "function"
+confidence = "medium"
+note = "An unlock rule of six ints: progress_points at least [0]; at least [2] medals of kind [1] (1-5, counters 0x171B61-0x171B65); rank 0x171B76 at least [3] (these three in 0x6C1828); mission [4] won (none for -1 or 0); story bit [5] set (none for -1)."
+
+[[symbol]]
+name = "challenge_menu_build"
+address = 0x005FDF00
+kind = "function"
+confidence = "medium"
+note = "Fills a planet's challenge menu from level_save; a line whose unlocked bit is clear can't be started (0x5FD118)."
 
 [[symbol]]
 name = "hud_masks"

@@ -18,10 +18,22 @@ Started 2026-10-28 from DL NTSC-U's code.
   on a `boot.sh` with controller 2 on the keyboard (`PAD2=1`), and the traces
   `dlntsc-dreadzone-coop-death-{1,2,3}` (`docs/re-setup.md`) check the start, death,
   respawn, restart and the team moves.
+- **A co-op level with enemies** (2026-10-29): `dlntsc-catacrom-coop-play.p2s`, Catacrom
+  Four's co-op build (level 22) at its first challenge's start, reached by unlocking the
+  challenge in memory ("Planets and challenges"), imported as `dlntsc-catacrom`; the
+  traces `dlntsc-catacrom-coop-fight-{1,3,4}` check kills, ammo and a respawn there.
 - **Labels** as in `hero-controller.md`: **[code]** read in the game's code,
   **[verified]** checked in a savestate or trace, **[inferred]** from how a value is used.
-- Addresses are DreadZone Station's build. Level code moves between levels (`engine-notes.md`,
-  "Code layout and overlays"); globals below 0x300000 don't.
+- **Addresses are DreadZone Station's build** (levels 1 and 21 share it). Each level has
+  its own build of the game with its own `.data` and `.bss` (`engine-notes.md`, "Code
+  layout and overlays"), so globals move as well as code [verified]. Catacrom Four's
+  co-op build has `coop_flag` at 0x21E6F8, `multiplayer_flag` 0x21E6F4 and `split_mode`
+  0x21E6E8 (each 0x130 lower), the hero pointers at 0x362C78 (heroes 0x365AE0 and
+  0x368CD0), the safe-spot rings at 0x266A40, `coop_hp_scale` at 0x220380, `main_loop`'s
+  co-op set-up at 0x4DF634 and the ammo pickup at 0x3C4800. `level_current`,
+  `game_mode`, `level_next`, the request flag, and the save's data (`level_save`, bolts,
+  XP, the gadget box) stay put. `tools/ghidra/match-function.py` finds a function of one
+  build in another's memory and prints the addresses that changed.
 
 ## In short
 
@@ -95,14 +107,53 @@ Started 2026-10-28 from DL NTSC-U's code.
   0x63FDE0, 0x630A58). Code that names a level adds 20: DreadZone Station is 21 rather
   than 1 (0x608C40, 0x608D48, 0x608E98, 0x601E58, 0x5FF758), and a change to the station's
   interior requests 35 rather than 15 (0x510848).
-- **Level progress is shared with single player:** `main_loop` marks the level visited in
-  a 0x304-byte record per level at 0x1F8AF0, indexed by `(level − 1) % 20`, so level 21
-  writes level 1's record.
+- **Level progress is shared with single player:** each level has a 0x304-byte record
+  (`level_save`, 0x1F87F0), indexed by `(level − 1) % 20`, so level 21 writes level 1's
+  record ("Planets and challenges" below has its layout).
 - **The death counters** (0x21EBE4, 0x21DA74 and one per level at 0x171F70 + 4 ×
   `((level − 1) % 20)`) count only in single player (`hero_death_done`, 0x67A4F8); co-op
   counts each player's deaths in their statistics instead.
 - **On the disc** levels 21–35 have level files of their own but use level − 20's audio
   and scenes (`disc-layout.md`, "Level data (DL NTSC-U and Gladiator PAL)").
+
+### Planets and challenges [code]
+
+How a planet and its challenges unlock, read to reach a co-op level with enemies (a new
+game's planets arrive on an empty challenge menu). Names are in
+`re/SCUS-97465/symbols.toml`.
+
+- **Tables in the game:** `planet_of_level` (0x3C0220) maps `level % 20` to one of 13
+  planet records (0x3C0278, 0x38 bytes: level, text ids, first and last mission id at
+  +0x10 and +0x14, an unlock rule at +0x20). Missions are records of 0x60 bytes by id
+  (0x3C0550): planet, text ids, kind (+0x14: 0 a challenge, 1 a bonus), unlisted
+  (+0x18), points and bolts won (+0x1C, +0x20, halved for each earlier win), a medal
+  (+0x24), items given on starting and winning, and an unlock rule at +0x38.
+- **An unlock rule** (`unlock_rule_met`, 0x6C1748) is six ints: points (0x171B4C) at
+  least the first; at least *n* medals of one of five kinds (counters 0x171B61–0x171B65);
+  a rank (0x171B76); a mission won; a story bit (0x171C08). −1 (or 0 for the mission)
+  means no requirement.
+- **The save's record per level** (`level_save` + 0x304 × ((level − 1) % 20)):
+  - +0x8 + 12 × *i*, challenge *i*: a flag byte (1 listed, 2 unlocked, 4 played: its
+    starting items given), then the times won, then a best.
+  - +0x300, the planet: 1 visited, 2 unlocked, 8 every challenge won, 0x10 every bonus
+    won.
+- **The update** (`planet_progress_update`, 0x584828, for levels 1–15 from 0x584678)
+  only ever sets bits: the planet's from its rule, then, once it is unlocked, each
+  challenge's listed bit (unless unlisted) and its unlocked bit from its rule. A
+  challenge whose rule names no mission (−1) also needs the every-challenge-won bit, so
+  a planet's bonuses come after its challenges.
+- **The menu** (`challenge_menu_build`, 0x5FDF00) lists the challenges whose listed bit
+  is set (`challenge_listed`, 0x584DD8; a won challenge drops out until all are won); a
+  line whose unlocked bit is clear won't start.
+- **Catacrom Four (level 2)** has missions 0x2E–0x34: four challenges, each needing the
+  one before won, then three bonuses. Its rule asks for one medal of kind 3; the next
+  planets ask for points too (Sarathos 5,000 and two medals).
+- **Checked in play** [verified, 2026-10-29]: in `dlntsc-dreadzone-coop-play.p2s`
+  (level 21), one kind-3 medal (0x171B63 = 1), Catacrom Four's flags (0x1F8DF4 = 3) and
+  its first challenge's (0x1F8AFC = 3) were written, then level 22 requested. The game
+  played the planet's intro scene and started the first challenge without showing the
+  menu, in co-op. Both flag bytes then read 7: the challenge's played bit, and a planet
+  bit 4 not read yet.
 
 ## Death, respawn and failure [code]
 
@@ -157,6 +208,12 @@ Started 2026-10-28 from DL NTSC-U's code.
     to (603.73, 455.29, 200.50), 131 u from the partner. So on DreadZone Station's start
     floor a level object sends every co-op respawn to one point; elsewhere the spot is
     the partner's.
+  - **Away from the station** [verified, `dlntsc-catacrom-coop-fight-4`, Catacrom Four]:
+    player 1, killed 16 u up the path, stood again about 400 frames later on player 2's
+    newest safe spot, (127.20, 301.76, 65.15), 3.45 u behind him; the rings' spots
+    (0x266A40 in that build) are 4.0–4.1 u apart along the path walked.
+  - A take where both players died within 6 s of each other restarted the level with
+    the bolts, XP, gun XP and ammo they had (`-fight-1` and `-3`).
 - **Enemies that test both heroes' health** (for example a boss at 0x4E2FD8) keep
   attacking while either player is alive; they don't fail the mission themselves.
 
@@ -177,10 +234,24 @@ Started 2026-10-28 from DL NTSC-U's code.
 - **Ammo pickups go to the nearest living player** within his pickup radius (hero+0x2E24,
   height +0x2E28) whose box isn't full for that gun (0x3D7900, 0x3D81E8). It goes into
   the shared box; the collector's statistics and HUD show it.
-- **Weapon XP from a kill** (0x590990) goes to the gun in the hand of the player who
-  fired it. As read, the loop runs from the killer's index to the last player, so with
-  one shared box a gun kill by player 1 would add the XP twice and one by player 2 once.
-  Check this in a trace before relying on it.
+  - [verified, Catacrom Four, 2026-10-29] An ammo crate moved in front of each player in
+    turn and broken with his wrench: player 1 took "12 Magma Cannon ammo" (5 to 17 of
+    25) and player 2 "48 Dual Viper ammo" (100 to 148 of 200), each message on the
+    collector's view and the count on both HUDs. That is the maximum × 0.2 (difficulty
+    1) × 0.5 for the Vipers × 2.4.
+- **Weapon XP from a kill** (0x590990) [code; corrected 2026-10-29]: the kill's XP goes
+  to the gun that made it (the damage's item, +0x46), once for each player from the
+  first one holding that gun in hand (hero+0x2318) to the last; if nobody holds it,
+  from player 1. The killer's index isn't used. With one shared box, a kill with a gun
+  player 1 holds adds its XP twice; one with a gun only player 2 holds adds it once.
+  - [verified, `dlntsc-catacrom-coop-fight-{1,3}`] With player 1 on the Dual Vipers and
+    player 2 on the Magma Cannon: every Magma Cannon kill added its XP once (`xp_total`
+    +1, +3, +4 with the gun's XP the same), and Viper kills twice (+1 → +2, +3 → +6).
+    Some kills added `xp_total` with no gun XP (none of the two guns made them).
+  - Not separated in play: whether it is the first holder or the killer (they were the
+    same player in these takes). Swapping guns needs the grid that holding Triangle
+    opens, whose cursor ignored both sticks and the D-pad, and a write to hero+0x2318 is
+    undone once the hero fires.
 - **Skins in the vendor:** one menu with two preview models; 0x34AF78 says whose skin is
   being chosen, and each player's choice is worn on leaving (0x61B9A8–0x61D238). Skins
   are bought from the shared purse into the shared `skins_owned`.
@@ -197,11 +268,14 @@ Started 2026-10-28 from DL NTSC-U's code.
   through 0x64EEA8, which also applies 0.75 while the player is in third person or riding
   vehicle class 0x20AE (in co-op: both players in third person, or either riding).
 - **Co-op's own scaling:**
-  - **Ammo pickups give 2.4 times as much** (0x3D7900), as two players draw on one box.
+  - **Ammo pickups give 2.4 times as much** (0x3D7900), as two players draw on one box
+    [verified on Catacrom Four: "What the players share"].
   - **Enemy hit points** are multiplied by the float 0x2204C0 at the level's moby set-up
-    (0x64ED20, from 0x578940), only in co-op. It is 1.0 in level 1's image and in level
-    21's (`dlntsc-dreadzone-coop.p2s`), and nothing in level 1's code writes it, so it
-    may come from level data. Read it in a co-op level with enemies.
+    (0x64ED20, from 0x578940), only in co-op. **It is 1.0, so co-op enemies keep their
+    hit points** [verified]: 1.0 in levels 1, 21 and 22 (Catacrom Four's co-op build,
+    where it is 0x220380), and in level 22's build too only that function reads it and
+    nothing writes it. It is an initialised value in each build's data, not set at run
+    time.
   - Nothing else read so far scales with the second player: no change was found to
     enemy damage, enemy counts or the difficulty.
 
@@ -338,15 +412,13 @@ Started 2026-10-28 from DL NTSC-U's code.
 
 ## Not read yet / next steps
 
-1. **A co-op level with crates and enemies** (DreadZone Station's hub has neither): an
-   ammo pickup (×2.4), one gun kill by each player (the weapon XP counted twice?), and a
-   respawn away from the station's start floor. A new game's planets open on their
-   challenge menus ("Going straight to a level"), so this needs a save further on.
-2. **The enemy hit-point factor** 0x2204C0 in a co-op level with enemies, and what writes
-   it.
-3. **Unread values:** what armour 3 does to damage (the R3 move); HUD bit 0x08; the
+1. **Weapon XP: the first holder or the killer?** A kill whose gun the killer isn't the
+   first to hold (both on the Vipers and player 2 kills, or the guns swapped) tells the
+   two apart; it needs the weapon grid (held Triangle) worked out, or a gun bought for
+   player 2 at the vendor (`vendor_buy` equips it for the buyer).
+2. **Unread values:** what armour 3 does to damage (the R3 move); HUD bit 0x08; the
    four-entry screen of exclusive choices; the three per-player settings beyond the
    camera; items 11, 12, 13 and 16; 0x21E904; player 2's moby marks (+0x74, flag 0x8000);
-   whether co-op ever sets 0x2400A8; the difficulty table's other columns.
-4. **Gladiator PAL** (SCES-53285): check that its co-op is the same (RE.10 names both).
-
+   whether co-op ever sets 0x2400A8; the difficulty table's other columns; the planet
+   flag 4 set on arrival; what made the kills that gave no gun XP.
+3. **Gladiator PAL** (SCES-53285): check that its co-op is the same (RE.10 names both).
