@@ -102,6 +102,8 @@ pub struct GunInput<'a> {
     pub targets: &'a [GunTarget],
     /// He has less health than he can have.
     pub hurt: bool,
+    /// A menu holds his input: the vendor's.
+    pub menu: bool,
 }
 
 /// The gun in hand's own state, started afresh each time a gun comes out.
@@ -176,10 +178,16 @@ pub fn step(
     // The whip's attacks his moves started since last tick, each taking a round.
     let whip_attacks = hero.whip_attacks.wrapping_sub(arsenal.whip_seen);
     arsenal.whip_seen = hero.whip_attacks;
-    // The ring reads the pad as it is. Once it holds the hero's input, his guns see none.
-    quick_select(arsenal, armory, gun_input.input, busy);
-    let blocked = arsenal.quick.blocks_input();
+    // The ring reads the pad as it is, unless the vendor's menu holds it. Once either
+    // holds the hero's input, his guns see none.
     let still = PlayerInput::default();
+    let pad = if gun_input.menu {
+        &still
+    } else {
+        gun_input.input
+    };
+    quick_select(arsenal, armory, pad, busy);
+    let blocked = gun_input.menu || arsenal.quick.blocks_input();
     let gun_input = &GunInput {
         input: if blocked { &still } else { gun_input.input },
         ..*gun_input

@@ -8,7 +8,7 @@ use rac_hero::{Collider, Hero, HeroBody, HeroState, HeroTuning, HurtHero};
 use rac_sim::SimTransform;
 use serde::{Deserialize, Serialize};
 
-use super::{PickupTuning, crates::Crate, crates::CrateKind};
+use super::{PickupSound, PickupSoundKind, PickupTuning, crates::Crate, crates::CrateKind};
 use crate::{Destroyed, HitReaction, Hitpoints, Hurtbox, Struck, position};
 
 /// The fuse and the blast.
@@ -158,19 +158,27 @@ pub(crate) fn burn_fuses(
         Option<&SimTransform>,
     )>,
     mut blasts: MessageWriter<CrateBlast>,
+    mut sounds: MessageWriter<PickupSound>,
     mut commands: Commands,
 ) {
     let mut fuses: Vec<_> = fuses.iter_mut().collect();
     fuses.sort_by_key(|(entity, ..)| *entity);
     for (entity, fuse, hurtbox, transform, simulated) in &mut fuses {
-        if fuse.left > 1 {
-            fuse.left -= 1;
-            continue;
-        }
         let Some(at) = position(*transform, *simulated) else {
             continue;
         };
         let at = at + Vec3::Y * hurtbox.map_or(0.0, |hurtbox| hurtbox.height);
+        if fuse.left > 1 {
+            fuse.left -= 1;
+            if fuse.beeps() {
+                sounds.write(PickupSound::at(PickupSoundKind::FuseBeep, at));
+            }
+            continue;
+        }
+        sounds.write(PickupSound::at(
+            PickupSoundKind::CrateBroke(CrateKind::Explosive),
+            at,
+        ));
         commands.entity(*entity).despawn();
         commands.spawn((
             Name::new("crate blast"),

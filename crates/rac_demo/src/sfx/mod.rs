@@ -1,5 +1,6 @@
 //! The guns' sounds (PLAN.md P1.13): what a gun's events and the loops it holds sound like,
-//! heard from the camera as UYA hears them (`docs/research/effects.md`, "Sounds").
+//! heard from the camera as UYA hears them (`docs/research/effects.md`, "Sounds"); and the
+//! sounds of crates, pickups and the vendor's menu ([`PickupSound`], P1.10).
 //!
 //! - A [`Cue`] is what to play: one for each kind of [`GunEvent`], and the loops of the
 //!   gun's [`Sustain`]. A gun's cues are named by its [`WeaponDef::effects`] key.
@@ -24,6 +25,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use bevy::audio::{AddAudioSource, AudioPlugin};
 use bevy::prelude::*;
+use rac_combat::pickups::{PickupSound, PickupSoundKind};
 use rac_combat::{Armory, Arsenal, GunEvent, GunEventKind, Sustain, WeaponId};
 use rac_hero::Hero;
 use serde::Deserialize;
@@ -127,17 +129,29 @@ pub fn held_cues<'a>(
     })
 }
 
-/// The cues a game plays itself, by gun key; the kit's placeholders skip them.
+/// The cues a game plays itself, by gun key, and the pickup sounds it plays; the kit's
+/// placeholders skip them.
 #[derive(Resource, Debug, Default, Clone, PartialEq, Eq)]
-pub struct SoundClaims(BTreeSet<(String, Cue)>);
+pub struct SoundClaims {
+    cues: BTreeSet<(String, Cue)>,
+    pickups: BTreeSet<PickupSoundKind>,
+}
 
 impl SoundClaims {
     pub fn claim(&mut self, key: &str, cue: Cue) {
-        self.0.insert((key.to_owned(), cue));
+        self.cues.insert((key.to_owned(), cue));
     }
 
     pub fn claimed(&self, key: &str, cue: Cue) -> bool {
-        self.0.contains(&(key.to_owned(), cue))
+        self.cues.contains(&(key.to_owned(), cue))
+    }
+
+    pub fn claim_pickup(&mut self, kind: PickupSoundKind) {
+        self.pickups.insert(kind);
+    }
+
+    pub fn pickup_claimed(&self, kind: PickupSoundKind) -> bool {
+        self.pickups.contains(&kind)
     }
 }
 
@@ -194,6 +208,9 @@ pub struct SoundLayout {
     pub cues: BTreeMap<Cue, String>,
     /// Each gun's own, by its effects key; an empty name plays nothing.
     pub guns: BTreeMap<String, BTreeMap<Cue, String>>,
+    /// What each pickup sound plays.
+    #[serde(default)]
+    pub pickups: BTreeMap<PickupSoundKind, String>,
 }
 
 impl Default for SoundLayout {
@@ -253,7 +270,12 @@ impl Plugin for SfxPlugin {
             .add_systems(Startup, start_placeholders)
             .add_systems(
                 Update,
-                (play_placeholders, hold_placeholders).in_set(SfxSystems::Play),
+                (
+                    play_placeholders,
+                    play_pickup_placeholders,
+                    hold_placeholders,
+                )
+                    .in_set(SfxSystems::Play),
             );
     }
 }
@@ -344,6 +366,34 @@ fn play_placeholders(
     }
 }
 
+/// Plays the placeholder of each pickup sound no game has claimed.
+fn play_pickup_placeholders(
+    layout: Res<SoundLayout>,
+    claims: Res<SoundClaims>,
+    listeners: Res<Listeners>,
+    placeholders: Res<Placeholders>,
+    mixer: Res<KitMixer>,
+    mut sounds: MessageReader<PickupSound>,
+) {
+    let mut mixer = mixer.lock();
+    for sound in sounds.read() {
+        if claims.pickup_claimed(sound.kind) {
+            continue;
+        }
+        let Some(clip) = layout
+            .pickups
+            .get(&sound.kind)
+            .and_then(|name| placeholders.0.get(name))
+        else {
+            continue;
+        };
+        let gains = placeholder_gains(&layout, &listeners, sound.at);
+        if gains != [0.0; 2] {
+            mixer.play(clip.clone(), gains, false);
+        }
+    }
+}
+
 /// Starts each hero's loop when his gun starts holding one, keeps it panned on him, and
 /// stops it when he lets go.
 fn hold_placeholders(
@@ -410,10 +460,15 @@ mod tests {
             let fire = layout.clip(&def.effects, Cue::Fire);
             assert!(fire.or(layout.clip(&def.effects, Cue::Flow)).is_some());
         }
+        // Every pickup sound has one.
+        for kind in PickupSoundKind::ALL {
+            assert!(layout.pickups.contains_key(&kind), "{kind:?} has no sound");
+        }
         let named = layout
             .cues
             .values()
-            .chain(layout.guns.values().flat_map(|cues| cues.values()));
+            .chain(layout.guns.values().flat_map(|cues| cues.values()))
+            .chain(layout.pickups.values());
         for name in named.filter(|name| !name.is_empty()) {
             assert!(layout.clips.contains_key(name), "no recipe for {name}");
         }

@@ -2,7 +2,8 @@
 //! the kit's placeholders (`rac_demo::sfx`) by `rac_audio`'s port of the game's sound
 //! library. Nothing is stored: each gun's class sound table and its bank are read from the
 //! gadget WAD at start-up, and its shots' from Veldin's core and sound bank
-//! (`docs/research/effects.md`, "Sounds").
+//! (`docs/research/effects.md`, "Sounds"). The crates', pickups' and vendor's sounds
+//! ([`PickupSound`], P1.10) are from Veldin's core too, those it has ([`pickup_entry`]).
 //!
 //! - Which entry of a class's table each cue plays is each gun's update's
 //!   ([`UYA_GUN_SOUNDS`]). The indices are the same at every level, but from V5 most guns
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use bevy::prelude::*;
 use rac_audio::{BankId, Play, SoundHandle, Synth};
+use rac_combat::pickups::{CrateKind, PickupSound, PickupSoundKind, VendorSound};
 use rac_combat::{Armory, Arsenal, GunEvent};
 use rac_demo::sfx::{Cue, Listeners, Render, SfxSystems, SoundClaims, SoundStream, held_cues};
 use rac_formats::gadget::{Gadget, GadgetTable};
@@ -214,6 +216,74 @@ fn gun_class(item: u16, level: u8) -> Option<u32> {
         .map(|model| model.class)
 }
 
+/// Where UYA plays a pickup sound from (`weapons.md`, "Their sounds") [code]: an entry of a
+/// class's table, at least `gap` 60 Hz frames after the last of its kind (0 for any).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PickupEntry {
+    pub class: u32,
+    pub entry: usize,
+    pub gap: u8,
+}
+
+/// The coins' classes, each from the least value it is for (`bolt_coin_spawn`, 0x2F8F60).
+/// Veldin has none of the coins of 500 and up (0x12 and on), so they sound as 0x11's
+/// [placeholder].
+const COINS: [(u32, u32); 4] = [(0, 0xD), (20, 0xF), (50, 0x10), (100, 0x11)];
+
+/// Where `kind`'s sound is, for a coin of `bolts` ([`PickupSound::bolts`]).
+pub fn pickup_entry(kind: PickupSoundKind, bolts: u32) -> PickupEntry {
+    let crate_class = |kind| match kind {
+        CrateKind::Bolts => 0x1F4,
+        CrateKind::Nanotech => 0x1F5,
+        CrateKind::Doubler => 0x1F7,
+        CrateKind::Explosive => 0x1F9,
+        CrateKind::Ammo => 0x1FF,
+    };
+    let (class, entry, gap) = match kind {
+        // `crate_break` 0x33BE30: none within a frame of the last crate's (0x1E1914).
+        PickupSoundKind::CrateBroke(CrateKind::Ammo) => (0x1FF, 1, 2),
+        PickupSoundKind::CrateBroke(kind) => (crate_class(kind), 0, 2),
+        PickupSoundKind::FuseBeep => (crate_class(CrateKind::Explosive), 1, 0),
+        PickupSoundKind::DoublerBeep => (crate_class(CrateKind::Doubler), 1, 0),
+        PickupSoundKind::Bolt => {
+            let coin = COINS.iter().rev().find(|(least, _)| bolts >= *least);
+            (coin.map_or(COINS[0].1, |coin| coin.1), 0, 0)
+        }
+        // `ammo_pickup_update` 0x30E7F8: none within 11 frames of the last (0x1E17A8).
+        PickupSoundKind::Ammo => (0xCDB, 0, 11),
+        PickupSoundKind::Nanotech => (crate_class(CrateKind::Nanotech), 1, 0),
+        // The vendor's class (0x4B7948 to 0x4BA3E0).
+        PickupSoundKind::Vendor(said) => {
+            let entry = match said {
+                VendorSound::Back | VendorSound::Short => 0,
+                VendorSound::Moved | VendorSound::Counted => 1,
+                VendorSound::Refused => 2,
+                VendorSound::Opened => 3,
+                VendorSound::Closed => 5,
+                VendorSound::Bought => 7,
+            };
+            (0xB, entry, 0)
+        }
+    };
+    PickupEntry { class, entry, gap }
+}
+
+/// Every class a pickup sound plays from.
+fn pickup_classes() -> impl Iterator<Item = u32> {
+    PickupSoundKind::ALL
+        .into_iter()
+        .map(|kind| pickup_entry(kind, 0).class)
+        .chain(COINS.map(|(_, class)| class))
+}
+
+/// What a pickup sound's gap is timed from: UYA times every crate's from the last crate's.
+fn gap_key(kind: PickupSoundKind) -> PickupSoundKind {
+    match kind {
+        PickupSoundKind::CrateBroke(_) => PickupSoundKind::CrateBroke(CrateKind::Bolts),
+        kind => kind,
+    }
+}
+
 /// A class's sound table, and the bank its entries' sounds are in.
 #[derive(Debug, Clone)]
 struct Table {
@@ -228,7 +298,7 @@ pub struct DiscGunSounds {
 }
 
 /// Reads the sounds of every gun in [`UYA_GUN_SOUNDS`] at every level, and of their shots
-/// in `core`, level `level`.
+/// and the pickups in `core`, level `level`.
 pub fn import(
     disc: &mut impl DiscReader,
     core: &Core,
@@ -276,6 +346,16 @@ pub fn import(
             }
         }
     }
+    for class in pickup_classes() {
+        // Not every level has every crate.
+        let here = core.header.moby_class(class).is_some_and(|c| c.offset != 0);
+        if !here || tables.contains_key(&class) {
+            continue;
+        }
+        let bank = level_bank(&mut synth, &mut ours, disc, level)?;
+        let sounds = core.moby_sounds(class)?;
+        tables.insert(class, Table { bank, sounds });
+    }
     Ok(DiscGunSounds { synth, tables })
 }
 
@@ -310,6 +390,19 @@ fn lookup(
     Some((sound, table.bank, *table.sounds.get(entry)?))
 }
 
+/// The table entry `kind` plays for a coin of `bolts`, and the bank it's in, if it has a
+/// sound that doesn't loop.
+fn lookup_pickup(
+    tables: &BTreeMap<u32, Table>,
+    kind: PickupSoundKind,
+    bolts: u32,
+) -> Option<(PickupEntry, BankId, ClassSound)> {
+    let place = pickup_entry(kind, bolts);
+    let table = tables.get(&place.class)?;
+    let entry = *table.sounds.get(place.entry)?;
+    (entry.sound.is_some() && !entry.looped).then_some((place, table.bank, entry))
+}
+
 /// The synthesizer, which the stream renders and the systems play on.
 struct DiscSynth(Synth);
 
@@ -328,6 +421,8 @@ struct GunSounds {
     held: BTreeMap<usize, (u16, u8, Cue, SoundHandle, ClassSound)>,
     /// When each hero's gun may next play a cue with a gap, in seconds.
     next: BTreeMap<(usize, u16, Cue), f64>,
+    /// When each pickup sound with a gap may next play, by [`gap_key`].
+    next_pickup: BTreeMap<PickupSoundKind, f64>,
     /// For the pitches picked between an entry's limits.
     rng: u32,
 }
@@ -335,6 +430,32 @@ struct GunSounds {
 impl GunSounds {
     fn find(&self, item: u16, cue: Cue, level: u8) -> Option<(CueSound, BankId, ClassSound)> {
         lookup(&self.tables, item, cue, level)
+    }
+
+    /// Plays `entry` once, heard from `at`, or at full volume if `None`.
+    fn start(&mut self, listeners: &Listeners, bank: BankId, entry: ClassSound, at: Option<Vec3>) {
+        let Some(number) = entry.sound else {
+            return;
+        };
+        let heard = match at {
+            Some(at) => volume_pan(listeners, &entry, at),
+            None => Some((entry.max_volume.min(0x400), 0)),
+        };
+        let Some((volume, pan)) = heard else {
+            return;
+        };
+        let pitch_mod = self.pitch(&entry);
+        let play = Play {
+            volume,
+            pan: Some(pan),
+            pitch_mod,
+            pitch_bend: 0,
+        };
+        self.synth
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .0
+            .play(bank, usize::from(number), play);
     }
 
     fn pitch(&mut self, entry: &ClassSound) -> i32 {
@@ -362,10 +483,14 @@ pub fn add(app: &mut App, read: DiscGunSounds) {
         tables: read.tables,
         held: BTreeMap::new(),
         next: BTreeMap::new(),
+        next_pickup: BTreeMap::new(),
         rng: 0x9E37_79B9,
     })
-    .add_systems(Startup, (claim_cues, start_stream))
-    .add_systems(Update, (play_cues, hold_cues).in_set(SfxSystems::Play));
+    .add_systems(Startup, (claim_cues, claim_pickups, start_stream))
+    .add_systems(
+        Update,
+        (play_cues, hold_cues, play_pickups).in_set(SfxSystems::Play),
+    );
 }
 
 /// Tells the placeholders which guns' cues the disc plays.
@@ -426,9 +551,9 @@ fn play_cues(
         let Some((sound, bank, entry)) = sounds.find(def.item, cue, level) else {
             continue;
         };
-        let (Some(number), false) = (entry.sound, entry.looped) else {
+        if entry.sound.is_none() || entry.looped {
             continue;
-        };
+        }
         let key = (event.player, def.item, cue);
         if sound.gap > 0 {
             if sounds.next.get(&key).is_some_and(|&next| now < next) {
@@ -436,26 +561,47 @@ fn play_cues(
             }
             sounds.next.insert(key, now + f64::from(sound.gap) / 60.0);
         }
-        let heard = match at {
-            Some(at) => volume_pan(&listeners, &entry, at),
-            None => Some((entry.max_volume.min(0x400), 0)),
-        };
-        let Some((volume, pan)) = heard else {
+        sounds.start(&listeners, bank, entry, at);
+    }
+}
+
+/// Tells the placeholders which pickup sounds the disc plays.
+fn claim_pickups(sounds: Res<GunSounds>, mut claims: ResMut<SoundClaims>) {
+    let mut claimed = 0;
+    for kind in PickupSoundKind::ALL {
+        if lookup_pickup(&sounds.tables, kind, 0).is_some() {
+            claims.claim_pickup(kind);
+            claimed += 1;
+        }
+    }
+    info!(
+        "the pickups' sounds from the disc: {claimed} of {}",
+        PickupSoundKind::ALL.len()
+    );
+}
+
+fn play_pickups(
+    listeners: Res<Listeners>,
+    time: Res<Time<Real>>,
+    mut sounds: ResMut<GunSounds>,
+    mut events: MessageReader<PickupSound>,
+) {
+    let now = time.elapsed_secs_f64();
+    for event in events.read() {
+        let Some((place, bank, entry)) = lookup_pickup(&sounds.tables, event.kind, event.bolts)
+        else {
             continue;
         };
-        let pitch_mod = sounds.pitch(&entry);
-        let play = Play {
-            volume,
-            pan: Some(pan),
-            pitch_mod,
-            pitch_bend: 0,
-        };
-        sounds
-            .synth
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .0
-            .play(bank, usize::from(number), play);
+        if place.gap > 0 {
+            let key = gap_key(event.kind);
+            if sounds.next_pickup.get(&key).is_some_and(|&next| now < next) {
+                continue;
+            }
+            sounds
+                .next_pickup
+                .insert(key, now + f64::from(place.gap) / 60.0);
+        }
+        sounds.start(&listeners, bank, entry, event.at);
     }
 }
 
@@ -546,6 +692,81 @@ mod tests {
             );
             assert!(gun_class(*item, 0).is_some(), "{item:#x}");
         }
+    }
+
+    #[test]
+    fn pickups_play_uyas_classes_entries() {
+        let entry = |kind, bolts| {
+            let place = pickup_entry(kind, bolts);
+            (place.class, place.entry, place.gap)
+        };
+        let crate_broke = PickupSoundKind::CrateBroke;
+        assert_eq!(entry(crate_broke(CrateKind::Bolts), 0), (0x1F4, 0, 2));
+        assert_eq!(entry(crate_broke(CrateKind::Ammo), 0), (0x1FF, 1, 2));
+        assert_eq!(entry(PickupSoundKind::FuseBeep, 0), (0x1F9, 1, 0));
+        assert_eq!(entry(PickupSoundKind::Ammo, 0), (0xCDB, 0, 11));
+        let vendor = PickupSoundKind::Vendor;
+        assert_eq!(entry(vendor(VendorSound::Bought), 0), (0xB, 7, 0));
+        assert_eq!(entry(vendor(VendorSound::Short), 0), (0xB, 0, 0));
+        // Coins sound by their value.
+        let coins = [1, 5, 19, 20, 49, 50, 100, 499, 500, 30000];
+        let classes = coins.map(|bolts| entry(PickupSoundKind::Bolt, bolts).0);
+        assert_eq!(
+            classes,
+            [0xD, 0xD, 0xD, 0xF, 0xF, 0x10, 0x11, 0x11, 0x11, 0x11]
+        );
+        // Every crate's gap is timed from the last crate's.
+        assert_eq!(
+            gap_key(crate_broke(CrateKind::Nanotech)),
+            gap_key(crate_broke(CrateKind::Ammo))
+        );
+        assert_ne!(
+            gap_key(PickupSoundKind::Ammo),
+            gap_key(PickupSoundKind::Bolt)
+        );
+    }
+
+    /// Reads the real disc: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.
+    #[test]
+    #[ignore = "needs game discs"]
+    fn veldin_has_the_pickups_sounds_but_the_explosive_and_doubler_crates() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) = crate::discs::find(
+            std::path::Path::new(&folder),
+            crate::discs::Release::UyaNtsc,
+        )
+        .expect("a UYA NTSC-U disc");
+        let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+        let mut read = import(&mut disc, &core, crate::hero_anims::LEVEL).unwrap();
+        let mut silent = Vec::new();
+        for kind in PickupSoundKind::ALL {
+            for (bolts, _) in COINS {
+                let Some((_, bank, entry)) = lookup_pickup(&read.tables, kind, bolts) else {
+                    silent.push(kind);
+                    break;
+                };
+                let number = usize::from(entry.sound.unwrap());
+                assert!(number < read.synth.sound_count(bank), "{kind:?}");
+            }
+        }
+        assert_eq!(
+            silent,
+            [
+                PickupSoundKind::CrateBroke(CrateKind::Explosive),
+                PickupSoundKind::CrateBroke(CrateKind::Doubler),
+                PickupSoundKind::FuseBeep,
+                PickupSoundKind::DoublerBeep,
+            ]
+        );
+        // A bolt crate breaking, rendered for a fifth of a second, is heard.
+        let kind = PickupSoundKind::CrateBroke(CrateKind::Bolts);
+        let (_, bank, entry) = lookup_pickup(&read.tables, kind, 0).unwrap();
+        read.synth
+            .play(bank, usize::from(entry.sound.unwrap()), Play::default())
+            .unwrap();
+        let mut out = vec![0.0; 2 * 9600];
+        read.synth.render(&mut out);
+        assert!(out.iter().any(|sample| sample.abs() > 0.1));
     }
 
     /// Reads the real disc: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.

@@ -40,7 +40,7 @@ session is working on the task now; notes on problems met stay with their task (
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
   models, each level's, held in one hand or both as UYA's hold layers have them) with
   their firing animations, UYA's quick-select ring, UYA's ammo
-  pickups and bolt, ammo, nanotech, explosive and doubler crates, a vendor's pad (P1.10), and a HUD on UYA's timings with the guns'
+  pickups and bolt, ammo, nanotech, explosive and doubler crates, UYA's vendor menu (P1.10), and a HUD on UYA's timings with the guns'
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
   the disc's textures for them, P3.18). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
@@ -77,9 +77,8 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. Co-op (RE.10): one kill by player 2 with a gun player 1 also holds, to settle how
-   weapon XP is counted; then Gladiator PAL. P1.10 (the vendor's menu) and P3.18 have
-   what is left in their tasks.
+1. P3.18 and P1.10 have what is left in their tasks (P1.10: the help measure next).
+   RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
 
@@ -872,11 +871,33 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - The hero's damage in UYA is scaled by his armor (1.0 to 0.2) and the game's help
     measure (`hero-controller.md`, "Getting hit and dying"); the kit has no armor yet, so
     its hits land as given.
-  - Not done: the vendor's menu; UYA's cap of a few coins a crate with the rest banked
-    (`bolts_drop`'s bank isn't read); the crates' sounds, the doubler's HUD icon and help
-    message; the help measure (0x3FE420's stats), which the nanotech amount and the
-    hero's damage use.
-  - Next step: the vendor's menu, or the bank of coins (`bolts_drop`, 0x44A0E8).
+  - Done 2026-10-30 (`pickups/vendor.rs`, `VendorMenu`; `weapons.md`, "In the kit", "The
+    vendor's menu"): the vendor's menu by UYA's weapons menu, over the running world
+    and holding the hero's input as the ring does: rows of rounds, buy-all, guns and
+    (with `upgrades`) Mega upgrades, rebuilt each tick; Left and Right with UYA's
+    repeats; refusals; the round count; a confirm. Gun and Mega prices (+0x7C) are in
+    `uya_weapons.ron`. The demo's HUD shows it at the top; seen on screen
+    (`kitdemo-vendor.orin`). The pad opening it on stepping in is the kit's own.
+  - Done 2026-10-30 (`BoltBank`, `capped_coins`, `kill_coins`; `weapons.md`, "The bolt
+    bank" and "In the kit"): UYA's bolt bank read and built: each broken crate pays out
+    a fiftieth of it, bolt crates drop at most 2 or 3 coins and bank the rest, the
+    demo's kills pay the share, and expired bolts are banked [placeholder].
+  - Done 2026-10-30 (`PickupSound`; `weapons.md`, "Their sounds" and "In the kit"): the
+    sounds of crates, fuses, the doubler, bolts, ammo, nanotech and the vendor's menu,
+    as placeholders in the demo and, with the UYA disc, the game's entries from
+    Veldin's core (`openrac/src/gun_sounds.rs`). Not heard yet by a person.
+  - Not done: of the bank, fewer coins while crate debris is recent, the drops scaled
+    by bolts per active minute (its gate 0x1D6714 by the killed moby's +0xB0 isn't
+    understood), the challenge multiplier and the XP bank (0x142698); the explosive
+    and doubler crates' disc sounds (not on Veldin: read them from a level that has
+    them), the doubler's HUD icon and help message; the help measure (0x3FE420's
+    stats), which the nanotech amount and the hero's damage use.
+  - The vendor's menu, not done: what UYA's vendor moby needs to open it and its last
+    special row (not read); UYA's stock growing with the story, the challenge-only
+    five and the 9/10 discount (read, not built). The demo's hero owns every gun, so
+    its menu sells only ammo.
+  - In progress (2026-10-30): reading the help measure (0x3FE420) and the stats it
+    weighs, for the nanotech amount and the hero's damage.
   - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
     the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
     the crates and the vendor.
@@ -1402,6 +1423,9 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 - [ ] **P6.1** Co-op rules for every game, built on RE.10 and written in `docs/coop-design.md`:
   - What is shared and what is per player.
   - Respawn and revive.
+  - The tether: Gladiator's (40 u, 10 s, both die) and where each game places one.
+  - The team moves: Gladiator's L3 (×4 damage, 30 s) and R3 (a shield that in co-op
+    blocks no damage), and whether ours keep that.
   - What player 2 does in single-player-only sections (Clank, Giant Clank, ships,
     hoverboards, races, turrets).
   - Difficulty scaling.
@@ -1423,9 +1447,6 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
   - Disconnect and reconnect.
 - [ ] **P6.5** Per-game adapters, applied in the order UYA → DL → R&C1 → GC:
   - A co-op compatibility list for each release and level.
-  - The tether: Gladiator's (40 u, 10 s, both die) and where each game places one.
-  - The team moves: Gladiator's L3 (×4 damage, 30 s) and R3 (a shield that in co-op
-    blocks no damage), and whether ours keep that.
   - Difficulty options.
 - [ ] **P6.6** Local split-screen (D6), built on the same foundation: Bevy viewports and two
   local input sources.

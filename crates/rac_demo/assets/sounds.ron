@@ -1,5 +1,5 @@
-// The kit's guns' sounds (PLAN.md P1.13): placeholders made from these recipes when the
-// app starts, so no recorded audio ships. A game with its own sounds plays them in their
+// The kit's guns' sounds (PLAN.md P1.13), and its crates', pickups' and vendor's (P1.10):
+// placeholders made from these recipes when the app starts, so no recorded audio ships. A game with its own sounds plays them in their
 // place (`rac_demo::sfx`); with the user's UYA disc the app plays UYA's.
 //
 // How far they are heard follows UYA's guns, which play at full volume at the camera and
@@ -45,6 +45,15 @@
         "crackle": (wave: Square, from: 160.0, seconds: 0.5, attack: 0.1, noise: 0.6, overtone: 3.0, volume: 0.16, looped: true),
         "ping": (wave: Sine, from: 1320.0, sweep: 0.3, seconds: 0.18, overtone: 2.0, volume: 0.3),
         "fizzle": (wave: Noise, from: 1.0, seconds: 0.3, attack: 0.01, volume: 0.2),
+        "crunch": (wave: Square, from: 240.0, sweep: -1.5, seconds: 0.2, noise: 0.7, volume: 0.4),
+        "beep": (wave: Sine, from: 1200.0, seconds: 0.08, attack: 0.005, volume: 0.3),
+        "low_beep": (wave: Sine, from: 700.0, seconds: 0.1, attack: 0.005, volume: 0.25),
+        "tink": (wave: Sine, from: 2600.0, sweep: 0.2, seconds: 0.07, overtone: 1.5, volume: 0.15),
+        "pickup": (wave: Triangle, from: 600.0, sweep: 1.0, seconds: 0.12, volume: 0.3),
+        "tick": (wave: Square, from: 1800.0, seconds: 0.03, volume: 0.12),
+        "buzz": (wave: Saw, from: 140.0, seconds: 0.2, noise: 0.1, volume: 0.25),
+        "blip_up": (wave: Sine, from: 500.0, sweep: 0.8, seconds: 0.12, volume: 0.25),
+        "blip_down": (wave: Sine, from: 700.0, sweep: -0.6, seconds: 0.1, volume: 0.25),
     },
     // What a cue plays for a gun that names none of its own.
     cues: {
@@ -77,5 +86,26 @@
         "bouncer": { Fire: "pop", Impact: "boom" },
         "turret": { Fire: "clank" },
         "shield": { Fire: "charge_up" },
+    },
+    // Crates, pickups and the vendor's menu (`rac_combat::pickups::PickupSound`).
+    pickups: {
+        CrateBroke(Bolts): "crunch",
+        CrateBroke(Ammo): "crunch",
+        CrateBroke(Nanotech): "crunch",
+        CrateBroke(Doubler): "crunch",
+        CrateBroke(Explosive): "boom",
+        FuseBeep: "beep",
+        DoublerBeep: "low_beep",
+        Bolt: "tink",
+        Ammo: "pickup",
+        Nanotech: "shimmer",
+        Vendor(Opened): "blip_up",
+        Vendor(Moved): "tick",
+        Vendor(Refused): "buzz",
+        Vendor(Counted): "tick",
+        Vendor(Back): "blip_down",
+        Vendor(Short): "buzz",
+        Vendor(Bought): "chime",
+        Vendor(Closed): "blip_down",
     },
 )

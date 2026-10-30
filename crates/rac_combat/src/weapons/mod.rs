@@ -204,6 +204,7 @@ pub(crate) fn fire_guns(
         &mut LockOn,
         Option<&mut Health>,
         Option<&crate::pickups::BoltMultiplier>,
+        Option<&crate::pickups::VendorMenu>,
     )>,
     mut targets: Query<TargetItem>,
     mut events: MessageWriter<GunEvent>,
@@ -236,7 +237,7 @@ pub(crate) fn fire_guns(
     // Each gun's damage now, which its shock arcs take a share of.
     let mut gun_damage: Vec<((usize, WeaponId), f32)> = Vec::new();
     let mut afflictions: Vec<(usize, fire::Afflict)> = Vec::new();
-    for (hero, body, arsenal, lock, health, _) in &mut order {
+    for (hero, body, arsenal, lock, health, _, menu) in &mut order {
         let view = cameras
             .iter()
             .find(|(camera, _)| camera.player == hero.player)
@@ -260,6 +261,7 @@ pub(crate) fn fire_guns(
                 hurt: health
                     .as_ref()
                     .is_some_and(|health| health.current < health.max),
+                menu: menu.is_some_and(|menu| menu.open.is_some()),
             },
             &mut rng,
         );
@@ -465,7 +467,7 @@ pub(crate) fn fire_guns(
     });
 
     for (player, weapon, xp) in kills {
-        let Some((_, _, arsenal, .., doubled)) =
+        let Some((_, _, arsenal, .., doubled, _)) =
             order.iter_mut().find(|(hero, ..)| hero.player == player)
         else {
             continue;

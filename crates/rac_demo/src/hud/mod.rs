@@ -1,7 +1,7 @@
 //! The demo's HUD (PLAN.md P1.12) and its quick-select ring on screen (P1.9): a hero's
 //! nanotech and bolts; the gun in his hand with its name at its level, its tier, ammo and
 //! XP, and the next two of his recent guns; a flash when ammo goes up, a notice when a gun
-//! levels up; and the ring while it is open.
+//! levels up; the ring while it is open; and the vendor's menu while it is open.
 //!
 //! The HUD only shows the simulation, so it runs in `Update`. Each frame plain functions
 //! work out a [`HudView`] from a hero's components ([`hud_view`]), its [`HudClock`] says
@@ -21,7 +21,8 @@ pub mod sights;
 
 use bevy::{math::ops, prelude::*, transform::TransformSystems, ui::UiSystems};
 use rac_combat::{
-    Armory, Arsenal, Destroyed, GunEvent, GunEventKind, WeaponId,
+    Armory, Arsenal, Destroyed, GunEvent, GunEventKind, VendorMenu, WeaponId,
+    pickups::{OpenMenu, Row, Said, Stage, vendor},
     weapons::{
         FireMode, Hand, WeaponDef,
         ring::{RINGS, SLOTS},
@@ -442,6 +443,73 @@ pub fn level_up_notice(def: &WeaponDef, level: u8) -> String {
     format!("{} upgraded to {}", def.name_at(level), tier(level))
 }
 
+/// A said word stays on the vendor's menu this many ticks.
+const SAID_TICKS: u32 = 90;
+
+/// The vendor's menu as words: the row picked, what it costs and what the buttons do, and
+/// whether he can buy it.
+pub fn vendor_text(
+    menu: &OpenMenu,
+    arsenal: &Arsenal,
+    armory: &Armory,
+    bolts: u32,
+) -> (String, bool) {
+    let row = menu.row();
+    let name = |weapon: WeaponId, level: u8| {
+        armory
+            .get(weapon)
+            .map_or(String::new(), |def| def.name_at(level).to_owned())
+    };
+    let price = vendor::price(row, arsenal, armory);
+    let what = match row {
+        Row::Rounds(weapon) => {
+            let gun = arsenal.gun(weapon);
+            let level = gun.map_or(0, |gun| gun.level);
+            let most = armory.get(weapon).map_or(0, |def| def.level(level).ammo);
+            let now = gun.map_or(0, |gun| gun.ammo);
+            format!(
+                "{} ammo {now}/{most}: {} a round",
+                name(weapon, level),
+                grouped(price)
+            )
+        }
+        Row::BuyAll => format!("All ammo: {}", grouped(price)),
+        Row::Gun(weapon) => format!("{}: {}", name(weapon, 0), grouped(price)),
+        Row::Upgrade(weapon) => format!(
+            "{} {}: {}",
+            name(weapon, armory.rules.bought_level),
+            tier(armory.rules.bought_level),
+            grouped(price)
+        ),
+    };
+    let ask = match menu.stage {
+        Stage::List => format!(
+            "< {} of {} >  {what}\nJump buys, quick select leaves",
+            menu.selected + 1,
+            menu.rows.len()
+        ),
+        Stage::Count(count) => format!(
+            "Buy < {count} > for {}?\nJump buys, quick select backs out",
+            grouped(price * count)
+        ),
+        Stage::Confirm => format!("Buy {what}?\nJump buys, quick select backs out"),
+    };
+    let said = match menu.said {
+        Some((said, ticks)) if ticks < SAID_TICKS => match said {
+            Said::Bought => "\nBought",
+            Said::Refused => "\nYou can't buy that",
+            Said::Short => "\nNot enough bolts",
+            Said::Back => "",
+        },
+        _ => "",
+    };
+    let can = vendor::can_buy(row, arsenal, armory, bolts);
+    (
+        format!("Vendor: {} bolts\n{ask}{said}", grouped(bolts)),
+        can,
+    )
+}
+
 /// A count with its thousands apart: 12,345.
 pub fn grouped(count: u32) -> String {
     let digits = count.to_string();
@@ -545,6 +613,8 @@ enum Part {
     Ring,
     RingBack,
     RingLabel,
+    Vendor,
+    VendorText,
     Slot(usize),
     SlotShape(usize),
     SlotMark(usize),
@@ -614,8 +684,8 @@ fn icon_box(parent: &mut ChildSpawnerCommands, size: f32, shape: HudPart, mark: 
 }
 
 /// Spawns `player`'s HUD, covering the screen: health at the top left, bolts and the gun
-/// at the top right (clear of the app's controls at the bottom left), and the ring round
-/// the middle while it is open.
+/// at the top right (clear of the app's controls at the bottom left), the ring round the
+/// middle while it is open, and the vendor's menu at the top in the middle while it is.
 pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> Entity {
     let part = |part| HudPart { player, part };
     let text = rgb(layout.text);
@@ -852,6 +922,28 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
                     },
                 ));
             });
+            // The vendor's menu, at the top in the middle, clear of the hero and the help.
+            root.spawn((
+                part(Part::Vendor),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: percent(0),
+                    width: percent(100),
+                    top: px(layout.margin),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .with_children(|row| {
+                row.spawn(panel(layout)).with_children(|panel| {
+                    panel.spawn((
+                        part(Part::VendorText),
+                        label("", layout.text_size, text),
+                        TextLayout::justify(Justify::Center),
+                    ));
+                });
+            });
         })
         .id()
 }
@@ -904,6 +996,8 @@ struct Shown {
     /// The ammo flash's share left, 1 to 0.
     flash: f32,
     notice: Option<(String, f32)>,
+    /// The vendor's menu as words, and whether he can buy the row picked.
+    vendor: Option<(String, bool)>,
 }
 
 type PartItem<'a> = (
@@ -922,14 +1016,20 @@ fn draw_huds(
     time: Res<Time>,
     layout: Res<HudLayout>,
     armory: Res<Armory>,
-    heroes: Query<(&Hero, Option<&Arsenal>, Option<&Health>, Option<&Bolts>)>,
+    heroes: Query<(
+        &Hero,
+        Option<&Arsenal>,
+        Option<&Health>,
+        Option<&Bolts>,
+        Option<&VendorMenu>,
+    )>,
     mut huds: Query<&mut PlayerHud>,
     mut parts: Query<PartItem>,
 ) {
     let seconds = time.delta_secs();
     let mut shown = Vec::new();
     for mut hud in &mut huds {
-        let Some((_, arsenal, health, bolts)) =
+        let Some((_, arsenal, health, bolts, menu)) =
             heroes.iter().find(|(hero, ..)| hero.player == hud.player)
         else {
             continue;
@@ -969,6 +1069,12 @@ fn draw_huds(
             showing,
             flash: hud.flash / layout.ammo_flash_seconds.max(1e-3),
             notice: hud.notice.clone(),
+            vendor: menu
+                .and_then(|menu| menu.open.as_ref())
+                .zip(arsenal)
+                .map(|(open, arsenal)| {
+                    vendor_text(open, arsenal, &armory, bolts.map_or(0, |bolts| bolts.0))
+                }),
         });
     }
 
@@ -1108,6 +1214,15 @@ fn draw_huds(
                 }
                 None => look.show(false),
             },
+            Part::Vendor => look.show(shown.vendor.is_some()),
+            Part::VendorText => {
+                let Some((words, can)) = &shown.vendor else {
+                    continue;
+                };
+                look.text(words);
+                let alpha = if *can { 1.0 } else { layout.dimmed };
+                look.colour(rgb(layout.text).with_alpha(alpha));
+            }
             Part::Ring => look.show(view.ring.is_some()),
             Part::RingBack => {
                 let Some(ring) = &view.ring else {
@@ -1313,6 +1428,34 @@ mod tests {
             arsenal.give(armory.find(name).unwrap(), armory);
         }
         arsenal
+    }
+
+    #[test]
+    fn the_vendor_s_menu_names_the_row_its_price_and_whether_he_can_buy_it() {
+        let armory = Armory::uya();
+        let mut owned = arsenal(&armory, &["N60 Storm"]);
+        owned.guns[0].ammo = 140;
+        let n60 = armory.find("N60 Storm").unwrap();
+        let mut menu = OpenMenu {
+            rows: vec![Row::Rounds(n60), Row::BuyAll],
+            selected: 0,
+            stage: Stage::List,
+            said: None,
+        };
+        let (words, can) = vendor_text(&menu, &owned, &armory, 12_345);
+        assert_eq!(
+            words,
+            "Vendor: 12,345 bolts\n< 1 of 2 >  N60 Storm ammo 140/150: 2 a round\n\
+             Jump buys, quick select leaves"
+        );
+        assert!(can);
+        menu.stage = Stage::Count(10);
+        menu.said = Some((Said::Refused, 3));
+        let (words, _) = vendor_text(&menu, &owned, &armory, 1);
+        assert!(words.contains("Buy < 10 > for 20?"), "{words}");
+        assert!(words.ends_with("You can't buy that"), "{words}");
+        // One bolt buys no round.
+        assert!(!vendor_text(&menu, &owned, &armory, 1).1);
     }
 
     #[test]

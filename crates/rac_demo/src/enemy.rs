@@ -19,7 +19,7 @@ mod looks;
 pub mod shot;
 
 use bevy::prelude::*;
-use rac_combat::pickups::{self, BoltMultiplier, PickupTuning};
+use rac_combat::pickups::{self, BoltBank, BoltMultiplier, PickupTuning};
 use rac_combat::{
     Afflicted, Affliction, Armory, Arsenal, Destroyed, Hitpoints, Hostile, Hurtbox, KillXp, Struck,
     target_bundle, weapons::block_shot,
@@ -158,6 +158,7 @@ fn run_enemies(
     hero_tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
     mut rng: ResMut<SimRng>,
+    mut bank: ResMut<BoltBank>,
     mut foe_hits: ResMut<FoeHits>,
     mut struck: MessageReader<Struck>,
     mut destroyed: MessageReader<Destroyed>,
@@ -224,7 +225,7 @@ fn run_enemies(
             .find(|(hero, _)| Some(hero.player) == killer)
             .map(|(_, doubled)| *doubled)
             .unwrap_or_default();
-        let kinds = drops::drops(&def.drops, &doubled, &mut rng);
+        let kinds = drops::drops(&def.drops, &doubled, &mut bank, &mut rng);
         pickups::spawn(
             &mut commands,
             pickups::scatter(at, kinds, &pickup_tuning, &mut rng),

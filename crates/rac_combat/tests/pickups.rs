@@ -1,17 +1,19 @@
 //! Pickups, crates and the vendor through the whole plugin (PLAN.md P1.10): a crate the
 //! wrench breaks scatters ammo for his gun that fills it as he takes it, a bolt crate's
-//! bolts reach his purse, ammo that doesn't fit is lost, the vendor's pad sells rounds
-//! for bolts, explosive crates go off, nanotech crates heal and doubler crates double. All
-//! on synthetic floors.
+//! bolts reach his purse, ammo that doesn't fit is lost, the vendor's pad opens a menu
+//! that sells rounds for bolts, explosive crates go off, nanotech crates heal and doubler
+//! crates double. All on synthetic floors.
 
-use bevy::{prelude::*, time::TimeUpdateStrategy};
-use rac_combat::pickups::{Blast, BoltMultiplier, Fuse, NanotechOrbs, PickupMotion, PickupTuning};
-use rac_combat::weapons::Hand;
+use bevy::{ecs::message::Messages, prelude::*, time::TimeUpdateStrategy};
+use rac_combat::pickups::{
+    Blast, BoltBank, BoltMultiplier, Fuse, NanotechOrbs, OpenMenu, PickupMotion, PickupSound,
+    PickupSoundKind, PickupTuning, Row, Stage,
+};
 use rac_combat::{
     Armory, Arsenal, Bolts, CombatPlugin, Crate, CrateKind, Destroyed, Pickup, PickupKind, Vendor,
-    WeaponId, target_bundle,
+    VendorMenu, WeaponId, target_bundle,
 };
-use rac_hero::{Collider, Health, HeroPlugin, HeroProfile, hero_bundle};
+use rac_hero::{Collider, Health, HeroBody, HeroPlugin, HeroProfile, HeroState, hero_bundle};
 use rac_input::{Action, Buttons, PlayerInput, PlayerInputs};
 use rac_sim::{SimPlugin, SimTransform, TICK_HZ};
 use std::time::Duration;
@@ -135,6 +137,14 @@ fn a_crate_the_wrench_breaks_scatters_ammo_for_his_gun_that_he_collects() {
     assert!(filled.is_some_and(|tick| tick < 60), "{filled:?}");
 }
 
+/// The pickup sounds sent since the last call.
+fn sounds(app: &mut App) -> Vec<PickupSound> {
+    app.world_mut()
+        .resource_mut::<Messages<PickupSound>>()
+        .drain()
+        .collect()
+}
+
 #[test]
 fn a_bolt_crate_s_bolts_reach_his_purse() {
     let mut app = app();
@@ -149,6 +159,9 @@ fn a_bolt_crate_s_bolts_reach_his_purse() {
     });
     app.update();
     assert!(app.world().get_entity(target).is_err());
+    let broke = sounds(&mut app);
+    assert_eq!(broke.len(), 1);
+    assert_eq!(broke[0].kind, PickupSoundKind::CrateBroke(CrateKind::Bolts));
     let scattered: u32 = pickups(&mut app)
         .iter()
         .map(|pickup| match pickup.kind {
@@ -156,13 +169,61 @@ fn a_bolt_crate_s_bolts_reach_his_purse() {
             other => panic!("{other:?}"),
         })
         .sum();
+    // What didn't drop as at most 3 coins is banked, the ones twice (up to 4 more).
+    let banked = app.world().resource::<BoltBank>().0;
     let table = PickupTuning::default().crates;
     let spread = table.bolts / 4;
-    assert!((table.bolts - spread..=table.bolts + spread).contains(&scattered));
-    ticks(&mut app, 120);
+    assert!(
+        (table.bolts - spread..=table.bolts + spread + 4).contains(&(scattered + banked)),
+        "{scattered} + {banked}"
+    );
+    assert!((1..=3).contains(&pickups(&mut app).len()));
+    let coins = pickups(&mut app).len();
+    // Messages last two updates, so they are gathered every tick.
+    let mut collected = Vec::new();
+    for _ in 0..120 {
+        app.update();
+        collected.extend(sounds(&mut app));
+    }
     assert!(pickups(&mut app).is_empty());
     let bolts = app.world().get::<Bolts>(hero).unwrap().0;
     assert_eq!(bolts, 7 + scattered);
+    // Each coin sounds as it is collected, with its value.
+    assert_eq!(collected.len(), coins);
+    assert!(
+        collected
+            .iter()
+            .all(|sound| sound.kind == PickupSoundKind::Bolt && sound.at.is_some())
+    );
+    assert_eq!(
+        collected.iter().map(|sound| sound.bolts).sum::<u32>(),
+        scattered
+    );
+}
+
+#[test]
+fn bolts_no_one_takes_go_to_the_bank() {
+    let mut app = app();
+    hero(&mut app, 0, Vec3::new(40.0, 0.0, 0.0), 150, 0);
+    let target = crate_at(&mut app, CrateKind::Bolts, Vec3::new(0.0, 0.45, 0.0));
+    app.update();
+    app.world_mut().write_message(Destroyed {
+        target,
+        player: 0,
+        weapon: None,
+    });
+    app.update();
+    let before = app.world().resource::<BoltBank>().0;
+    let scattered: u32 = pickups(&mut app)
+        .iter()
+        .map(|pickup| match pickup.kind {
+            PickupKind::Bolts(value) => value,
+            other => panic!("{other:?}"),
+        })
+        .sum();
+    ticks(&mut app, PickupTuning::default().life_ticks as usize + 10);
+    assert!(pickups(&mut app).is_empty());
+    assert_eq!(app.world().resource::<BoltBank>().0, before + scattered);
 }
 
 #[test]
@@ -197,14 +258,27 @@ fn ammo_goes_to_the_nearest_hero_with_room_and_what_does_not_fit_is_lost() {
     assert!(pickups(&mut app).is_empty());
 }
 
+/// Sets player 0's input for the next tick.
+fn input(app: &mut App, actions: &[Action]) {
+    let mut buttons = Buttons::NONE;
+    for &action in actions {
+        buttons.insert(action);
+    }
+    app.world_mut().resource_mut::<PlayerInputs>().0[0] = PlayerInput {
+        held: buttons,
+        pressed: buttons,
+        ..default()
+    };
+}
+
+fn menu(app: &App, hero: Entity) -> Option<OpenMenu> {
+    app.world().get::<VendorMenu>(hero).unwrap().open.clone()
+}
+
 #[test]
-fn the_vendor_s_pad_sells_rounds_for_the_gun_in_hand_while_he_stands_on_it() {
+fn stepping_onto_a_vendor_s_pad_opens_a_menu_that_holds_his_input_and_sells_rounds() {
     let mut app = app();
     let hero = hero(&mut app, 0, Vec3::ZERO, 140, 100);
-    app.world_mut().get_mut::<Arsenal>(hero).unwrap().hand = Hand::Gun {
-        weapon: N60,
-        ticks: 100,
-    };
     let vendor = app
         .world_mut()
         .spawn((
@@ -214,25 +288,40 @@ fn the_vendor_s_pad_sells_rounds_for_the_gun_in_hand_while_he_stands_on_it() {
             Transform::from_xyz(10.0, 0.0, 0.0),
         ))
         .id();
-    app.update();
     ticks(&mut app, 30);
-    // Off the pad, nothing.
-    assert_eq!(ammo(&app, hero), 140);
+    assert_eq!(menu(&app, hero), None);
     app.world_mut()
         .get_mut::<Transform>(vendor)
         .unwrap()
         .translation = Vec3::ZERO;
-    ticks(
-        &mut app,
-        5 * PickupTuning::default().vendor.round_ticks as usize,
-    );
-    let bought = ammo(&app, hero) - 140;
-    assert!((4..=6).contains(&bought), "{bought}");
-    // Up to the maximum, at the gun's price a round.
-    ticks(&mut app, 60);
+    app.update();
+    assert_eq!(menu(&app, hero).unwrap().row(), Row::Rounds(N60));
+
+    // Jump asks how many rounds rather than jumping: as many as fit.
+    input(&mut app, &[Action::Jump]);
+    app.update();
+    let body = app.world().get::<HeroBody>(hero).unwrap();
+    assert!(body.0.gun.selecting);
+    assert!(!matches!(body.0.state, HeroState::Jump(_)));
+    assert_eq!(menu(&app, hero).unwrap().stage, Stage::Count(10));
+    input(&mut app, &[]);
+    app.update();
+    input(&mut app, &[Action::Jump]);
+    app.update();
     assert_eq!(ammo(&app, hero), 150);
     let price = Armory::uya().get(N60).unwrap().level(0).round_price;
     assert_eq!(app.world().get::<Bolts>(hero).unwrap().0, 100 - 10 * price);
+
+    // Quick select closes it, and it stays shut while he stands on the pad.
+    input(&mut app, &[]);
+    app.update();
+    input(&mut app, &[Action::QuickSelect]);
+    app.update();
+    assert_eq!(menu(&app, hero), None);
+    input(&mut app, &[]);
+    ticks(&mut app, 30);
+    assert_eq!(menu(&app, hero), None);
+    assert!(!app.world().get::<HeroBody>(hero).unwrap().0.gun.selecting);
 }
 
 /// An explosive crate of the demo's size whose middle is `centre`, solid to the hero.
@@ -304,12 +393,28 @@ fn a_touched_explosive_crate_goes_off_three_seconds_on() {
         .expect("touching lights it")
         .left;
     assert!((176..=179).contains(&lit), "{lit}");
-    ticks(&mut app, lit as usize - 1);
+    sounds(&mut app);
+    let mut heard = Vec::new();
+    for _ in 0..lit - 1 {
+        app.update();
+        heard.extend(sounds(&mut app).into_iter().map(|sound| sound.kind));
+    }
     assert!(app.world().get_entity(target).is_ok());
     ticks(&mut app, 2);
+    heard.extend(sounds(&mut app).into_iter().map(|sound| sound.kind));
     assert!(app.world().get_entity(target).is_err());
     let blasts = app.world_mut().query::<&Blast>().iter(app.world()).count();
     assert_eq!(blasts, 1);
+    // Beeps with 117, 57 and 13 ticks left (and 177 if lit at 179), then goes off.
+    let beeps = heard
+        .iter()
+        .filter(|kind| **kind == PickupSoundKind::FuseBeep)
+        .count();
+    assert!((3..=4).contains(&beeps), "{heard:?}");
+    assert_eq!(
+        heard.last(),
+        Some(&PickupSoundKind::CrateBroke(CrateKind::Explosive))
+    );
 }
 
 #[test]
@@ -356,8 +461,11 @@ fn a_doubler_crate_doubles_the_bolts_of_the_crates_he_breaks() {
             other => panic!("{other:?}"),
         })
         .sum();
+    // Doubled before the quarter more or less (`moby_killed`), and what didn't drop as
+    // coins banked, the ones twice.
+    let banked = app.world().resource::<BoltBank>().0;
     assert!(
-        (66..=110).contains(&total) && total.is_multiple_of(2),
-        "{total}"
+        (66..=110 + 4).contains(&(total + banked)),
+        "{total} + {banked}"
     );
 }

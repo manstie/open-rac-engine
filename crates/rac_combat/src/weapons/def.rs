@@ -143,6 +143,14 @@ pub struct WeaponDef {
     /// The rounds one of its ammo pickups holds (`crate::pickups`); 0: it has none.
     #[serde(default)]
     pub pickup_rounds: u32,
+    /// What the vendor asks for it, in bolts (its V1 row's +0x7C); 0: the vendor doesn't
+    /// sell it (`crate::pickups::vendor`).
+    #[serde(default)]
+    pub price: u32,
+    /// What the vendor asks for its upgrade to the bought level, Mega (that row's +0x7C);
+    /// 0: none.
+    #[serde(default)]
+    pub upgrade_price: u32,
     /// Ammo crates throw out its ammo. UYA's never do for the Flux Rifle, Shield Charger,
     /// Agents of Doom and RY3NO (`ammo_crate_gun_allowed`, 0x440E38).
     #[serde(default = "yes")]

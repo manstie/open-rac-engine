@@ -36,8 +36,8 @@ pub enum Surface {
     Checkpoint,
     /// Water to swim in, its top the surface.
     Water,
-    /// A box that sells rounds for the gun of a hero standing in it (`rac_combat::Vendor`),
-    /// shown as a pad at its centre.
+    /// A box that opens the vendor's menu for a hero stepping into it
+    /// (`rac_combat::Vendor`), shown as a pad at its centre.
     Vendor,
 }
 
@@ -324,8 +324,8 @@ pub fn greybox_level() -> Vec<Piece> {
         )
     });
 
-    // A vendor's pad beside the melee yard (P1.10): standing on it tops up the gun in hand
-    // for bolts.
+    // A vendor's pad beside the melee yard (P1.10): stepping onto it opens the vendor's
+    // menu, where bolts buy guns and rounds.
     pieces.push(Piece::new(
         "vendor pad",
         Surface::Vendor,

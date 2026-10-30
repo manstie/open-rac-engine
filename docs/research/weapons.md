@@ -105,7 +105,8 @@ Shock Blaster and Nitro Launcher come later and cost nothing (price 0).
   - `ammo_get` (0x50DA08) returns 1 for guns without ammo.
   - `ammo_add` (0x50D980) adds and caps at the maximum, returning what didn't fit.
   - **Pickups** (0x30E7F8): see "Ammo pickups, crates and the vendor".
-  - **The vendor** sells rounds at +0x84 bolts each, up to the maximum.
+  - **The vendor** sells rounds at +0x84 bolts each, up to the maximum ("The vendor's
+    menu").
 - **Levels:** a row's +0x46 is the next level's row, so the level-ups of one gun form a
   chain. `item_weapon_rows` holds the current row, so levelling up just moves the item
   along its chain:
@@ -166,7 +167,8 @@ Read in Ghidra on the Veldin image; names in `symbols.toml`. Nothing here is tra
 - **A bolt crate** pays out through `moby_killed`: its bolts times a share by how often
   that crate was broken before (100, 40, 20, then 10%; 0x1D60C8), doubled per
   `bolt_multiplier_exp`, randomised by a quarter either way (±1 under 8), split into coins
-  of 30000 down to 1 by `bolts_drop`, at most 1–4 coins, the rest banked for later kills.
+  of 30000 down to 1 by `bolts_drop`, at most 2 or 3 coins in a quiet scene, the rest
+  banked for later kills ("The bolt bank", below).
 - **The explosive crate** (0x1F9, `crate_update` 0x33A5C0) [code, 2026-10-29]:
   - touched (the moby the hero stands on, 0x1A4E70, or runs into, 0x1A4E6C, 0x1A4F3C,
     0x1A5118, or a record flagged 0x2000000), its fuse is lit at 179 frames (0xB3); while
@@ -204,8 +206,8 @@ Read in Ghidra on the Veldin image; names in `symbols.toml`. Nothing here is tra
     / 3 from there), at least 1 (4 for 0x200), times 2 or a level's factor only in
     challenge mode; a sound (class 0x1F5's or 0x200's). The others just arrive. The
     holder goes 300 frames after letting them out.
-  - The help measure (0x3FE420) is a weighted sum of the level's stats (0x2C01A0,
-    0x1C5290; deaths and the like, not read), 0 from level 30 and in challenge mode.
+  - The help measure (0x3FE420) is UYA's count of recent deaths, weighted: see "The help
+    measure", below.
 - **The doubler crate** (0x1F7, `crate_drop`) [code, 2026-10-29]: adds 1 to
   `bolt_multiplier_exp` (no cap) and 1800 frames to `bolt_multiplier_timer`, so a second
   stacks both, and shows a help message the first time (0x1406). The timer counts down
@@ -221,6 +223,158 @@ Read in Ghidra on the Veldin image; names in `symbols.toml`. Nothing here is tra
   maximum ammo matches all 48 rows.
 - Also seen [code, low confidence]: the wrench moby in its state 10 sweeps up bolts and
   ammo within 2.7 u (`wrench_pickup_sweep`, 0x337E58).
+
+### Their sounds [code, data, UYA NTSC, 2026-10-30]
+
+Which entry of which class's sound table each plays (`moby_play_sound` 0x4A7200 on the
+moby's own class, `class_sound_play` 0x4A72A8 by class; tables as `effects.md`, "Sounds",
+reads them). Veldin's core has tables for every class here but 0x1F7, 0x1F9, 0x1FA,
+0x200 and the coins of 500 and up [data, `openrac-tool sounds --level 1`].
+
+| What | Where | Sound |
+|---|---|---|
+| A crate breaks | `crate_break` 0x33BE30 | its class's 0; the ammo crate (0x1FF) its 1, 0x1FA the bolt crate's (0x1F4) 0. Not within a frame of the last crate's (0x1E1914). |
+| An explosive crate's fuse beeps | `crate_update` 0x33A5C0 | its class's 1, with frames left % 60 = 57, and at 13 |
+| The doubler runs down | ("The doubler crate", above) | class 0x1F7's 1, at 300, 240, 180, 120, 60 and 1 frames left |
+| A bolt is collected | `bolt_coin_update` 0x2F7930 | its class's 0: 0xD under 20 bolts, 0xF under 50, 0x10 under 100, 0x11 under 500, then 0x12, 0x13, 0x1D5C, 0x1D5D, 0x1BA5 (`bolt_coin_spawn` 0x2F8F60); each its own sound |
+| Ammo is taken | `ammo_pickup_update` 0x30E7F8 | its class's 0 (0xCDB from crates), not within 11 frames of the last (0x1E17A8) |
+| A nanotech orb arrives | 0x301F58 | class 0x1F5's 1, or 0x200's for the purple kind |
+| The vendor's menu | 0x4B7948 to 0x4BA3E0 | the vendor's class, 0xB: 3 opening; 1 moving between rows; 2 refused; 1 as the count of rounds steps (when it changes, and only on held frames that are multiples of 4 from 16); 0 backing out, or too few bolts on buying; 7 bought; 5 closing |
+
+### The bolt bank [code, UYA NTSC, 2026-10-30]
+
+Read for the kit (PLAN P1.10) in Veldin's build; decompiles in `cache/ghidra/out/bank/`.
+Bolts that don't drop as coins go into `bolt_bank` (0x14269C) and come back with later
+kills, so few are lost.
+
+- **Every kill pays from it:** `moby_killed` (0x4412D0), unless flagged 0x1000, takes
+  (bank + 49) / 50 out of the bank, a fiftieth rounded up, and adds it to the kill's
+  bolts after the multiplier: bolts × (challenge multiplier `<<` `bolt_multiplier_exp`)
+  + the share. That total is randomised by a quarter either way (±1 from 2 to 7, none
+  under 2) and handed to `bolts_drop` with flag 8 and the kill's coin cap.
+- **`bolts_drop`** (0x44A0E8; args z, moby, min, max, flags, −1, coins) picks the
+  amount at random in min..max (min at least 1). With flag 8 it drops at most the cap's
+  coins, the largest that fit first (30000, 10000, 3000, 1000, 500, 100, 50, 20, 5, then
+  1), and adds what is left to the bank, divided by the challenge multiplier
+  (0x1426BA + 1) so the bank holds unmultiplied bolts. Once the cap is spent the rest is
+  banked. The coins of 1 are the exception: as many as fit are dropped, but the
+  remainder isn't reduced by them, so they are banked as well (up to 4 bolts more than
+  were paid; checked in the listing, 0x44A54C–0x44A584). Without flag 8 every bolt drops.
+- **The crate's cap** (`crate_drop`, 0x33B940) is 0 or 1 at random plus 2 while
+  `crate_debris_recent` (0x1DCFF0) is 10 or under, 1 up to 20, else 0. That count goes up
+  as crates break (`crate_break` 0x33BE30: by 4, 3, 2 or 1 as `moby_free_slots`
+  0x1DFFC0 is 251, 201, 151 or 101 and over and the count is low enough, else not at
+  all) and down by a step a 4 frames (reset after 240 frames without one), so it limits
+  coins while the scene is busy. Enemies pass their own caps (one passes 3).
+- **Coins out of the way are banked too:** a coin that would spawn 64 u or more from the
+  camera (0x1E2A40) is banked instead (0x2F8F60), and a coin in its state 3 more than
+  32 u from the hero is banked and removed (`bolt_coin_update` 0x2F7930; it also tests
+  the coin's place in the moby list against 0x1E00A0, not read).
+- **Bolts per active minute:** for drops under 500 bolts, while 0x1D6714 is set and the
+  drop isn't flagged 0x20, `bolts_drop` scales the amount by the level's bolts per
+  active minute, r = 0x1A9280[level] × 3600 / 0x1A91E8[level] (halved if any of
+  0x142692–0x142693 is set): × 5 under 181; × (380 − r) / 40 from 181 to 299 (capped at
+  1000 bolts, 2000 if 0x142693 is set); unchanged from 300 to 600; × (720 − r) / 160
+  from 601 to 700 and ÷ 10 above (at least 1). 0x1A9280 counts bolts collected
+  (`bolt_pickup_collect` 0x2F8918) and 0x1A91E8 frames played (0x4B5258, not while the pad
+  has been untouched for 900 frames), both only while 0x1D6714 is set; `bolts_drop` sets
+  0x1D6714 from bit 7 of 0x1DFF00[the killed moby's +0xB0] for classes outside 500–540.
+  What +0xB0 indexes isn't read; in the savestates read it is 0 and both counts are 0.
+- **The challenge multiplier** (0x1426BA, 0 to 19, the bolt multiplier less one):
+  0x4410E8, in challenge mode, counts kills in 0x1426BB and raises it once they reach
+  half the multiplier.
+- **An XP bank alongside:** 0x142698 pays out the same way, a fiftieth rounded up a
+  kill, into the gun's XP; 0x3177F8 (a trigger whose class isn't read) adds rewards from
+  the tables 0x1EFD00 (XP) and 0x1EFDC0 (bolts) to both banks, once per entry.
+
+### The vendor's menu [code, UYA NTSC, 2026-10-30]
+
+Read for the kit's vendor (PLAN P1.10) in Veldin's build; decompiles in
+`cache/ghidra/out/vendor/`.
+
+- **Opening** (`vendor_open`, 0x4B7948, called by the vendor moby's code at 0x456C70):
+  the vendor has four modes in 0x244790, 0 weapons, 2 ship upgrades, 3 armor and 5 skins,
+  chosen by its kind or the moby's pvars; kind 4 is weapons with rounds priced at row
+  +0x86 (`vendor_round_mode`). It sets game mode 5, so the world stops while it is open,
+  and puts its own camera in front of the vendor.
+- **The weapons list** (0x4B6E88, rebuilt after each purchase) fills 0x244880, 0x14 bytes
+  a row (0x4B6D60: +0x00 the item, +0x04 the kind, 1 rounds and 0 an item, +0x0C text
+  0xCDB, +0x11 the Mega flag; 0x4B6DA8 writes the two special rows, setting +0x12 on the
+  first and +0x13 on the last), from the vendor's
+  stock: 32 halfwords at 0x1D54D8, each an item (low 14 bits) with bit 15 set if owned and
+  bit 14 set if not yet for sale. In order:
+  - a **rounds row** for each owned gun that has a price a round (+0x84) and isn't full
+    (ammo 0x1427F0 under the maximum, +0x8A); kind 4 leaves out items 0x10, 0x11, 0x13,
+    0x15 and 0x16;
+  - the first special row (item 0, kind 1, +0x12 set; what it does isn't read);
+  - an **item row** for each gun for sale, not owned and without bit 14; items 0x10,
+    0x11, 0x13, 0x15 and 0x16 only when 0x417EA0 holds (taken to be challenge mode), and
+    then also a **Mega row** (+0x11 set) for each owned gun at level 4 except item
+    0x97;
+  - unless a condition on 0x244EBC and 0x1D545C holds, the last special row (item 1,
+    kind 0, +0x13 set; not read).
+  The selection stays on the item it was on when the list is rebuilt.
+- **The per-frame menu** (0x4BA3E0, while 0x244740 is 1) counts how long Left and Right
+  are held (0x1E1008, 0x1E100C), runs the list's buttons (0x4B9A80 for weapons, armor and
+  ship upgrades), the confirm screen (`vendor_confirm`, 0x4B9910) and the vendor's lines
+  (0x4BE2F8), then draws. Buttons are the game's mask (libuya's pad bits byte-swapped:
+  Left 0x8000, Right 0x2000, Cross 0x40, Triangle 0x10, Square 0x80), new presses from the
+  pad's +0x1C4 and held ones from +0x1C0.
+- **Moving between rows:** Right selects the next row and Left the one before (0x2447C0),
+  with no wrap at either end. Held, they step again once the held count is past 15 and is
+  1 modulo 10, that is on the 21st, 31st, 41st… frame. Each step also slides the row strip
+  by 0x38 (0x2447AC) and won't step while it is still more than 0x38 off.
+- **Cross** (newly pressed, not held from the last frame) is refused with sound 2 unless
+  the row can be bought:
+  - an item or Mega row when its price is at most the bolts (0x142660);
+  - a rounds row when the gun isn't full and the bolts cover one round (+0x84);
+  - the buy-all row when its total is above 0 and at most the bolts.
+  Otherwise it sets 0x2447C4, the confirm stage, which stops the rows from moving.
+- **Triangle** closes the menu (0x4B95D8). Square, when 0x1D545C is 3, closes it too and
+  keeps the row's item at 0x244E9C (not read further).
+- **Buying rounds** (`vendor_buy` states 2 and 4): a count from 1 that Left lowers and
+  Right raises, up to the room left or what the bolts buy at the price a round, whichever
+  is less; held, it steps again every 8 frames after 16 and every frame after 48, ticking
+  a sound every 4 frames. Cross buys: price × count off the bolts (only for the rounds
+  that fit), the list is rebuilt and message 0x17A shows; with too few bolts, message
+  0x17B instead. Triangle backs out.
+- **Buy all** (the first special row): its total, worked out each frame it is shown
+  (0x4BEED8), is the sum over every owned gun with a price a round of (maximum − ammo) ×
+  that price (+0x86 instead in `vendor_round_mode`, which leaves out the five items above).
+  Cross fills them all for that total.
+- **Buying an item or its Mega upgrade:** priced by 0x4B6C98: the gun's row +0x7C, or for a
+  Mega row its level-5 row's +0x7C; 9/10 of that when 0x244EBC is set (from bit 0 of
+  0x1426A8 by 0x4BBD58; what sets that isn't read). Given with `item_give` or
+  `weapon_buy_mega` (0x4176F8), then the list is rebuilt.
+- **The screen** (0x4BEED8) shows the row's name, description and price, the bolts, and
+  greys the price when the bolts fall short; a rounds row shows ammo / maximum.
+- Not read: the last special row and the vendor's lines (0x4BE2F8, on 0x244E84), what the
+  vendor moby (0x456C70) needs to open, and the screens' layout.
+
+### The help measure [code, UYA NTSC, 2026-10-30]
+
+UYA eases a level where the hero keeps dying: the nanotech crate's amount and the hero's
+damage (`hero-controller.md`, "Damage") depend on `help_measure` (0x3FE420). Decompiles
+in `cache/ghidra/out/help/`.
+
+- **Deaths by area:** `area_deaths` (0x1C5290) holds an s32 for each of 16 areas of each
+  level (0x40 bytes a level). `hero_death_done` (0x4EA040) adds 1 to the level's deaths
+  (0x143D70 + level × 4) at every death, and 1 to the area the hero is in (0x1A71D7, 0xFF
+  for none) only from the level's 900th frame (1800th after falling out of the level,
+  state 121, or in 126) and where the area's flags (0x1BBC40 + level × 16 + area) lack
+  0x80.
+- **The measure** of a level and area is 0 in challenge mode (0x142692), from level 30 or
+  for area 16 and up; otherwise the sum over 10 records (0x2C01A0 + level × 0x280 + area ×
+  0x28; each a u8 level, a u8 area and an s16 weight) of weight × that area's deaths. So
+  an area can weigh deaths in its neighbours too.
+- **Checkpoints** (0x325A60, its moby's +0xB0 the area): reaching one other than the last
+  (0x1DCA54) takes 100 / its area's first weight, rounded up, from that area's deaths
+  (0x3FE520), at least 0, and makes it the hero's area.
+- In Veldin's savestate [data] area 0 has one record, its own deaths × 50, and the
+  others none, so every death there adds 50; area 1's flags have 0x80, so deaths there
+  aren't counted. The nanotech crate then gives his most / 4 after 2 deaths and / 3
+  after 4, and from the 7th death his damage falls by 7% for each past 6, at most by
+  half.
 
 ## Mods [code for the flags; text for what they do]
 
@@ -1972,12 +2126,45 @@ profiles' `gun` section):
   expires [code]. In co-op the nearest hero with room takes it. Ammo crates throw 1
   pickup, or 2 once in 5, for one gun of the breaker's, not full if any, never the Flux
   Rifle (`crate_ammo`) [code]; bolt crates pay their bolts a quarter more or less in
-  coins of 30000 down to 1 [code], all of them, where UYA drops a few and banks the rest
-  [simplified]. The demo's enemies drop no ammo, as UYA's don't. The crates' bolts (44, one
-  of Veldin's sizes) [data]; how pickups pop out and bounce, and how bolts and nanotech
-  fly in and expire, are the kit's [placeholder]. Rounds per pickup (+0x88) and the
-  vendor's price a round (+0x84) are [data]; the vendor's pad, selling a round every 3
-  ticks, is the kit's own.
+  coins of 30000 down to 1 [code].
+- **The bolt bank** (`rac_combat::pickups::BoltBank`, P1.10, 2026-10-30), by "The bolt
+  bank" [code]: one bank for the world. Each broken crate takes a fiftieth of it, rounded
+  up; a bolt crate adds that to its bolts (after the doubler), drops at most 2 or 3
+  coins at random (`most_coins`) and banks the rest, the coins of 1 twice as the game
+  does; the other crates bank their share again, a quarter more or less. The demo's
+  enemy kills drop the share as coins. Bolts that expire uncollected are banked, in
+  place of UYA's banking of coins far from the hero or the camera [placeholder]. Not
+  built: fewer coins while crate debris is recent, the bolts-per-minute scaling, the
+  challenge multiplier, the XP bank. The demo's enemies drop no ammo, as UYA's don't.
+  The crates' bolts (44, one of Veldin's sizes) [data]; how pickups pop out and bounce,
+  and how bolts and nanotech fly in and expire, are the kit's [placeholder]. Rounds per
+  pickup (+0x88) and the vendor's price a round (+0x84) are [data].
+- **The vendor's menu** (`rac_combat::pickups::vendor`, P1.10, 2026-10-30), by "The
+  vendor's menu" [code], over the running world as the ring is (PLAN §5, 2026-10-22): it
+  holds the hero's input while open (`GunHand::selecting`).
+  - Its rows are rebuilt each tick, in the armory's order: rounds for owned guns not
+    full, buy-all, guns with a price he doesn't own, and Mega upgrades with
+    `upgrades` on. Each gun's price and Mega price (+0x7C) are [data].
+  - Left and Right are the weapon buttons or the move stick past 64 [placeholder]; the
+    rest follows UYA's rules: no wrap, repeats on the 21st, 31st… tick held, Cross
+    refused unless the row can be bought, a count of rounds from what fits and the bolts
+    buy (repeating at 16, 24, 32, 40 and every tick from 48), a confirm for the other
+    rows. Jump is Cross; quick select is Triangle, backing out or closing.
+  - The pad opens it as a living hero's feet come in, not again until he steps off and
+    on, and it closes as he dies [placeholder].
+  - Not done: UYA's stock growing with the story (the kit sells every gun with a
+    price), the challenge-only five, the 9/10 discount, the last special row.
+- **Their sounds** (`rac_combat::pickups::PickupSound`, P1.10, 2026-10-30), by "Their
+  sounds" [code]: the kit sends one as a crate breaks or blows, a fuse or the doubler
+  beeps (on UYA's frames), a bolt (with its coin's value), ammo or a nanotech orb
+  reaches a hero, and for each of the vendor's menu's events, the count's ticks on
+  UYA's frames. The demo plays a placeholder for each (`sounds.ron`). With the UYA
+  disc, `openrac`'s `gun_sounds.rs` plays the game's entries from Veldin's core and
+  bank in their place, with the crates' 2- and ammo's 11-frame gaps, coins by value
+  (those of 500 and up as 0x11's, which Veldin lacks [placeholder]) and the vendor's at
+  full volume; checked on the disc [verified on UYA NTSC: 14 of the 18 found, a crate's
+  rendered audibly]. Veldin has no explosive or doubler crate, so their breaks and beeps
+  stay placeholders, and the purple nanotech isn't in the kit.
 - **The other crates** (`rac_combat::pickups`, P1.10, 2026-10-29), as "Ammo pickups,
   crates and the vendor" reads them [code]:
   - a nanotech crate leaves its eight orbs where it stood (`nanotech.rs`); they are let

@@ -5,17 +5,30 @@
 //! every pickup, the crates' included, with placeholder shapes made in code.
 
 use bevy::prelude::*;
-use rac_combat::pickups::{self, BoltMultiplier, NanotechOrbs, Pickup, PickupKind, PickupTuning};
+use rac_combat::pickups::{
+    self, BoltBank, BoltMultiplier, NanotechOrbs, Pickup, PickupKind, PickupTuning, kill_coins,
+};
 use rac_sim::SimRng;
 
 use crate::enemy::brain::between;
 use crate::enemy::def::DropTable;
 
 /// What a dead enemy with `table` leaves, killed by a hero with the doubling `doubled`:
-/// its bolts, and nanotech by chance.
-pub fn drops(table: &DropTable, doubled: &BoltMultiplier, rng: &mut SimRng) -> Vec<PickupKind> {
+/// its bolts, the bank's share as UYA's kills pay it (`moby_killed`; all of it in coins,
+/// the demo's enemies having no most), and nanotech by chance.
+pub fn drops(
+    table: &DropTable,
+    doubled: &BoltMultiplier,
+    bank: &mut BoltBank,
+    rng: &mut SimRng,
+) -> Vec<PickupKind> {
     let bolts = between(rng, table.bolts);
     let mut kinds = vec![PickupKind::Bolts(doubled.apply(table.bolt_value)); bolts as usize];
+    kinds.extend(
+        kill_coins(0, None, bank, rng)
+            .into_iter()
+            .map(PickupKind::Bolts),
+    );
     if rng.unit_f32() < table.nanotech_chance {
         kinds.push(PickupKind::Nanotech(table.nanotech));
     }
@@ -197,7 +210,12 @@ mod tests {
         let mut rng = SimRng::new(7, 0);
         let (mut counts, mut nanotech) = (Vec::new(), 0);
         for _ in 0..400 {
-            let kinds = drops(&TABLE, &BoltMultiplier::default(), &mut rng);
+            let kinds = drops(
+                &TABLE,
+                &BoltMultiplier::default(),
+                &mut BoltBank::default(),
+                &mut rng,
+            );
             let bolts = kinds
                 .iter()
                 .filter(|kind| **kind == PickupKind::Bolts(5))

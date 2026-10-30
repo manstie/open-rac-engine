@@ -1,9 +1,12 @@
 //! Crates (PLAN.md P1.10): targets that break when their hit points run out, as UYA's do
 //! on any hit, and scatter what they hold from their middle (`weapons.md`, "Ammo pickups,
 //! crates and the vendor"):
-//! - a bolt crate its bolts, a quarter more or less at random, in coins of 30000 down to 1
-//!   (`moby_killed`, `bolts_drop`). UYA drops at most a few coins and banks the rest for
-//!   later kills; the kit drops them all [simplified];
+//! - a bolt crate its bolts and the bank's share, a quarter more or less at random, in at
+//!   most 2 or 3 coins of 30000 down to 1, banking the rest ([`BoltBank`]; `moby_killed`,
+//!   `bolts_drop`). UYA drops fewer while many crates have broken lately
+//!   (`crate_debris_recent`), which the kit leaves out [simplified]. Every other crate
+//!   takes the bank's share too and, dropping no coins, banks it again, a quarter more
+//!   or less;
 //! - an ammo crate 1 ammo pickup, or 2 once in 5, for one gun of the hero who broke it, at
 //!   random among those not full, else among all, never one crates don't serve
 //!   (`ammo_crate_pick`, 0x440E98);
@@ -24,7 +27,10 @@ use serde::{Deserialize, Serialize};
 
 use super::explosive::Fuse;
 use super::nanotech::{NanotechOrbs, OrbCluster};
-use super::{BoltMultiplier, PickupKind, PickupTuning, between, scatter, spawn};
+use super::{
+    BoltBank, BoltMultiplier, PickupKind, PickupSound, PickupSoundKind, PickupTuning, between,
+    scatter, spawn,
+};
 use crate::weapons::{Armory, Arsenal, WeaponId};
 use crate::{Destroyed, Hurtbox, position};
 
@@ -32,7 +38,9 @@ use crate::{Destroyed, Hurtbox, position};
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Crate(pub CrateKind);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
 pub enum CrateKind {
     /// Bolts: the games' commonest crate.
     #[default]
@@ -52,6 +60,8 @@ pub enum CrateKind {
 pub struct CrateTable {
     /// A bolt crate's bolts.
     pub bolts: u32,
+    /// The most coins a bolt crate drops, at random in this range; the rest is banked.
+    pub most_coins: (u32, u32),
     /// An ammo crate throws out 2 pickups once in this many, else 1.
     pub two_pickups_in: u32,
     /// Ticks a doubler crate adds to its breaker's doubling.
@@ -85,6 +95,45 @@ pub fn coins(mut bolts: u32) -> Vec<u32> {
     coins
 }
 
+/// `bolts` as at most `most` coins, the largest that fit first, and what is left to bank
+/// (`bolts_drop` with its flag 8, 0x44A0E8) [code]. As in the game, the coins of 1 that
+/// fit are dropped without being taken off what is left, so they are banked as well.
+pub fn capped_coins(mut bolts: u32, mut most: u32) -> (Vec<u32>, u32) {
+    let mut coins = Vec::new();
+    for coin in COINS {
+        if most == 0 {
+            break;
+        }
+        let count = (bolts / coin).min(most);
+        coins.extend(std::iter::repeat_n(coin, count as usize));
+        most -= count;
+        if coin > 1 {
+            bolts -= coin * count;
+        }
+    }
+    (coins, bolts)
+}
+
+/// The coins a kill of `bolts` drops, as `moby_killed` pays (0x4412D0) [code]: the bank's
+/// share added, a quarter more or less, then at most `most` coins with the rest banked,
+/// or with no most, all of it in coins.
+pub fn kill_coins(
+    bolts: u32,
+    most: Option<u32>,
+    bank: &mut BoltBank,
+    rng: &mut SimRng,
+) -> Vec<u32> {
+    let paid = bolts_paid(bolts.saturating_add(bank.pay_out()), rng);
+    match most {
+        Some(most) => {
+            let (coins, left) = capped_coins(paid, most);
+            bank.0 = bank.0.saturating_add(left);
+            coins
+        }
+        None => coins(paid),
+    }
+}
+
 /// The gun an ammo crate broken by a hero with `arsenal` throws ammo out for: one of his
 /// guns that uses ammo and that crates serve, at random among those not full, else among
 /// all; `None` if he has none.
@@ -113,22 +162,32 @@ pub fn ammo_crate_gun(arsenal: &Arsenal, armory: &Armory, rng: &mut SimRng) -> O
 }
 
 /// The pickups a crate of `kind` throws out, broken by a hero with the guns `breaker` and
-/// the doubling `doubled`. An ammo crate broken by a hero without guns crates serve throws
-/// out nothing, nor do the crates that hold no pickups.
+/// the doubling `doubled`, paying out of and into `bank`. An ammo crate broken by a hero
+/// without guns crates serve throws out nothing, nor do the crates that hold no pickups.
 pub fn contents(
     kind: CrateKind,
     table: &CrateTable,
     breaker: Option<&Arsenal>,
     doubled: &BoltMultiplier,
+    bank: &mut BoltBank,
     armory: &Armory,
     rng: &mut SimRng,
 ) -> Vec<PickupKind> {
-    match kind {
-        CrateKind::Bolts => coins(doubled.apply(bolts_paid(table.bolts, rng)))
+    if kind == CrateKind::Bolts {
+        let most = between(rng, table.most_coins);
+        return kill_coins(doubled.apply(table.bolts), Some(most), bank, rng)
             .into_iter()
             .map(PickupKind::Bolts)
-            .collect(),
-        CrateKind::Nanotech | CrateKind::Explosive | CrateKind::Doubler => Vec::new(),
+            .collect();
+    }
+    // `crate_drop` passes every other crate to `moby_killed` with no bolts and no coins.
+    if kind != CrateKind::Explosive {
+        kill_coins(0, Some(0), bank, rng);
+    }
+    match kind {
+        CrateKind::Bolts | CrateKind::Nanotech | CrateKind::Explosive | CrateKind::Doubler => {
+            Vec::new()
+        }
         CrateKind::Ammo => {
             let Some(weapon) = breaker.and_then(|arsenal| ammo_crate_gun(arsenal, armory, rng))
             else {
@@ -152,7 +211,9 @@ pub(crate) fn break_crates(
     tuning: Res<PickupTuning>,
     armory: Res<Armory>,
     mut rng: ResMut<SimRng>,
+    mut bank: ResMut<BoltBank>,
     mut destroyed: MessageReader<Destroyed>,
+    mut sounds: MessageWriter<PickupSound>,
     mut crates: Query<(
         &Crate,
         Option<&Hurtbox>,
@@ -171,7 +232,7 @@ pub(crate) fn break_crates(
             continue;
         };
         let middle = at + Vec3::Y * hurtbox.map_or(0.0, |hurtbox| hurtbox.height);
-        let breaker = heroes
+        let mut breaker = heroes
             .iter_mut()
             .find(|(hero, ..)| hero.player == event.player);
         match kind.0 {
@@ -189,7 +250,7 @@ pub(crate) fn break_crates(
                 continue;
             }
             CrateKind::Doubler => {
-                if let Some((_, _, Some(mut doubled))) = breaker {
+                if let Some((_, _, Some(doubled))) = &mut breaker {
                     doubled.add(tuning.crates.doubler_ticks);
                 }
             }
@@ -200,17 +261,25 @@ pub(crate) fn break_crates(
                     SimTransform::from_translation(middle),
                 ));
             }
-            CrateKind::Bolts | CrateKind::Ammo => {
-                let (arsenal, doubled) = match &breaker {
-                    Some((_, arsenal, doubled)) => {
-                        (*arsenal, doubled.as_deref().copied().unwrap_or_default())
-                    }
-                    None => (None, BoltMultiplier::default()),
-                };
-                let kinds = contents(kind.0, &tuning.crates, arsenal, &doubled, &armory, &mut rng);
-                spawn(&mut commands, scatter(middle, kinds, &tuning, &mut rng));
-            }
+            CrateKind::Bolts | CrateKind::Ammo => {}
         }
+        let (arsenal, doubled) = match &breaker {
+            Some((_, arsenal, doubled)) => {
+                (*arsenal, doubled.as_deref().copied().unwrap_or_default())
+            }
+            None => (None, BoltMultiplier::default()),
+        };
+        let kinds = contents(
+            kind.0,
+            &tuning.crates,
+            arsenal,
+            &doubled,
+            &mut bank,
+            &armory,
+            &mut rng,
+        );
+        spawn(&mut commands, scatter(middle, kinds, &tuning, &mut rng));
+        sounds.write(PickupSound::at(PickupSoundKind::CrateBroke(kind.0), middle));
         commands.entity(event.target).despawn();
     }
 }
@@ -226,6 +295,7 @@ mod tests {
 
     const TABLE: CrateTable = CrateTable {
         bolts: 44,
+        most_coins: (2, 3),
         two_pickups_in: 5,
         doubler_ticks: 1800,
     };
@@ -246,21 +316,110 @@ mod tests {
         assert_eq!(bolts_paid(0, &mut rng), 0);
     }
 
+    fn total(held: &[PickupKind]) -> u32 {
+        held.iter()
+            .map(|kind| match kind {
+                PickupKind::Bolts(value) => *value,
+                other => panic!("{other:?}"),
+            })
+            .sum()
+    }
+
     #[test]
-    fn a_bolt_crate_holds_its_bolts_in_coins() {
+    fn capped_coins_take_the_largest_first_and_bank_the_rest_and_the_ones_twice() {
+        assert_eq!(capped_coins(44, 2), (vec![20, 20], 4));
+        // The ones that fit are dropped and banked both, as `bolts_drop` does.
+        assert_eq!(capped_coins(44, 3), (vec![20, 20, 1], 4));
+        assert_eq!(capped_coins(7, 3), (vec![5, 1, 1], 2));
+        assert_eq!(capped_coins(31_234, 2), (vec![30000, 1000], 234));
+        assert_eq!(capped_coins(100, 0), (vec![], 100));
+        assert_eq!(capped_coins(0, 3), (vec![], 0));
+    }
+
+    #[test]
+    fn a_kill_pays_a_fiftieth_of_the_bank_rounded_up() {
+        let mut bank = BoltBank(101);
+        assert_eq!(bank.pay_out(), 3);
+        assert_eq!(bank.0, 98);
+        let mut bank = BoltBank(1);
+        assert_eq!((bank.pay_out(), bank.0), (1, 0));
+        assert_eq!((bank.pay_out(), bank.0), (0, 0));
+        // All of it in coins without a most, nothing banked.
+        let mut rng = SimRng::new(3, 0);
+        let mut bank = BoltBank(5000);
+        let coins = kill_coins(0, None, &mut bank, &mut rng);
+        let paid: u32 = coins.iter().sum();
+        assert!((75..=125).contains(&paid), "{paid}");
+        assert_eq!(bank.0, 4900);
+    }
+
+    #[test]
+    fn a_bolt_crate_drops_at_most_two_or_three_coins_and_banks_the_rest() {
         let armory = Armory::uya();
         let mut rng = SimRng::new(3, 0);
+        let mut most = 0;
         for _ in 0..50 {
-            let held = contents(CrateKind::Bolts, &TABLE, None, &PLAIN, &armory, &mut rng);
-            let total: u32 = held
-                .iter()
-                .map(|kind| match kind {
-                    PickupKind::Bolts(value) => *value,
-                    other => panic!("{other:?}"),
-                })
-                .sum();
-            assert!((33..=55).contains(&total), "{total}");
+            let mut bank = BoltBank::default();
+            let held = contents(
+                CrateKind::Bolts,
+                &TABLE,
+                None,
+                &PLAIN,
+                &mut bank,
+                &armory,
+                &mut rng,
+            );
+            // At most 2 or 3: 50 bolts is one coin.
+            assert!((1..=3).contains(&held.len()), "{held:?}");
+            most = most.max(held.len());
+            // Dropped and banked come to its bolts a quarter more or less, and up to 4
+            // more for the ones banked twice.
+            let paid = total(&held) + bank.0;
+            assert!((33..=55 + 4).contains(&paid), "{paid}");
         }
+        assert_eq!(most, 3);
+        // The bank's share comes out with the next crate.
+        let mut bank = BoltBank(1000);
+        contents(
+            CrateKind::Bolts,
+            &TABLE,
+            None,
+            &PLAIN,
+            &mut bank,
+            &armory,
+            &mut rng,
+        );
+        assert!(bank.0 >= 980 && bank.0 < 1000 + 40, "{}", bank.0);
+    }
+
+    #[test]
+    fn other_crates_bank_the_share_again_a_quarter_more_or_less() {
+        let armory = Armory::uya();
+        let mut rng = SimRng::new(3, 0);
+        let mut bank = BoltBank(1000);
+        let held = contents(
+            CrateKind::Doubler,
+            &TABLE,
+            None,
+            &PLAIN,
+            &mut bank,
+            &armory,
+            &mut rng,
+        );
+        assert!(held.is_empty());
+        // 20 out, 15 to 25 back in.
+        assert!((995..=1005).contains(&bank.0), "{}", bank.0);
+        let mut bank = BoltBank(1000);
+        contents(
+            CrateKind::Explosive,
+            &TABLE,
+            None,
+            &PLAIN,
+            &mut bank,
+            &armory,
+            &mut rng,
+        );
+        assert_eq!(bank.0, 1000);
     }
 
     #[test]
@@ -272,22 +431,30 @@ mod tests {
         assert_eq!((doubled.exp, doubled.ticks), (2, 3600));
         let mut rng = SimRng::new(3, 0);
         for _ in 0..50 {
-            let held = contents(CrateKind::Bolts, &TABLE, None, &doubled, &armory, &mut rng);
-            let total: u32 = held
-                .iter()
-                .map(|kind| match kind {
-                    PickupKind::Bolts(value) => *value,
-                    other => panic!("{other:?}"),
-                })
-                .sum();
-            assert!(
-                (33 * 4..=55 * 4).contains(&total) && total.is_multiple_of(4),
-                "{total}"
+            let mut bank = BoltBank::default();
+            let held = contents(
+                CrateKind::Bolts,
+                &TABLE,
+                None,
+                &doubled,
+                &mut bank,
+                &armory,
+                &mut rng,
             );
+            // Doubled before the quarter more or less, as `moby_killed` does.
+            let paid = total(&held) + bank.0;
+            assert!((132..=220 + 4).contains(&paid), "{paid}");
         }
-        (0..3599).for_each(|_| doubled.step());
+        // It beeps with 300, 240, 180, 120, 60 and 1 ticks left.
+        let mut beeps = Vec::new();
+        for _ in 0..3599 {
+            if doubled.step() {
+                beeps.push(doubled.ticks);
+            }
+        }
+        assert_eq!(beeps, [300, 240, 180, 120, 60, 1]);
         assert_eq!((doubled.exp, doubled.apply(10)), (2, 40));
-        doubled.step();
+        assert!(!doubled.step());
         assert_eq!((doubled.exp, doubled.apply(10)), (0, 10));
     }
 
@@ -311,6 +478,7 @@ mod tests {
                 &TABLE,
                 Some(&arsenal),
                 &PLAIN,
+                &mut BoltBank::default(),
                 &armory,
                 &mut rng,
             );
@@ -329,7 +497,15 @@ mod tests {
         assert!(!seen.contains(&FLUX));
         assert!(arsenal.gun(FLUX).unwrap().ammo == 0);
         // Without guns, nothing.
-        let held = contents(CrateKind::Ammo, &TABLE, None, &PLAIN, &armory, &mut rng);
+        let held = contents(
+            CrateKind::Ammo,
+            &TABLE,
+            None,
+            &PLAIN,
+            &mut BoltBank::default(),
+            &armory,
+            &mut rng,
+        );
         assert!(held.is_empty());
     }
 }

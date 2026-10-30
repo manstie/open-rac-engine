@@ -3577,7 +3577,7 @@ name = "crate_drop"
 address = 0x0033B940
 kind = "function"
 confidence = "medium"
-note = "What a broken crate gives: a bolt crate moby_killed(crate, 0x100, 0-3 coins); 0x1F7 doubles bolts and XP for 1800 frames; an ammo crate 1 or 2 ammo_pickup_spawn for ammo_crate_pick's gun."
+note = "What a broken crate gives: a bolt crate moby_killed(crate, 0x100, rand 0-1 plus 2, 1 or 0 coins as crate_debris_recent is <= 10, <= 20 or more); 0x1F7 doubles bolts and XP for 1800 frames; an ammo crate 1 or 2 ammo_pickup_spawn for ammo_crate_pick's gun."
 
 [[symbol]]
 name = "crate_stack_update"
@@ -3647,7 +3647,7 @@ name = "bolts_drop"
 address = 0x0044A0E8
 kind = "function"
 confidence = "medium"
-note = "(z, moby, min, max, flags, -1, max coins): an amount split greedily into coins of 30000 down to 1; with flag 8 at most max coins, the rest banked in bolt_bank."
+note = "(z, moby, min, max, flags, -1, max coins): an amount at random in min..max split greedily into coins of 30000 down to 1; with flag 8 at most max coins, the rest banked in bolt_bank divided by the challenge multiplier (the 1s that drop are banked as well); drops under 500 scaled by the level's bolts per active minute while bolt_rate_on (weapons.md, \"The bolt bank\")."
 
 [[symbol]]
 name = "bolts_drop_level"
@@ -3745,7 +3745,7 @@ name = "bolt_bank"
 address = 0x0014269C
 kind = "data"
 confidence = "medium"
-note = "Bolts that didn't fit in coins."
+note = "Bolts that didn't fit in coins, or coins spawned far from the camera or left far from the hero; moby_killed pays out (bank + 49) / 50 with each kill."
 
 [[symbol]]
 name = "bolt_multiplier_exp"
@@ -3773,7 +3773,35 @@ name = "help_measure"
 address = 0x003FE420
 kind = "function"
 confidence = "medium"
-note = "(level, area): a weighted sum of the level's stats (0x2C01A0, 0x1C5290); 0 in challenge mode and from level 30. hero_damage and the nanotech crate's amount use it."
+note = "(level, area): the sum of 10 help_weights records' weight x area_deaths of the level and area each names; 0 in challenge mode (0x142692), from level 30 and for area 16 up. hero_damage and the nanotech crate's amount use it."
+
+[[symbol]]
+name = "help_weights"
+address = 0x002C01A0
+kind = "data"
+confidence = "high"
+note = "30 levels x 16 areas x 10 records of 4 bytes: u8 level, u8 area, s16 weight, for help_measure."
+
+[[symbol]]
+name = "area_deaths"
+address = 0x001C5290
+kind = "data"
+confidence = "high"
+note = "s32 deaths for each of 16 areas of each level (0x40 bytes a level), counted by hero_death_done and lowered at checkpoints."
+
+[[symbol]]
+name = "help_checkpoint_refund"
+address = 0x003FE520
+kind = "function"
+confidence = "high"
+note = "(area): 100 / the area's first help_weights weight, rounded up; 0 in challenge mode. Taken from area_deaths at a new checkpoint."
+
+[[symbol]]
+name = "checkpoint_reached"
+address = 0x00325A60
+kind = "function"
+confidence = "medium"
+note = "Sets the hero's area (0x1A71D7) from the moby's +0xB0 and, at a checkpoint other than the last (0x1DCA54), lowers its area_deaths by help_checkpoint_refund; then the respawn point (0x49FDB0)."
 
 [[symbol]]
 name = "nanotech_amount_pick"
@@ -5242,7 +5270,7 @@ name = "hero_death_done"
 address = 0x004EA040
 kind = "function"
 confidence = "medium"
-note = "Called by hero_transitions once death (57) is over (state frame 108, as sequence 64 ends), and by falling out of the level (121) at state frame 121: counts the death in the stats (0x143D70 per player, 0x1D4CA0) and sets 0x1A71D2, which the level's code takes up: it respawns the hero at the end of the same frame (verified, uyantsc-veldin-death-{1,2,3})."
+note = "Called by hero_transitions once death (57) is over (state frame 108, as sequence 64 ends), and by falling out of the level (121) at state frame 121: counts the death in the stats (0x143D70 per level, 0x1D4CA0, and area_deaths for the hero's area from the level's 900th frame, 1800th after states 121 and 126) and sets 0x1A71D2, which the level's code takes up: it respawns the hero at the end of the same frame (verified, uyantsc-veldin-death-{1,2,3})."
 
 [[symbol]]
 name = "level_kill_height"
@@ -5581,3 +5609,129 @@ address = 0x002E9D20
 kind = "data"
 confidence = "medium"
 note = "The small blast's light (0x4488B8): 1.3 up, 45 frames, radius 13; red and green to 2.55 by 0.19 then down by 0.15 and 0.17, blue to 1.0 by 0.19 and back."
+
+[[symbol]]
+name = "vendor_weapon_list"
+address = 0x004B6E88
+kind = "function"
+confidence = "medium"
+note = "Fills vendor_rows for the weapons mode from vendor_stock: a rounds row for each owned gun with a round price that isn't full, a special row, an item row for each gun for sale (and, in challenge mode, a Mega row for each owned gun at level 4), then maybe a last special row; keeps the selection on its item (weapons.md, \"The vendor's menu\")."
+
+[[symbol]]
+name = "vendor_confirm"
+address = 0x004B9910
+kind = "function"
+confidence = "medium"
+note = "The vendor's Cross on a row: in the weapons mode hands it to vendor_buy unless it is the last special row (+0x13 set); the other modes go to their own buy steps (0x4B9418 ship, 0x4B8F50 armor, 0x4B9170 skins)."
+
+[[symbol]]
+name = "vendor_stock"
+address = 0x001D54D8
+kind = "data"
+confidence = "medium"
+note = "u16 x 32: what the vendor offers, an item each (low 14 bits), bit 15 set if owned, bit 14 set if not yet for sale; 0xFFFF for none."
+
+[[symbol]]
+name = "vendor_rows"
+address = 0x00244880
+kind = "data"
+confidence = "medium"
+note = "The vendor menu's rows, 0x14 bytes each (count at 0x244E80, selection 0x2447C0): +0x00 item, +0x04 kind (1 rounds, 0 item), +0x11 the Mega flag, +0x12 and +0x13 the first and last special rows."
+
+[[symbol]]
+name = "vendor_frame"
+address = 0x004BA3E0
+kind = "function"
+confidence = "medium"
+note = "The vendor menu each frame: fades in and out (0x244740), counts Left and Right held (0x1E1008, 0x1E100C), runs vendor_list_buttons, vendor_confirm and the vendor's lines (0x4BE2F8), and on leaving restores the hero's gun and the camera."
+
+[[symbol]]
+name = "vendor_list_buttons"
+address = 0x004B9A80
+kind = "function"
+confidence = "medium"
+note = "The vendor list's buttons: Right and Left move the selection without wrapping (repeating on held frames 21, 31, ...), Cross goes to the confirm stage (0x2447C4) if the row can be bought, else sound 2; Triangle closes (weapons.md, \"The vendor's menu\")."
+
+[[symbol]]
+name = "vendor_price"
+address = 0x004B6C98
+kind = "function"
+confidence = "medium"
+note = "The selected row's price: the gun's +0x7C, or the level-5 row's for a Mega row; 9/10 of it when 0x244EBC is set."
+
+[[symbol]]
+name = "vendor_draw_weapons"
+address = 0x004BEED8
+kind = "function"
+confidence = "medium"
+note = "Draws the weapons screen for the selected row: name, description, price against the bolts, ammo for a rounds row; works out the buy-all total (sum of (max - ammo) x round price) into 0x244E94."
+
+[[symbol]]
+name = "bolt_coin_update"
+address = 0x002F7930
+kind = "function"
+confidence = "medium"
+note = "A bolt coin's update: in state 3 it is collected within reach of the hero, or banked and removed more than 32 u away (with a moby-list test against 0x1E00A0 not read)."
+
+[[symbol]]
+name = "bolt_coin_spawn"
+address = 0x002F8F60
+kind = "function"
+confidence = "medium"
+note = "(moby, at, velocity, flags, value, counts): spawns a coin of value (class by value); 64 u or more from the camera (0x1E2A40) it banks the value instead."
+
+[[symbol]]
+name = "bolt_rate_frames"
+address = 0x001A91E8
+kind = "data"
+confidence = "medium"
+note = "s32 per level: frames played while bolt_rate_on, not while the pad has been untouched 900 frames (0x4B5258)."
+
+[[symbol]]
+name = "bolt_rate_bolts"
+address = 0x001A9280
+kind = "data"
+confidence = "medium"
+note = "s32 per level: bolts collected while bolt_rate_on (bolt_pickup_collect); bolts_drop scales small drops by bolts x 3600 / bolt_rate_frames."
+
+[[symbol]]
+name = "bolt_rate_on"
+address = 0x001D6714
+kind = "data"
+confidence = "low"
+note = "Set by bolts_drop from bit 7 of 0x1DFF00[the killed moby's +0xB0] (classes outside 500-540); gates the bolt rate's counting and scaling."
+
+[[symbol]]
+name = "level_frame_count"
+address = 0x004B5258
+kind = "function"
+confidence = "medium"
+note = "Per frame: counts frames the pad is untouched (0x1DAB68), frame counters 0x1DFBC0 and 0x1D4C38, and bolt_rate_frames while bolt_rate_on and the pad was touched within 900 frames."
+
+[[symbol]]
+name = "challenge_bolt_mult"
+address = 0x001426BA
+kind = "data"
+confidence = "medium"
+note = "u8: the challenge-mode bolt multiplier less one, 0 to 19; 0x1426BB counts kills toward the next step (challenge_mult_kill)."
+
+[[symbol]]
+name = "challenge_mult_kill"
+address = 0x004410E8
+kind = "function"
+confidence = "medium"
+note = "In challenge mode, a kill: counts 0x1426BB and raises challenge_bolt_mult once twice the count reaches it plus 1, up to 19."
+
+[[symbol]]
+name = "xp_bank"
+address = 0x00142698
+kind = "data"
+confidence = "medium"
+note = "XP held back: moby_killed pays (bank + 49) / 50 into the gun's XP each kill; 0x3177F8 adds rewards."
+
+[[symbol]]
+name = "bank_reward_trigger"
+address = 0x003177F8
+kind = "function"
+confidence = "low"
+note = "A moby's update that, once per entry (0x1BBC40 bits by +0xB0 and +0xB1), adds rewards from 0x1EFD00 to xp_bank and from 0x1EFDC0 to bolt_bank."

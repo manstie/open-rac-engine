@@ -37,6 +37,9 @@
     crates: (
         // Veldin's bolt crates hold 11, 44 or 61 [data].
         bolts: 44,
+        // `crate_drop`: at most 2 or 3 coins while few crates have broken lately, the
+        // rest banked ("The bolt bank") [code].
+        most_coins: (2, 3),
         // `ammo_crate_pick`: 2 pickups once in 5 [code].
         two_pickups_in: 5,
         // `crate_drop`: the doubler adds 1800 frames to the bolt multiplier's [code].
@@ -77,6 +80,18 @@
         lift: 60.0,
         touch: 0.05,
     ),
-    // A round every 3 ticks: the N60's 150 in 7.5 s [placeholder].
-    vendor: (round_ticks: 3),
+    // The vendor's menu ("The vendor's menu") [code]: held Left or Right steps between
+    // rows again past 15 ticks on each 1 modulo 10, and changes the count of rounds again
+    // past 15 on each multiple of 8 and on every tick past 47. Upgrades to Mega are UYA's
+    // in challenge mode only. The stick's push that counts as Left or Right is the
+    // kit's [placeholder].
+    vendor: (
+        row_after: 15,
+        row_every: 10,
+        count_after: 15,
+        count_every: 8,
+        count_fast_after: 47,
+        stick: 64,
+        upgrades: false,
+    ),
 )

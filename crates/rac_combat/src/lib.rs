@@ -16,8 +16,8 @@
 //! these.
 //!
 //! [`pickups`] are what the hero collects (P1.10): bolts, nanotech and ammo that crates
-//! (a [`Crate`] target breaks when [`Destroyed`]) and enemies leave, and a vendor stub that
-//! sells rounds for bolts.
+//! (a [`Crate`] target breaks when [`Destroyed`]) and enemies leave, and a [`Vendor`]'s pad
+//! whose menu sells guns and rounds for bolts.
 
 pub mod pickups;
 pub mod weapons;
@@ -26,7 +26,7 @@ use bevy::prelude::*;
 use rac_hero::{AimTarget, Hero, HeroBody};
 use rac_sim::{SimSet, SimTransform};
 
-pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor};
+pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor, VendorMenu};
 pub use weapons::{
     Afflicted, Affliction, Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, Sustain,
     WeaponId,
@@ -144,11 +144,13 @@ impl Plugin for CombatPlugin {
             .init_resource::<Burns>()
             .init_resource::<weapons::Arcs>()
             .init_resource::<PickupTuning>()
+            .init_resource::<pickups::BoltBank>()
             .add_message::<Struck>()
             .add_message::<Destroyed>()
             .add_message::<GunEvent>()
             .add_message::<Afflicted>()
             .add_message::<pickups::CrateBlast>()
+            .add_message::<pickups::PickupSound>()
             .add_systems(
                 FixedUpdate,
                 (react, weapons::fire_guns).chain().in_set(SimSet::World),

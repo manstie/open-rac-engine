@@ -1,5 +1,6 @@
 //! Pickups and the bolt economy (PLAN.md P1.10): the bolts, nanotech and ammo that crates
-//! ([`crates`]) and dead enemies leave, and a vendor stub that sells rounds ([`vendor`]).
+//! ([`crates`]) and dead enemies leave, and the vendor's menu that sells guns and rounds for
+//! bolts ([`vendor`]).
 //!
 //! - Pickups pop out and bounce. [`step`] is a pickup's whole motion as one pure function
 //!   over the heroes as it sees them ([`Collector`]); [`move_pickups`] runs it for every
@@ -16,7 +17,8 @@
 //!   who owns the gun with room takes it.
 //! - Bolts and nanotech wait a little, fly to the nearest hero in reach and are his when
 //!   they arrive, and vanish if no one takes them [placeholder: UYA's bolts aren't read
-//!   beyond their reach].
+//!   beyond their reach]; bolts that vanish go to the [`BoltBank`], which pays them back
+//!   with later kills.
 //! - A nanotech crate leaves orbs that wait until a hero near enough has room for them
 //!   ([`nanotech`]); an explosive crate goes off when touched or hit ([`explosive`]); a
 //!   doubler crate doubles its breaker's bolts and XP for a while ([`BoltMultiplier`]).
@@ -35,10 +37,10 @@ use serde::{Deserialize, Serialize};
 use crate::TICK;
 use crate::weapons::{Armory, Arsenal, Hand, WeaponId};
 
-pub use crates::{Crate, CrateKind, CrateTable};
+pub use crates::{Crate, CrateKind, CrateTable, capped_coins, kill_coins};
 pub use explosive::{Blast, CrateBlast, ExplosiveTuning, Fuse};
 pub use nanotech::{NanotechOrbs, NanotechTuning, Orb, OrbCluster};
-pub use vendor::{Vendor, VendorTuning};
+pub use vendor::{OpenMenu, Row, Said, Stage, Vendor, VendorMenu, VendorSound, VendorTuning};
 
 /// The bundled tuning.
 pub const PICKUPS_RON: &str = include_str!("../../assets/pickups.ron");
@@ -180,10 +182,90 @@ impl PickupMotion {
 #[require(SimTransform)]
 pub struct Pickup(pub PickupMotion);
 
-/// The bolts a hero has collected.
+/// The bolts a hero has collected, which he spends at vendors.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq)]
-#[require(BoltMultiplier)]
+#[require(BoltMultiplier, VendorMenu)]
 pub struct Bolts(pub u32);
+
+/// Something among the pickups, crates and vendors that a game may play a sound for, as
+/// UYA plays each from a class's sound table (`weapons.md`, "Their sounds").
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct PickupSound {
+    pub kind: PickupSoundKind,
+    /// Where it is heard from; `None` at full volume.
+    pub at: Option<Vec3>,
+    /// A collected bolt's value, which UYA's coins sound by; 0 for the rest.
+    pub bolts: u32,
+}
+
+impl PickupSound {
+    pub fn at(kind: PickupSoundKind, at: Vec3) -> Self {
+        Self {
+            kind,
+            at: Some(at),
+            bolts: 0,
+        }
+    }
+}
+
+/// What made a [`PickupSound`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum PickupSoundKind {
+    /// A crate broke, or an explosive one went off.
+    CrateBroke(CrateKind),
+    /// An explosive crate's fuse beeped.
+    FuseBeep,
+    /// A hero's doubling beeped as it ran down.
+    DoublerBeep,
+    /// A bolt was collected.
+    Bolt,
+    /// Ammo was taken.
+    Ammo,
+    /// Nanotech reached a hero: each of a crate's orbs, or a dropped pickup.
+    Nanotech,
+    /// The vendor's menu.
+    Vendor(VendorSound),
+}
+
+impl PickupSoundKind {
+    /// Every kind.
+    pub const ALL: [Self; 18] = [
+        Self::CrateBroke(CrateKind::Bolts),
+        Self::CrateBroke(CrateKind::Ammo),
+        Self::CrateBroke(CrateKind::Nanotech),
+        Self::CrateBroke(CrateKind::Explosive),
+        Self::CrateBroke(CrateKind::Doubler),
+        Self::FuseBeep,
+        Self::DoublerBeep,
+        Self::Bolt,
+        Self::Ammo,
+        Self::Nanotech,
+        Self::Vendor(VendorSound::Opened),
+        Self::Vendor(VendorSound::Moved),
+        Self::Vendor(VendorSound::Refused),
+        Self::Vendor(VendorSound::Counted),
+        Self::Vendor(VendorSound::Back),
+        Self::Vendor(VendorSound::Short),
+        Self::Vendor(VendorSound::Bought),
+        Self::Vendor(VendorSound::Closed),
+    ];
+}
+
+/// UYA's bolt bank (`bolt_bank`, 0x14269C; `weapons.md`, "The bolt bank"): bolts that
+/// didn't drop as coins, paid back a fiftieth at a time with each kill. One for the
+/// world, as UYA's is its one player's. Bolts no one takes before they go are banked
+/// too, where UYA banks coins left far from the hero [placeholder].
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BoltBank(pub u32);
+
+impl BoltBank {
+    /// Takes out what a kill pays from the bank: a fiftieth, rounded up (`moby_killed`).
+    pub fn pay_out(&mut self) -> u32 {
+        let share = self.0.div_ceil(50);
+        self.0 -= share;
+        share
+    }
+}
 
 /// UYA's bolt and XP doubler (`bolt_multiplier_exp`, `bolt_multiplier_timer`; `weapons.md`,
 /// "Ammo pickups, crates and the vendor"): the bolts of what a hero kills or breaks, and
@@ -208,19 +290,31 @@ impl BoltMultiplier {
         value.saturating_mul(1 << self.exp.min(31))
     }
 
-    /// A tick on: the doubling ends with its time.
-    pub fn step(&mut self) {
+    /// A tick on: the doubling ends with its time. Returns whether it beeps, as UYA's does
+    /// with 300, 240, 180, 120, 60 and 1 ticks left.
+    pub fn step(&mut self) -> bool {
+        let was = self.ticks;
         self.ticks = self.ticks.saturating_sub(1);
         if self.ticks == 0 {
             self.exp = 0;
         }
+        was > 0 && matches!(self.ticks, 300 | 240 | 180 | 120 | 60 | 1)
     }
 }
 
 /// Counts every hero's doubling down.
-pub(crate) fn step_multipliers(mut multipliers: Query<&mut BoltMultiplier>) {
+pub(crate) fn step_multipliers(
+    mut multipliers: Query<&mut BoltMultiplier>,
+    mut sounds: MessageWriter<PickupSound>,
+) {
     for mut multiplier in &mut multipliers {
-        multiplier.step();
+        if multiplier.step() {
+            sounds.write(PickupSound {
+                kind: PickupSoundKind::DoublerBeep,
+                at: None,
+                bolts: 0,
+            });
+        }
     }
 }
 
@@ -558,6 +652,8 @@ pub fn move_pickups(
     armory: Res<Armory>,
     hero_tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
+    mut bank: ResMut<BoltBank>,
+    mut sounds: MessageWriter<PickupSound>,
     mut heroes: Query<HeroItem>,
     mut pickups: Query<(Entity, &mut Pickup, &mut SimTransform)>,
     mut commands: Commands,
@@ -588,14 +684,30 @@ pub fn move_pickups(
         let player = match event {
             None => continue,
             Some(PickupEvent::Gone | PickupEvent::Expired) => {
+                if let PickupKind::Bolts(value) = pickup.0.kind {
+                    bank.0 = bank.0.saturating_add(value);
+                }
                 commands.entity(*entity).despawn();
                 continue;
             }
             Some(PickupEvent::Collected(player)) => {
+                let (kind, bolts) = match pickup.0.kind {
+                    PickupKind::Bolts(value) => (PickupSoundKind::Bolt, value),
+                    PickupKind::Nanotech(_) => (PickupSoundKind::Nanotech, 0),
+                    PickupKind::Ammo { .. } => (PickupSoundKind::Ammo, 0),
+                };
+                sounds.write(PickupSound {
+                    kind,
+                    at: Some(pickup.0.position),
+                    bolts,
+                });
                 commands.entity(*entity).despawn();
                 player
             }
             Some(PickupEvent::Taken(player)) => {
+                if matches!(pickup.0.kind, PickupKind::Ammo { .. }) {
+                    sounds.write(PickupSound::at(PickupSoundKind::Ammo, pickup.0.position));
+                }
                 pickup.0.taken = true;
                 pickup.0.flying_to = Some(player);
                 pickup.0.velocity = Vec3::ZERO;

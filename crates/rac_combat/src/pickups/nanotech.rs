@@ -13,7 +13,7 @@ use rac_hero::{Health, Hero, HeroBody, HeroState};
 use rac_sim::{SimRng, SimTransform};
 use serde::{Deserialize, Serialize};
 
-use super::{PickupTuning, between};
+use super::{PickupSound, PickupSoundKind, PickupTuning, between};
 
 /// How the orbs wait, are let out and fly.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -237,6 +237,7 @@ pub(crate) fn move_orbs(
     mut rng: ResMut<SimRng>,
     mut heroes: Query<(&Hero, &HeroBody, &mut Health)>,
     mut clusters: Query<(Entity, &mut NanotechOrbs, &mut SimTransform)>,
+    mut sounds: MessageWriter<PickupSound>,
     mut commands: Commands,
 ) {
     let tuning = &tuning.nanotech;
@@ -271,8 +272,19 @@ pub(crate) fn move_orbs(
             })
             .collect();
         healees.sort_by_key(|healee| healee.player);
+        let was: Vec<bool> = orbs.0.orbs.iter().map(|orb| orb.arrived).collect();
         let event = step_cluster(&mut orbs.0, &healees, tuning, &mut rng);
         transform.translation = orbs.0.middle;
+        // Each orb sounds as it arrives (0x301F58).
+        for (orb, _) in orbs
+            .0
+            .orbs
+            .iter()
+            .zip(was)
+            .filter(|(orb, was)| orb.arrived && !was)
+        {
+            sounds.write(PickupSound::at(PickupSoundKind::Nanotech, orb.position));
+        }
         match event {
             None => {}
             Some(OrbEvent::Released(player)) => {
