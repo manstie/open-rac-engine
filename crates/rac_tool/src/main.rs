@@ -1,14 +1,15 @@
 //! `openrac-tool`: extracts and inspects the games' data (PLAN.md P2.7).
 //!
 //! Everything it writes is derived from the user's own disc, so it goes in `cache/`, never
-//! the repository. `identify`, `hero`, `rails`, `cameras` and `unpack-elf` read the disc
-//! itself, as does `sounds`, which can also render a bank's sounds to WAV files; `moby`
+//! the repository. `identify`, `hero`, `rails`, `cameras`, `mobys` and `unpack-elf` read
+//! the disc itself, as does `sounds`, which can also render a bank's sounds to WAV files; `moby`
 //! reads EE memory images made from savestates
 //! (`tools/ghidra/import-savestate.sh` writes them), for reverse engineering.
 
 mod cameras;
 mod glb;
 mod identify;
+mod mobys;
 mod pose;
 mod sounds;
 mod unpack;
@@ -103,6 +104,19 @@ enum Command {
         /// level.
         #[arg(long, requires = "level")]
         check_ee: Option<PathBuf>,
+    },
+    /// List the mobys placed in each level of a UYA or DL disc image, from the levels'
+    /// gameplay files, with their pvars.
+    Mobys {
+        /// The disc image (.iso).
+        #[arg(long)]
+        iso: PathBuf,
+        /// Only this level.
+        #[arg(long)]
+        level: Option<usize>,
+        /// Only mobys of this class, in hex; without --level, only the levels that have one.
+        #[arg(long, value_parser = parse_hex)]
+        class: Option<u32>,
     },
     /// List a UYA sound bank's sounds and the class sound tables that play them: a gun's
     /// bank from the gadget WAD, or a level's; optionally render each sound to a WAV file.
@@ -308,6 +322,7 @@ fn main() -> Result<()> {
             level,
             check_ee,
         } => cameras::run(&iso, level, check_ee.as_deref())?,
+        Command::Mobys { iso, level, class } => mobys::run(&iso, level, class)?,
         Command::Sounds {
             iso,
             gadget,

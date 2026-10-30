@@ -2474,3 +2474,24 @@ address = 0x0031B2F8
 kind = "data"
 confidence = "medium"
 note = "Per-player UI screen state, 0x54 apart."
+
+[[symbol]]
+name = "coop_tether_update"
+address = 0x00492D40
+kind = "function"
+confidence = "high"
+note = "Update of the co-op tether, moby class 0x247B (docs/research/coop.md, \"The tether\"): out of co-op it removes itself; in co-op, while both heroes are alive, in ordinary states and further apart than pvar +0x00 (doubled on a vehicle), it counts pvar +0x04 seconds x 60 frames down in +0x18, then deals each hero 1000 damage. Read at 0x3FEDB0 in Catacrom Four's co-op build and checked in play there (dlntsc-catacrom-coop-fight-5); found here by match-function.py. Gladiator PAL's (0x494538 in its DreadZone Station build) uses 50 frames a second."
+
+[[symbol]]
+name = "coop_tether_draw"
+address = 0x00493350
+kind = "function"
+confidence = "high"
+note = "The tether's countdown display: a beam from each hero towards the other and the seconds left with two decimals, both coloured from blue (time left) to red; each new whole second a beep, a rumble on both pads and a flash. Matched from Catacrom Four's co-op build (0x3FF3C0)."
+
+[[symbol]]
+name = "hero_damage"
+address = 0x006693A8
+kind = "function"
+confidence = "medium"
+note = "Damages a hero by a float amount (if hero+0x266D is set and hero+0x420 is 0), scaled by the difficulty's factor and, in multiplayer, the armour's; sets hero+0x2ED8 to 360 frames and takes the rounded amount, at least 1, off the health (hero+0x2E20), down to 0. The tether calls it with 1000. Matched from Catacrom Four's co-op build (0x619398)."

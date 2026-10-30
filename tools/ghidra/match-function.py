@@ -8,7 +8,8 @@
 #            <address hex> [words]
 #
 # The images are cache/ghidra/ee/<name>.ee.bin (import-savestate.sh); gp comes from
-# `pine-probe savestate-regs` and must be the same in both. The first `words` instructions
+# `pine-probe savestate-regs`. Builds of one release share it; across releases give
+# both as <from>:<to> (DL NTSC-U's is 22597F, Gladiator PAL's 2259FF). The first `words` instructions
 # (default 24) from the address are compared with the parts that change between builds
 # masked out: jump targets and the immediates of lui, addiu, ori, slti and loads and
 # stores. With one match, each instruction whose operand differs is printed with both
@@ -48,7 +49,9 @@ def main():
         sys.exit(__doc__ or 'usage: match-function.py <from> <to> <gp hex> <address hex> [words]')
     src = open(sys.argv[1], 'rb').read()
     dst = open(sys.argv[2], 'rb').read()
-    gp = int(sys.argv[3], 16)
+    gp_from, _, gp_to = sys.argv[3].partition(':')
+    gp_from = int(gp_from, 16)
+    gp_to = int(gp_to, 16) if gp_to else gp_from
     addr = int(sys.argv[4], 16)
     n = int(sys.argv[5]) if len(sys.argv) > 5 else 24
 
@@ -69,7 +72,7 @@ def main():
         if w0 >> 26 in (2, 3):
             note = 'jal %x -> %x' % ((w0 & 0x3FFFFFF) << 2, (w1 & 0x3FFFFFF) << 2)
         elif (w0 >> 21) & 31 == 28:
-            note = 'gp %x -> %x' % (gp + signed16(w0), gp + signed16(w1))
+            note = 'gp %x -> %x' % (gp_from + signed16(w0), gp_to + signed16(w1))
         else:
             note = 'imm %#06x -> %#06x' % (w0 & 0xFFFF, w1 & 0xFFFF)
         print('%x / %x: %s' % (addr + 4 * i, hits[0] + 4 * i, note))

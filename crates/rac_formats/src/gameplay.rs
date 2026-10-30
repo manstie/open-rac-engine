@@ -4,22 +4,82 @@
 //! `docs/research/gameplay-format.md`).
 //!
 //! Read on UYA NTSC-U, from the disc and the game's level loader (`level_load_gameplay`,
-//! 0x4252F0 in Veldin's build), which copies each block of the file into a list.
+//! 0x4252F0 in Veldin's build), which copies each block of the file into a list. DL's files
+//! hold the same blocks in other places, and smaller moby records ([`Layout::DL`]).
 
 use crate::level::{LevelHeader, SECTOR, read_wad};
 use crate::{DiscReader, FormatError, Image};
 
-/// Where the gameplay file's header keeps the offset of each block we read.
-const CAMERAS: u32 = 0x08;
-const MOBYS: u32 = 0x4C;
-const PVAR_TABLE: u32 = 0x5C;
-const PVAR_DATA: u32 = 0x60;
-const CUBOIDS: u32 = 0x68;
-const SPHERES: u32 = 0x6C;
-const CYLINDERS: u32 = 0x70;
-const PATHS: u32 = 0x78;
-const GRIND_PATHS: u32 = 0x7C;
-const CAMERA_COLLISION: u32 = 0x88;
+/// Where a game's gameplay file header keeps the offset of each block we read, and how
+/// its moby records are laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layout {
+    cameras: u32,
+    mobys: u32,
+    pvar_table: u32,
+    pvar_data: u32,
+    cuboids: u32,
+    spheres: u32,
+    cylinders: u32,
+    paths: u32,
+    grind_paths: u32,
+    camera_collision: u32,
+    /// The smallest moby record: the loader steps by each record's own size word.
+    moby_record: u32,
+    /// Where a moby record keeps its uid, class, position, rotation, group and pvar index.
+    moby_uid: u32,
+    moby_class: u32,
+    moby_position: u32,
+    moby_rotation: u32,
+    moby_group: u32,
+    moby_pvars: u32,
+}
+
+impl Layout {
+    /// UYA's.
+    pub const UYA: Self = Self {
+        cameras: 0x08,
+        mobys: 0x4C,
+        pvar_table: 0x5C,
+        pvar_data: 0x60,
+        cuboids: 0x68,
+        spheres: 0x6C,
+        cylinders: 0x70,
+        paths: 0x78,
+        grind_paths: 0x7C,
+        camera_collision: 0x88,
+        moby_record: 0x88,
+        moby_uid: 0x10,
+        moby_class: 0x28,
+        moby_position: 0x40,
+        moby_rotation: 0x4C,
+        moby_group: 0x58,
+        moby_pvars: 0x68,
+    };
+
+    /// DL's, the gameplay part of a level's data (Wrench's `DL_GAMEPLAY_CORE_BLOCKS` and
+    /// `DlMobyInstance`). Only its moby and pvar blocks are checked against the game's
+    /// memory (`gameplay-format.md`, "Deadlocked").
+    pub const DL: Self = Self {
+        cameras: 0x04,
+        mobys: 0x30,
+        pvar_table: 0x40,
+        pvar_data: 0x44,
+        cuboids: 0x4C,
+        spheres: 0x50,
+        cylinders: 0x54,
+        paths: 0x5C,
+        grind_paths: 0x60,
+        camera_collision: 0x6C,
+        moby_record: 0x70,
+        moby_uid: 0x08,
+        moby_class: 0x10,
+        moby_position: 0x28,
+        moby_rotation: 0x34,
+        moby_group: 0x40,
+        moby_pvars: 0x50,
+    };
+}
 
 /// Bytes per grind path record: the bounding sphere, then four words.
 const PATH_RECORD: u32 = 0x20;
@@ -29,8 +89,6 @@ const POINT: u32 = 0x10;
 const CAMERA_RECORD: u32 = 0x20;
 /// Bytes per cuboid, sphere or cylinder: its matrix, its inverse, its rotation.
 const SHAPE_RECORD: u32 = 0x80;
-/// The smallest moby record: the loader steps by each record's own size word.
-const MOBY_RECORD: u32 = 0x88;
 /// The camera collision grid: 64 × 64 cells of 16 u, one offset word each.
 const GRID_CELLS: u32 = 64;
 /// Bytes per camera collision shape in a grid cell's list.
@@ -49,6 +107,7 @@ pub const FIXED_CAMERA_CLASS: i32 = 0x17;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gameplay {
     pub bytes: Vec<u8>,
+    pub layout: Layout,
 }
 
 /// A rail the hero can grind. He always moves along it in the order of its points.
@@ -156,6 +215,7 @@ pub enum ShapeKind {
 /// A moby placed in the level, as far as we read it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MobyInstance {
+    pub uid: i32,
     pub class: u32,
     pub position: [f32; 3],
     pub rotation: [f32; 3],
@@ -226,6 +286,19 @@ impl Gameplay {
         let at = (header.sector as u64 + header.gameplay.sector as u64) * SECTOR;
         Ok(Self {
             bytes: read_wad(disc, at, "gameplay file")?,
+            layout: Layout::UYA,
+        })
+    }
+
+    /// Reads and unpacks DL (or Gladiator) level `level`'s gameplay file from the disc:
+    /// the one its level WAD keeps for reloading the gameplay alone, the same as the
+    /// level data's own (`LevelHeader::read_dl`).
+    pub fn read_dl(disc: &mut impl DiscReader, level: usize) -> Result<Self, FormatError> {
+        let header = LevelHeader::read_dl_disc(disc, level)?;
+        let at = (header.sector as u64 + header.gameplay.sector as u64) * SECTOR;
+        Ok(Self {
+            bytes: read_wad(disc, at, "gameplay file")?,
+            layout: Layout::DL,
         })
     }
 
@@ -240,7 +313,7 @@ impl Gameplay {
     /// spline data. A spline is its point count, three zero words, then the points.
     pub fn grind_paths(&self) -> Result<Vec<GrindPath>, FormatError> {
         let image = self.image();
-        let block = image.u32(GRIND_PATHS)?;
+        let block = image.u32(self.layout.grind_paths)?;
         if block == 0 {
             return Ok(Vec::new());
         }
@@ -277,7 +350,7 @@ impl Gameplay {
             .collect()
     }
 
-    /// The level's paths (header +0x78), each a list of points: x, y, z and a fourth
+    /// The level's paths (UYA's header +0x78), each a list of points: x, y, z and a fourth
     /// float. Moby code and the path camera use them; the path camera reads a positive
     /// fourth float as a field of view in degrees to reach at that point.
     ///
@@ -285,7 +358,7 @@ impl Gameplay {
     /// its size, then one offset per path into the spline data.
     pub fn paths(&self) -> Result<Vec<Vec<[f32; 4]>>, FormatError> {
         let image = self.image();
-        let block = image.u32(PATHS)?;
+        let block = image.u32(self.layout.paths)?;
         if block == 0 {
             return Ok(Vec::new());
         }
@@ -301,10 +374,10 @@ impl Gameplay {
             .collect()
     }
 
-    /// The level's cameras (header +0x08), in the game's order, with their pvars.
+    /// The level's cameras (UYA's header +0x08), in the game's order, with their pvars.
     pub fn cameras(&self) -> Result<Vec<Camera>, FormatError> {
         let image = self.image();
-        let Some((first, count)) = self.table(CAMERAS, CAMERA_RECORD)? else {
+        let Some((first, count)) = self.table(self.layout.cameras, CAMERA_RECORD)? else {
             return Ok(Vec::new());
         };
         (0..count)
@@ -322,19 +395,19 @@ impl Gameplay {
             .collect()
     }
 
-    /// The level's cuboids (header +0x68).
+    /// The level's cuboids (UYA's header +0x68).
     pub fn cuboids(&self) -> Result<Vec<Shape>, FormatError> {
-        self.shapes(CUBOIDS)
+        self.shapes(self.layout.cuboids)
     }
 
-    /// The level's spheres (header +0x6C).
+    /// The level's spheres (UYA's header +0x6C).
     pub fn spheres(&self) -> Result<Vec<Shape>, FormatError> {
-        self.shapes(SPHERES)
+        self.shapes(self.layout.spheres)
     }
 
-    /// The level's cylinders (header +0x70).
+    /// The level's cylinders (UYA's header +0x70).
     pub fn cylinders(&self) -> Result<Vec<Shape>, FormatError> {
-        self.shapes(CYLINDERS)
+        self.shapes(self.layout.cylinders)
     }
 
     fn shapes(&self, header: u32) -> Result<Vec<Shape>, FormatError> {
@@ -355,24 +428,25 @@ impl Gameplay {
             .collect()
     }
 
-    /// The mobys placed in the level (header +0x4C), in the game's order.
+    /// The mobys placed in the level (UYA's header +0x4C), in the game's order.
     ///
     /// The block is the placed count, the count of mobys spawned later, two zero words,
     /// then the records, each starting with its own size.
     pub fn mobys(&self) -> Result<Vec<MobyInstance>, FormatError> {
         let image = self.image();
-        let block = image.u32(MOBYS)?;
+        let layout = self.layout;
+        let block = image.u32(layout.mobys)?;
         if block == 0 {
             return Ok(Vec::new());
         }
         let count = image.u32(block)?;
         // Bounds the count before anything is allocated for it.
-        image.bytes(block + 0x10, count as usize * MOBY_RECORD as usize)?;
+        image.bytes(block + 0x10, count as usize * layout.moby_record as usize)?;
         let mut record = block + 0x10;
         let mut mobys = Vec::with_capacity(count as usize);
         for _ in 0..count {
             let size = image.u32(record)?;
-            if size < MOBY_RECORD || size % 4 != 0 {
+            if size < layout.moby_record || size % 4 != 0 {
                 return Err(FormatError::Invalid {
                     what: "moby instance",
                     address: record,
@@ -380,11 +454,12 @@ impl Gameplay {
                 });
             }
             mobys.push(MobyInstance {
-                class: image.u32(record + 0x28)?,
-                position: image.f32s::<3>(record + 0x40)?,
-                rotation: image.f32s::<3>(record + 0x4C)?,
-                group: image.u32(record + 0x58)? as i32,
-                pvar_index: image.u32(record + 0x68)? as i32,
+                uid: image.u32(record + layout.moby_uid)? as i32,
+                class: image.u32(record + layout.moby_class)?,
+                position: image.f32s::<3>(record + layout.moby_position)?,
+                rotation: image.f32s::<3>(record + layout.moby_rotation)?,
+                group: image.u32(record + layout.moby_group)? as i32,
+                pvar_index: image.u32(record + layout.moby_pvars)? as i32,
             });
             record = record.checked_add(size).ok_or(FormatError::OutOfBounds {
                 address: record,
@@ -394,24 +469,24 @@ impl Gameplay {
         Ok(mobys)
     }
 
-    /// The pvars at `index` in the pvar table (header +0x5C: an offset into the pvar data
+    /// The pvars at `index` in the pvar table (UYA's header +0x5C: an offset into the pvar data
     /// at +0x60 and a size per entry). A negative index has none.
     pub fn pvars(&self, index: i32) -> Result<&[u8], FormatError> {
         if index < 0 {
             return Ok(&[]);
         }
         let image = self.image();
-        let table = image.u32(PVAR_TABLE)?;
+        let table = image.u32(self.layout.pvar_table)?;
         let entry = (index as u32)
             .checked_mul(8)
             .and_then(|at| at.checked_add(table))
             .filter(|_| table != 0)
             .ok_or(FormatError::Invalid {
                 what: "pvar index",
-                address: PVAR_TABLE,
+                address: self.layout.pvar_table,
                 detail: format!("{index}"),
             })?;
-        let start = offset(image.u32(PVAR_DATA)?, image.u32(entry)?, entry)?;
+        let start = offset(image.u32(self.layout.pvar_data)?, image.u32(entry)?, entry)?;
         image.bytes(start, image.u32(entry + 4)? as usize)
     }
 
@@ -461,7 +536,7 @@ impl Gameplay {
         Ok(volumes)
     }
 
-    /// The shapes in the level's camera collision grid (header +0x88), each once, in the
+    /// The shapes in the level's camera collision grid (UYA's header +0x88), each once, in the
     /// order the grid first lists them.
     ///
     /// The block is the size of its lists, three zero words, then 64 × 64 words, one per
@@ -469,7 +544,7 @@ impl Gameplay {
     /// grid's start. A list is its count, three zero words, then 0x30-byte entries.
     pub fn camera_colliders(&self) -> Result<Vec<CameraCollider>, FormatError> {
         let image = self.image();
-        let block = image.u32(CAMERA_COLLISION)?;
+        let block = image.u32(self.layout.camera_collision)?;
         if block == 0 {
             return Ok(Vec::new());
         }
@@ -644,7 +719,7 @@ mod tests {
     /// A gameplay file whose grind path block at 0x100 holds `paths`.
     fn gameplay(paths: &[&[[f32; 3]]]) -> Gameplay {
         let mut w = Writer::default();
-        w.at(GRIND_PATHS).u32(0x100);
+        w.at(Layout::UYA.grind_paths).u32(0x100);
         let records = 0x110;
         let table = records + paths.len() as u32 * PATH_RECORD;
         let data = table + paths.len() as u32 * 4;
@@ -668,7 +743,10 @@ mod tests {
                 w.f32(*x).f32(*y).f32(*z).f32(1.0);
             }
         }
-        Gameplay { bytes: w.bytes }
+        Gameplay {
+            bytes: w.bytes,
+            layout: Layout::UYA,
+        }
     }
 
     #[test]
@@ -688,7 +766,10 @@ mod tests {
     fn a_level_without_rails_has_none() {
         let mut w = Writer::default();
         w.at(0x100);
-        let file = Gameplay { bytes: w.bytes };
+        let file = Gameplay {
+            bytes: w.bytes,
+            layout: Layout::UYA,
+        };
         assert!(file.grind_paths().unwrap().is_empty());
         assert!(file.paths().unwrap().is_empty());
         assert!(file.cameras().unwrap().is_empty());
@@ -713,14 +794,15 @@ mod tests {
     /// three points and a camera collision grid with one cell.
     fn camera_level() -> Gameplay {
         let mut w = Writer::default();
+        let layout = Layout::UYA;
         let header = [
-            (CAMERAS, 0x100),
-            (MOBYS, 0x200),
-            (PVAR_TABLE, 0x400),
-            (PVAR_DATA, 0x500),
-            (CUBOIDS, 0x700),
-            (PATHS, 0x800),
-            (CAMERA_COLLISION, 0x900),
+            (layout.cameras, 0x100),
+            (layout.mobys, 0x200),
+            (layout.pvar_table, 0x400),
+            (layout.pvar_data, 0x500),
+            (layout.cuboids, 0x700),
+            (layout.paths, 0x800),
+            (layout.camera_collision, 0x900),
         ];
         // In order, since the writer only moves forwards.
         for (at, block) in header {
@@ -742,12 +824,12 @@ mod tests {
         w.at(0x200).u32(2).u32(0).u32(0).u32(0);
         for (class, pvars) in [(500, u32::MAX), (CAMERA_VOLUME_CLASS, 1)] {
             let start = w.here();
-            w.u32(MOBY_RECORD);
+            w.u32(layout.moby_record);
             w.at(start + 0x28).u32(class);
             w.at(start + 0x40).f32(5.0).f32(6.0).f32(7.0);
             w.at(start + 0x58).u32(9);
             w.at(start + 0x68).u32(pvars);
-            w.at(start + MOBY_RECORD);
+            w.at(start + layout.moby_record);
         }
         // The pvar table: the path camera's at 0, the volume's at 0xB0.
         w.at(0x400).u32(0).u32(0xB0).u32(0xB0).u32(0x50);
@@ -793,7 +875,10 @@ mod tests {
             w.u32(3).u32(0).u32(1).u32(0);
             w.f32(0.0).u32(0).u32(0).u32(0);
         }
-        Gameplay { bytes: w.bytes }
+        Gameplay {
+            bytes: w.bytes,
+            layout,
+        }
     }
 
     #[test]
@@ -842,6 +927,49 @@ mod tests {
         assert_eq!(volume.stick_lock, None);
         assert_eq!(volume.direction, None);
         assert_eq!(volume.group, 9);
+    }
+
+    #[test]
+    fn reads_dls_moby_records_and_pvars_from_its_own_blocks() {
+        let mut w = Writer::default();
+        let layout = Layout::DL;
+        for (at, block) in [
+            (layout.mobys, 0x100),
+            (layout.pvar_table, 0x300),
+            (layout.pvar_data, 0x400),
+        ] {
+            w.at(at).u32(block);
+        }
+        w.at(0x100).u32(2).u32(0).u32(0).u32(0);
+        for (uid, class, pvars) in [(20, 500, u32::MAX), (21, 0x247B, 0)] {
+            let start = w.here();
+            w.u32(layout.moby_record).u32(0).u32(uid).u32(0).u32(class);
+            w.at(start + 0x28).f32(1.0).f32(2.0).f32(3.0).f32(0.5);
+            w.at(start + 0x40).u32(7);
+            w.at(start + 0x50).u32(pvars);
+            w.at(start + layout.moby_record);
+        }
+        w.at(0x300).u32(0x10).u32(8);
+        w.at(0x410).f32(40.0).u32(10);
+        let level = Gameplay {
+            bytes: w.bytes,
+            layout,
+        };
+        let mobys = level.mobys().unwrap();
+        assert_eq!(mobys.len(), 2);
+        let tether = &mobys[1];
+        assert_eq!((tether.uid, tether.class, tether.group), (21, 0x247B, 7));
+        assert_eq!(tether.position, [1.0, 2.0, 3.0]);
+        assert_eq!(tether.rotation[0], 0.5);
+        let pvars = level.pvars(tether.pvar_index).unwrap();
+        assert_eq!(pvars[..4], 40.0f32.to_le_bytes());
+        assert_eq!(pvars[4..], 10u32.to_le_bytes());
+        // The same bytes read as UYA's find no moby block where DL keeps it.
+        let uya = Gameplay {
+            layout: Layout::UYA,
+            ..level
+        };
+        assert!(uya.mobys().unwrap().is_empty());
     }
 
     #[test]
@@ -929,5 +1057,38 @@ mod disc_tests {
         assert_eq!(volumes[0].distance, Some(4.0));
         assert_eq!(volumes[0].height, Some(5.0));
         assert_eq!(volumes[0].group, 51);
+    }
+
+    /// DL's co-op tethers (class 0x247B), the same on both discs: one in each of these
+    /// levels, 40 u and 10 s with no volume, Catacrom Four's where the game loaded it in
+    /// our co-op savestate (`docs/research/coop.md`, "The tether").
+    #[test]
+    #[ignore = "needs game discs"]
+    fn dls_tethers_read_as_the_game_loads_them() {
+        let tethered = [2, 4, 5, 6, 7, 8, 14, 15, 22, 24, 25, 26, 27, 28, 34, 35];
+        for release in [rac_iso::Release::DlNtsc, rac_iso::Release::GladiatorPal] {
+            let mut disc = disc(release);
+            for level in [1, 2, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15] {
+                for level in [level, level + 20] {
+                    let gameplay = Gameplay::read_dl(&mut disc, level).unwrap();
+                    let mobys = gameplay.mobys().unwrap();
+                    let tethers: Vec<_> = mobys.iter().filter(|m| m.class == 0x247B).collect();
+                    let expected = usize::from(tethered.contains(&level));
+                    assert_eq!(tethers.len(), expected, "{release:?} level {level}");
+                    for tether in tethers {
+                        let pvars = gameplay.pvars(tether.pvar_index).unwrap();
+                        assert_eq!(pvars.len(), 0x120);
+                        assert_eq!(pvars[..4], 40.0f32.to_le_bytes());
+                        assert_eq!(pvars[4..8], 10u32.to_le_bytes());
+                        assert_eq!(pvars[8..12], u32::MAX.to_le_bytes());
+                    }
+                }
+            }
+            let catacrom = Gameplay::read_dl(&mut disc, 22).unwrap().mobys().unwrap();
+            let tether = catacrom.iter().find(|m| m.class == 0x247B).unwrap();
+            assert_eq!(tether.uid, 21);
+            let [x, y, z] = tether.position;
+            assert!((x - 591.92).abs() < 0.01 && (y - 345.5).abs() < 0.01 && z == 0.0);
+        }
     }
 }

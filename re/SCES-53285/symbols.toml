@@ -449,3 +449,178 @@ address = 0x01E9E270
 kind = "function"
 confidence = "low"
 note = "libdl's internal_netSendAppMessage, found by code: identical to DL NTSC's (relocations masked, 54 instructions), at the same address as DL's. Called from 29 places."
+
+[[symbol]]
+name = "main_loop"
+address = 0x0052A380
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's main_loop, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "coop_level"
+address = 0x0066B798
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's coop_level, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical."
+
+[[symbol]]
+name = "hero_create"
+address = 0x006AD958
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's hero_create, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "level_start_heroes"
+address = 0x00580A30
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's level_start_heroes, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "hero_death_done"
+address = 0x0067F7A8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's hero_death_done, found by code (its first 12 instructions, then both decompiled and compared, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): co-op's wait before a respawn is 300 frames (DL's 360), so 6 s in both; 420 frames become 350, and multiplayer's respawn seconds are multiplied by 50 (DL's 60); multiplayer adds a check."
+
+[[symbol]]
+name = "hero_respawn"
+address = 0x0067FF98
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's hero_respawn, found by code (its first 12 instructions, then both decompiled and compared, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): hero+0x422 is set to 100 frames (DL's 120); multiplayer adds a check."
+
+[[symbol]]
+name = "coop_respawn_spot"
+address = 0x0058A138
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's coop_respawn_spot, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical."
+
+[[symbol]]
+name = "coop_respawn_hoverbike"
+address = 0x006B89A0
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's coop_respawn_hoverbike, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "split_screen_loop"
+address = 0x0052C3F8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's split_screen_loop, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "split_screen_borders"
+address = 0x00529FC8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's split_screen_borders, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "view_layout"
+address = 0x0054B580
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's view_layout, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals."
+
+[[symbol]]
+name = "pad_p2_pick"
+address = 0x0052B5F8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's pad_p2_pick, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals."
+
+[[symbol]]
+name = "game_mode_request"
+address = 0x005AD998
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's game_mode_request, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "menu_input"
+address = 0x005DD848
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's menu_input, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "ui_screen_set"
+address = 0x005DD318
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's ui_screen_set, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "moby_destroy"
+address = 0x0058B160
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's moby_destroy, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "ammo_pickup_update"
+address = 0x003D7DA8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's ammo_pickup_update, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): the co-op factor is unchanged; frame counts and per-frame constants are converted to 50 Hz (10 frames to 8, 30.0 to 25.0)."
+
+[[symbol]]
+name = "gadget_box_attach"
+address = 0x00695D48
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's gadget_box_attach, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "health_level_update"
+address = 0x00694718
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's health_level_update, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals and calls."
+
+[[symbol]]
+name = "coop_scale_hp"
+address = 0x00653E50
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's coop_scale_hp, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals."
+
+[[symbol]]
+name = "enemy_attack_scale"
+address = 0x00653FD8
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's enemy_attack_scale, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): identical apart from moved globals."
+
+[[symbol]]
+name = "hero_update_timers"
+address = 0x0068A238
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's hero_update_timers, found by code (its first 12 instructions, then both decompiled and compared, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): co-op's team moves last 1500 frames (DL's 1800), 30 s in both, and both players' clicks must come within 25 frames (DL's 30); its other frame counts are cut to about 5/6 too."
+
+[[symbol]]
+name = "hero_damage"
+address = 0x0066E540
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's hero_damage, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): the hit's safe time is 300 frames (DL's 360)."
+
+[[symbol]]
+name = "coop_tether_update"
+address = 0x00494538
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's coop_tether_update, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): counts the tether's seconds at 50 frames each (DL's 60), so 10 real seconds in both."
+
+[[symbol]]
+name = "coop_tether_draw"
+address = 0x00494B48
+kind = "function"
+confidence = "medium"
+note = "Counterpart of DL NTSC's coop_tether_draw, found by code (match-function.py over the whole function, 2026-10-30; docs/research/coop.md, \"Gladiator PAL\"): shows the seconds left from frames / 50 (DL's / 60)."

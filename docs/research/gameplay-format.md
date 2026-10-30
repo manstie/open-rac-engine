@@ -319,3 +319,23 @@ From `openrac-tool cameras` on the UYA NTSC-U disc. Every level also has classes
 - Classes 0x3, 0x11, 0x18, 0x1D, 0x1E and 0x21 aren't in Veldin's mode table, so their
   code is in other levels' builds and not read yet. The 0x11 cameras look like 0x17's
   (lead 8, priority 4, a cuboid, a distance 3 and a height 4 in their pvars).
+
+## Deadlocked [verified for the mobys and pvars, DL NTSC-U and Gladiator PAL, 2026-10-30]
+
+- **The file:** a DL level WAD's header keeps it at +0x58 (`disc-layout.md`, "Level
+  data"), the same file the level data's own gameplay WAD gives;
+  `Gameplay::read_dl` reads it, and `openrac-tool mobys` lists its mobys and pvars on
+  either game's disc.
+- **The header moves the blocks** (Wrench's `DL_GAMEPLAY_CORE_BLOCKS`; `Layout::DL`):
+  +0x04 cameras, +0x2C moby classes, +0x30 mobys, +0x34 moby groups, +0x3C moby links,
+  +0x40 the pvar table, +0x44 the pvar data, +0x48 relative pointers, +0x4C cuboids,
+  +0x50 spheres, +0x54 cylinders, +0x58 pills, +0x5C paths, +0x60 grind paths, +0x6C the
+  camera collision grid. The art (ties, shrubs, lights, occlusion) is in another file,
+  and each mission has its own moby and pvar blocks; neither is read.
+- **Moby records are 0x70 bytes** (Wrench's `DlMobyInstance`): +0x08 the UID, +0x10 the
+  class, +0x28 the position, +0x34 the rotation, +0x40 the group, +0x50 the pvar index.
+  The block and the pvar table and data are laid out as UYA's.
+- **Checked:** Catacrom Four's co-op tether (`coop.md`, "The tether") reads from the disc
+  as the game loaded it in `dlntsc-catacrom-coop-play.p2s`: class 0x247B, UID 21, at
+  (591.92, 345.50, 0.00), pvars 40.0, 10, −1, 1 in 0x120 bytes. Only the moby and pvar
+  blocks are checked; the other offsets are Wrench's.

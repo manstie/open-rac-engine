@@ -64,11 +64,14 @@ session is working on the task now; notes on problems met stay with their task (
   firing affects the hero, the guns' aim indicators, and the effects engine the guns
   draw with (`effects.md`).
   DL's two-player campaign is read in code (RE.10, `coop.md`): who player 2 is, what
-  the players share, death and respawn, difficulty, split screen, menus and missions;
-  its deaths, respawns and team moves are checked in play on DreadZone Station, and its
-  ammo pickups, kills and respawns on Catacrom Four.
+  the players share, death and respawn, difficulty, split screen, menus and missions,
+  and the tether that kills both players when they part for 10 s; its deaths, respawns
+  and team moves are checked in play on DreadZone Station, and its ammo pickups, kills,
+  weapon XP, respawns, tether and the R3 shield (only for show) on Catacrom Four.
+  Gladiator PAL's co-op is the same code with 50 Hz frame counts.
 - **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
-  from the disc, and DL's skin WAD, levels and cores (P2.1–P2.4, P3.3, P3.7, P3.10). The packed boot
+  from the disc, and DL's skin WAD, levels, cores and gameplay files' mobys (P2.1–P2.4,
+  P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
   R&C1 and GC, are identified by their boot executables' hashes (P2.2).
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
@@ -596,18 +599,31 @@ committed (names, addresses, layouts, derived constants).
     `dlntsc-catacrom-coop-play.p2s`, `-coop-fight-{1,3,4}` traces): its first challenge
     unlocked in memory from how planets and challenges unlock (`coop.md`, "Planets and
     challenges"); an ammo pickup by each player at ×2.4; kills' weapon XP added once
-    per player from the first holding the gun (Viper kills twice, Magma Cannon kills
-    once, as player 1 and 2 held them); a respawn on the partner's newest safe spot.
+    per player from the first holding the gun, not the killer (`-fight-5`, `-6`: player
+    2's Magma Cannon kills counted twice once player 1 held it too); a respawn on the
+    partner's newest safe spot.
+  - **The tether** (`coop.md`, "The tether"; `-fight-5`, `dlntsc-catacrom-coop-tether-{1,2}.p2s`):
+    a level object (class 0x247B) that, with the players over 40 u apart, counts 10 s
+    down with a beam between them and then kills both, so the level restarts. Placed in
+    levels 2, 4–8, 14 and 15 and their co-op builds, the same on Gladiator PAL, whose
+    code counts at 50 frames a second (read with `openrac-tool mobys`, P3.10).
   - The first co-op savestate wouldn't leave its pause menu while port 2 was empty; a
     pad in port 2 fixed it.
   - Each DL level's build moves globals as well as code (`coop_flag` is 0x130 lower on
     Catacrom Four); `tools/ghidra/match-function.py` carries addresses across builds
     (`coop.md`, "Status and method").
-  - To do (`coop.md`, "Not read yet / next steps"): separate "first holder" from "killer"
-    for weapon XP (the Triangle weapon grid didn't respond to the sticks or D-pad, so the
-    guns couldn't be swapped); Gladiator PAL.
-  - Next step: buy a gun for player 2 at Catacrom's vendor (beside the start; buying
-    equips it for the buyer) so both hold the same gun, then trace a kill by player 2.
+  - **Gladiator PAL** (`coop.md`, "Gladiator PAL"; names in
+    `re/SCES-53285/symbols.toml`): every co-op function `coop.md` cites matched into its
+    DreadZone Station image; the same code and data with frame counts converted to
+    50 Hz (the respawn wait 300 frames, the team moves 1500), so the same in real time.
+    Not checked in play.
+  - **The R3 team move's shield is only for show in co-op** (`coop.md`, "Co-op's own
+    moves"; `-fight-7`): `hero_damage` applies the armour table only in multiplayer, and
+    hits took their full damage with armour 3. Team moves outlast a death (`coop.md`
+    had this wrong).
+  - To do (`coop.md`, "Not read yet / next steps"): the remaining unread values, none of
+    which the co-op rules (P6.1) are known to need.
+  - Next step: none planned; reopen for P6.1's questions as they come.
 - [ ] **RE.11** **Renderer:**
   - For each VU program: its input packet format and meaning.
   - How the DMA chain is built, and the hook points (`VU1_sendChain`, `VU1_syncChain`,
@@ -1117,9 +1133,11 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   Florana; UYA's cameras, camera volumes (moby instances of class 2329 with their pvars),
   paths, cuboids, spheres, cylinders and the camera collision list, checked against
   five savestates (`openrac-tool cameras`).
-  - To do: level settings; tie and shrub instances, and the per-game moby record sizes;
-    lights, sound instances and areas; DL's gameplay files, its missions and art
-    instances.
+  - DL's gameplay files (`Gameplay::read_dl`, `Layout::DL` from Wrench's layout):
+    mobys and pvars checked against Catacrom Four's co-op savestate; `openrac-tool
+    mobys` lists any level's mobys and pvars on a UYA or DL disc.
+  - To do: level settings; tie and shrub instances; lights, sound instances and areas;
+    DL's other blocks (Wrench's offsets, unchecked), its missions and art instances.
 - [ ] **P3.11** The **classic** render path, PS2-faithful, used for validation and for
   classic mode, with shaders in WESL:
   - Vertex colour modulation (0x80 = 1.0, so 2× modulate).
@@ -1405,6 +1423,9 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
   - Disconnect and reconnect.
 - [ ] **P6.5** Per-game adapters, applied in the order UYA → DL → R&C1 → GC:
   - A co-op compatibility list for each release and level.
+  - The tether: Gladiator's (40 u, 10 s, both die) and where each game places one.
+  - The team moves: Gladiator's L3 (×4 damage, 30 s) and R3 (a shield that in co-op
+    blocks no damage), and whether ours keep that.
   - Difficulty options.
 - [ ] **P6.6** Local split-screen (D6), built on the same foundation: Bevy viewports and two
   local input sources.

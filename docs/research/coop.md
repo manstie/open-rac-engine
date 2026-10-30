@@ -21,7 +21,11 @@ Started 2026-10-28 from DL NTSC-U's code.
 - **A co-op level with enemies** (2026-10-29): `dlntsc-catacrom-coop-play.p2s`, Catacrom
   Four's co-op build (level 22) at its first challenge's start, reached by unlocking the
   challenge in memory ("Planets and challenges"), imported as `dlntsc-catacrom`; the
-  traces `dlntsc-catacrom-coop-fight-{1,3,4}` check kills, ammo and a respawn there.
+  traces `dlntsc-catacrom-coop-fight-{1,3,4}` check kills, ammo and a respawn there, and
+  `-fight-{5,6}` (2026-10-30) weapon XP's first holder and the tether, whose countdown
+  `dlntsc-catacrom-coop-tether-{1,2}.p2s` catch.
+- **Every level's placed mobys** come from the discs' gameplay files (`openrac-tool
+  mobys`, `gameplay-format.md`, "Deadlocked").
 - **Labels** as in `hero-controller.md`: **[code]** read in the game's code,
   **[verified]** checked in a savestate or trace, **[inferred]** from how a value is used.
 - **Addresses are DreadZone Station's build** (levels 1 and 21 share it). Each level has
@@ -47,6 +51,9 @@ Started 2026-10-28 from DL NTSC-U's code.
 - **Death:** a dead player waits 6 s, then comes back near where the partner stood a
   moment ago, at full health. Only both players dead at once restarts the level.
   There's no revive.
+- **A tether keeps the players together:** where a level places one, players further
+  apart than its distance (40 u on Catacrom Four) start its countdown (10 s), shown with
+  a beam between them going from blue to red; at zero both die and the level restarts.
 - **Difficulty** isn't raised for two players; enemies' hit points can be scaled by a
   co-op factor, 1.0 so far.
 - **Split screen** stacks the two views (staggered halves in widescreen), draws at 30
@@ -54,7 +61,7 @@ Started 2026-10-28 from DL NTSC-U's code.
   transports and menus. Either pad drives a menu, and the pause menu stops both.
 - **Player 2 replaces the battle bots,** which co-op removes with their vendor. With a
   team meter filled from XP, both players clicking L3 together give both 30 s of ×4
-  damage, and R3 together a 30 s shield.
+  damage, and R3 together a 30 s shield that, in co-op, is only for show.
 
 ## Starting co-op [code]
 
@@ -163,8 +170,11 @@ game's planets arrive on an empty challenge menu). Names are in
 - **In co-op a death doesn't end the level.** The same function sets health to 0, counts
   the death in that player's statistics (0x20B490 + 0x2A0 × player) instead of the
   single-player counters, puts **360 frames (6 s)** in hero+0x3B2 and enters **state 153
-  (0x99)**, dead and waiting. It also ends the hero's damage power-up (hero+0x2FB0 back
-  to 1, its timer +0x40A to 0) and the other power-up (+0x2FB4, timer +0x408).
+  (0x99)**, dead and waiting. The team moves' power-ups run on through a death: their
+  clearing (hero+0x2FB0 back to 1, +0x2FB4 to 0, timers +0x40A and +0x408 to 0) is in
+  the multiplayer branch, with the respawn time taken from the game's settings
+  [corrected 2026-10-30; verified, `dlntsc-catacrom-coop-fight-7`: player 2's armour 3
+  and its timer outlasted his death and respawn].
 - **State 153** (`hero_transitions` 0x69EA40, case 0x99) counts the 6 s down, showing that
   player a countdown on their HUD (text 0x25FB with the frames left).
   - **If the other hero is in state 153 too, the level restarts** as after a
@@ -217,6 +227,66 @@ game's planets arrive on an empty challenge menu). Names are in
 - **Enemies that test both heroes' health** (for example a boss at 0x4E2FD8) keep
   attacking while either player is alive; they don't fail the mission themselves.
 
+### The tether [code, Catacrom Four's build; verified in play]
+
+A level object, moby class 0x247B (update 0x3FEDB0 in Catacrom Four's co-op build),
+keeps the two players within a distance of each other. Out of co-op (`coop_flag` 0, or
+`multiplayer_flag` set) it removes itself on its first update (0x539580).
+
+- **Its pvars** (0x120 bytes): +0x00 the distance (float), +0x04 the time in seconds
+  (int), +0x08 a volume (−1 for none) and +0x0C whether the heroes must be inside it (0)
+  or outside it (nonzero) for the tether to apply (0x552368 tests a position against it).
+  Then its state: +0x10 a bit per player already dead when it ran out, +0x14 the whole
+  seconds last shown (−1 at rest), +0x18 the frames left, and from +0x20 two beams of two
+  segments, 0x40 bytes each, with their colours and end points.
+  - Catacrom Four's co-op build has one (uid 21) with 40.0 u, 10 s and no volume
+    [verified, savestate in the countdown].
+- **Each frame**, from the hero list (0x362C78 there), it measures the distance between
+  the first two heroes' positions (hero+0xA0). The countdown runs only while all of these
+  hold; otherwise it is reset (frames back to seconds × 60, the loop sound stopped):
+  - the level is more than 4 frames old, the game mode isn't 1 or 2, no camera or
+    cutscene check holds (a global's +0x86 isn't 0x13; 0x4ED390 for no player), and
+    0x21EA9C is clear;
+  - each hero is alive and in none of the death states (57, 104 quicksand, 106 drown,
+    118, 122, 123 lava, 126, 127, 148, 153) nor grinding (39–42, 62, 63), hero+0x25D4
+    isn't 15, and any vehicle he rides isn't being destroyed (its state 7, 8 or 10);
+  - the volume test passes, when there is one;
+  - **the heroes are further apart than the distance**, doubled while either rides a
+    vehicle (hero+0x2EF4) other than class 0x263E.
+- **While it runs** (frames counted down from seconds × 60, `timer_count_down`'s kind):
+  - each hero gets a beam from one of his joints (4) towards the other, its colour mixed
+    from red (0x803030F0) to blue (0x80F03030) by the fraction of the time left, so blue
+    at the start and red at the end;
+  - the seconds left, with two decimals, in the middle of the screen in the same colour,
+    at a scale between 2.0 and 1.5 by the time left (0x546E50, not read); each new
+    whole second plays sound 1, rumbles
+    both pads (effect 6) and flashes the text;
+  - a loop sound (4) on the object, a screen effect of strength 0.07 × the fraction gone
+    (0x39D51C), and a help message, text 0x2F53, unless 0x1F5E70 is set.
+- **When it runs out,** each hero still alive takes 1000 damage (`hero_damage`, 0x619398;
+  hero+0x41E is set to 1), so both die together and the level restarts ("Death, respawn
+  and failure" above). A hero riding a vehicle loses the vehicle instead (its moby's
+  state to 9).
+- [verified, `dlntsc-catacrom-coop-fight-5`] Player 1 stood at the start while player 2
+  walked up the path: 605 frames after the heroes first stood more than 40 u apart, both
+  heroes' health went to 0 on the same frame (player 1's from full), and 85 frames later
+  the level restarted; the same again after the restart. A savestate in the countdown
+  had 232 frames left at +0x18, and 166 66 frames later. With both walking together
+  (takes 1, 3 and 6, never more than 30 u apart) it never ran.
+- **Where** [verified on both discs, `openrac-tool mobys --class 0x247B`]: one tether in
+  each of levels 2 (Catacrom Four), 4 (Sarathos), 5 (the Dark Cathedral), 6 (Shaar), 7
+  (Valix), 8 (the Mining Facility), 14 (Ghost Station) and 15, and in their co-op builds
+  22, 24–28, 34 and 35, the same instance (uid and place) in both. **All sixteen have
+  40 u, 10 s and no volume.** DreadZone Station (1, 21), Torval (10, 30), Tempus (11, 31)
+  and Maraxus (13, 33) have none, so there the players may part. (Names from libdl's
+  multiplayer maps, whose ids are the campaign levels' plus 40.)
+- **Gladiator PAL** [code, `match-function.py`]: the same placements and values, and the
+  same code (0x494538 in its DreadZone Station build, 0x492D40 in DL's) with each 60.0
+  (the start frames, the colour's fraction, the reset and the seconds shown) changed to
+  50.0, so the countdown is 10 real seconds in both regions.
+- Not read: what text 0x2F53 says, the beam's texture (0x39D4E0), the camera check at
+  +0x86, and 0x4ED390.
+
 ## What the players share [code; checked in `dlntsc-dreadzone-coop.p2s` where marked]
 
 | Shared by both | Per player |
@@ -248,10 +318,12 @@ game's planets arrive on an empty challenge menu). Names are in
     player 2 on the Magma Cannon: every Magma Cannon kill added its XP once (`xp_total`
     +1, +3, +4 with the gun's XP the same), and Viper kills twice (+1 → +2, +3 → +6).
     Some kills added `xp_total` with no gun XP (none of the two guns made them).
-  - Not separated in play: whether it is the first holder or the killer (they were the
-    same player in these takes). Swapping guns needs the grid that holding Triangle
-    opens, whose cursor ignored both sticks and the D-pad, and a write to hero+0x2318 is
-    undone once the hero fires.
+  - [verified, `dlntsc-catacrom-coop-fight-{5,6}`, 2026-10-30] **The first holder, not
+    the killer:** with player 1's item in hand written to 3 (the Magma Cannon) and player
+    1 never firing (the write holds until he fires), every Magma Cannon kill by player 2
+    added its XP twice: `xp_total` +1 with the gun's XP +2, three times in take 5, and +2
+    with +4 in take 6. In takes 1 and 3, with player 1 on the Vipers, the same kills
+    added it once.
 - **Skins in the vendor:** one menu with two preview models; 0x34AF78 says whose skin is
   being chosen, and each player's choice is worn on leaving (0x61B9A8–0x61D238). Skins
   are bought from the shared purse into the shared `skins_owned`.
@@ -290,6 +362,16 @@ game's planets arrive on an empty challenge menu). Names are in
     +0x2FB0) for 1800 frames (30 s);
   - **both clicking R3** sets +0x2FB4 (libdl's `ArmorLevel`) to 3 for 1800 frames (timer
     +0x408), and a bubble shield shows round the hero.
+  - **The R3 shield takes nothing off the damage in co-op** [code; verified]:
+    `hero_damage` (0x6693A8) multiplies a hit by the armour table (0x3BD9A0: 1, 0.75,
+    0.5, 0.25, 0 by hero+0x2FB4) only when `multiplayer_flag` is 1; in the campaign a
+    running armour timer multiplies it by 1.0. Nothing else reads the armour but the
+    bubble's drawing (0x66ACA0, which fades it over its last 30 frames and blinks it
+    through its last 4 s) and the hit state (0x6790C8), which doubles one kind of hit's
+    push (a damage record of type 4 carrying its own direction) only while the armour
+    is 0. In `dlntsc-catacrom-coop-fight-7`, with both heroes on armour 3, hits whose
+    raw damage (hero+0x2E80) was 3 and 4 took 3 and 4 health (armour 3 would have left
+    1). So in co-op the R3 move shows a bubble and spares that one push.
   - Then that hero's meter resets (0x68F2D8 clears his +0x2FB8 and +0x2FBC and moves the
     shared XP baseline 0x171B70). Each hero makes the check in his own update.
   - **Checked in play:** with the meter's XP (0x171B54) written past the span, both
@@ -410,15 +492,40 @@ game's planets arrive on an empty challenge menu). Names are in
 - DreadZone's per-mission script (0x3D8858) plays many of its sounds and objectives only
   in single player; the jump pad (0x2072, 0x4B04F8) also tests co-op. Neither is read.
 
+## Gladiator PAL [code, 2026-10-30]
+
+Gladiator PAL (SCES-53285) plays co-op as DL does, in the same real time.
+
+- **Method:** every code address this file cites in DreadZone Station's build (105, in
+  100 functions), the tether's and `hero_damage`, matched into the Gladiator PAL image
+  `gladpal-dreadzone-4` (DreadZone Station, `$gp` 0x2259FF) by `match-function.py`'s
+  masking over each whole function (a sweep script kept outside the repository). Where a
+  whole function didn't match, its first 12 instructions placed it, and Ghidra's
+  decompiles of the two were compared. PAL names are in `re/SCES-53285/symbols.toml`.
+- **The same apart from 50 Hz:** each function differs from DL's only in moved calls and
+  globals, and in frame counts and per-frame constants converted from 60 to 50 frames a
+  second (counts cut to about 5/6, per-frame rates scaled up by 6/5), as RE.8 found for
+  the hero (`hero-controller.md`, "Frames and regions"). For co-op:
+  - the wait before a respawn is 300 frames (DL's 360) in `hero_death_done`; a hit's
+    safe time 300 (360) in `hero_damage`; hero+0x422 at a respawn 100 (120);
+  - the team moves last 1500 frames (1800), and the two clicks must come within 25
+    frames (30), in `hero_update_timers`;
+  - the tether counts 50 frames a second ("The tether");
+  - multiplayer's respawn time multiplies the settings' seconds by 50 (60).
+  - `hero_death_done` and `hero_respawn` also gain a check that runs only in
+    multiplayer.
+- **Unchanged:** the co-op tests and their order, what is shared, the respawn search,
+  split screen and its layouts, menus and pads, the ammo pickups' co-op factor, the
+  enemies' scaling, and the data the rules read: the health-level table, the view
+  layouts, the difficulty table, the planet and mission records and the bots' commands
+  are byte for byte DL's (at addresses 0x40 to 0x1F8 higher).
+- **Not matched:** 0x61D238 (30 instructions, the vendor's skin choice) has no unique
+  match. Nothing was checked in play on PAL.
+
 ## Not read yet / next steps
 
-1. **Weapon XP: the first holder or the killer?** A kill whose gun the killer isn't the
-   first to hold (both on the Vipers and player 2 kills, or the guns swapped) tells the
-   two apart; it needs the weapon grid (held Triangle) worked out, or a gun bought for
-   player 2 at the vendor (`vendor_buy` equips it for the buyer).
-2. **Unread values:** what armour 3 does to damage (the R3 move); HUD bit 0x08; the
+1. **Unread values:** HUD bit 0x08; the
    four-entry screen of exclusive choices; the three per-player settings beyond the
    camera; items 11, 12, 13 and 16; 0x21E904; player 2's moby marks (+0x74, flag 0x8000);
    whether co-op ever sets 0x2400A8; the difficulty table's other columns; the planet
    flag 4 set on arrival; what made the kills that gave no gun XP.
-3. **Gladiator PAL** (SCES-53285): check that its co-op is the same (RE.10 names both).
