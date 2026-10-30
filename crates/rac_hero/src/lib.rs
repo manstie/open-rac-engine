@@ -10,7 +10,8 @@
 //! - [`HeroTuning`] holds the movement profile, UYA NTSC-U's unless the app sets another,
 //!   such as Deadlocked's ([`HeroProfile::dl`]); the games differ only in its numbers.
 //! - Health, hits ([`HurtHero`]), death and [`Checkpoint`]s are handled here, around the
-//!   controller; [`HeroRespawned`] says when a hero is brought back.
+//!   controller; [`HeroRespawned`] says when a hero is brought back. UYA's
+//!   [`HelpMeasure`] counts the deaths by checkpoint and scales the hits.
 //! - The wrench's attacks turn to [`AimTarget`]s, and what they can hit each tick is in
 //!   [`HeroMotion::strikes`] for the game's combat code (`rac_combat`) to test.
 //! - [`FollowCamera`] is the hero's camera (P1.7): UYA's third-person follow camera, or
@@ -25,6 +26,7 @@ pub mod camera;
 pub mod collision;
 pub mod controller;
 pub mod gun;
+pub mod help;
 pub mod lock_on;
 pub mod motor;
 pub mod profile;
@@ -43,6 +45,7 @@ pub use controller::{
     StrikeShape, ThrownWrench,
 };
 pub use gun::{GunArm, GunHand, GunPose, Hold, Shield, WhipHand, Zoom};
+pub use help::HelpMeasure;
 pub use lock_on::LockOn;
 pub use profile::HeroProfile;
 pub use rail::{GrindRail, RailKind};
@@ -154,11 +157,13 @@ impl Plugin for HeroPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HeroTuning>()
             .init_resource::<CollisionScene>()
+            .init_resource::<HelpMeasure>()
             .add_message::<HurtHero>()
             .add_message::<HeroRespawned>()
             .add_systems(
                 FixedUpdate,
                 (
+                    count_level_ticks,
                     gather_colliders,
                     move_heroes,
                     lock_on_targets,
@@ -259,6 +264,7 @@ fn move_heroes(
     tuning: Res<HeroTuning>,
     scene: Res<CollisionScene>,
     cameras: Query<&FollowCamera>,
+    mut help: ResMut<HelpMeasure>,
     mut hurts: MessageReader<HurtHero>,
     mut respawned: MessageWriter<HeroRespawned>,
     mut heroes: Query<(
@@ -278,11 +284,13 @@ fn move_heroes(
             .iter_mut()
             .find(|(hero, ..)| hero.player == hurt.player)
         {
+            let factor = help.damage_factor(hurt.player, profile.hit.help.as_ref());
             hurt_hero(
                 &mut body.0,
                 health,
                 hurt.damage,
                 Some(hurt.knockback),
+                factor,
                 profile,
             );
         }
@@ -306,12 +314,16 @@ fn move_heroes(
         );
         if events.hazard {
             let damage = health.max / profile.hit.hazard_divisor;
-            hurt_hero(&mut body.0, &mut health, damage, None, profile);
+            let factor = help.damage_factor(hero.player, profile.hit.help.as_ref());
+            hurt_hero(&mut body.0, &mut health, damage, None, factor, profile);
             body.0.stay_safe_for(profile.hit.hazard_safe_ticks);
         }
         // Both games' levels heal him as they bring him back, after a fall too.
         let teleport = body.0.respawn_due(profile);
         if teleport {
+            if let Some(profile) = &profile.hit.help {
+                help.died(hero.player, body.0.state == HeroState::FallOut, profile);
+            }
             *health = Health::full(health.max);
             body.0 = HeroMotion::new(hero.spawn, hero.spawn_yaw);
             respawned.write(HeroRespawned {
@@ -387,19 +399,22 @@ fn lock_on_targets(
 }
 
 /// Takes `damage` and knocks him back with `knockback`, or for `None` holds him as a
-/// hazard surface does.
+/// hazard surface does. What gets past a shield is multiplied by `factor`, the help
+/// measure's.
 fn hurt_hero(
     body: &mut HeroMotion,
     health: &mut Health,
     damage: u32,
     knockback: Option<Vec3>,
+    factor: f32,
     profile: &HeroProfile,
 ) {
     if !body.can_be_hurt() {
         return;
     }
-    // A shield takes the hit first (the Shield Charger's, 0x4C57B0).
-    let damage = body.shield.absorb(damage);
+    // A shield takes the hit first (the Shield Charger's, 0x4C57B0), then `hero_damage`
+    // scales the rest.
+    let damage = help::scale_damage(body.shield.absorb(damage), factor);
     if damage == 0 {
         return;
     }
@@ -411,9 +426,24 @@ fn hurt_hero(
     }
 }
 
-/// Moves a hero's spawn point to any [`Checkpoint`] he stands in.
+/// Counts the level's ticks for the [`HelpMeasure`] while a hero is in it, and starts it
+/// again once none is, as a level's end.
+fn count_level_ticks(heroes: Query<(), With<Hero>>, mut help: ResMut<HelpMeasure>) {
+    if heroes.is_empty() {
+        if *help != HelpMeasure::default() {
+            *help = HelpMeasure::default();
+        }
+    } else {
+        help.ticks += 1;
+    }
+}
+
+/// Moves a hero's spawn point, and his area of the [`HelpMeasure`], to any [`Checkpoint`]
+/// he stands in.
 fn reach_checkpoints(
+    tuning: Res<HeroTuning>,
     checkpoints: Query<(Entity, &Checkpoint, &Transform)>,
+    mut help: ResMut<HelpMeasure>,
     mut heroes: Query<(&mut Hero, &HeroBody)>,
 ) {
     let mut checkpoints: Vec<_> = checkpoints.iter().collect();
@@ -427,9 +457,10 @@ fn reach_checkpoints(
             let local = feet - transform.translation;
             local.abs().cmple(checkpoint.half_extents).all()
         });
-        if let Some((_, checkpoint, transform)) = reached {
+        if let Some((entity, checkpoint, transform)) = reached {
             hero.spawn = transform.translation;
             hero.spawn_yaw = checkpoint.spawn_yaw;
+            help.reach(hero.player, *entity, tuning.0.hit.help.as_ref());
         }
     }
 }
@@ -520,7 +551,8 @@ mod tests {
         });
         ticks(&mut app, 1);
         assert_eq!(body(&app, hero).state, HeroState::Hit);
-        assert_eq!(app.world().get::<Health>(hero).unwrap().current, 6);
+        // UYA's hits are 1.2× as hard with no deaths: 4.8, rounded.
+        assert_eq!(app.world().get::<Health>(hero).unwrap().current, 5);
 
         // Still safe from the last hit: this one is ignored.
         app.world_mut().write_message(HurtHero {
@@ -529,7 +561,7 @@ mod tests {
             knockback: Vec3::ZERO,
         });
         ticks(&mut app, 1);
-        assert_eq!(app.world().get::<Health>(hero).unwrap().current, 6);
+        assert_eq!(app.world().get::<Health>(hero).unwrap().current, 5);
 
         ticks(&mut app, 120);
         app.world_mut().write_message(HurtHero {
@@ -554,6 +586,66 @@ mod tests {
         assert_eq!(body(&app, hero).position, Vec3::ZERO);
         assert_eq!(app.world().get::<Health>(hero).unwrap().current, 10);
         assert_eq!(announced, [HeroRespawned { player: 0 }]);
+    }
+
+    #[test]
+    fn deaths_are_counted_by_checkpoint_and_ease_his_hits() {
+        let (mut app, hero) = app();
+        // Too early in the level to count.
+        let kill = |app: &mut App| {
+            app.world_mut().write_message(HurtHero {
+                player: 0,
+                damage: 99,
+                knockback: Vec3::ZERO,
+            });
+            let mut died = false;
+            for _ in 0..400 {
+                ticks(app, 1);
+                let state = body(app, hero).state;
+                died |= state == HeroState::Dead;
+                if died && state == HeroState::Idle {
+                    return;
+                }
+            }
+            panic!("he didn't die and come back");
+        };
+        kill(&mut app);
+        assert_eq!(app.world().resource::<HelpMeasure>().deaths(0), 0);
+        app.world_mut().resource_mut::<HelpMeasure>().ticks = 900;
+        ticks(&mut app, 80);
+        kill(&mut app);
+        let help = app.world().resource::<HelpMeasure>();
+        assert_eq!((help.area(0), help.deaths(0)), (None, 1));
+
+        // Past 6 deaths a hit of 10 is 7% lighter: 9.3, rounded.
+        app.world_mut()
+            .resource_mut::<HelpMeasure>()
+            .deaths
+            .insert(None, 7);
+        ticks(&mut app, 80);
+        app.world_mut().write_message(HurtHero {
+            player: 0,
+            damage: 10,
+            knockback: Vec3::ZERO,
+        });
+        ticks(&mut app, 1);
+        assert_eq!(app.world().get::<Health>(hero).unwrap().current, 1);
+
+        // The checkpoint becomes his area, which has none.
+        app.world_mut().get_mut::<HeroBody>(hero).unwrap().0 =
+            HeroMotion::new(Vec3::new(10.0, 0.0, 0.0), 0.0);
+        ticks(&mut app, 2);
+        let help = app.world().resource::<HelpMeasure>();
+        assert!(help.area(0).is_some());
+        assert_eq!(help.deaths(0), 0);
+
+        // With no hero left the level is over, and it starts again.
+        app.world_mut().despawn(hero);
+        ticks(&mut app, 1);
+        assert_eq!(
+            *app.world().resource::<HelpMeasure>(),
+            HelpMeasure::default()
+        );
     }
 
     #[test]

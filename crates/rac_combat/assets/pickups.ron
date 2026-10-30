@@ -48,12 +48,13 @@
     // The nanotech crate's orbs (`nanotech_holder_update`) [code]: let out once it is broken
     // to a hero within 10 u whose health with what orbs in flight carry is under his most,
     // each flies 20-80 frames on a curve bowed out 5 u square to his way, fanned 25.7°
-    // apart, to 0.75 u above his feet; the first to arrive heals him his most / 5 (the
-    // game's help measure under 100), and they go 300 frames after. Before that they
-    // circle the crate's middle 0.3 u out, 3° a frame [placeholder].
+    // apart, to 0.75 u above his feet; the first to arrive heals him his most / 5, / 4
+    // with the help measure at 100 and / 3 at 200 ("The help measure"), and they go 300
+    // frames after. Before that they circle the crate's middle 0.3 u out, 3° a frame
+    // [placeholder].
     nanotech: (
         reach: 10.0,
-        divisor: 5,
+        divisors: (5, 4, 3),
         orbs: 8,
         flight: (20, 80),
         bow: 5.0,

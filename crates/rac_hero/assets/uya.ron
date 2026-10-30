@@ -1044,6 +1044,22 @@
         hazard_divisor: 8,
         hazard_ticks: 41,
         max_health: 10, // hero_max_health on a new game [measured]
+        // The help measure ("The help measure" in weapons.md) [code, 2026-10-30]: each
+        // death weighs 50, as in Veldin's first area [data]; deaths count from the
+        // level's frame 900, falls out of it from 1800. Over 250 and past 6 deaths a hit
+        // is 7% lighter a death, half at most; under 50, 1.2× with no deaths and 1.1×
+        // with one. A new checkpoint takes 100 / 50 deaths off.
+        help: Some((
+            weight: 50,
+            count_from: (900, 1800),
+            ease_above: 250,
+            ease_after: 6,
+            ease: 0.07,
+            ease_most: 0.5,
+            harden_below: 50,
+            harden: (1.2, 1.1),
+            refund: 100,
+        )),
     ),
     death: (
         // Sequence 64 after a 12-frame blend ends on state frame 108, the hero reports his

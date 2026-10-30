@@ -9,7 +9,7 @@
 
 use bevy::math::ops;
 use bevy::prelude::*;
-use rac_hero::{Health, Hero, HeroBody, HeroState};
+use rac_hero::{Health, HelpMeasure, Hero, HeroBody, HeroState, HeroTuning};
 use rac_sim::{SimRng, SimTransform};
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +20,9 @@ use super::{PickupSound, PickupSoundKind, PickupTuning, between};
 pub struct NanotechTuning {
     /// They are let out to a hero within this far of the crate's middle.
     pub reach: f32,
-    /// They heal his most health over this, at least 1.
-    pub divisor: u32,
+    /// They heal his most health over the first, at least 1, or with UYA's help measure
+    /// at 100 or more over the second, and at 200 or more the third (0x3FE4C0).
+    pub divisors: [u32; 3],
     pub orbs: u32,
     /// Each flies for a random number of ticks in this range.
     pub flight: (u32, u32),
@@ -226,14 +227,18 @@ pub fn step_cluster(
     event
 }
 
-/// What the orbs heal a hero whose most health is `most`.
-pub fn amount(most: u32, tuning: &NanotechTuning) -> u32 {
-    (most / tuning.divisor.max(1)).max(1)
+/// What the orbs heal a hero whose most health is `most`, with the help measure at
+/// `measure`.
+pub fn amount(most: u32, measure: u32, tuning: &NanotechTuning) -> u32 {
+    let divisor = tuning.divisors[(measure / 100).min(2) as usize];
+    (most / divisor.max(1)).max(1)
 }
 
 /// Moves every cluster, lets them out to heroes with room and heals those they reach.
 pub(crate) fn move_orbs(
     tuning: Res<PickupTuning>,
+    hero_tuning: Res<HeroTuning>,
+    help: Res<HelpMeasure>,
     mut rng: ResMut<SimRng>,
     mut heroes: Query<(&Hero, &HeroBody, &mut Health)>,
     mut clusters: Query<(Entity, &mut NanotechOrbs, &mut SimTransform)>,
@@ -241,6 +246,10 @@ pub(crate) fn move_orbs(
     mut commands: Commands,
 ) {
     let tuning = &tuning.nanotech;
+    let heal = |player, most| {
+        let measure = help.measure(player, hero_tuning.0.hit.help.as_ref());
+        amount(most, measure, tuning)
+    };
     let mut clusters: Vec<_> = clusters.iter_mut().collect();
     clusters.sort_by_key(|(entity, ..)| *entity);
     // What orbs already let out to each player carry, which counts against his room.
@@ -258,7 +267,7 @@ pub(crate) fn move_orbs(
                 .iter()
                 .find(|(hero, ..)| hero.player == released.player)
         {
-            carried.push((released.player, amount(health.max, tuning)));
+            carried.push((released.player, heal(released.player, health.max)));
         }
     }
     for (entity, orbs, transform) in &mut clusters {
@@ -290,14 +299,14 @@ pub(crate) fn move_orbs(
             Some(OrbEvent::Released(player)) => {
                 if let Some((_, _, health)) = heroes.iter().find(|(hero, ..)| hero.player == player)
                 {
-                    carried.push((player, amount(health.max, tuning)));
+                    carried.push((player, heal(player, health.max)));
                 }
             }
             Some(OrbEvent::Healed(player)) => {
                 if let Some((_, _, mut health)) =
                     heroes.iter_mut().find(|(hero, ..)| hero.player == player)
                 {
-                    let gain = amount(health.max, tuning);
+                    let gain = heal(player, health.max);
                     health.current = health.current.saturating_add(gain).min(health.max);
                 }
             }
@@ -383,9 +392,13 @@ mod tests {
     #[test]
     fn they_heal_a_fifth_of_the_most_at_least_one() {
         let tuning = tuning();
-        assert_eq!(amount(10, &tuning), 2);
-        assert_eq!(amount(80, &tuning), 16);
-        assert_eq!(amount(3, &tuning), 1);
+        assert_eq!(amount(10, 0, &tuning), 2);
+        assert_eq!(amount(80, 0, &tuning), 16);
+        assert_eq!(amount(3, 0, &tuning), 1);
+        // The help measure's 100 and 200 (2 and 4 deaths at 50).
+        assert_eq!(amount(80, 100, &tuning), 20);
+        assert_eq!(amount(80, 299, &tuning), 26);
+        assert_eq!(amount(80, 5000, &tuning), 26);
     }
 
     #[test]

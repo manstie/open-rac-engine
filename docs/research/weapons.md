@@ -229,7 +229,8 @@ Read in Ghidra on the Veldin image; names in `symbols.toml`. Nothing here is tra
 Which entry of which class's sound table each plays (`moby_play_sound` 0x4A7200 on the
 moby's own class, `class_sound_play` 0x4A72A8 by class; tables as `effects.md`, "Sounds",
 reads them). Veldin's core has tables for every class here but 0x1F7, 0x1F9, 0x1FA,
-0x200 and the coins of 500 and up [data, `openrac-tool sounds --level 1`].
+0x200 and the coins of 500 and up [data, `openrac-tool sounds --level 1`]; level 4's has
+0x1F7 and 0x1F9 (both placed there, `openrac-tool mobys --class`) [data].
 
 | What | Where | Sound |
 |---|---|---|
@@ -2160,30 +2161,41 @@ profiles' `gun` section):
   reaches a hero, and for each of the vendor's menu's events, the count's ticks on
   UYA's frames. The demo plays a placeholder for each (`sounds.ron`). With the UYA
   disc, `openrac`'s `gun_sounds.rs` plays the game's entries from Veldin's core and
-  bank in their place, with the crates' 2- and ammo's 11-frame gaps, coins by value
-  (those of 500 and up as 0x11's, which Veldin lacks [placeholder]) and the vendor's at
-  full volume; checked on the disc [verified on UYA NTSC: 14 of the 18 found, a crate's
-  rendered audibly]. Veldin has no explosive or doubler crate, so their breaks and beeps
-  stay placeholders, and the purple nanotech isn't in the kit.
+  bank in their place, and the explosive and doubler crates', which Veldin lacks, from
+  level 4's; with the crates' 2- and ammo's 11-frame gaps, coins by value (those of 500
+  and up as 0x11's, which Veldin lacks [placeholder]) and the vendor's at full volume.
+  Checked on the disc [verified on UYA NTSC: all 18 found, a bolt and an explosive
+  crate's rendered audibly]. The purple nanotech isn't in the kit.
+- **The help measure** (`rac_hero::HelpMeasure`, P1.10, 2026-10-30), by "The help
+  measure" [code], in UYA's profile (`hit.help`; DL's has none): one for the world,
+  counting each hero's deaths in his area as he is brought back, from the level's tick
+  900 (1800 for a fall out of it). An area is the last checkpoint a hero reached, the
+  level's start before one; reaching a new one takes 2 deaths off its area. What gets
+  past his shield is scaled as `hero_damage` does: 1.2× with no deaths and 1.1× with
+  one while the measure is under 50, 7% lighter a death past 6 over 250 (half at
+  most), rounded and at least 1, the hazard floor's included. Each death weighs 50, as
+  in Veldin's first area [data]; UYA's areas can span several checkpoints, weigh their
+  neighbours' deaths and turn the measure off (flag 0x80), and the kit's don't
+  [placeholder]. Its level is the time since a hero was first in it, and it starts
+  again once none is.
 - **The other crates** (`rac_combat::pickups`, P1.10, 2026-10-29), as "Ammo pickups,
   crates and the vendor" reads them [code]:
   - a nanotech crate leaves its eight orbs where it stood (`nanotech.rs`); they are let
     out to the nearest living hero within 10 u whose health, with what orbs already let
     out to him carry, is under his most, fly 20–80 ticks on the game's curves to 0.75 u
-    above his feet, and the first there heals him his most / 5, at least 1; they go 300
-    ticks after. The kit takes the help measure as under 100 (so always / 5), works the
+    above his feet, and the first there heals him his most / 5, / 4 or / 3 by the help
+    measure of his area (below), at least 1; they go 300 ticks after. The kit works the
     amount out from his most as they arrive rather than as the crate is made, and circles
-    the waiting orbs round the crate's middle [placeholder]; the sparkles and sounds
-    aren't drawn or played.
+    the waiting orbs round the crate's middle [placeholder]; the sparkles aren't drawn.
   - an explosive crate (`explosive.rs`) lights a 179-tick fuse when a hero's capsule comes
     within 0.05 u of it or he stands on it [placeholder for the game's ground and wall
     mobys], at once while he grinds; a hit lights it for 5–14 (or cuts a long one to
     that), another's blast for 1. It tints as the game's warns; then its blast grows over
     20 ticks, each target it reaches taking 2 (an explosive crate's fuse going to 1
     instead) and each hero 4, pushed 60 u/s out and up, which his hit caps at 7. The kit
-    tests boxes as unturned, hurts each target once a blast, and leaves out the armor
-    and help measure in his damage (`hero_damage`; the kit has no armor), the beeps and
-    0x348FF0; the demo draws the shared explosion's set at its own size.
+    tests boxes as unturned, hurts each target once a blast, and leaves out the armor in
+    his damage (`hero_damage`; the kit has no armor) and 0x348FF0; the demo draws the
+    shared explosion's set at its own size.
   - a doubler crate gives its breaker one more doubling and 1800 ticks (`BoltMultiplier`,
     on every hero with `Bolts`): his crates' bolts, his kills' XP and the demo's enemies'
     bolts he kills are doubled per doubling while it runs, and it all ends together. Not

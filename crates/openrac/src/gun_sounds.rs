@@ -3,7 +3,8 @@
 //! library. Nothing is stored: each gun's class sound table and its bank are read from the
 //! gadget WAD at start-up, and its shots' from Veldin's core and sound bank
 //! (`docs/research/effects.md`, "Sounds"). The crates', pickups' and vendor's sounds
-//! ([`PickupSound`], P1.10) are from Veldin's core too, those it has ([`pickup_entry`]).
+//! ([`PickupSound`], P1.10) are from Veldin's core too ([`pickup_entry`]), and those it
+//! lacks from level 4's.
 //!
 //! - Which entry of a class's table each cue plays is each gun's update's
 //!   ([`UYA_GUN_SOUNDS`]). The indices are the same at every level, but from V5 most guns
@@ -346,17 +347,46 @@ pub fn import(
             }
         }
     }
+    level_classes(&mut synth, &mut tables, disc, core, level, &mut ours)?;
+    // Not every level has every crate: the rest from one that has them, if needed.
+    if pickup_classes().any(|class| !tables.contains_key(&class)) {
+        let other = Core::read_uya(disc, CRATES_LEVEL)?;
+        let mut theirs = None;
+        level_classes(
+            &mut synth,
+            &mut tables,
+            disc,
+            &other,
+            CRATES_LEVEL,
+            &mut theirs,
+        )?;
+    }
+    Ok(DiscGunSounds { synth, tables })
+}
+
+/// A level whose core has every crate's class: Veldin has no explosive or doubler crate.
+const CRATES_LEVEL: usize = 4;
+
+/// Adds the tables of the pickups' classes that `core`, level `level`, has and `tables`
+/// lacks, with the level's bank (`bank`, added the first time it's needed).
+fn level_classes(
+    synth: &mut Synth,
+    tables: &mut BTreeMap<u32, Table>,
+    disc: &mut impl DiscReader,
+    core: &Core,
+    level: usize,
+    bank: &mut Option<BankId>,
+) -> Result<(), FormatError> {
     for class in pickup_classes() {
-        // Not every level has every crate.
         let here = core.header.moby_class(class).is_some_and(|c| c.offset != 0);
         if !here || tables.contains_key(&class) {
             continue;
         }
-        let bank = level_bank(&mut synth, &mut ours, disc, level)?;
+        let bank = level_bank(synth, bank, disc, level)?;
         let sounds = core.moby_sounds(class)?;
         tables.insert(class, Table { bank, sounds });
     }
-    Ok(DiscGunSounds { synth, tables })
+    Ok(())
 }
 
 /// The level's bank, added to `synth` the first time it is asked for.
@@ -729,7 +759,7 @@ mod tests {
     /// Reads the real disc: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.
     #[test]
     #[ignore = "needs game discs"]
-    fn veldin_has_the_pickups_sounds_but_the_explosive_and_doubler_crates() {
+    fn every_pickup_sound_is_on_the_disc() {
         let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
         let (_, mut disc) = crate::discs::find(
             std::path::Path::new(&folder),
@@ -749,24 +779,22 @@ mod tests {
                 assert!(number < read.synth.sound_count(bank), "{kind:?}");
             }
         }
-        assert_eq!(
-            silent,
-            [
-                PickupSoundKind::CrateBroke(CrateKind::Explosive),
-                PickupSoundKind::CrateBroke(CrateKind::Doubler),
-                PickupSoundKind::FuseBeep,
-                PickupSoundKind::DoublerBeep,
-            ]
-        );
-        // A bolt crate breaking, rendered for a fifth of a second, is heard.
-        let kind = PickupSoundKind::CrateBroke(CrateKind::Bolts);
-        let (_, bank, entry) = lookup_pickup(&read.tables, kind, 0).unwrap();
-        read.synth
-            .play(bank, usize::from(entry.sound.unwrap()), Play::default())
-            .unwrap();
-        let mut out = vec![0.0; 2 * 9600];
-        read.synth.render(&mut out);
-        assert!(out.iter().any(|sample| sample.abs() > 0.1));
+        assert_eq!(silent, []);
+        // A bolt crate breaking (Veldin's bank) and an explosive one (level 4's), each
+        // rendered for a fifth of a second, are heard.
+        for crate_kind in [CrateKind::Bolts, CrateKind::Explosive] {
+            let kind = PickupSoundKind::CrateBroke(crate_kind);
+            let (_, bank, entry) = lookup_pickup(&read.tables, kind, 0).unwrap();
+            read.synth
+                .play(bank, usize::from(entry.sound.unwrap()), Play::default())
+                .unwrap();
+            let mut out = vec![0.0; 2 * 9600];
+            read.synth.render(&mut out);
+            assert!(
+                out.iter().any(|sample| sample.abs() > 0.1),
+                "{crate_kind:?}"
+            );
+        }
     }
 
     /// Reads the real disc: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.

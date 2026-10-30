@@ -375,8 +375,9 @@ fn a_hit_explosive_crate_goes_off_in_a_few_ticks_setting_off_its_neighbour_and_h
     });
     assert!(second_went.is_some_and(|tick| tick < 15), "{second_went:?}");
     ticks(&mut app, 30);
-    // Hurt once for 4, the second blast coming while he can't be hurt again.
-    assert_eq!(health(&app, hero), most - 4);
+    // Hurt once for 4, 1.2× with no deaths (UYA's help measure), the second blast coming
+    // while he can't be hurt again.
+    assert_eq!(health(&app, hero), most - 5);
 }
 
 #[test]

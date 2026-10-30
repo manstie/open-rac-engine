@@ -77,7 +77,7 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. P3.18 and P1.10 have what is left in their tasks (P1.10: the help measure next).
+1. P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
@@ -869,8 +869,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     bolts and XP for 1800 ticks a crate. The demo has each in the yard and two explosive
     crates by the arena; seen on screen (`kitdemo-yard-crates.orin`).
   - The hero's damage in UYA is scaled by his armor (1.0 to 0.2) and the game's help
-    measure (`hero-controller.md`, "Getting hit and dying"); the kit has no armor yet, so
-    its hits land as given.
+    measure (`hero-controller.md`, "Getting hit and dying"); the kit has no armor yet.
   - Done 2026-10-30 (`pickups/vendor.rs`, `VendorMenu`; `weapons.md`, "In the kit", "The
     vendor's menu"): the vendor's menu by UYA's weapons menu, over the running world
     and holding the hero's input as the ring does: rows of rounds, buy-all, guns and
@@ -885,19 +884,24 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Done 2026-10-30 (`PickupSound`; `weapons.md`, "Their sounds" and "In the kit"): the
     sounds of crates, fuses, the doubler, bolts, ammo, nanotech and the vendor's menu,
     as placeholders in the demo and, with the UYA disc, the game's entries from
-    Veldin's core (`openrac/src/gun_sounds.rs`). Not heard yet by a person.
+    Veldin's core and, for the explosive and doubler crates, level 4's
+    (`openrac/src/gun_sounds.rs`). Not heard yet by a person.
   - Not done: of the bank, fewer coins while crate debris is recent, the drops scaled
     by bolts per active minute (its gate 0x1D6714 by the killed moby's +0xB0 isn't
-    understood), the challenge multiplier and the XP bank (0x142698); the explosive
-    and doubler crates' disc sounds (not on Veldin: read them from a level that has
-    them), the doubler's HUD icon and help message; the help measure (0x3FE420's
-    stats), which the nanotech amount and the hero's damage use.
+    understood), the challenge multiplier and the XP bank (0x142698); the doubler's
+    HUD icon and help message.
   - The vendor's menu, not done: what UYA's vendor moby needs to open it and its last
     special row (not read); UYA's stock growing with the story, the challenge-only
     five and the 9/10 discount (read, not built). The demo's hero owns every gun, so
     its menu sells only ammo.
-  - In progress (2026-10-30): reading the help measure (0x3FE420) and the stats it
-    weighs, for the nanotech amount and the hero's damage.
+  - Done 2026-10-30 (`rac_hero::HelpMeasure`, `hit.help`; `weapons.md`, "The help
+    measure" and "In the kit"): UYA's help measure read and built: deaths counted by
+    checkpoint as the hero comes back, taken off at a new checkpoint, scaling his hits
+    (1.2× with none, lighter past 6) and picking the nanotech crate's / 5, / 4 or / 3.
+    UYA's areas spanning checkpoints, weighing their neighbours and switched off by
+    flag 0x80 are not built.
+  - Next step: the doubler's HUD icon and help message (the help message 0x1406 and
+    the HUD's code not read), or the bank's debris cap (`crate_debris_recent`).
   - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
     the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
     the crates and the vendor.

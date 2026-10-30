@@ -1305,6 +1305,30 @@ pub struct HitProfile {
     pub hazard_divisor: u32,
     pub hazard_ticks: u32,
     pub max_health: u32,
+    /// UYA's help measure, which scales his hits by his deaths ([`crate::help`]); `None`
+    /// for a game without one.
+    #[serde(default)]
+    pub help: Option<HelpProfile>,
+}
+
+/// UYA's help measure (`weapons.md`, "The help measure").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HelpProfile {
+    /// What each death in an area adds to its measure.
+    pub weight: u32,
+    /// Deaths count from this tick of the level, and falls out of it from the second.
+    pub count_from: (u64, u64),
+    /// Over `ease_above` with more than `ease_after` deaths, hits shrink by `ease` for each
+    /// death past `ease_after`, by `ease_most` at most.
+    pub ease_above: u32,
+    pub ease_after: u32,
+    pub ease: f32,
+    pub ease_most: f32,
+    /// Under `harden_below`, hits grow by the first with no deaths and the second with one.
+    pub harden_below: u32,
+    pub harden: (f32, f32),
+    /// Reaching a new checkpoint takes `refund / weight` deaths, rounded up, off its area.
+    pub refund: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1820,6 +1844,7 @@ mod tests {
                 "gun.raise.strafe_down",
                 // "Deadlocked's hits".
                 "hit.fall_after_tick",
+                "hit.help",
                 "hit.safe_ticks",
                 "jump.air_speed",
                 // "Deadlocked's ledges".

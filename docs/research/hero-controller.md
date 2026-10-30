@@ -1610,7 +1610,9 @@ slide along a wall, which had cut each of DL's shimmy steps by 0.0016 u.
   (0x1BBC40 bit 0x80 clear), by the help measure (0x3FE420) and the area's deaths
   (0x1C5290): × (1 − min(0.5, 0.07 × (deaths − 6))) when the measure is over 250 and the
   deaths over 6, × 1.2 with no deaths or × 1.1 with one when it is under 50; rounded, and
-  at least 1. Health never goes below 0.
+  at least 1. Health never goes below 0. How the deaths are counted is in `weapons.md`,
+  "The help measure"; the kit scales its hits so (`rac_hero::HelpMeasure`) but has no
+  armor.
 - **Floor materials** set by the ground probe trigger states:
   - **Material 17 damages [code, 2026-10-23]** (`hero_floor_material`, 0x4E3EF0): it
     takes the most health (`hero_max_health`, 0x142668; 10 on a new game) divided by 8,
