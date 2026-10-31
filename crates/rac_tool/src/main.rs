@@ -134,8 +134,8 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// List a UYA level core's effect textures, and optionally write each as an RGBA PAM
-    /// image (`fx-NNN.pam`, which ffmpeg reads) to look at.
+    /// List a UYA level core's effect and particle textures, and optionally write each as
+    /// an RGBA PAM image (`fx-NNN.pam`, `part-NNN.pam`, which ffmpeg reads) to look at.
     FxTextures {
         /// The disc image (.iso).
         #[arg(long)]
@@ -278,23 +278,31 @@ fn main() -> Result<()> {
             let mut disc = open_disc(&iso)?;
             let core = Core::read_uya(&mut disc, level)
                 .with_context(|| format!("reading level {level}'s core"))?;
-            let textures = core.fx_textures().context("reading the effect textures")?;
+            let effects = core.fx_textures().context("reading the effect textures")?;
+            let particles = core
+                .particle_textures()
+                .context("reading the particle textures")?;
             if let Some(out) = &out {
                 std::fs::create_dir_all(out)
                     .with_context(|| format!("creating {}", out.display()))?;
             }
-            for (index, texture) in textures.iter().enumerate() {
-                println!("{index:3}: {} by {}", texture.width, texture.height);
-                if let Some(out) = &out {
-                    let path = out.join(format!("fx-{index:03}.pam"));
-                    let mut bytes = format!(
-                        "P7\nWIDTH {}\nHEIGHT {}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
-                        texture.width, texture.height
-                    )
-                    .into_bytes();
-                    bytes.extend(texture.rgba());
-                    std::fs::write(&path, bytes)
-                        .with_context(|| format!("writing {}", path.display()))?;
+            for (kind, prefix, textures) in
+                [("effect", "fx", effects), ("particle", "part", particles)]
+            {
+                println!("{kind} textures:");
+                for (index, texture) in textures.iter().enumerate() {
+                    println!("{index:3}: {} by {}", texture.width, texture.height);
+                    if let Some(out) = &out {
+                        let path = out.join(format!("{prefix}-{index:03}.pam"));
+                        let mut bytes = format!(
+                            "P7\nWIDTH {}\nHEIGHT {}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
+                            texture.width, texture.height
+                        )
+                        .into_bytes();
+                        bytes.extend(texture.rgba());
+                        std::fs::write(&path, bytes)
+                            .with_context(|| format!("writing {}", path.display()))?;
+                    }
                 }
             }
         }

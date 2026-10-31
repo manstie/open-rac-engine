@@ -806,7 +806,13 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
     double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
-  - Done 2026-10-31, the Agents of Doom, Rift Inducer, Qwack-O-Ray, Bouncer, Miniturret Glove and Holo Shield Glove against the game: the gloves' throw (state 34), which fixes the Holo Shield's timing, and firing cut short per gun (`weapons.md`, "What cuts it short"); what they send out as their classes' skinned models playing their own sequences, by level, and the ducks' idling, walking and eggs from it (`weapons.md`, "How they play"); the Qwack-O-Ray's funnel, also with nothing to take (`effects.md`), the open rift, the landing marker, the agents' sparkles. Seen on screen at V3, and the duck and turret at V5; the turret's head joint is inferred. Not done: the V4 duck on screen and its bangles; the rift's lens and refraction, spirals of 71, orbiting sparks, 0x13 spray and rays shortening as it closes; the holo shield's class; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's marker, and the marker's conditions (the hero's state, the turrets' limit, the Holo Shield's own "can't" colours); a duck's first random speed and an appearing agent's opacity. Next: compare with the game's own footage (`uyantsc-veldin-fxref.sh`), the Qwack-O-Ray's beam first: on the demo's pale floor it adds up to white round the gun and is only faint blue further off (`effects.md`).
+  - Done 2026-10-31: the game's footage of all six (`uyantsc-veldin-fxref.sh` takes
+    7–12) and the Qwack-O-Ray's beam compared with it (`effects.md`, "Qwack-O-Ray"): the
+    kit's white haze round the gun came from its sparks not flashing and every particle
+    being drawn √2 too wide (P3.18); fixed, it is close. Not compared yet: takes 8–12
+    (Agents, Rift, Holo Shield, Bouncer, Miniturret) against the kit's `-near` takes.
+    Next: take 9 against `-rift-near`, then the others.
+  - Done 2026-10-31, the Agents of Doom, Rift Inducer, Qwack-O-Ray, Bouncer, Miniturret Glove and Holo Shield Glove against the game: the gloves' throw (state 34), which fixes the Holo Shield's timing, and firing cut short per gun (`weapons.md`, "What cuts it short"); what they send out as their classes' skinned models playing their own sequences, by level, and the ducks' idling, walking and eggs from it (`weapons.md`, "How they play"); the Qwack-O-Ray's funnel, also with nothing to take (`effects.md`), the open rift, the landing marker, the agents' sparkles. Seen on screen at V3, and the duck and turret at V5; the turret's head joint is inferred. Not done: the V4 duck on screen and its bangles; the rift's lens and refraction, spirals of 71, orbiting sparks, 0x13 spray and rays shortening as it closes; the holo shield's class; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's marker, and the marker's conditions (the hero's state, the turrets' limit, the Holo Shield's own "can't" colours); a duck's first random speed and an appearing agent's opacity.
   - The Miniturret was drawn and fired at its class's scale; its spawn scales it to 0.75, so its muzzle is 0.81 u up, 0.54 u along (`weapons.md`, "Its barrel"). The Megaturret keeps 1.08 (`Mega::barrel_height`).
   - Done 2026-10-31: UYA's guns' open list (`weapons.md`, "In the kit"): the five guns' own muzzle vectors; the Disc Blade Gun's flight, traced (lifted and falling, not turned and curving; through enemies from V3, not off them); the Liquid Nitrogen Gun's freeze; the Eruptor's tilt; the Nitro's L1 aim; the Vortex Cannon's comet; the shields' XP and the Ultrashield's picks; the agents' jet-in to slots.
   - Earlier readers mistook 0x4C46A8 for a sight test (it asks the table of who was sent at what) and read 0x40CCA0's −π/8 about his left axis as 90° to a side. Corrected in `weapons.md`; check other readings of those two functions when a gun looks wrong.
@@ -1350,8 +1356,7 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     the game's view over a long hold as it does the kit's (a game capture of a hold).
   - Not done: the Hydra's arcs cut at walls, the
     Infecto-Bomb's numbers; an open rift's own look (lens, refracting rings of 54, rays;
-    the kit keeps its flight look), the Qwack-O-Ray's funnel of rings (drawn as flat
-    beams), effects driven by a gun's sustain (the Suck Cannon's vortex) or by events the
+    the kit keeps its flight look), effects driven by a gun's sustain (the Suck Cannon's vortex) or by events the
     kit doesn't send (taking something in, ricochets); ribbons with moving ends,
     domes and strip rings, glows over the view, the explosion's, small blast's and
     whip's lights and the V5 guns' shakes, the whip's scorches
@@ -1380,7 +1385,14 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
     game leaves it to each enemy's code (P1.8).
   - The Tesla Barrier's `rand(20, 60)` is each slot's wait before its next bolt, not a
     bolt's life (0x3410E8), but the kit's tesla bolts last that long. Still open.
-- **Done when:** every level of each finished release renders correctly in both paths:
+  - Every particle was drawn √2 too wide: the game's renderer takes a particle's size as
+    half its diagonal (measured on screen, `effects.md`, "Particles"). Fixed for bursts
+    and trails in particle textures (`PARTICLE_ACROSS`), with `flash` for the two-phase
+    curve of types 0x35, 0x4E and 0x5C (`Fx::look`), so far set only on the Qwack-O-Ray's
+    sparks. Not done: `flash` on the other recipes of those types, and the glows that
+    stand for the game's particles (the shared explosion's 0x5C) drawn the same way.
+    Next: go through `effects.ron`'s bursts in 0x35 and 0x5C, checking each against its
+    spawner in `effects.md` (a texture borrowed from 0x35's list isn't type 0x35).
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.
 

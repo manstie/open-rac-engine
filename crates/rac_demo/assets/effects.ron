@@ -1562,7 +1562,8 @@
         // round, blue at 0x40, with two spiralling strips of 14 and 16 round it, a glow of
         // 11 and a light at the gun, sparks flowing along it, and every 45 ticks a pulse of
         // 8 running along it, turned to the camera here. At the target a swirl of sparkles
-        // (0x61's entry 7) shrinking away, blue and white, a pair a tick on average. A duck
+        // (0x61's entry 7) shrinking away, blue and white, a pair a tick on average. The
+        // sparks and sparkles flash, as their types 0x4E and 0x35 do. A duck
         // going up from V4 and an egg set off the shared explosion. Not drawn: the poof of
         // a duck's end to V3 (the feathers are the kit's own).
         "qwack": (
@@ -1595,8 +1596,8 @@
                 ],
                 at_gun_along: 0.5,
                 flowing: [
-                    Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 72, ticks_to: Some(72), colour: (0.375, 0.99, 1.99, 0.99), spin: 1.4),
-                    Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 72, ticks_to: Some(72), colour: (0.99, 0.99, 0.99, 0.99), spin: 1.4),
+                    Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 72, ticks_to: Some(72), colour: (0.375, 0.99, 1.99, 0.99), spin: 1.4, flash: true),
+                    Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 72, ticks_to: Some(72), colour: (0.99, 0.99, 0.99, 0.99), spin: 1.4, flash: true),
                 ],
                 pulse: [
                     Glow(texture: Effect(8), size: 0.2, end_size: 3.0, ticks: 60, colour: (0.0, 0.0, 0.99, 0.5), ahead: 8.0),
@@ -1604,8 +1605,8 @@
                 pulse_every: 45,
             )),
             ray_end: Some([
-                Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 30, ticks_to: Some(30), colour: (0.125, 0.31, 1.4, 0.992), spin: 1.4),
-                Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4),
+                Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 30, ticks_to: Some(30), colour: (0.125, 0.31, 1.4, 0.992), spin: 1.4, flash: true),
+                Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, flash: true),
             ]),
             shots: {
                 "duck": (
@@ -1647,8 +1648,8 @@
                         ],
                         at_gun_along: 0.5,
                         flowing: [
-                            Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 72, ticks_to: Some(72), colour: (1.99, 0.99, 0.375, 0.99), spin: 1.4),
-                            Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 72, ticks_to: Some(72), colour: (0.99, 0.99, 0.99, 0.99), spin: 1.4),
+                            Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 72, ticks_to: Some(72), colour: (1.99, 0.99, 0.375, 0.99), spin: 1.4, flash: true),
+                            Burst(texture: Particle(0x61, 6), count: 1, speed: 12.0, speed_from: Some(12.0), cone: Some(15.0), size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 72, ticks_to: Some(72), colour: (0.99, 0.99, 0.99, 0.99), spin: 1.4, flash: true),
                         ],
                         pulse: [
                             Glow(texture: Effect(8), size: 0.2, end_size: 3.0, ticks: 60, colour: (1.0, 0.5, 0.25, 0.75), ahead: 8.0),
@@ -1656,8 +1657,8 @@
                         pulse_every: 45,
                     )),
                     ray_end: Some([
-                        Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 30, ticks_to: Some(30), colour: (1.4, 0.31, 0.125, 0.992), spin: 1.4),
-                        Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4),
+                        Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.2, size_to: Some(3.4), end_size: 0.02, ticks: 30, ticks_to: Some(30), colour: (1.4, 0.31, 0.125, 0.992), spin: 1.4, flash: true),
+                        Burst(texture: Particle(0x61, 7), count: 1, speed: 0.0, size: 0.14, size_to: Some(2.38), end_size: 0.014, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 1.4, flash: true),
                     ]),
                 ),
             },

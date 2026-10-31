@@ -55,6 +55,21 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   (0x45E788) runs each through its type's update (`particle_update_table`, 0x220EC0,
   types 0–0x80, filled by 0x45F4D0); `particle_draw_all` (0x45E810, scratchpad and VU0
   code) sorts them and draws camera-facing sprites.
+- **How big it draws one** [verified on UYA NTSC, 2026-10-31]: its corners are the size
+  from the middle (each a unit vector from the spin's table at scratchpad 0x3400 × size /
+  depth [code]), so the size is half the diagonal and the half width size / √2.
+  Measured by pinning three of the Qwack-O-Ray's live 0x4E sparks in a savestate
+  (still, white, texture 45): two small ones 2 u apart as a ruler (181 px at 7.4 u from
+  the camera) and one of size 1.0, then 0.5, between them. Fitting texture 45's own
+  picture to the sprite on screen gives a half width of 0.65–0.75 u for size 1.0 (half
+  width = size fits worst, size / 2 in between), and size 0.5 is half as wide
+  (`docs/re-setup.md`, "UYA NTSC-U particle size"). The streaks' widths aren't read.
+- **Its fades by depth** [code, 2026-10-31, read through the VU0 code in part]: byte +9's
+  low nibble × 0.25 u is taken off the depth, and alpha is scaled by that depth (in
+  units) up to 1, so a particle fades out within 1 u of the camera (0x35's +9 is 0x20)
+  or, with 4 (0x4E's 0x24), is gone within 1 u and whole from 2 u; its high nibble × 32
+  u is a far limit (also capped by a value not traced), fading out over the last 16 u
+  before it (64 u for 0x20 and 0x24).
 - **A particle:** +0 type; +1 flags (negative skips it); +2 its particle texture; +3 and
   +9 render bytes; +4 RGBA (R low, 0x80 opaque); +8 spin; +0xA life in frames; +0xC
   size; +0x10 position; +0x20 velocity; +0x2C gravity (along the level's up where it has
@@ -392,7 +407,9 @@ Inducer, Suck Cannon, Qwack-O-Ray, RY3NO and Infector (2026-10-29). Their conven
   of its velocity or, if spawned with its flag, sheds a child on odd frames; 0x61 steps
   its size and alpha by set amounts a frame; 0x55 lerps size and alpha; 0x35 and 0x5C
   reach halfway from start to final size (and half their alpha) by frame 5 (0x5C: a
-  phase its spawner sets), then go on to the final size and alpha 0; 0x5A is a streak
+  phase its spawner sets), then go on to the final size and alpha 0 (0x35's 0x467F40;
+  0x4E's 0x46B050 the same, and it homes on a target within 2 u; checked on live
+  particles, 2026-10-31); 0x5A is a streak
   from its head back 0.9 of its velocity, white, fading after its first 15 frames; 0x17
   grows by a random factor a frame and fades in before it fades out. Spins are in 1/256
   turns a frame (assumed). A particle drawn with another type's texture has its texture
@@ -1201,12 +1218,21 @@ Qwack-O-Blitzer) is the row's level byte above 3.
   0x10, 0x7F) (V5 (0xFF, 0x3F, 0x10) and (0xFF, 0x80, 0x40)); rings of 8 (0x380140) and
   a glow of 11 (0x380390), not read further. Every 45 frames a pulse runs along it at 8
   u/s, growing from 0.1 to 1.5 (up to three at once).
-- **Its sparkles,** each frame: one time in two each, a pair of 0x35 at the far end and
-  at the 11th ring, shrinking from half f = rand(0.1, 1.7) to 0.1 f in (0x10, 0x10, 0x7F)
+- **Its sparkles,** each frame: one time in two each, a pair of 0x35 at the last point of
+  each spiral (0x28F790, 0x28F850), shrinking from size f = rand(0.1, 1.7) to 0.1 f in
+  (0x10, 0x10, 0x7F)
   or (0x10, 0x4F, 0xFF) at 0x7F (V5 (0x7F, 0x10, 0x10) or (0xFF, 0x4F, 0x10)), and from
   0.7 f to 0.07 f in grey 0x7F, life 30, in 0x61's entry 7 (Veldin's particle texture
   46, a swirl); one time in two a pair of 0x4E (0x46AED8) flowing along it, in one of
-  five blues (V5 oranges; corrected 2026-10-31), in 0x61's entry 6.
+  five blues (0x30, 0x7F, 0xFF), (0, 0x64, 0xFF), (0x20, 0x20, 0xFF), (0, 0x7F, 0xFF)
+  and (0x20, 0x20, 0xFF) (V5 oranges; corrected 2026-10-31), in 0x61's entry 6 (texture
+  45, a soft star). The 0x4E pair starts at the rope's first point less 0.25 × the
+  beam moby's vector at +0xD0 (not identified), at 0.2 u a frame along the rope's first
+  step turned up to 15° (0x1DDC44, 0x1DDC4C [data]), living 1.2 × the beam's length /
+  0.2 frames (72 with nothing to take), three times that with a target, which the white
+  one is given to home on (the blue one's call isn't clear). Both kinds flash (the types'
+  two-phase curve, under "Particle types' updates"): at full size for a frame, halved and
+  half faded by frame 5 [checked on live particles in a savestate, 2026-10-31].
 - **How the beam is laid and drawn** [code, data, 2026-10-31] (`rac_demo`'s `fx/funnel.rs`):
   - Its rope lags: each of 12 points is a twelfth of the way from the one before, along a
     way between where that point was a frame ago and the aim, the aim's share 0.9 − 0.5 t
@@ -1227,9 +1253,16 @@ Qwack-O-Blitzer) is the row's level byte above 3.
     (V5 (0x80, 0x40, 0x20) at 0x60). The kit turns it to the camera.
   - With nothing to take it still shines, 12 u along his aim. The kit used to draw nothing
     then.
-  - **Seen in the kit, not yet compared with the game:** from behind on the demo's pale
-    floor, the glows and layers round the gun add up to white past his head, while the far
-    part of the funnel is only a faint blue [seen, 2026-10-31].
+  - **Compared with the game** (2026-10-31, the game's `uyantsc-veldin-fxref.sh 7`
+    against the kit's `-qwack-near` take, both at V3 from behind with nothing to take):
+    the game shows a thin white-blue core past his head about a head across, the spirals
+    curling into a blue loop at the far end, blue and purple sparkles along it and almost
+    no funnel wall; its light tints the sand by (4, 8, 17) % of its colour beside him. The
+    kit drew a white haze two or three heads across round the gun: its sparks stayed big
+    and bright for their whole life instead of flashing, and every particle was drawn √2
+    too wide ("Particles", "How big it draws one"). With both fixed it is close; it still
+    looks whiter on the demo's pale floor, where added layers saturate sooner. The kit
+    gives the flowing sparks one blue of the five.
 - **Lights:** radius 7.5 at the gun while it fires (0x37DEB0; (0x20, 0x40, 0x80), V5 (0x80,
   0x40, 0x20)), radius 5.5 (0x4080FF) on the V5 duck.
 - **The ducks** (classes 0x1BC3 to V3, 0x189B at V4 tinted (0x40, 0x10, 0x10), 0x1D3E
@@ -1408,9 +1441,16 @@ What it takes to show the guns' effects as the game does, from the user's disc:
    - Still to do: strips and ribbons with moving ends (the Shock Blaster's ray tails,
      the Flux's helix; the Lava Gun's since done, below), domes and rings drawn by
      strips (`fx_ring_fan`), discs and refraction, rumble, glows over the view, decals other than the Lava Gun's pools (the whip's scorches, below), meshes
-     the effects spawn other than the ring (the explosion's dome and debris), children
-     particles, and the two-phase size curve of 0x35 and 0x5C (drawn as a straight
-     lerp).
+     the effects spawn other than the ring (the explosion's dome and debris), and children
+     particles.
+   - Extended (2026-10-31) for the particle renderer: a burst's or trail's sprites in a
+     particle texture are drawn with `size` corner to corner (`PARTICLE_ACROSS`), as the
+     game draws its particles ("Particles"), which makes every such sprite 1/√2 as wide
+     as before; and a burst can `flash`, following the two-phase curve of types 0x35,
+     0x4E and 0x5C (`Fx::look`). Only the Qwack-O-Ray's sparks flash so far; the other
+     recipes of those types still change evenly, and glows that stand for the game's
+     particles (the explosion's 0x5C) are still drawn with `size` across. The six first
+     guns' check on screen (2026-10-28) was made before this.
    - Extended (2026-10-29) for decals and rings. Gun events' `Impact` carries the
      normal of the world's surface where a shot ended on it (`surface`; given so far by
      bullets and streams), and recipes leave marks there (`mark`: glows lying on the
@@ -1669,10 +1709,9 @@ What it takes to show the guns' effects as the game does, from the user's disc:
 
 - The particle renderer's byte fields (+3, +9). As values of the GS's ALPHA register,
   0x48 is Cs·As + Cd (added) and 0x44 is (Cs − Cd)·As + Cd (blended), and the Lava Gun's
-  smokes take the two in turn as +3 ("Lava Gun"), but the renderer's use of them isn't
-  read. Also its table at 0x2BFDA0 and its streak kinds (+1 = 3); so whether a
-  particle's size is half its width or half its diagonal (√2 apart), and the streaks'
-  widths (+0x1C, +0x2C).
+  smokes take the two in turn as +3 ("Lava Gun"), but the renderer's use of +3 isn't
+  read (+9's fades and the size as half the diagonal are, under "Particles"). Also its
+  table at 0x2BFDA0, its streak kinds (+1 = 3) and the streaks' widths (+0x1C, +0x2C).
 - The updates of the types the guns use beyond those above (0x13, 0x19, 0x5B, 0x6D,
   0x6F, 0x72, 0x74, 0x76, 0x80 read only in passing).
 - What the built-in textures −1 to −4 hold.

@@ -159,9 +159,12 @@ pub enum Emit {
     /// or take a third). They start at any roll and turn up to `spin` a tick either way.
     /// They start spread over `line` back along the shot's way, and up to `jitter` from
     /// where they would; with `ground`, on the floor within that many units below where
-    /// they would, as the game puts its gas clouds, or not at all where there's none. With
+    /// they would, as the game puts its gas clouds, or not at all where there's none. In
+    /// one of the game's particle textures, `size` is from corner to corner, as the game
+    /// draws its particles ([`PARTICLE_ACROSS`]). With
     /// a `streak` length each is drawn that long along its way, `size` across. Each shows
-    /// `delay` ticks after the event, plus up to `over` more.
+    /// `delay` ticks after the event, plus up to `over` more. With `flash`, each changes as
+    /// the game's types 0x35, 0x4E and 0x5C do instead ([`Fx::look`]).
     Burst {
         texture: Tex,
         count: u32,
@@ -205,6 +208,8 @@ pub enum Emit {
         delay: u32,
         #[serde(default)]
         over: u32,
+        #[serde(default)]
+        flash: bool,
         #[serde(default)]
         blend: Blend,
     },
@@ -272,6 +277,13 @@ pub enum Emit {
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
 }
+
+/// How wide a particle the game draws is for each unit of its size: its renderer
+/// (0x45E810) puts the corners at the size from the middle, so the size is half the
+/// diagonal (measured on screen, `effects.md`, "Particles"). A burst's particles in the
+/// game's particle textures are its particles, as are a trail's, and their `size` is twice
+/// the game's, so it is their diagonal.
+const PARTICLE_ACROSS: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 fn up() -> Vec<Shaking> {
     vec![Shaking::Up]
@@ -406,7 +418,8 @@ pub struct Streak {
 /// Particles a shot leaves along its way, until it is `until` ticks old if that is given:
 /// `per_tick` a tick (a fraction being a chance) and one for every `spacing` units of the
 /// tick's path, spread along it. Each is in one of `textures` and
-/// `colours`, growing from `size` to `end_size` as its alpha goes to `end_alpha` and its
+/// `colours` (in a particle texture, `size` corner to corner, as a burst's),
+/// growing from `size` to `end_size` as its alpha goes to `end_alpha` and its
 /// colour to `end_colour` over `ticks` to `ticks_to`. It sets off rising at `rise` units
 /// a second, going back at `back` times the shot's speed and up to `scatter` units a
 /// second either way along each axis; then falls at `gravity`, keeps `keep` of its speed
@@ -914,10 +927,33 @@ struct Fx {
     wait: u32,
     /// Radians a tick.
     spin: f32,
+    /// Whether it changes as the game's flashing particle types do ([`Fx::look`]).
+    flashes: bool,
     material: Handle<StandardMaterial>,
 }
 
 impl Fx {
+    /// Its scale and alpha at its age: evenly from new to its end over its life, or, if
+    /// it `flashes`, as the game's particle types 0x35 and 0x4E (0x467F40, 0x46B050) and
+    /// 0x5C in its phase do: halfway to its end size with half its alpha by its fifth
+    /// tick, then on to its end size as its alpha goes to nothing.
+    fn look(&self) -> (Vec2, f32) {
+        let left = self.ticks_left as f32 / self.total as f32;
+        if !self.flashes {
+            let alpha = self.end_alpha + (self.alpha - self.end_alpha) * left;
+            return (self.end.lerp(self.size, left), alpha);
+        }
+        let half = (self.size + self.end) * 0.5;
+        let age = self.total - self.ticks_left;
+        if age < 6 {
+            let t = age as f32 / 5.0;
+            (self.size.lerp(half, t), self.alpha * (1.0 - 0.5 * t))
+        } else {
+            let t = self.ticks_left as f32 / (self.total - 6) as f32;
+            (self.end.lerp(half, t), self.alpha * 0.5 * t)
+        }
+    }
+
     /// One that stays where it is put.
     fn still(
         ticks: u32,
@@ -939,6 +975,7 @@ impl Fx {
             keep: 1.0,
             wait: 0,
             spin: 0.0,
+            flashes: false,
             material,
         }
     }
@@ -1230,6 +1267,10 @@ impl Spawner<'_, '_, '_> {
         );
         // The path is one tick's, so 60 times it is the velocity.
         let back = -path * 60.0 * trail.back;
+        let scale = match texture {
+            Tex::Particle(..) => scale * PARTICLE_ACROSS,
+            Tex::Effect(_) => scale,
+        };
         let fx = Fx {
             velocity: Vec3::Y * rng.between(trail.rise) + back + scatter + drawn_in,
             gravity: trail.gravity,
@@ -1385,6 +1426,7 @@ impl Spawner<'_, '_, '_> {
                 streak,
                 delay,
                 over,
+                flash,
                 blend,
             } => {
                 // Each fades on its own life, so each has its own material.
@@ -1421,6 +1463,11 @@ impl Spawner<'_, '_, '_> {
                     };
                     let start = size_to.map_or(size, |to| rng.between((size, to)));
                     let end = end_size * start / size;
+                    let across = match (texture, streak) {
+                        (Tex::Particle(..), None) => PARTICLE_ACROSS,
+                        _ => 1.0,
+                    };
+                    let (start, end) = (start * across, end * across);
                     let (billboard, start, end) = match streak {
                         Some(length) => (
                             Billboard {
@@ -1447,6 +1494,7 @@ impl Spawner<'_, '_, '_> {
                         end_alpha,
                         fade: fade(colour, end_colour),
                         spin: rng.between((-spin, spin)).to_radians(),
+                        flashes: flash,
                         ..Fx::still(
                             life,
                             start,
@@ -1804,9 +1852,9 @@ fn step_fx(
             continue;
         }
         let left = fx.ticks_left as f32 / fx.total as f32;
-        transform.scale = fx.end.lerp(fx.size, left).extend(1.0);
+        let (scale, alpha) = fx.look();
+        transform.scale = scale.extend(1.0);
         if let Some(mut material) = materials.get_mut(&fx.material) {
-            let alpha = fx.end_alpha + (fx.alpha - fx.end_alpha) * left;
             if let Some((from, to)) = fx.fade {
                 let colour = to.lerp(from, left);
                 material.base_color = Color::srgb(colour.x, colour.y, colour.z);
@@ -1861,6 +1909,38 @@ fn along(axis: Vec3, view: Vec3) -> Option<Quat> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flashing_particle_halves_by_its_fifth_tick_then_fades_out() {
+        // The Qwack-O-Ray's flowing spark (0x46B050): from f = 2.0 to 0.1 f over 72 ticks.
+        let mut fx = Fx {
+            flashes: true,
+            ..Fx::still(
+                72,
+                Vec2::splat(2.0),
+                Vec2::splat(0.2),
+                1.0,
+                Handle::default(),
+            )
+        };
+        let mut looks = Vec::new();
+        while fx.ticks_left > 0 {
+            looks.push(fx.look());
+            fx.ticks_left -= 1;
+        }
+        assert_eq!(looks[0], (Vec2::splat(2.0), 1.0));
+        // Halfway to its end, at half its alpha, on ticks 5 and 6.
+        for (size, alpha) in [looks[5], looks[6]] {
+            assert!(size.abs_diff_eq(Vec2::splat(1.1), 1e-5) && (alpha - 0.5).abs() < 1e-5);
+        }
+        // Its last tick: a frame from its end size and nothing.
+        let (size, alpha) = looks[71];
+        assert!((size.x - 0.2).abs() < 0.02 && alpha < 0.01);
+        // Evenly, it would still be at nine tenths at tick 5.
+        fx.flashes = false;
+        fx.ticks_left = 67;
+        assert!(fx.look().1 > 0.9);
+    }
 
     #[test]
     fn every_gun_has_effects_and_every_texture_a_look() {
