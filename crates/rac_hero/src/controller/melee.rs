@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     collision::CollisionWorld,
-    gun::{GunHand, WhipHand},
+    gun::{GunHand, Hold, WhipHand},
     profile::{AimProfile, AttackProfile, HeroProfile, Push, TurnSpring},
     stick::Stick,
 };
@@ -440,6 +440,90 @@ fn start_attack(
 /// the hero's update: `hero-controller.md`, "Deadlocked's melee".)
 fn straight_from_start(hero: &mut HeroMotion) {
     hero.attack.blend = 0;
+}
+
+/// A glove that has just fired takes him into its throw (0x500F98).
+pub(super) fn try_glove_throw(
+    hero: &mut HeroMotion,
+    stick: &Stick,
+    wish: Vec3,
+    profile: &HeroProfile,
+    world: &dyn CollisionWorld,
+) {
+    let throw = &profile.gun.glove_throw;
+    let gun = &hero.gun;
+    let fired = gun.firing
+        && gun.item.is_some()
+        && gun.pose.hold == Hold::None
+        // The game's guns fire after its hero moves, so he sees it on the next tick.
+        && (1..throw.within_ticks).contains(&gun.firing_ticks);
+    if !fired
+        || stick.magnitude >= throw.stick_below
+        || !matches!(
+            hero.state,
+            HeroState::Idle | HeroState::Walk | HeroState::Skid
+        )
+    {
+        return;
+    }
+    hero.attack = Attack {
+        aim_yaw: hero.yaw,
+        ..default()
+    };
+    aim(
+        hero,
+        stick,
+        wish,
+        &throw.aim,
+        profile.melee.lock_stick,
+        world,
+    );
+    hero.speed = flat_length(hero.velocity);
+    hero.restart_state(HeroState::GloveThrow);
+}
+
+/// One tick of a glove's throw (0x4FAA68's state 34): he brakes to a stop, turning to its
+/// aim; it ends on its tick count, and may jump out just before.
+pub(super) fn glove_throw_tick(
+    hero: &mut HeroMotion,
+    input: &PlayerInput,
+    stick: &Stick,
+    wish: Vec3,
+    profile: &HeroProfile,
+    world: &dyn CollisionWorld,
+) {
+    let throw = &profile.gun.glove_throw;
+    if hero.ticks >= throw.jump_from && hero.jump_press.within(throw.jump_window) {
+        hero.jump_press.used = true;
+        start_jump(hero, JumpKind::Standing, profile);
+        air_tick(hero, input, stick, wish, profile);
+        return;
+    }
+    if hero.ticks >= throw.ticks {
+        if hero.ground.is_none() {
+            hero.take_off_height = hero.position.y;
+            hero.double_jumped = true;
+            hero.set_state(HeroState::Fall);
+            air_tick(hero, input, stick, wish, profile);
+        } else {
+            hero.setting_off = hero.speed < profile.walk.setting_off_below;
+            hero.set_state(HeroState::Idle);
+            ground_tick(hero, input, stick, wish, profile);
+        }
+        return;
+    }
+    aim_or_turn(
+        hero, true, stick, wish, &throw.aim, throw.turn, profile, world,
+    );
+    let rate = if hero.speed < 0.0 {
+        throw.rise
+    } else {
+        throw.brake
+    };
+    hero.speed = approach(hero.speed, 0.0, rate * TICK);
+    let forward = hero.facing();
+    hero.set_horizontal_velocity(forward * hero.speed);
+    fall_off_ground(hero, throw.gravity, profile);
 }
 
 /// Whether the grind attack under way may jump off the rail: from its swing's `jump_from`

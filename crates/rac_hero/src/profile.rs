@@ -1230,6 +1230,33 @@ pub struct GunProfile {
     pub fire_turn_first_person: bool,
     /// The gun arm raised against a wall ahead.
     pub raise: GunRaise,
+    /// A glove's throw (UYA's state 34).
+    pub glove_throw: GloveThrow,
+}
+
+/// A glove's throw (`weapons.md`, "The gloves' throw"): a gun held in no hand that has
+/// just fired takes him out of the idle, walk or skid into this, unless the stick is well
+/// pushed, when he walks on and throws with the arms alone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GloveThrow {
+    /// He goes into it from the tick after `firing` comes on, while it has been on fewer
+    /// ticks than this and the stick is under `stick_below`.
+    pub within_ticks: u32,
+    pub stick_below: f32,
+    /// It lasts this many ticks, then he idles.
+    pub ticks: u32,
+    /// From this tick on, a press of jump within `jump_window` ticks jumps out of it.
+    pub jump_from: u32,
+    pub jump_window: u32,
+    /// What it turns him to, as an attack's aim.
+    pub aim: AimProfile,
+    pub turn: TurnSpring,
+    /// His speed goes to nothing at these rates, u/s²: climbing back up to it from going
+    /// backwards, and falling to it.
+    pub rise: f32,
+    pub brake: f32,
+    /// Gravity if it takes him off the ground, u/s².
+    pub gravity: f32,
 }
 
 /// How firing in the gun cameras speeds up the strafe turn.

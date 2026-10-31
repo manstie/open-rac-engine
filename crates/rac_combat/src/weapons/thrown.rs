@@ -11,10 +11,10 @@ use std::f32::consts::TAU;
 use super::{
     Affliction, GunEventKind,
     aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight, level_search, wrap, yaw_of},
-    arsenal::Arsenal,
+    arsenal::{Arsenal, Landing},
     def::{
-        AgentEnd, AgentGun, AgentHover, Agents, AimAssist, Armory, Barrier, Bomblet, Bounce,
-        Cluster, Deploy, FireMode, Gait, Infect, InfectBomb, Mega, Throw, Timing, Turret,
+        AgentEnd, AgentGun, AgentHover, AgentMoves, Agents, AimAssist, Armory, Barrier, Bomblet,
+        Bounce, Cluster, Deploy, FireMode, Gait, Infect, InfectBomb, Mega, Throw, Timing, Turret,
     },
     fire::{Afflict, Gun, GunInput, Outcome, fire_anim, run_dry, take_shot},
     grab,
@@ -70,6 +70,36 @@ fn throw(gun: &Gun, throw: &Throw, gun_input: &GunInput, from: Vec3) -> Vec3 {
     let kept = across.length().clamp(throw.least, most);
     let point = Vec3::new(hero.position.x, point.y, hero.position.z) + way * kept;
     arc(from, point, way, throw.ground_speed, throw.gravity)
+}
+
+/// The ticks a thrown thing's flight is followed for, to find where it lands (0x4C3E68).
+const LANDING_TICKS: u32 = 300;
+
+/// Where what the gun in his hand throws would land, if it throws one: its flight followed
+/// from the muzzle until it meets the world (0x4C3E68, for 0x4C3500's marker).
+pub(super) fn landing(gun: &Gun, gun_input: &GunInput) -> Option<Landing> {
+    let throwing = match &gun.def.fire {
+        FireMode::Cluster(fire) => fire.throw,
+        FireMode::Infect(fire) => fire.bomb.filter(|bomb| gun.level >= bomb.from_level)?.throw,
+        FireMode::Turret(fire) => fire.deploy.throw,
+        FireMode::Barrier(fire) => fire.deploy.throw,
+        FireMode::Agents(fire) => fire.deploy.throw,
+        _ => return None,
+    };
+    let mut velocity = throw(gun, &throwing, gun_input, gun.muzzle);
+    let mut at = gun.muzzle;
+    for _ in 0..LANDING_TICKS {
+        let motion = velocity * TICK;
+        if let Some(hit) = gun_input.world.cast_ray(at, motion) {
+            return Some(Landing {
+                at: at + motion * hit.fraction,
+                normal: hit.normal,
+            });
+        }
+        at += motion;
+        velocity.y -= throwing.gravity * TICK;
+    }
+    None
 }
 
 /// `velocity` reflected off a surface facing `normal`, keeping `keep` of its part along the
@@ -582,18 +612,26 @@ fn turret_tick(
     if state.idle >= mega.map_or(fire.life_ticks, |mega| mega.life_ticks) {
         return false;
     }
+    state.folding = state.folding.saturating_sub(1);
     let Some(landed) = &mut state.landed else {
+        let way = flat(shot.velocity).normalize_or(Vec3::NEG_Z);
         if fall(shot, fire.gravity, flight).is_some() {
             shot.velocity = Vec3::ZERO;
             state.landed = Some(0);
+            state.barrel = way;
+            state.barrel_from = way;
         }
         return true;
     };
     // Folded up until it is among the nearest him, then it unfolds again.
     if state.move_to.is_none() && !flight.turrets.contains(&shot.serial) {
+        if *landed > fire.unfold_ticks {
+            state.folding = fire.unfold_ticks;
+        }
         *landed = 0;
         state.target = None;
         state.turn = 0.0;
+        state.barrel_from = state.barrel;
         return true;
     }
     *landed += 1;
@@ -605,7 +643,8 @@ fn turret_tick(
     {
         return true;
     }
-    let barrel = shot.position + Vec3::Y * fire.barrel_height;
+    let barrel =
+        shot.position + Vec3::Y * mega.map_or(fire.barrel_height, |mega| mega.barrel_height);
     let targets = flight.targets;
     let kept = state.target.and_then(|entity| {
         targets.iter().find(|target| {
@@ -630,6 +669,7 @@ fn turret_tick(
                 1,
             );
             state.turn = 0.0;
+            state.barrel_from = state.barrel;
             state.target = found.first().map(|&index| targets[index].entity);
             let Some(&index) = found.first() else {
                 return true;
@@ -638,6 +678,11 @@ fn turret_tick(
         }
     };
     state.turn = (state.turn + fire.turn_step).min(1.0);
+    let at_target = (target.centre - barrel).normalize_or(state.barrel);
+    state.barrel = state
+        .barrel_from
+        .lerp(at_target, ease_turn(state.turn))
+        .normalize_or(at_target);
     state.cooldown = state.cooldown.saturating_sub(1);
     if state.turn <= fire.fire_share || state.cooldown > 0 {
         return true;
@@ -683,6 +728,11 @@ fn turret_tick(
         },
     });
     state.fired < fire.shots.at(shot.level).unwrap_or(0)
+}
+
+/// The share of the barrel's turn its count has reached (0x442070: quick, then easing).
+fn ease_turn(share: f32) -> f32 {
+    1.0 - (1.0 - share) * (1.0 - share)
 }
 
 /// The Megaturret's move to him (0x32DE00's states 3, 10 and 11, 0x407010): with the hero
@@ -1446,6 +1496,8 @@ fn agent(
             }
             None => {}
         }
+        state.sequence = moves_first_idle(&fire.moves);
+        state.slow = true;
         if state.hover.is_none()
             && let Some(index) =
                 level_search(targets, shot.position, bearing, sight.first, level, |t| {
@@ -1453,6 +1505,7 @@ fn agent(
                 })
         {
             state.target = Some(targets[index].entity);
+            state.fast = true;
             book.claims.push((targets[index].entity, sight.claim_ticks));
         }
     }
@@ -1515,8 +1568,16 @@ fn agent(
             }
             AgentMode::Idle => {
                 state.idle += 1;
-                let tick = state.idle % moves.idle_cycle.max(1);
-                if moves.wander_ticks.contains(&tick) && rng.below(moves.wander_odds.max(1)) == 0 {
+                let (mut wander, sequence) = (false, state.sequence);
+                let idle = moves.idles.iter().find(|idle| idle.sequence == sequence);
+                let speed = if state.slow { 2 } else { 1 };
+                if let Some(idle) = idle.filter(|idle| state.idle >= idle.ticks * speed) {
+                    state.idle = 0;
+                    state.slow = false;
+                    state.sequence = idle.next[rng.below(2) as usize];
+                    wander = rng.below(moves.wander_odds.max(1)) == 0;
+                }
+                if wander {
                     let around = rng.unit_f32() * TAU;
                     let off = Vec3::new(-ops::sin(around), 0.0, -ops::cos(around));
                     AgentMode::Wander(flight.hero + off * draw(rng, moves.wander_round))
@@ -1532,6 +1593,8 @@ fn agent(
         };
         if state.mode != AgentMode::Idle {
             state.idle = 0;
+            state.sequence = moves_first_idle(moves);
+            state.slow = true;
         }
     }
     let goal = match (chased, state.mode) {
@@ -1565,6 +1628,11 @@ fn agent(
         }
     }
     true
+}
+
+/// The idle sequence an agent starts on.
+fn moves_first_idle(moves: &AgentMoves) -> u8 {
+    moves.idles.first().map_or(0, |idle| idle.sequence)
 }
 
 /// A walker's step towards `to` (0x4577D0): it turns, faster each tick and easing to a

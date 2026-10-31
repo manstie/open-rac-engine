@@ -32,14 +32,15 @@ use rac_sim::{SimRng, SimTransform};
 use crate::{CombatTuning, Destroyed, HitReaction, Hitpoints, Hostile, Hurtbox, Struck, position};
 
 pub use aim::GunTarget;
-pub use arsenal::{Arsenal, Hand, LevelUp, OwnedGun, Sights};
+pub use arsenal::{Arsenal, Hand, Landing, LevelUp, OwnedGun, Sights};
 pub use def::{
     Armory, Crosshair, FireMode, Mark, Mods, Scope, Showing, Sight, WeaponDef, WeaponId,
 };
 pub use fire::{Afflict, GunInput, Hit, Outcome, View};
 pub use ring::{OpenRing, QuickSelect, RingRules};
 pub use shots::{
-    AgentMode, AgentState, BarrierState, Drift, Hovering, RiftState, Shot, ShotKind, TurretState,
+    AgentMode, AgentState, BarrierState, Drift, DuckMood, DuckState, Hovering, RiftState, Shot,
+    ShotKind, ShotPose, TurretState,
 };
 pub use thrown::block_shot;
 

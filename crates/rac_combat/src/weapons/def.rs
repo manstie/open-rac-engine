@@ -104,7 +104,10 @@ impl Hands {
         firing: bool,
     ) -> Vec3 {
         let air = hero.ground.is_none();
-        let standing = matches!(hero.state, HeroState::Idle | HeroState::Look);
+        let standing = matches!(
+            hero.state,
+            HeroState::Idle | HeroState::Look | HeroState::GloveThrow
+        );
         let crouched = hero.state == HeroState::Crouch;
         let by = |list: &[(u8, [f32; 3])], sequence: Option<u8>| {
             list.iter()
@@ -251,6 +254,10 @@ pub struct WeaponDef {
     /// it reaches its last keyframe. A held gun fires until its button is let go, so any
     /// value above 0 does for it.
     pub fire_ticks: u32,
+    /// Letting go of the button ends its firing animation, though it isn't held to fire
+    /// (`hero_fire_stop`): the RY3NO.
+    #[serde(default)]
+    pub let_go_stops: bool,
     /// In the look, ticks it waits before it fires.
     pub look_wait_ticks: u32,
     /// How he holds it and the animations he plays as it fires (row +0x18, +0x24, +0x28
@@ -1302,6 +1309,7 @@ pub struct Beam {
     pub hold_ticks: u32,
     /// What its target becomes, by level: the enemy is gone and a duck stands there.
     pub duck: ByLevel<Duck>,
+    pub waddle: DuckWaddle,
     /// The eggs the ducks lay (class 0x1C59, 0x3D4768, its flight 0x3D48B8).
     pub egg: Egg,
 }
@@ -1310,22 +1318,21 @@ pub struct Beam {
 /// the Qwack-O-Blitzer's class 0x1D3E, 0x3D8840, 0x3D7998).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Duck {
-    /// It waddles about at `speed`, turning a new way every `turn_every` ticks, until it
-    /// goes in a puff after `ticks`; with `eggs` it lays them as it goes.
+    /// It waddles about at `speed` ([`DuckWaddle`]), turning a new way every `turn_every`
+    /// ticks, until it goes in a puff after `ticks`; with `eggs` it lays them as it idles.
     Waddle {
         speed: f32,
         turn_every: (u32, u32),
         ticks: u32,
         eggs: bool,
     },
-    /// It waddles, and every `look_every` ticks a `look_chance` sends it running at
+    /// It waddles, and as each idle sequence ends a `look_chance` sends it running at
     /// `speed` at the nearest enemy, laying eggs; within `reach` of it, it blows up, a ball
     /// of `radius` taking `share` of the damage.
     Soldier {
         waddle: f32,
         speed: f32,
         turn_every: (u32, u32),
-        look_every: u32,
         look_chance: f32,
         reach: f32,
         radius: f32,
@@ -1353,12 +1360,32 @@ pub enum Duck {
     },
 }
 
+/// How a duck on the ground passes its time (0x3D1728, 0x39DB60) [code, data]: idling, it
+/// plays `idle` sequences, each `(chance, length)`, picked as one ends; `first_ticks` from
+/// hatching, it walks for `walk_ticks` or stands for `stand_ticks`, and after that idles
+/// again for `idle_ticks`, or `after_stand` from standing, and so on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DuckWaddle {
+    pub idle: Vec<(f32, u32)>,
+    pub first_ticks: (u32, u32),
+    pub idle_ticks: (u32, u32),
+    pub walk_ticks: (u32, u32),
+    pub stand_ticks: (u32, u32),
+    pub after_stand: (u32, u32),
+    /// With the hero this near, it walks.
+    pub near: f32,
+}
+
 /// A duck's egg: laid every `every` ticks behind it, `back_degrees` either side of
 /// straight back, `up_degrees` up, at `speed`; it falls under `gravity`, bouncing, and
 /// lives `life`. An enemy within `reach` sets it off for the gun's damage, pushed `push`.
 /// From `seek_from` each bounce turns it at the nearest enemy within `seek_range`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Egg {
+    /// Waddling, it lays one at this tick of this idle sequence: its frame 15, after the
+    /// sequence's 10 ticks' blend.
+    pub idle_sequence: u8,
+    pub idle_ticks: u32,
     pub every: (u32, u32),
     pub back_degrees: f32,
     pub up_degrees: (f32, f32),
@@ -1419,7 +1446,9 @@ pub struct Mega {
     pub turn: (f32, f32),
     pub missile_ticks: u32,
     pub blast_radius: f32,
-    /// Its two barrels in turn: how far along, and to each side of its middle.
+    /// Its barrels' height, for it is bigger than a Miniturret, and its two barrels in
+    /// turn: how far along, and to each side of its middle.
+    pub barrel_height: f32,
     pub barrels: (f32, f32),
     pub most: usize,
     pub life_ticks: u32,
@@ -1578,7 +1607,7 @@ pub struct AgentSight {
 /// How an agent walks (`walker_set_params` 0x458A70, run by 0x4577D0): it turns towards
 /// where it goes, and moves only while facing within `facing_degrees` of it, slowing to
 /// stop `stop` short of it (`wander_stop` wandering).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentMoves {
     pub follow: Gait,
     pub chase: Gait,
@@ -1590,15 +1619,22 @@ pub struct AgentMoves {
     /// idles again within a distance drawn from `idle_within` as it sets off.
     pub follow_beyond: f32,
     pub idle_within: (f32, f32),
-    /// Idle with no target, on these ticks of each `idle_cycle` (its idle animations'
-    /// frames 30, 35 and 59), one time in `wander_odds` it wanders to a random point
+    /// Its idle sequences, the first played first at half speed. As each reaches a frame
+    /// another follows, and one time in `wander_odds` it wanders to a random point
     /// `wander_round` from him; wandering, it follows once he is farther than
     /// `wander_leave`.
-    pub wander_ticks: [u32; 3],
-    pub idle_cycle: u32,
+    pub idles: Vec<AgentIdle>,
     pub wander_odds: u32,
     pub wander_round: (f32, f32),
     pub wander_leave: f32,
+}
+
+/// An agent's idle sequence: `ticks` in it reaches the frame where one of `next` follows.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AgentIdle {
+    pub sequence: u8,
+    pub ticks: u32,
+    pub next: [u8; 2],
 }
 
 /// A walker's acceleration (u/s²) and top speed (u/s, drawn between the two for each

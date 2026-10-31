@@ -328,14 +328,15 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
         }
     };
     let mut shots = Vec::new();
-    for (shot, (_, class, _)) in shot_models::import(&core)
+    for (shot, row) in shot_models::import(&core)
         .into_iter()
         .zip(shot_models::UYA_SHOT_CLASSES)
     {
         match shot {
             Ok(shot) => shots.push(shot),
             Err(error) => warn!(
-                "couldn't read shot class {class:#x} from {}: {error}",
+                "couldn't read shot class {:#x} from {}: {error}",
+                row.class,
                 path.display()
             ),
         }

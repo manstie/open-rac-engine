@@ -7,9 +7,9 @@ use rac_sim::SimRng;
 use super::{
     GunEventKind,
     aim::{GunTarget, flat, in_sight},
-    def::{Beam, Duck, Egg},
+    def::{Beam, Duck, DuckWaddle, Egg},
     fire::{Gun, Outcome},
-    shots::{BOUNCE_GAP, DuckState, Flight, Shot, ShotKind, TICK, in_ball},
+    shots::{BOUNCE_GAP, DuckMood, DuckState, Flight, Shot, ShotKind, TICK, in_ball},
     thrown::{rebound, walk},
 };
 
@@ -40,6 +40,8 @@ pub(super) fn hatch(gun: &Gun, fire: &Beam, target: &GunTarget, hero: Vec3, seri
             target: None,
             pecks: 0,
             wait,
+            flies: blitzer,
+            ..default()
         }),
     )
 }
@@ -66,12 +68,24 @@ pub(super) fn duck_shot(
                     ticks,
                     eggs,
                 } => {
-                    let state = waddle(shot, state, speed, turn_every, flight, rng);
-                    let state = if eggs {
-                        lay(shot, state, &fire.egg, rng, born)
-                    } else {
-                        state
-                    };
+                    let mut state = state;
+                    waddle(
+                        shot,
+                        &mut state,
+                        &fire.waddle,
+                        speed,
+                        turn_every,
+                        flight,
+                        rng,
+                    );
+                    // At frame 15 of its third idle sequence (0x3D22B0).
+                    if eggs
+                        && state.mood == DuckMood::Idle
+                        && state.sequence == fire.egg.idle_sequence
+                        && state.sequence_ticks == fire.egg.idle_ticks
+                    {
+                        lay_egg(shot, state.yaw, &fire.egg, rng, born);
+                    }
                     let keep = shot.ticks < ticks;
                     if !keep {
                         out.shot_event(
@@ -94,24 +108,87 @@ pub(super) fn duck_shot(
     }
 }
 
-/// Waddling: on along its facing, a new way every so often (0x3D1728's states 5 and 6
-/// turn it up to 45° either way).
+/// How it passes its time on the ground (0x3D1728, 0x39DB60; `DuckWaddle`): idling, or
+/// walking along its facing, a new way every so often [simplified: the game's aim wobbles
+/// every tick], or standing. Returns whether an idle sequence just ended.
 fn waddle(
     shot: &mut Shot,
-    mut state: DuckState,
+    state: &mut DuckState,
+    time: &DuckWaddle,
     speed: f32,
     turn_every: (u32, u32),
     flight: &Flight,
     rng: &mut SimRng,
-) -> DuckState {
-    if state.turn == 0 {
-        state.yaw += rng.range_f32(-45.0, 45.0).to_radians();
-        state.turn = between(rng, turn_every);
+) -> bool {
+    if state.left == 0 && state.sequence_ticks == 0 && state.mood == DuckMood::Idle {
+        state.left = between(rng, time.first_ticks);
     }
-    state.turn -= 1;
-    let way = Vec3::new(-ops::sin(state.yaw), 0.0, -ops::cos(state.yaw));
-    walk(shot, way * speed, GRAVITY, flight.world);
-    state
+    state.sequence_ticks += 1;
+    state.left = state.left.saturating_sub(1);
+    let near = flat(flight.hero - shot.position).length() < time.near;
+    let mut ended = false;
+    let mut way = Vec3::ZERO;
+    match state.mood {
+        DuckMood::Idle => {
+            let length = time
+                .idle
+                .get(usize::from(state.sequence))
+                .map_or(0, |&(_, length)| length);
+            if state.sequence_ticks >= length {
+                ended = true;
+                state.sequence_ticks = 0;
+                state.sequence = pick_idle(time, rng);
+            }
+            if near {
+                state.mood = DuckMood::Walk;
+                state.left = state.left.max(1);
+            } else if state.left == 0 {
+                if rng.below(2) == 0 {
+                    state.mood = DuckMood::Stand;
+                    state.left = between(rng, time.stand_ticks);
+                } else {
+                    state.mood = DuckMood::Walk;
+                    state.left = between(rng, time.walk_ticks);
+                }
+            }
+        }
+        DuckMood::Walk => {
+            if state.turn == 0 {
+                state.yaw += rng.range_f32(-45.0, 45.0).to_radians();
+                state.turn = between(rng, turn_every);
+            }
+            state.turn -= 1;
+            way = Vec3::new(-ops::sin(state.yaw), 0.0, -ops::cos(state.yaw)) * speed;
+            if state.left == 0 && !near {
+                state.mood = DuckMood::Idle;
+                state.left = between(rng, time.idle_ticks);
+                state.sequence_ticks = 0;
+                state.sequence = pick_idle(time, rng);
+            }
+        }
+        DuckMood::Stand => {
+            if state.left == 0 {
+                state.mood = DuckMood::Idle;
+                state.left = between(rng, time.after_stand);
+                state.sequence_ticks = 0;
+                state.sequence = rng.below(2) as u8;
+            }
+        }
+    }
+    walk(shot, way, GRAVITY, flight.world);
+    ended
+}
+
+/// One of its idle sequences, by their chances.
+fn pick_idle(time: &DuckWaddle, rng: &mut SimRng) -> u8 {
+    let mut roll = rng.unit_f32();
+    for (number, &(chance, _)) in time.idle.iter().enumerate() {
+        if roll < chance {
+            return number as u8;
+        }
+        roll -= chance;
+    }
+    time.idle.len().saturating_sub(1) as u8
 }
 
 /// An egg behind it when its time comes (0x3D22B0, 0x39EF18).
@@ -127,7 +204,13 @@ fn lay(
         return state;
     }
     state.egg = between(rng, egg.every);
-    let yaw = state.yaw + (180.0 + rng.range_f32(-egg.back_degrees, egg.back_degrees)).to_radians();
+    lay_egg(shot, state.yaw, egg, rng, born);
+    state
+}
+
+/// An egg behind a duck facing `facing` (0x3D22B0).
+fn lay_egg(shot: &Shot, facing: f32, egg: &Egg, rng: &mut SimRng, born: &mut Vec<Shot>) {
+    let yaw = facing + (180.0 + rng.range_f32(-egg.back_degrees, egg.back_degrees)).to_radians();
     let up = rng
         .range_f32(egg.up_degrees.0, egg.up_degrees.1)
         .to_radians();
@@ -146,7 +229,6 @@ fn lay(
         },
         ..shot.clone()
     });
-    state
 }
 
 /// An egg (0x3D48B8): it falls and bounces, from `seek_from` turning at an enemy as it
@@ -217,7 +299,6 @@ fn soldier(
         waddle: waddle_speed,
         speed,
         turn_every,
-        look_every,
         look_chance,
         reach,
         radius,
@@ -235,22 +316,31 @@ fn soldier(
     let mut chased = state
         .target
         .and_then(|entity| enemies().find(|target| target.entity == entity));
-    if chased.is_none() && look_every > 0 && shot.ticks.is_multiple_of(look_every) {
-        chased = (rng.unit_f32() < look_chance)
-            .then(|| {
-                enemies()
-                    .map(|target| (target.centre.distance(shot.position), target))
-                    .min_by(|a, b| a.0.total_cmp(&b.0))
-                    .map(|(_, target)| target)
-            })
-            .flatten();
+    if chased.is_none() {
+        // Each time an idle sequence ends, a roll looks for the nearest enemy.
+        let ended = waddle(
+            shot,
+            &mut state,
+            &fire.waddle,
+            waddle_speed,
+            turn_every,
+            flight,
+            rng,
+        );
+        if ended && rng.unit_f32() < look_chance {
+            chased = enemies()
+                .map(|target| (target.centre.distance(shot.position), target))
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, target)| target);
+        }
+        state.target = chased.map(|target| target.entity);
+        if chased.is_none() {
+            return (true, state);
+        }
     }
     state.target = chased.map(|target| target.entity);
     let Some(chased) = chased else {
-        return (
-            true,
-            waddle(shot, state, waddle_speed, turn_every, flight, rng),
-        );
+        return (true, state);
     };
     if flat(chased.centre - shot.position).length() <= reach + chased.radius {
         blow_up(shot, radius, share, flight, out);
@@ -333,9 +423,11 @@ fn blitzer(
     if to.length() > 1e-3 {
         state.yaw = ops::atan2(-to.x, -to.z);
     }
+    state.pecking = false;
     if let Some(chased) = chased
         && chased.centre.distance(shot.position) <= reach + chased.radius
     {
+        state.pecking = true;
         state.pecks += 1;
         for near in in_ball(flight.targets, shot.position, peck_radius, None)
             .filter(|near| near.alive && near.enemy)

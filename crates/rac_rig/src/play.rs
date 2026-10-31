@@ -59,6 +59,8 @@ const DOUBLE_JUMP_STEP: f32 = 0.15;
 /// A jump that lands more than this many frames short of its landing frame starts its
 /// landing afresh; otherwise its own animation plays on.
 const LANDING_SHORT: f32 = 1.5;
+/// The ticks a glove's throw takes to reach the keyframe after its first.
+const GLOVE_THROW_BLEND: f32 = 9.0;
 /// The arms-only firing layer's weight rises this much a tick while it plays, and falls
 /// this much once firing ends (UYA 0x4E6A08).
 const ARMS_IN: f32 = 0.2;
@@ -213,6 +215,14 @@ impl Director {
             }
         }
 
+        // A glove's throw plays out under the idle (`weapons.md`, "The gloves' throw").
+        if base == Some(RigMove::Idle)
+            && previous == Some(RigMove::GloveThrow)
+            && clip(RigMove::GloveThrow).is_some_and(|throw| !throw.finished(self.ticks))
+        {
+            next = previous;
+        }
+
         // The gun sets its firing animation over whatever he stands in.
         if firing.is_some() {
             next = firing;
@@ -245,6 +255,10 @@ impl Director {
                 (Some(air), Some(land @ RigMove::Land(_)), Some(animations)) => {
                     played_on(animations, air, land, self.ticks).unwrap_or(0.0)
                 }
+                // The first keyframe takes the throw's 9 frames' blend (`hero_anim_set`).
+                (_, Some(RigMove::GloveThrow), _) => clip(RigMove::GloveThrow)
+                    .and_then(|throw| throw.keyframes.get(throw.start))
+                    .map_or(0.0, |first| first.ticks - GLOVE_THROW_BLEND),
                 _ => 0.0,
             };
             self.rate = rate(next, speed);
@@ -1000,6 +1014,26 @@ mod tests {
         a.clips.insert(RigMove::Fire(51), clip(5, 4.0, false));
         a.clips.insert(RigMove::FireArms(57), clip(5, 4.0, false));
         a
+    }
+
+    #[test]
+    fn a_gloves_throw_plays_out_under_the_idle_from_its_blend() {
+        let mut a = animations();
+        a.clips.insert(RigMove::GloveThrow, clip(10, 4.0, false));
+        a.clips.get_mut(&RigMove::GloveThrow).unwrap().start = 7;
+        let mut director = Director::new(3);
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.state = HeroState::GloveThrow;
+        director.step(&hero, None, Some(&a), 1.0 / 60.0);
+        assert_eq!(director.current, Some(RigMove::GloveThrow));
+        // Its first keyframe takes the 9 frames' blend, not its own 4.
+        assert_eq!(director.ticks, 4.0 - 9.0);
+        // Back in the idle it goes on: 5 ticks of blend, 12 of the clip from key 7.
+        hero.state = HeroState::Idle;
+        run(&mut director, &hero, &a, 10);
+        assert_eq!(director.current, Some(RigMove::GloveThrow));
+        run(&mut director, &hero, &a, 10);
+        assert_ne!(director.current, Some(RigMove::GloveThrow));
     }
 
     #[test]

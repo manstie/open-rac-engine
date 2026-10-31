@@ -71,6 +71,15 @@ pub struct Sights {
     pub ready: bool,
     /// Looking through its scope, the eye's ray meets a live enemy before anything else.
     pub scope_on: bool,
+    /// Where its shot would land, if it is thrown.
+    pub landing: Option<Landing>,
+}
+
+/// Where a thrown shot would land, and which way that surface faces.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Landing {
+    pub at: Vec3,
+    pub normal: Vec3,
 }
 
 /// A hero's guns. Put it beside the [`rac_hero::Hero`]; the weapons code fires them and
@@ -94,6 +103,8 @@ pub struct Arsenal {
     pub(crate) trigger: Trigger,
     /// Ticks left of the firing animation.
     pub(crate) fire_ticks: u32,
+    /// Ticks it has played, 1 on the tick it starts (0x1A4DB8).
+    pub(crate) firing_ticks: u32,
     /// Shots so far, counting round, which restart the firing animation.
     pub(crate) shots_fired: u8,
     /// Ticks since the quick-select button was pressed, while it is held.

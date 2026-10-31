@@ -763,9 +763,39 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
     rest play at their own keyframes' rates. Standing, a gun not held stays `firing`
     until its sequence reaches its last keyframe and the idle sets its own: 66 frames for
     sequence 49 (17 keyframes of 4 before the last), 92 for the Shock Blaster's 103 and
-    101 for the Bouncer's (46 of 2), 111 for the gloves' 41 (26 of 4). A gun not held
+    101 for the Bouncer's (46 of 2), and 86 for the gloves' 41, which skips its wind-up
+    (below; played whole it would take 111, 26 keyframes of 4). A gun not held
     that repeats sooner (the Annihilator every 36 frames while Circle is held) restarts
     the sequence before it ends, so he never goes back to his idle between shots.
+  - **What cuts it short** [code; verified on UYA NTSC, 2026-10-31,
+    `uyantsc-veldin-fire-3`…`7`]: `hero_fire_stop` (0x4E6CB0) clears `firing` and, standing
+    in state 0 with the body on the firing sequence, sets his idle over the 16-frame eased
+    curve (`hero_anim_set` −2, the second entry of 0x1DBE90); on the arms layer it asks the
+    layer to end. So how long a gun plays isn't always its sequence:
+    - **The Rift Inducer** calls it on every frame without a press (or R1 held in the
+      aiming state), so `firing` lasts 1 frame and sequence 49 hands straight over to the
+      idle's blend [traced: firing frames 137 only, idle settled by 154].
+    - **The Nitro Launcher** (and Eruptor, and Infecto-Bomb) calls it once `firing` has
+      run more than 20 frames (0x1A4DB8 counts them), so 21 frames [traced: 136–156].
+    - **The RY3NO** calls it as Circle is let go, once a shot has started its rumble.
+    - **The gloves** call it as the thing leaves the hand, 20 frames after the press
+      [traced while walking: firing 383–402]. Standing they have already left it, below.
+  - **The gloves' throw, state 34** [code; verified on UYA NTSC, 2026-10-31,
+    `uyantsc-veldin-fire-3`, `-4` and `-5`]: in the common transitions 0x500F98: in state
+    0, 2 or 3 with `firing` set for under 6 frames, the stick under 0.7 and hold type 0
+    (the gloves; row +0x18), it stops firing (above) and goes to **state 34**, so the
+    frame after a press. Entering it plays sequence 41 **from keyframe 7**, blending over
+    9 frames (`hero_anim_set(9, 0x29, 7)`): the first 7 keyframes, the wind-up, are never
+    played. Traced with the shield: press at frame 134 (key 0, rate 1/11), 135 state 34,
+    144 key 8, then a keyframe every 4 frames; state 34 ends with its frame at 21 (157),
+    the idle lets the sequence play on to its end, and at 220 (86 frames after the press)
+    takes his idle over the 16-frame curve. The shield leaves at frame 20, about key 10.
+    - State 34 is state type 6, as the wrench's attacks (0x4FC518's case with 0x13–0x15,
+      0x4D and 0x88). Its update (0x4FAA68, case 0x22) sets speed 0 and turns him as an
+      attack does (0x4EEA78 with 11 frames and 50°); from frame 20 a press of jump
+      (buffered 11 frames) leaves it for the jump, with R1 held for state 7's.
+    - With the stick at 0.7 or more he keeps walking, and the arms layer plays 61, cut at
+      the throw (fading at 0.25 a frame) [traced: 403–416].
   - **Otherwise** (walking, in the air, crouched, the arm raised, or pitched in
     lock-strafe): the arms-only animation (+0x28; +0x2C in a crouch, state type 12) on
     the right arm's layer, and the left's too for a two-handed gun (+0x18 = 2), blending
@@ -863,7 +893,7 @@ Read in `hero_fire_anim` (0x4E6A08), the per-frame gun update `hero_gun_update`
     | Walking (traced) | 0.29, 0.59, 0.09 | level; swings ±0.1 u |
     | In the air (traced) | 0.32, 0.77, 0.10 | level |
     | Crouched, sequence 65 / 57 | 0.33, 0.26, 0.02 / 0.33, 0.30, 0.40 | level |
-    | A glove, 20 frames into 41 / 61 | 0.39, 1.17, −0.12 / 0.05, 0.78, 0.43 | where its throw takes it |
+    | A glove, 20 frames into 41 / 61 | −0.18, 0.80, 1.01 / 0.05, 0.78, 0.43 | where its throw takes it: 41's keyframe 10, as state 34 starts it at keyframe 7 (corrected 2026-10-31; 0.39, 1.17, −0.12 was 20 frames from its keyframe 0, which is never played) |
 
   - **Traced muzzles:** the N60 held standing 0.28 ± 0.2, 0.82, 1.12 (the table gives
     0.26, 0.80, 1.13); its first shot 0.3 ± 0.2, 0.89, 0.59 (0.30, 0.88, 0.61); walking
@@ -1682,7 +1712,8 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   (11 u/s²).
 - **The turret** (class 0x1366) falls under 11 u/s² and lands where its sweep meets the
   ground (off another turret it bounces back faster, × 1.1). It takes a slot among the
-  turrets (0x276EE0; when none is free it goes), unfolds over 6 frames of its animation,
+  turrets (0x276EE0; when none is free it goes), unfolds until its animation frame reaches
+  6, 10 ticks ("How they play"),
   then:
   - looks all round within 15 u (35 u with 0x1DB030 set) for a target
     (`gun_aim_target`);
@@ -1698,8 +1729,11 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   landing or its last shot, or more than 30 u from the hero, it bursts (0x4488B8 at size 0.5
   with a light of radius 13: `effects.md`, "The small blast") and goes. The 1200 is set at
   its spawn (0x32C320) and so runs in flight too (2026-10-31).
-- **Its barrel** [data, class 0x1366 on the disc, 2026-10-31]: its shots leave point 1
-  (joint 9), unfolded 1.08 u above where it stands and 0.72 u along its aim.
+- **Its barrel** [data, class 0x1366 on the disc; code, 0x32C320, 2026-10-31]: its shots
+  leave point 1 (joint 9), which unfolded is 1.08 u up and 0.72 u along at its class's
+  scale. Its spawn multiplies its moby's scale by 0.75, so 0.81 u above where it stands and
+  0.54 u along its aim (corrected). The Megaturret's spawn (0x32F3D8) keeps its class's
+  scale.
 - **How many** [code, 2026-10-31]: the glove refuses a throw while 9 or more turrets have
   landed (the count at 0x277100, tested in 0x3462F0); and only the 5 nearest the hero
   (0x32C558 sets the 5, 0x4C7228 picks them) turn and fire, the others folding up until
@@ -2457,6 +2491,59 @@ gives them. The file's rules, holds, sequences, muzzles and `ready_ticks` are st
   Harbinger and Scorpion Flail; the alpha and omega mods; DL's sounds, looks, models, HUD
   icons and hand tables. Every push in the file is a placeholder.
 
+## How they play [code, data; seen in the kit, 2026-10-31]
+
+What the guns send out plays its class's own sequences and shows its own bangles. The kit
+keeps which sequence each is in as a pure function of its state (`ShotKind::pose`), so the
+simulation stays free of the skeleton; `rac_demo` plays it on the class's joints
+(`play_shot_rigs`, `rac_rig::SequencePlayer`), and `openrac`'s `UYA_SHOT_CLASSES` lists each
+class, scale and bangle mask. Scales are of the class's own, from each spawn; the moby's
+scale at +0x2C, its sequence speed at +0x48 and its bangle mask at +0x7C. A blend resets the
+speed to 1 (0x441C78), so an agent's or duck's first random speed doesn't last.
+
+- **Agents** (class 0x1ADA, 72 joints, scale 1; 0x3C0F78): bangles 0b0001 at V1, 0b1001 at
+  V2–V4, 0b0101 from V5. Hovering, sequence 9. Running at a target or following, 3 over a
+  10-tick blend; one that finds a target as it comes out plays it at speed 3. Wandering, 2
+  over 17. Idle, its first is 5 over 10 at speed 0.5, later ones over 4. An idle sequence
+  hands over at a frame of its own: 5 at 118 ticks to 4 or 1, 4 at 60 to 5 or 1, 1 at 70 to
+  4 or 5, one in the wander odds wandering instead. Its pod is class 0x1853 at 1.2, no
+  joints.
+- **Ducks to V3** (class 0x1BC3, 34 joints, at 0.9, bangles 0b11 from V3; 0x3D2480,
+  0x3D1728): on the ground it idles, walks or stands.
+  - Idling, as each sequence comes round it picks 0 (20%), 1 (20%) or 2 (60%), each over a
+    10-tick blend. Sequences are 60, 120 and 90 ticks.
+  - It lays an egg (V2, V3) at frame 15 of sequence 2, which is 40 ticks in with the blend:
+    so eggs come with an idle, not on a timer.
+  - When its time is up (120 to 300 from hatching; not confirmed which draw sets it) it
+    stands half the time (sequence 4, 180–360 ticks, then idles 120–600, starting on 0 or
+    1), else walks (sequence 3 at 0.75, 400–600 ticks, then idles 400–600). With the hero
+    within 2 u it walks.
+  - The kit's turn while walking is still its own simplified one.
+- **The V4 duck** (class 0x189B, scale 1, glow (0x40, 0x10, 0x10) at +0x3C, inferred to be
+  added light; 0x39C2F8, 0x39DB60): the same, but as each idle comes round a 60% roll looks
+  for the nearest enemy; running at it, sequence 4 over a 1-tick blend.
+- **The V5 duck** (class 0x1D3E, 48 joints, at 0.7; 0x3D7998, 0x3D8420): starts on 2, cuts
+  to 3 at frame 9 and flies on 3; pecks on 5 over a 10-tick blend.
+- **Its egg** is class 0x1C59 at 0.25, no joints.
+- **The Miniturret** (class 0x1366, 10 joints, at 0.75; 0x32AFB0): sequence 0 folded, in
+  flight too. Landed, 1 until its frame reaches 6 (10 ticks: its frames run from 1 by 0.5),
+  then 2. Folding plays 1 from keyframe 9 at speed −1, then 0. Its barrel slerps as the
+  share grows, eased as `1 − (1 − x)²` (0x442070), written through a joint hook. The hook's
+  joint isn't read: the kit turns joint 1, the head, whose descendants are the barrel, and
+  the model aims right on screen [seen]. The Megaturret is class 0x1367, 16 joints, the same
+  way.
+- **The Bouncer** (0x31D0B0, 0x31E488): canister class 0xE64 at 3 (5 at V5), bomblets class
+  0xECE at 0.75 (1.5 at V5, and V4's for the Annihilator's heavy mines); no joints; each
+  tumbles 3 to 6 degrees a tick about a random axis.
+- **The disc** (class 0x1867, 1 joint, 71 keyframes) spins by its own sequence.
+- **Not modelled:** the rift (0x186B, 0.05 across) and comet (0x1893, set to 0.05 outright)
+  are drawn by their code. The holo shield's class (0x186D, 25 joints, one sequence) has its
+  panels drawn instead; whether the class itself is drawn isn't read. The blob shadow under
+  small mobys (0x444070: egg, canister, V5 duck, missile, agent's gun, blob, Nitro's charge,
+  bomblet) isn't in the kit. Nor are a duck's first random speed (0.85 to 1.15, until its
+  first blend) and an appearing agent's opacity climbing. The V4 duck's bangles aren't read;
+  the kit shows none.
+
 ## In the kit (P1.9) [2026-10-21]
 
 `rac_combat::weapons`, with the guns' numbers in `crates/rac_combat/assets/uya_weapons.ron`
@@ -2773,6 +2860,10 @@ profiles' `gun` section):
     Seen on screen (`kitdemo-doubler.orin`).
   - Seen on screen (`kitdemo-yard-crates.orin`): the crates' placeholder looks, the
     explosive pair tinting as he touches them and going off in turn, his health 10 to 6.
+- **What the guns send out and show** (2026-10-31): the models, sequences and bangles of
+  "How they play"; `Sights::landing`, where a thrown gun's shot would land, for its marker
+  (`effects.md`, "The landing marker"); and the Qwack-O-Ray's `Ray` while it is held, with
+  or without something to take.
 - **Quick select** (`weapons/ring.rs`, 2026-10-22): two rings of eight, filled as
   `quick_select_add` does [code], worked as "The quick-select ring" reads with QUICK
   SELECT PAUSE off, so co-op stays in step: the ring opens on the press over the running

@@ -1100,6 +1100,22 @@
             strafe_down: 20.0, // DL
             first_person_lower: Some(10.0), // DL
         ),
+        // State 34 (0x500F98, 0x4FAA68, 0x4FC518) [code, traced]. Not read in DL. It goes from the tick
+        // after the press, for the 23 ticks its frame takes to reach 21, turning by the
+        // hero_auto_aim of 11 u and 50 degrees; speed goes to 0 at 0.00833 and 0.00972 u a
+        // frame squared, and gravity is 0.015.
+        glove_throw: (
+            within_ticks: 6,
+            stick_below: 0.7,
+            ticks: 23,
+            jump_from: 22,
+            jump_window: 11,
+            aim: (range: 11.0, cone_degrees: 50.0, rise_degrees: 0.0),
+            turn: (gain: 0.04, damping: 0.2, cap: 0.28216),
+            rise: 30.0,
+            brake: 35.0,
+            gravity: 54.0,
+        ),
     ),
     // State 22, "Getting hit and dying": DL's entry (0x69DAAC), motion and transitions
     // are UYA's apart from the marked values ("Deadlocked's hits") [code].

@@ -73,6 +73,9 @@ pub enum RigMove {
     /// Firing a gun standing: the whole-body firing animation the gun names, by the game's
     /// own number ([`rac_hero::GunPose::standing`]), started again by each shot.
     Fire(u8),
+    /// A glove's throw: its sequence from part-way in, as state 34 sets it, which the idle
+    /// lets play out (`weapons.md`, "The gloves' throw").
+    GloveThrow,
     /// Firing on the move or crouched: an arms-only animation, by the game's number
     /// ([`rac_hero::GunPose::arms`] and `crouched`), laid over the arms of whatever else
     /// plays.
@@ -141,6 +144,7 @@ impl RigMove {
             HeroState::JumpAttack => RigMove::JumpAttack,
             HeroState::Throw => RigMove::Throw,
             HeroState::Hit => RigMove::Hit,
+            HeroState::GloveThrow => RigMove::GloveThrow,
             HeroState::LedgeGrab => RigMove::LedgeGrab,
             HeroState::LedgeHang => RigMove::LedgeHang,
             HeroState::LedgeShimmy(Side::Left) => RigMove::ShimmyLeft,

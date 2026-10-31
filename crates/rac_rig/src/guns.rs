@@ -120,16 +120,14 @@ impl RigGuns {
         let surfaces = data
             .surfaces
             .iter()
-            .map(|surface| {
-                let mut mesh = surface.mesh(skinned, Vec3::ZERO);
-                if skinned && let Ok(bounded) = mesh.clone().with_generated_skinned_mesh_bounds() {
-                    mesh = bounded;
-                }
-                RigSurface {
-                    mesh: meshes.add(mesh),
-                    paint: surface.paint.clone(),
-                    wrench: false,
-                }
+            .map(|surface| RigSurface {
+                mesh: meshes.add(if skinned {
+                    surface.skinned_mesh()
+                } else {
+                    surface.mesh(false, Vec3::ZERO)
+                }),
+                paint: surface.paint.clone(),
+                wrench: false,
             })
             .collect();
         let skeleton = data.skeleton.map(|skeleton| RigGunSkeleton {

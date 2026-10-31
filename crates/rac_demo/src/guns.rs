@@ -4,15 +4,19 @@
 //! his hand ([`crate::hud`]).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use bevy::camera::visibility::DynamicSkinnedMeshBounds;
 use bevy::ecs::system::SystemParam;
 use bevy::light::NotShadowCaster;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use rac_combat::{
     Armory, Arsenal,
-    weapons::{FireMode, ShotKind},
+    weapons::{FireMode, ShotKind, ShotPose},
 };
 use rac_hero::Hero;
+use rac_rig::{MobySkeleton, SequencePlayer};
 use rac_sim::SimTransform;
 
 use crate::DemoEntity;
@@ -39,10 +43,14 @@ pub(crate) struct ShotLook {
     standing: bool,
 }
 
-/// Whether a shot stands where it landed: a holo shield flies as its recipe's sprites and
-/// stands as the kit's wall.
-fn standing(kind: &ShotKind) -> bool {
-    matches!(kind, ShotKind::Barrier(state) if state.landed.is_some())
+/// Whether a shot stands where it landed, or stands open: a holo shield flies as its
+/// recipe's sprites and stands as the kit's wall, and a rift opens into another look.
+pub(crate) fn standing(kind: &ShotKind) -> bool {
+    match kind {
+        ShotKind::Barrier(state) => state.landed.is_some(),
+        ShotKind::Rift(state) => state.open.is_some(),
+        _ => false,
+    }
 }
 
 /// Meshes and materials for the guns' effects, made once.
@@ -154,6 +162,7 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
             scale: Vec3::ZERO,
             ..ball(0.0, &looks.arc)
         },
+        ShotKind::Rift(state) if state.open.is_some() => ball(0.9, &looks.rift),
         ShotKind::Rift(_) => ball(0.3, &looks.rift),
         ShotKind::Thing { .. } => ball(0.3, &looks.thing),
         ShotKind::Turret(_) => ball(0.35, &looks.turret),
@@ -198,37 +207,68 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
 }
 
 /// A game's model for a gun's shots in flight, in place of the kit's shape: its parts,
-/// facing the way the shot flies along their −z.
+/// facing the way the shot faces along their −z, and if it plays sequences of its own, its
+/// skeleton.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShotModel {
     pub parts: Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
+    pub skeleton: Option<ShotSkeleton>,
 }
 
-/// The shot models a game gives, by gun key. They are drawn for a gun's own shots (a
-/// charge, missile, rocket, disc, canister, turret, rift, blob or ball), not for the
-/// blasts and bomblets they become.
+/// A shot's skeleton: drawn at `scale` of what the skeleton says, and for a turret, the
+/// joint that turns its barrel to its aim.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShotSkeleton {
+    pub moby: Arc<MobySkeleton>,
+    pub scale: f32,
+    pub aim_joint: Option<usize>,
+}
+
+/// The shot models a game gives, by gun key, the kind of shot ([`ShotKind::name`]) and the
+/// level they show from. A shot of a kind without one is drawn as the kit's look.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
-pub struct ShotModels(pub BTreeMap<String, ShotModel>);
+pub struct ShotModels(pub BTreeMap<(String, String, u8), ShotModel>);
 
-/// Whether a shot of this kind is drawn as its gun's model, when there is one.
-fn modelled(kind: &ShotKind) -> bool {
-    matches!(
-        kind,
-        ShotKind::Charge { .. }
-            | ShotKind::Missile { .. }
-            | ShotKind::Rocket(_)
-            | ShotKind::Disc { .. }
-            | ShotKind::Canister { .. }
-            | ShotKind::Turret(_)
-            | ShotKind::Rift(_)
-            | ShotKind::Blob { .. }
-            | ShotKind::Ball { .. }
-    )
+impl ShotModels {
+    /// The model for a shot of `kind` from a gun at `level`: the latest it shows by then.
+    fn get(&self, gun: &str, kind: &str, level: u8) -> Option<&ShotModel> {
+        let key = |level| (gun.to_string(), kind.to_string(), level);
+        self.0
+            .range(key(0)..=key(level))
+            .next_back()
+            .map(|(_, model)| model)
+    }
 }
 
-/// A shot drawn as a model, turned to its way each tick.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Facing;
+/// A shot drawn as a model, turned to the way it faces each tick.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Facing {
+    /// It tumbles by this much a tick instead of facing a way (a Bouncer's canister and
+    /// its bomblets, 0x31D0B0, 0x31E488).
+    tumble: Option<Quat>,
+}
+
+/// The way a shot of a game's model faces, if it has one now.
+fn faces(kind: &ShotKind, velocity: Vec3) -> Option<Quat> {
+    match kind {
+        ShotKind::Agent(state) => Some(Quat::from_rotation_y(state.yaw)),
+        ShotKind::Duck(state) => Some(Quat::from_rotation_y(state.yaw)),
+        // Upright, turned as it was thrown; its barrel turns on it.
+        ShotKind::Turret(_) => way(velocity.with_y(0.0)),
+        _ => way(velocity),
+    }
+}
+
+/// How a shot with a skeleton plays it.
+#[derive(Component, Debug, Clone, PartialEq)]
+pub(crate) struct ShotRig {
+    moby: Arc<MobySkeleton>,
+    joints: Vec<Entity>,
+    player: SequencePlayer,
+    /// The pose it last went to, so it goes to each once.
+    played: Option<ShotPose>,
+    aim_joint: Option<usize>,
+}
 
 /// What a shot can be drawn as.
 #[derive(SystemParam)]
@@ -260,7 +300,7 @@ pub(crate) fn show_shots(
         &ShotLook,
         &mut SimTransform,
         &mut Transform,
-        Has<Facing>,
+        Option<&Facing>,
     )>,
     mut commands: Commands,
 ) {
@@ -284,20 +324,20 @@ pub(crate) fn show_shots(
             };
             transform.scale = Vec3::splat(state.shown(fade));
         }
-        if facing {
-            if let Some(turn) = way(shot.velocity) {
-                simulated.rotation = turn;
+        if let Some(facing) = facing {
+            match facing.tumble {
+                Some(turn) => simulated.rotation = (turn * simulated.rotation).normalize(),
+                None => {
+                    if let Some(turn) = faces(&shot.kind, shot.velocity) {
+                        simulated.rotation = turn;
+                    }
+                }
             }
             continue;
         }
-        // Interpolation leaves the scale alone, so a blast grows through it, and a rift
-        // opens.
-        match shot.kind {
-            ShotKind::Blast { radius, .. } => transform.scale = Vec3::splat(radius),
-            ShotKind::Rift(state) if state.open.is_some() => {
-                transform.scale = Vec3::splat(0.9);
-            }
-            _ => {}
+        // Interpolation leaves the scale alone, so a blast grows through it.
+        if let ShotKind::Blast { radius, .. } = shot.kind {
+            transform.scale = Vec3::splat(radius);
         }
     }
     for (hero, arsenal) in &heroes {
@@ -312,28 +352,70 @@ pub(crate) fn show_shots(
             }
             let def = draw.armory.get(shot.weapon);
             let key = def.map_or("", |def| def.effects.as_str());
-            if let Some(model) = draw.models.0.get(key).filter(|_| modelled(&shot.kind)) {
-                let turn = way(shot.velocity).unwrap_or_default();
-                commands
+            if let Some(model) = draw.models.get(key, shot.kind.name(), shot.level) {
+                let turn = faces(&shot.kind, shot.velocity).unwrap_or_default();
+                let tumble = matches!(
+                    shot.kind,
+                    ShotKind::Canister { .. } | ShotKind::Bomblet { .. }
+                )
+                .then(|| draw.rng.tumble());
+                let root = commands
                     .spawn((
                         Name::new("shot"),
                         DemoEntity,
                         look,
-                        Facing,
+                        Facing { tumble },
                         Visibility::default(),
                         SimTransform::from_translation(shot.position).with_rotation(turn),
                         Transform::from_translation(shot.position).with_rotation(turn),
                     ))
-                    .with_children(|parts| {
-                        for (mesh, material) in &model.parts {
-                            parts.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
-                        }
+                    .id();
+                let skin = model.skeleton.as_ref().map(|skeleton| {
+                    let origin = commands
+                        .spawn((
+                            Transform::from_scale(Vec3::splat(skeleton.scale)),
+                            Visibility::default(),
+                            ChildOf(root),
+                        ))
+                        .id();
+                    let joints = skeleton.moby.spawn_joints(&mut commands, origin);
+                    commands.entity(root).insert(ShotRig {
+                        moby: skeleton.moby.clone(),
+                        joints: joints.clone(),
+                        player: SequencePlayer::new(0),
+                        played: None,
+                        aim_joint: skeleton.aim_joint,
                     });
+                    (origin, joints, skeleton.moby.inverse_bindposes.clone())
+                });
+                for (mesh, material) in &model.parts {
+                    let mut part = commands.spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        Transform::default(),
+                    ));
+                    match &skin {
+                        Some((origin, joints, inverse_bindposes)) => {
+                            part.insert((
+                                SkinnedMesh {
+                                    inverse_bindposes: inverse_bindposes.clone(),
+                                    joints: joints.clone(),
+                                },
+                                DynamicSkinnedMeshBounds,
+                                ChildOf(*origin),
+                            ));
+                        }
+                        None => {
+                            part.insert(ChildOf(root));
+                        }
+                    }
+                }
                 continue;
             }
             let name = Some(shot.kind.name());
             let (sprites, streak) = if look.standing {
-                (&[][..], None)
+                let open = draw.recipes.open(key, shot.level, name);
+                (open.map_or(&[][..], |open| open.sprites.as_slice()), None)
             } else {
                 (
                     draw.recipes.shot(key, shot.level, name),
@@ -371,6 +453,8 @@ pub(crate) fn show_shots(
                         let layer = ShotLayer {
                             spin: sprite.spin.to_radians(),
                             flickers: sprite.flickers,
+                            size: sprite.size,
+                            shrink: sprite.shrink,
                         };
                         let roll = draw.rng.roll(Some((0.0, 360.0)));
                         (handle, layer, roll, sprite.size)
@@ -452,12 +536,64 @@ pub(crate) fn show_shots(
     }
 }
 
+/// Plays each shot's sequences as its state says ([`ShotKind::pose`]) a tick, and turns a
+/// turret's barrel to its aim.
+pub(crate) fn play_shot_rigs(
+    heroes: Query<(&Hero, &Arsenal)>,
+    mut rigs: Query<(&ShotLook, &SimTransform, &mut ShotRig)>,
+    mut joints: Query<&mut Transform, Without<ShotLook>>,
+) {
+    for (look, simulated, mut rig) in &mut rigs {
+        let rig = &mut *rig;
+        let shot = heroes
+            .iter()
+            .filter(|(hero, _)| hero.player == look.player)
+            .find_map(|(_, arsenal)| arsenal.shots.iter().find(|shot| shot.serial == look.serial));
+        let Some(shot) = shot else { continue };
+        let clips = &rig.moby.clips;
+        if let Some(wanted) = shot.kind.pose() {
+            let at = |pose: ShotPose| (pose.sequence, pose.from_keyframe);
+            if rig.played.map(at) != Some(at(wanted)) {
+                // A new shot starts there; any other goes over as its state says.
+                let blend = if rig.played.is_some() {
+                    wanted.blend
+                } else {
+                    0.0
+                };
+                rig.player
+                    .play_from(clips, wanted.sequence, wanted.from_keyframe, blend);
+            }
+            rig.player.set_speed(wanted.speed);
+            rig.played = Some(wanted);
+        }
+        rig.player.tick(clips);
+        let pose = rig.player.pose(clips);
+        let mut local: Vec<Transform> = (0..rig.joints.len())
+            .map(|joint| rig.moby.local(pose.as_ref(), joint))
+            .collect();
+        if let (ShotKind::Turret(state), Some(head)) = (&shot.kind, rig.aim_joint)
+            && let Some(aim) = way(state.barrel)
+            && let Some(parent) = rig.moby.parents.get(head).copied().flatten()
+        {
+            // As its pose has it facing the body's way, but facing its aim.
+            let over = local[parent].rotation;
+            local[head].rotation =
+                (simulated.rotation * over).inverse() * aim * over * local[head].rotation;
+        }
+        for (&joint, local) in rig.joints.iter().zip(local) {
+            if let Ok(mut transform) = joints.get_mut(joint) {
+                *transform = local;
+            }
+        }
+    }
+}
+
 /// Turns each shot's sprites a tick, and lays its streak along its way once it has flown
 /// far enough.
 pub(crate) fn step_shot_layers(
     heroes: Query<(&Hero, &Arsenal)>,
     looks: Query<&ShotLook>,
-    mut layers: Query<(&ShotLayer, &mut Billboard), Without<ShotStreak>>,
+    mut layers: Query<(&ShotLayer, &mut Billboard, &mut Transform), Without<ShotStreak>>,
     mut streaks: Query<
         (
             &ChildOf,
@@ -470,12 +606,16 @@ pub(crate) fn step_shot_layers(
     >,
     mut rng: ResMut<FxRng>,
 ) {
-    for (layer, mut billboard) in &mut layers {
+    for (layer, mut billboard, mut transform) in &mut layers {
         billboard.roll = if layer.flickers {
             rng.roll(Some((0.0, 360.0)))
         } else {
             billboard.roll + layer.spin
         };
+        if layer.shrink > 0.0 {
+            let size = transform.scale.x - layer.shrink;
+            transform.scale = Vec3::splat(if size <= 0.2 { layer.size } else { size });
+        }
     }
     for (parent, ShotStreak(streak), mut billboard, mut transform, mut visibility) in &mut streaks {
         let shot = looks.get(parent.parent()).ok().and_then(|look| {

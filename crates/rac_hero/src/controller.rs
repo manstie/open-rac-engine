@@ -128,6 +128,9 @@ pub enum HeroState {
     JumpAttack,
     /// Throwing the wrench, and waiting for it to come back.
     Throw,
+    /// A glove's throw, standing or at a walk under a part-pushed stick (UYA's state 34;
+    /// `weapons.md`, "The gloves' throw").
+    GloveThrow,
     /// Knocked back by a hit.
     Hit,
     Dead,
@@ -160,6 +163,7 @@ impl HeroState {
             HeroState::Combo(_) => 19,
             HeroState::JumpAttack => 20,
             HeroState::Throw => 21,
+            HeroState::GloveThrow => 34,
             HeroState::Hit => 22,
             HeroState::LedgeGrab => 23,
             HeroState::LedgeHang => 24,
@@ -1149,11 +1153,13 @@ pub fn step(
         melee::advance_frame(hero, profile);
     }
     melee::try_attack(hero, input, &stick, wish, profile, world);
+    melee::try_glove_throw(hero, &stick, wish, profile, world);
 
     match hero.state {
         HeroState::Dead => dead_tick(hero, profile),
         HeroState::FallOut => fall_out_tick(hero, profile),
         HeroState::Hit => hit_tick(hero, profile),
+        HeroState::GloveThrow => melee::glove_throw_tick(hero, input, &stick, wish, profile, world),
         HeroState::Charge => charge_tick(hero, &stick, profile),
         HeroState::Bounce => bounce_tick(hero, profile),
         state if state.is_grinding() => grind_tick(hero, input, &stick, wish, profile, world),
@@ -1290,6 +1296,7 @@ fn move_hero(
         || matches!(
             state,
             HeroState::Hit
+                | HeroState::GloveThrow
                 | HeroState::Dead
                 | HeroState::FallOut
                 | HeroState::Bounce

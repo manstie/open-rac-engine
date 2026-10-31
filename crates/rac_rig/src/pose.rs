@@ -481,7 +481,7 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
                 );
             }
         }
-        HeroState::Throw => {
+        HeroState::Throw | HeroState::GloveThrow => {
             let forward = Vec3::new(0.1, 0.05, -1.0).normalize();
             let rest = (joints[joint::ELBOW_R].rest - joints[joint::SHOULDER_R].rest).normalize();
             b.world(joint::SHOULDER_R, Quat::from_rotation_arc(rest, forward));

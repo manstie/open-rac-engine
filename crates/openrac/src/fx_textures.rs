@@ -5,10 +5,11 @@
 
 use bevy::{
     asset::RenderAssetUsages,
+    image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use rac_demo::fx::{FxImages, Tex};
+use rac_demo::fx::{FxImages, FxRecipes, Tex};
 use rac_demo::hud::SightImages;
 use rac_formats::texture::Texture;
 
@@ -58,13 +59,23 @@ pub fn register_disc_sight_images(
 /// Puts the disc's image in place of each placeholder the guns' effects painted.
 pub fn register_disc_fx_images(
     textures: Res<DiscEffectTextures>,
+    recipes: Res<FxRecipes>,
     mut fx: ResMut<FxImages>,
     mut images: ResMut<Assets<Image>>,
 ) {
+    let scrolled = recipes.scrolled();
     let mut replaced = 0;
     for (&tex, handle) in &mut fx.0 {
         if let Some(texture) = textures.get(tex) {
-            *handle = images.add(image(texture));
+            let mut made = image(texture);
+            if scrolled.contains(&tex) {
+                made.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::Repeat,
+                    address_mode_v: ImageAddressMode::Repeat,
+                    ..ImageSamplerDescriptor::linear()
+                });
+            }
+            *handle = images.add(made);
             replaced += 1;
         }
     }

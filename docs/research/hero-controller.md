@@ -1291,7 +1291,8 @@ through the hero's update, so its fields come from two frames.
   - the magneboots attack (111, libdl's `PLAYER_STATE_MAGNE_ATTACK`, rows 5–6). Its
     transitions end it past its row's end; the 111 at 0x6A4BC0 is an animation number;
   - the shuriken throw (133): one 133 at 0x466E00, outside the hero's code;
-  - the glove (34) and the Walloper (31): too many small numbers to search this way.
+  - the glove (34) and the Walloper (31): too many small numbers to search this way. (UYA's
+    state 34 is read: `weapons.md`, "The gloves' throw, state 34".)
 - Hero fields +0x4AC (it blocks the combo) and +0x435/+0x436/+0x439.
 
 **In the kit:** `dl.ron`'s `melee` section has all of the above at the wrench's level 0.

@@ -440,7 +440,8 @@ mod disc_tests {
             ("46 held", firing(46), hand(46, 0)),
             ("crouched 65", crouched(65), hand(65, 0)),
             ("crouched 57", crouched(57), hand(57, 0)),
-            ("41 at 20 frames", Vec3::from(hands.thrown), hand(41, 5)),
+            // 20 frames in, with state 34's start at key 7 (`weapons.md`, "The gloves' throw").
+            ("41 at 20 frames", Vec3::from(hands.thrown), hand(41, 10)),
             (
                 "61 at 20 frames",
                 Vec3::from(hands.thrown_moving),

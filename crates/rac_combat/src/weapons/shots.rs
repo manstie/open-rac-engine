@@ -143,6 +143,53 @@ pub enum ShotKind {
 }
 
 impl ShotKind {
+    /// What it plays now, if it is one the game animates (`weapons.md`, "How they play").
+    pub fn pose(&self) -> Option<ShotPose> {
+        Some(match self {
+            // 0x32AFB0: folded in flight; landed it plays 1 to its frame 6, then rests on 2.
+            // Folding it plays 1 backwards from its keyframe 9 (states 5 and 6).
+            ShotKind::Turret(state) => match state.landed {
+                _ if state.folding > 0 => ShotPose {
+                    from_keyframe: 9,
+                    ..ShotPose::of(1, 0.0).at(-1.0)
+                },
+                Some(ticks) if ticks > TURRET_UNFOLD_TICKS => ShotPose::of(2, 0.0),
+                Some(ticks) if ticks > 0 => ShotPose::of(1, 0.0),
+                _ => ShotPose::of(0, 0.0),
+            },
+            // 0x3BD298: by the hero 9; running 3; wandering 2; idle its own.
+            ShotKind::Agent(state) => {
+                if state.hover.is_some() {
+                    ShotPose::of(9, 0.0)
+                } else if state.target.is_some() {
+                    ShotPose::of(3, 10.0).at(if state.fast { 3.0 } else { 1.0 })
+                } else {
+                    match state.mode {
+                        AgentMode::Follow => ShotPose::of(3, 10.0),
+                        AgentMode::Wander(_) => ShotPose::of(2, 17.0),
+                        AgentMode::Idle if state.slow => ShotPose::of(state.sequence, 10.0).at(0.5),
+                        AgentMode::Idle => ShotPose::of(state.sequence, 4.0),
+                    }
+                }
+            }
+            // 0x3D7998, 0x3D8420: the blitzer sets off on 2, flies on 3 and pecks on 5.
+            ShotKind::Duck(state) if state.flies => match (state.wait > 0, state.pecking) {
+                (true, _) => ShotPose::of(2, 0.0),
+                (_, true) => ShotPose::of(5, 10.0),
+                _ => ShotPose::of(3, 0.0),
+            },
+            // 0x3D1728, 0x39DB60: its idles; 3 walking; 4 standing, or for a soldier
+            // running at something.
+            ShotKind::Duck(state) if state.target.is_some() => ShotPose::of(4, 1.0),
+            ShotKind::Duck(state) => match state.mood {
+                DuckMood::Idle => ShotPose::of(state.sequence, 10.0),
+                DuckMood::Walk => ShotPose::of(3, 10.0).at(0.75),
+                DuckMood::Stand => ShotPose::of(4, 10.0),
+            },
+            _ => return None,
+        })
+    }
+
     /// The kind's name, by which a game tells apart what a gun's shots of each kind do
     /// ([`super::GunEvent::shot`]).
     pub fn name(&self) -> &'static str {
@@ -194,6 +241,27 @@ pub struct DuckState {
     pub target: Option<Entity>,
     pub pecks: u32,
     pub wait: u32,
+    /// What it is doing, and the ticks left of that (+0x180).
+    pub mood: DuckMood,
+    pub left: u32,
+    /// The idle sequence it plays, and the ticks since it started.
+    pub sequence: u8,
+    pub sequence_ticks: u32,
+    /// A blitzer flies, and pecks at what it reaches.
+    pub flies: bool,
+    pub pecking: bool,
+}
+
+/// What a duck is doing (0x3D1728, 0x39DB60).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum DuckMood {
+    /// Standing, playing an idle sequence after another (its state 1).
+    #[default]
+    Idle,
+    /// Walking off (state 5), or with the hero close, slowly (state 2).
+    Walk,
+    /// Standing, playing its sequence 4 (state 6).
+    Stand,
 }
 
 /// An agent of the Agents of Doom (`weapons.md`, "Agents of Doom").
@@ -222,6 +290,11 @@ pub struct AgentState {
     pub cooldown: u32,
     /// It jetted in and hasn't landed.
     pub hover: Option<Hovering>,
+    /// Idle, the sequence it plays, and whether that is the first, at half speed.
+    pub sequence: u8,
+    pub slow: bool,
+    /// It took its target as it came out, and runs at three times its sequence's speed.
+    pub fast: bool,
 }
 
 /// An agent keeping to its slot round the hero ([`super::def::AgentHover`]), or on its way
@@ -312,6 +385,11 @@ pub struct TurretState {
     pub target: Option<Entity>,
     /// How far its barrel has turned to the target, 0 to 1.
     pub turn: f32,
+    /// The way its barrel points, and the way it pointed as it began the turn.
+    pub barrel: Vec3,
+    pub barrel_from: Vec3,
+    /// Ticks left of folding up, among those too far from him to fire.
+    pub folding: u32,
     pub cooldown: u32,
     pub fired: u32,
     /// Ticks since it left the hand or last fired.
@@ -321,6 +399,35 @@ pub struct TurretState {
     pub move_wait: u32,
     pub move_to: Option<Vec3>,
     pub faded: u32,
+}
+
+/// The ticks a landed turret plays its unfolding for: frames 1 to 6 of its sequence 1, 0.5
+/// frames a tick (0x32AFB0's state 2) [code, data].
+const TURRET_UNFOLD_TICKS: u32 = 10;
+
+/// What a shot with a skeleton of its own plays, by the game's numbers: a sequence, the
+/// ticks a change to it blends over, how fast it plays and where it starts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShotPose {
+    pub sequence: u8,
+    pub blend: f32,
+    pub speed: f32,
+    pub from_keyframe: usize,
+}
+
+impl ShotPose {
+    const fn of(sequence: u8, blend: f32) -> Self {
+        Self {
+            sequence,
+            blend,
+            speed: 1.0,
+            from_keyframe: 0,
+        }
+    }
+
+    const fn at(self, speed: f32) -> Self {
+        Self { speed, ..self }
+    }
 }
 
 impl TurretState {

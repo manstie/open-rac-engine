@@ -114,7 +114,11 @@ const MOVES: &[(RigMove, usize, bool, usize)] = &[
     (RigMove::Fire(49), 49, false, 0),
     (RigMove::Fire(51), 51, false, 0),
     (RigMove::Fire(103), 103, false, 0),
+    (RigMove::GloveThrow, 41, false, 7),
+    (RigMove::FireArms(41), 41, false, 0),
+    (RigMove::FireArms(52), 52, false, 0),
     (RigMove::FireArms(57), 57, false, 0),
+    (RigMove::FireArms(61), 61, false, 0),
     (RigMove::FireArms(65), 65, false, 0),
 ];
 

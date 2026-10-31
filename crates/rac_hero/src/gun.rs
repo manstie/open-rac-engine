@@ -20,6 +20,8 @@ pub struct GunHand {
     /// The gun fired and its firing animation still plays (`firing`, 0x1A71C9): no double
     /// jump meanwhile.
     pub firing: bool,
+    /// Ticks `firing` has been on since it came on (0x1A4DB8): 0 on the tick a gun fires.
+    pub firing_ticks: u32,
     /// The gun is one fired by holding the button (its row's +0x30), and is firing
     /// (`firing_held`, 0x1A71CB): the walk keeps its setting-off turn and doesn't speed up
     /// while the stick is well round from his facing.

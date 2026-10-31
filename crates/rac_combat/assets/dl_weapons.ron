@@ -35,7 +35,7 @@
             moving: (0.29, 0.59, 0.09), // traced, walking
             air: (0.32, 0.77, 0.1), // traced, jumping
             crouched: [(65, (0.33, 0.26, 0.02)), (57, (0.33, 0.3, 0.4))],
-            thrown: (0.39, 1.17, -0.12),
+            thrown: (-0.18, 0.8, 1.01),
             thrown_moving: (0.05, 0.78, 0.43),
             thrown_crouched: (0.05, 0.48, 0.43), // 61's hand, lowered as he crouches [simplified]
         ),

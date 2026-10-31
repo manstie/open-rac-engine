@@ -316,6 +316,78 @@ fn lock_on_waits_for_the_weapons_code_to_allow_it() {
     }
 }
 
+/// A glove on the given tick of its firing: its hand holds nothing.
+fn glove(firing_ticks: u32) -> GunHand {
+    GunHand {
+        out: true,
+        firing: true,
+        firing_ticks,
+        item: Some(0x67),
+        ..default()
+    }
+}
+
+#[test]
+fn a_gloves_throw_goes_into_state_34_on_the_tick_after_the_press_and_stops_him() {
+    // "The gloves' throw", traced with all three: state 34 a frame after the press, for 23
+    // frames, then the idle.
+    let mut rig = Rig::new(glove(0));
+    assert_eq!(rig.hero.state, HeroState::Idle, "firing, not yet seen");
+    rig.hand = glove(1);
+    rig.tick(&idle());
+    assert_eq!(rig.hero.state, HeroState::GloveThrow);
+    assert_eq!(rig.hero.state.game_number(), 34);
+    rig.hand = GunHand {
+        firing: false,
+        ..glove(0)
+    };
+    let mut ticks = 1;
+    while rig.hero.state == HeroState::GloveThrow {
+        rig.tick(&idle());
+        ticks += 1;
+        assert!(ticks < 100, "never ended");
+    }
+    assert_eq!(ticks, 24, "the 23 frames in it");
+    assert_eq!(rig.hero.state, HeroState::Idle);
+}
+
+#[test]
+fn a_gloves_throw_keeps_a_full_stick_walking_on_the_arms_alone() {
+    let mut rig = Rig::new(gun(false, false));
+    rig.ticks(30, &input(Some(FORWARD), &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Walk);
+    rig.hand = glove(1);
+    rig.tick(&input(Some(FORWARD), &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Walk);
+}
+
+#[test]
+fn a_gloves_throw_brakes_a_gentle_walk_and_a_gun_in_hand_never_does_it() {
+    let mut rig = Rig::new(gun(false, false));
+    rig.ticks(30, &input(Some([0, 85]), &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::Walk);
+    rig.hand = glove(2);
+    rig.tick(&input(Some([0, 85]), &[], &[]));
+    assert_eq!(rig.hero.state, HeroState::GloveThrow);
+    rig.hand = gun(false, false);
+    rig.ticks(22, &idle());
+    assert!(rig.hero.speed < 0.01, "{}", rig.hero.speed);
+
+    // A gun in a hand, or a glove well past its press.
+    let mut rig = Rig::new(GunHand {
+        pose: GunPose {
+            hold: Hold::OneHand,
+            ..default()
+        },
+        ..glove(1)
+    });
+    rig.tick(&idle());
+    assert_eq!(rig.hero.state, HeroState::Idle);
+    let mut rig = Rig::new(glove(6));
+    rig.tick(&idle());
+    assert_eq!(rig.hero.state, HeroState::Idle);
+}
+
 /// A gun held in one hand, out and not firing.
 fn held_gun() -> GunHand {
     GunHand {

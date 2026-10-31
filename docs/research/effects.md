@@ -100,6 +100,25 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   | 0x61 | 12, 40–47, 28, 48–51 | fire, smokes, a streak, a flare, swirls, a star, rocks, a sparkle |
   | 0x7E, 0x80 | 52, 48–50; 52, … | |
 
+### The landing marker (0x4C3500) [code, data, 2026-10-31]
+
+Each glove and lobbing gun has one drawn each frame from where its throw would land. 0x4C3E68
+follows the throw (0x4C3888) step by step for up to 300 frames until it meets the world, or
+gives up if it falls 20 u past the hand; it keeps the point and normal. 0x4C3500 then draws
+two quads flat on that surface, half width 1.0, turning opposite ways, a turn in 180 frames.
+- **Textures:** 88 and 87 for the Miniturret (0x3462F0), Megaturret (0x3432F8), Bouncer
+  (0x31CF38), Holo Shield (0x371CB8) and Nitro (0x36EA28); 17 and 18 for the Agents
+  (0x35CDA0).
+- **Colours:** (0xB0, 0xF0, 0xF0) at 0x70 and 0x50, alpha-blended (0x1DB038). The Agents use
+  (0x7F, 0x10, 0x10) at 0x4F and (0xAF, 0, 0) at 0x70 on ground whose normal's height is
+  0.9 or less (0x1DD720) or where they can't go. The Holo Shield has a pair of its own for
+  that case too, not read.
+- **When:** not in hero states 0x17–0x1B or 0x74. The Miniturret shows it only while a throw
+  is allowed (under 9 landed). The kit shows it whenever the gun is in his hand
+  (`Sights::landing`, `fx/marker.rs`), for the Agents with their red on a slope, and ignores
+  those conditions. The Nitro guns' and the Infecto-Bomb's aren't in the kit; the
+  Infecto-Bomb's textures aren't read.
+
 ### Quads, beams, strips and glows [code]
 
 - `fx_quad_setup` (0x4075A8: quad, texture, blend, fixed alpha) fills a quad of four
@@ -737,7 +756,8 @@ the row's level byte (under 2: orange and red; from V3 blue, as its ice shots ar
 
 Read 2026-10-28 [code unless marked]; its row's level byte is 0x142617. The agents'
 comet (class 0x1893) and small bullet (class 0x1855) are shared with the Suck Cannon and
-the Nitro Eruptor, branching on whose they are.
+the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05 outright
+(0x395480) and its code draws it, so its class's model doesn't show.
 - **The glove:** the landing marker while it aims (0x35CDA0); nothing as it throws.
 - **An agent's end** (0x3C2140): at V1 the shared explosion at S 0.5 (shake 0, counts 20,
   20, 20, 20, no glares, 2 debris; the distortion where 0x3BD258 says, a dome, the
@@ -770,6 +790,7 @@ the Nitro Eruptor, branching on whose they are.
     no flags, colour set A [disassembly]), from V3 twenty 0x2C embers (0x35DDD0: ±0.1,
     size 0.05–0.2 growing 500 / 210000 a frame, 0.5–1 u/s within 80° round a bearing and
     0–80° up, 30 frames, grey 0x7F fading from 0x7F, spin ±1–2).
+- **Its gun:** no flash where its bullet leaves (0x3C0128), only a sound [code, 2026-10-31].
 - **An agent appearing** (0x3BD298, state 0x10): 0x35 sparkles of rand(0.35, 0.6) to
   0.001, rising, 20–40 frames, in blue (R rand & 0x2F, G 0x10–0x4F, B 0x7F) and one of
   type 0x68's four textures, added, as its opacity climbs 4 a frame.
@@ -1129,6 +1150,13 @@ row's flag 0x1DDA84.
   spin ±2–5), and where the ground is within 5 u below, five more on a ring 2 s–3 s round
   that point drawn in at 4 s u/s (one blended) with brown rocks (0x61's entries 10–12) half
   of the time, and five on a ring in the view's plane.
+- **In the kit** (`rac_demo`'s `fx/open.rs`; the `open` of its recipe) [seen, 2026-10-31]:
+  s is 0.5, from its spawn's first argument (0x373738, called from 0x372990). The rays' alpha
+  is 0 at their middle (0x2020FF has no alpha byte), so they show only toward their blue
+  ends. The rings of 54 are a mask and a refraction of the frame in the game (0x3750E0),
+  shown faintly added here, and the lens isn't drawn. The drawn-in smoke uses the dark smoke
+  of 0x17, on which the 0x61 entry isn't read. The rays stop at once as it closes, where the
+  game's shorten for 20 frames.
 - **Closing** (states 3 and 4, 20 frames, 0x375C70): the rings shrink away, the rays
   shorten 0.125 a frame, and the stars of 57 (half 0.25 and 0.27) and glows of 11 (0.3
   and 0.35) stay at new rolls; sound 1 at its end.
@@ -1178,9 +1206,32 @@ Qwack-O-Blitzer) is the row's level byte above 3.
   or (0x10, 0x4F, 0xFF) at 0x7F (V5 (0x7F, 0x10, 0x10) or (0xFF, 0x4F, 0x10)), and from
   0.7 f to 0.07 f in grey 0x7F, life 30, in 0x61's entry 7 (Veldin's particle texture
   46, a swirl); one time in two a pair of 0x4E (0x46AED8) flowing along it, in one of
-  five oranges (V5 blues), in 0x61's entry 6.
-- **Lights:** radius 7.5 at the gun while it fires (0x37DEB0), radius 5.5 (0x4080FF) on
-  the V5 duck.
+  five blues (V5 oranges; corrected 2026-10-31), in 0x61's entry 6.
+- **How the beam is laid and drawn** [code, data, 2026-10-31] (`rac_demo`'s `fx/funnel.rs`):
+  - Its rope lags: each of 12 points is a twelfth of the way from the one before, along a
+    way between where that point was a frame ago and the aim, the aim's share 0.9 − 0.5 t
+    for t along it. So its far end swings behind him. It reaches 11/12 of the way.
+  - The quads run from ring 1 to ring 11, drawn only where they face away from the camera,
+    so the far wall shows and what it hits stays in sight (`0 ≤` the dot skips them). Each
+    is drawn twice: one coordinate goes 1/15 a ring and scrolls 0.04 a frame, the other
+    goes once round the ring, the two layers scrolling 0.01 a frame opposite ways. Ring
+    11's alpha is 0.
+  - Each spiral's points are at a radius going 0.01 to 0.5 along the rope, at an angle
+    growing 0.3997 rad a point and 0.2007 a frame, the second spiral the other way round.
+    Each draws a core of 14, half width 0.05, grey at 0x80, and a glow of 16, half width
+    growing to 0.4, in its colour at 0x40, both scrolling 0.3 a frame.
+  - At the gun, 0.5 u along the barrel: glows of 11 of half 0.4 in (0x20, 0x40, 0x80) at
+    0x7F and half 0.1 white (0x380390).
+  - A pulse (0x380140, up to three): every 45 frames from the gun at 8 u/s for 60 frames,
+    a ring of 8 growing from half 0.1 to 1.5, turned round the beam, (0, 0, 0x7F) at 0x40
+    (V5 (0x80, 0x40, 0x20) at 0x60). The kit turns it to the camera.
+  - With nothing to take it still shines, 12 u along his aim. The kit used to draw nothing
+    then.
+  - **Seen in the kit, not yet compared with the game:** from behind on the demo's pale
+    floor, the glows and layers round the gun add up to white past his head, while the far
+    part of the funnel is only a faint blue [seen, 2026-10-31].
+- **Lights:** radius 7.5 at the gun while it fires (0x37DEB0; (0x20, 0x40, 0x80), V5 (0x80,
+  0x40, 0x20)), radius 5.5 (0x4080FF) on the V5 duck.
 - **The ducks** (classes 0x1BC3 to V3, 0x189B at V4 tinted (0x40, 0x10, 0x10), 0x1D3E
   from V5): a duck's end to V3 (0x3D2870) is a 0x16 puff (half 0.714, grey 0x7F at 0x4F
   to 0x20) and a 0x79 (0x7E's textures 52 and 61); the V4 and V5 ducks going up (0x39E8A0,
@@ -1627,8 +1678,6 @@ What it takes to show the guns' effects as the game does, from the user's disc:
 - What the built-in textures −1 to −4 hold.
 - 0x4C4A18 and 0x4C4AD8, which every projectile runs (gated by the camera mode and
   0x1A4F48, 0x1D6740, 0x1D673C; perhaps shots placed for the first-person view).
-- Whether 0x4C3500 is the landing marker the lobbed and thrown guns show (every glove,
-  the Bouncer, the Nitro guns and the Infecto-Bomb call it).
 - What the rumble patterns' bytes mean; the light argument at each `explosion_spawn`
   call (class 0x27F, read above); how 0x4A3D80 fades a light over its radius; what the dome (0x70), debris (0x7A) and chunk (0x1A50)
   classes look like; 0x447D00's types 0x0B and 0x08.

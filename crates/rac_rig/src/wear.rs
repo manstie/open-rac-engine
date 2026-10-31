@@ -78,6 +78,14 @@ impl Surface {
         }
     }
 
+    /// Its mesh skinned to a skeleton, with the bounds its joints need.
+    pub fn skinned_mesh(&self) -> Mesh {
+        let mesh = self.mesh(true, Vec3::ZERO);
+        mesh.clone()
+            .with_generated_skinned_mesh_bounds()
+            .unwrap_or(mesh)
+    }
+
     pub(crate) fn mesh(&self, skinned: bool, shift: Vec3) -> Mesh {
         let positions: Vec<[f32; 3]> = self.positions.iter().map(|p| (*p - shift).into()).collect();
         let normals: Vec<[f32; 3]> = self.normals.iter().map(|n| n.to_array()).collect();

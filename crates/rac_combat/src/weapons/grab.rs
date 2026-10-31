@@ -475,11 +475,25 @@ pub(super) fn beam(
                 .iter()
                 .any(|target| target.entity == entity && target.alive && target.enemy)
     });
+    let aim = gun.view_aim(gun.muzzle, armory);
     let picked = kept
         .map(|(entity, ..)| entity)
-        .or_else(|| beam_target(gun, fire, gun_input, gun.view_aim(gun.muzzle, armory)));
+        .or_else(|| beam_target(gun, fire, gun_input, aim));
     let Some(target) = picked.and_then(|entity| targets.iter().find(|t| t.entity == entity)) else {
         arsenal.trigger.beam = None;
+        // With nothing to take it still shines along his aim, as far as it reaches (0x37E830).
+        let line = aim * fire.range;
+        let reach = gun_input
+            .world
+            .cast_ray(gun.muzzle, line)
+            .map_or(1.0, |hit| hit.fraction);
+        out.event(
+            gun.weapon,
+            GunEventKind::Ray {
+                from: gun.muzzle,
+                to: gun.muzzle + line * reach,
+            },
+        );
         return;
     };
     let (_, ticks, meter) = match arsenal.trigger.beam {

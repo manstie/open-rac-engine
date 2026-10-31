@@ -29,6 +29,7 @@ mod clips;
 mod gun_anim;
 mod guns;
 mod hull;
+pub mod moby;
 pub mod model;
 mod play;
 mod pose;
@@ -50,6 +51,7 @@ pub use clips::{
 };
 pub use guns::{GunData, GunMotion, GunSkeleton, Recoil, RigGuns, open_guns};
 pub use hull::convex_hull;
+pub use moby::{MobySkeleton, SequencePlayer};
 pub use model::{JointDef, Look, ModelDef, PartDef, joint};
 pub use pose::Pose;
 pub use retarget::{LineUpError, SkeletonMap, SourceJoint};

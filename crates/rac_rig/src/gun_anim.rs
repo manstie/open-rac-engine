@@ -16,30 +16,18 @@
 
 use std::collections::BTreeMap;
 
-use crate::clips::{RigClip, Sample, mix};
+use crate::clips::{RigClip, Sample};
 use crate::guns::{GunMotion, Recoil};
+use crate::moby::SequencePlayer;
 
 const DRAW: u8 = 0;
 const REST: u8 = 1;
 const RECOIL: u8 = 2;
 
-#[derive(Debug, Clone, PartialEq)]
-struct Blend {
-    from: Sample,
-    length: f32,
-    done: f32,
-}
-
 /// Where a held gun's own animation is.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GunPlayer {
-    sequence: u8,
-    /// Ticks into the sequence's loop, and how fast it plays.
-    ticks: f32,
-    speed: f32,
-    blend: Option<Blend>,
-    /// The sequence came round on the last tick (UYA's bit 0x02 of the moby's +0x60).
-    wrapped: bool,
+    player: SequencePlayer,
     /// The hero's shots as last seen ([`rac_hero::GunHand::shots`]).
     shots: u8,
     /// A fraction of a tick not yet played.
@@ -50,11 +38,7 @@ impl GunPlayer {
     /// A gun just out, with the hero's shot count as it comes.
     pub fn new(shots: u8) -> Self {
         Self {
-            sequence: DRAW,
-            ticks: 0.0,
-            speed: 1.0,
-            blend: None,
-            wrapped: false,
+            player: SequencePlayer::new(DRAW),
             shots,
             pending: 0.0,
         }
@@ -76,7 +60,7 @@ impl GunPlayer {
         for _ in 0..whole as u32 {
             self.tick(clips, motion, shots, sustaining);
         }
-        self.pose(clips)
+        self.player.pose(clips)
     }
 
     fn tick(
@@ -91,35 +75,22 @@ impl GunPlayer {
             self.fire(clips, motion);
         }
         // Come round with no blend running, it goes to its rest.
-        if self.wrapped
-            && self.blend.is_none()
-            && self.sequence != REST
+        if self.player.wrapped()
+            && !self.player.blending()
+            && self.player.sequence() != REST
             && clips.contains_key(&REST)
         {
-            self.start(clips, REST, motion.settle_ticks);
+            self.player.play(clips, REST, motion.settle_ticks);
         }
         // Kept up, it goes straight back (the Hydra's 0x441C78 call, after its rest's).
-        if sustaining && motion.sustain && self.sequence != RECOIL && clips.contains_key(&RECOIL) {
-            self.start(clips, RECOIL, 0.0);
+        if sustaining
+            && motion.sustain
+            && self.player.sequence() != RECOIL
+            && clips.contains_key(&RECOIL)
+        {
+            self.player.play(clips, RECOIL, 0.0);
         }
-        self.wrapped = false;
-        match &mut self.blend {
-            Some(blend) => {
-                blend.done += 1.0;
-                if blend.done >= blend.length {
-                    self.ticks = blend.done - blend.length;
-                    self.blend = None;
-                }
-            }
-            None => {
-                self.ticks += self.speed;
-                let cycle = clips.get(&self.sequence).map_or(0.0, RigClip::cycle);
-                if cycle > 0.0 && self.ticks >= cycle {
-                    self.ticks %= cycle;
-                    self.wrapped = true;
-                }
-            }
-        }
+        self.player.tick(clips);
     }
 
     /// A shot.
@@ -128,49 +99,32 @@ impl GunPlayer {
             return;
         }
         if let Some(ticks) = motion.early
-            && self.sequence == DRAW
+            && self.player.sequence() == DRAW
         {
-            self.start(clips, REST, ticks);
+            self.player.play(clips, REST, ticks);
             return;
         }
         match motion.recoil {
             Recoil::None => {}
-            Recoil::Cut => self.start(clips, RECOIL, 0.0),
+            Recoil::Cut => self.player.play(clips, RECOIL, 0.0),
             Recoil::Restart { speed } => {
-                if self.sequence != RECOIL {
-                    self.start(clips, RECOIL, 0.0);
+                if self.player.sequence() != RECOIL {
+                    self.player.play(clips, RECOIL, 0.0);
                 }
-                self.speed = speed;
+                self.player.set_speed(speed);
             }
-            Recoil::Blend { ticks } => self.start(clips, RECOIL, ticks),
+            Recoil::Blend { ticks } => self.player.play(clips, RECOIL, ticks),
         }
-    }
-
-    /// Plays `sequence` from its start, blending from where the gun is over `blend` ticks
-    /// (a cut for none).
-    fn start(&mut self, clips: &BTreeMap<u8, RigClip>, sequence: u8, blend: f32) {
-        let from = self.pose(clips);
-        self.sequence = sequence;
-        self.ticks = 0.0;
-        self.speed = 1.0;
-        self.blend = from.filter(|_| blend > 0.0).map(|from| Blend {
-            from,
-            length: blend,
-            done: 0.0,
-        });
-    }
-
-    fn pose(&self, clips: &BTreeMap<u8, RigClip>) -> Option<Sample> {
-        let pose = clips.get(&self.sequence)?.at_time(self.ticks)?;
-        Some(match &self.blend {
-            Some(blend) => mix(&blend.from, &pose, (blend.done / blend.length).min(1.0)),
-            None => pose,
-        })
     }
 
     #[cfg(test)]
     fn at(&self) -> (u8, bool) {
-        (self.sequence, self.blend.is_some())
+        (self.player.sequence(), self.player.blending())
+    }
+
+    #[cfg(test)]
+    fn pose(&self, clips: &BTreeMap<u8, RigClip>) -> Option<Sample> {
+        self.player.pose(clips)
     }
 }
 
@@ -262,11 +216,11 @@ mod tests {
         run(&mut player, &motion, 0, 30);
         run(&mut player, &motion, 1, 1);
         assert_eq!(player.at(), (RECOIL, false));
-        let ticks = player.ticks;
+        let ticks = player.player.ticks();
         // Another shot while it plays doesn't start it again.
         run(&mut player, &motion, 2, 1);
         assert_eq!(player.at(), (RECOIL, false));
-        assert_eq!(player.ticks, (ticks + 3.0) % 6.0);
+        assert_eq!(player.player.ticks(), (ticks + 3.0) % 6.0);
     }
 
     #[test]

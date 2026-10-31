@@ -243,12 +243,14 @@ pub fn step(
         arsenal.fire_ticks = arsenal.fire_ticks.saturating_sub(1);
     }
     let mut ready_now = false;
+    let mut landing = None;
     arsenal.sustain = None;
     if let Hand::Gun { weapon, ticks } = arsenal.hand
         && let Some(def) = armory.get(weapon)
     {
-        // Setting another animation ends the firing one, unless the gun is held.
-        if hero.ticks == 0 && !def.held {
+        // Setting another animation ends the firing one, unless the gun is held; a glove's
+        // throw ends it as it starts (0x500F98).
+        if (hero.ticks == 0 && !def.held) || hero.state == HeroState::GloveThrow {
             arsenal.fire_ticks = 0;
         }
         let ready = ticks >= def.ready_ticks
@@ -256,6 +258,7 @@ pub fn step(
             && (hero.state != HeroState::Look || arsenal.trigger.look >= def.look_wait_ticks);
         let gun = Gun::new(arsenal, armory, weapon, def, ready, gun_input);
         ready_now = ready && arsenal.gun(weapon).is_some_and(|owned| owned.ammo > 0);
+        landing = thrown::landing(&gun, gun_input);
         let muzzle = gun.muzzle;
         let before = out.events.len();
         match &def.fire {
@@ -314,8 +317,8 @@ pub fn step(
                 );
             }
         }
-        // A held gun stops firing when the button is let go.
-        if def.held && !input.held(Action::Fire) {
+        // A held gun stops firing when the button is let go, and so does the RY3NO.
+        if (def.held || def.let_go_stops) && !input.held(Action::Fire) {
             arsenal.fire_ticks = 0;
         }
         // Each shot, and each of a stream's rounds, starts the firing animation again.
@@ -351,6 +354,7 @@ pub fn step(
 
     let in_hand = arsenal.hand.gun().and_then(|weapon| armory.get(weapon));
     let firing = in_hand.is_some() && arsenal.fire_ticks > 0;
+    arsenal.firing_ticks = if firing { arsenal.firing_ticks + 1 } else { 0 };
     let level = arsenal
         .hand
         .gun()
@@ -374,10 +378,12 @@ pub fn step(
         },
         ready: ready_now,
         scope_on,
+        landing,
     };
     out.hand = GunHand {
         out: in_hand.is_some(),
         firing,
+        firing_ticks: arsenal.firing_ticks.saturating_sub(1),
         firing_held: firing && in_hand.is_some_and(|def| def.held),
         steady: in_hand.is_some_and(|def| def.steady),
         item: in_hand.map(|def| def.item),

@@ -35,7 +35,7 @@ use rac_sim::{SimSet, SimTick, SimTransform};
 pub use drops::PickupLooks;
 pub use enemy::def::{Bestiary, EnemyKind};
 pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, FoeHits, enemy_bundle};
-pub use guns::{ShotModel, ShotModels, demo_arsenal};
+pub use guns::{ShotModel, ShotModels, ShotSkeleton, demo_arsenal};
 pub use hud::{HudLayout, HudPlugin, PlayerHud, spawn_hud};
 pub use level::{
     CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, EnemySpawn, GAP_WIDTHS, Mover, Piece, Shape, Surface,
@@ -110,7 +110,11 @@ impl Plugin for DemoPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (guns::show_shots, guns::step_shot_layers)
+                (
+                    guns::show_shots,
+                    guns::play_shot_rigs,
+                    guns::step_shot_layers,
+                )
                     .chain()
                     .in_set(SimSet::Particles)
                     .run_if(resource_exists::<guns::GunLooks>)

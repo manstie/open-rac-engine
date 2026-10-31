@@ -1426,18 +1426,61 @@ fn the_qwack_o_ray_turns_an_enemy_into_a_duck_once_its_hit_points_are_spent() {
 }
 
 #[test]
+fn a_thrown_gun_marks_where_its_shot_would_land_and_another_gun_doesnt() {
+    let mut yard = Yard::new(&[(TURRET, 0), (BLASTER, 0)]);
+    yard.idle(1);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let landing = yard.arsenal().sights.landing.expect("where it would land");
+    assert!(landing.at.y.abs() < 0.01, "{landing:?}");
+    assert!((landing.normal - Vec3::Y).length() < 1e-3);
+    // Ahead of him, as far as a throw goes.
+    assert!(landing.at.z < -1.0, "{landing:?}");
+    // The Shock Blaster throws nothing.
+    let mut yard = Yard::new(&[(BLASTER, 0)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    assert_eq!(yard.arsenal().sights.landing, None);
+}
+
+#[test]
+fn the_qwack_o_rays_beam_shines_along_his_aim_with_nothing_to_take() {
+    let mut yard = Yard::new(&[(QWACK, 0)]);
+    yard.hold(&[Action::Fire], 40);
+    let (from, to) = yard
+        .events
+        .iter()
+        .rev()
+        .find_map(|event| match event.kind {
+            GunEventKind::Ray { from, to } => Some((from, to)),
+            _ => None,
+        })
+        .expect("its beam");
+    assert!((from.distance(to) - 12.0).abs() < 1e-3);
+    assert_eq!(
+        yard.count_shots(|kind| matches!(kind, ShotKind::Duck(_))),
+        0
+    );
+}
+
+#[test]
 fn a_v2_duck_lays_eggs_that_go_off_on_an_enemy_for_the_guns_damage() {
     let mut yard = Yard::new(&[(QWACK, 1)]);
     yard.enemy(Vec3::new(0.0, 1.0, -6.0), 10.0);
     yard.hold(&[Action::Fire], 12);
-    yard.idle(125);
-    let egg = yard
-        .arsenal()
-        .shots
-        .iter()
-        .find(|shot| matches!(shot.kind, ShotKind::Egg { .. }))
-        .map(|shot| shot.position)
-        .expect("an egg within its first 120 ticks");
+    // At frame 15 of its third idle sequence, the one it plays most.
+    let mut egg = None;
+    for _ in 0..1000 {
+        yard.idle(1);
+        egg = yard
+            .arsenal()
+            .shots
+            .iter()
+            .find(|shot| matches!(shot.kind, ShotKind::Egg { .. }))
+            .map(|shot| shot.position);
+        if egg.is_some() {
+            break;
+        }
+    }
+    let egg = egg.expect("an egg as it idles");
     // An enemy by the egg sets it off: 75, the V2 damage.
     let near = yard.enemy(egg + Vec3::X, 1000.0);
     yard.idle(1);
@@ -1529,15 +1572,15 @@ fn a_turrets_shots_leave_its_barrels() {
         }
         left.into_iter().map(|(_, off)| off).collect::<Vec<_>>()
     };
-    // The Miniturret's one, 1.08 u up and 0.72 u along its aim (its first tick's flight on
-    // top at 30 u/s).
+    // The Miniturret's one, 0.81 u up and 0.54 u along its aim at the 0.75 it is drawn at
+    // (its first tick's flight on top at 30 u/s).
     let mini = barrels(0);
     assert!(!mini.is_empty());
     assert!(
-        mini.iter().all(|off| (off.y - 1.08).abs() < 0.05),
+        mini.iter().all(|off| (off.y - 0.81).abs() < 0.05),
         "{mini:?}"
     );
-    assert!(mini.iter().all(|off| off.z < -0.7), "{mini:?}");
+    assert!(mini.iter().all(|off| off.z < -0.5), "{mini:?}");
     // The Megaturret's two in turn, 0.2 u to either side.
     let mega = barrels(4);
     assert!(mega.iter().any(|off| off.x > 0.15), "{mega:?}");

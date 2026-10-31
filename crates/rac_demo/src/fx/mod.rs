@@ -14,9 +14,12 @@
 
 mod charge;
 mod fan;
+mod funnel;
 mod light;
 mod mark;
+mod marker;
 mod model;
+mod open;
 mod paint;
 mod panel;
 mod ribbon;
@@ -40,9 +43,12 @@ use serde::Deserialize;
 
 pub use charge::{Charge, Crackle, Reach};
 pub use fan::Fan;
+pub use funnel::{Funnel, SpiralStrip, Spirals};
 pub use light::ShotLight;
 pub use mark::{Flame, Flat, Mark};
+pub use marker::Marker;
 pub use model::{FxModel, FxModels};
+pub use open::{Open, OpenRays};
 pub use paint::{Paint, Shape};
 pub use panel::{Panel, Panels};
 pub use ribbon::Ribbon;
@@ -374,6 +380,9 @@ pub struct ShotSprite {
     pub spin: f32,
     #[serde(default)]
     pub flickers: bool,
+    /// How much narrower it gets each tick, starting over at `size` before it is gone.
+    #[serde(default)]
+    pub shrink: f32,
     #[serde(default)]
     pub blend: Blend,
 }
@@ -402,7 +411,9 @@ pub struct Streak {
 /// a second, going back at `back` times the shot's speed and up to `scatter` units a
 /// second either way along each axis; then falls at `gravity`, keeps `keep` of its speed
 /// each tick and turns up to `spin` degrees a tick either way. With `ground`, each is laid
-/// on the floor within that many units below, or not at all where there's none.
+/// on the floor within that many units below, or not at all where there's none. With a
+/// `shell`, it starts that far out from the shot any way round (or round it, if `level`),
+/// heading in to it at between the two of `drawn_in` units a second.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Trail {
     #[serde(default)]
@@ -435,6 +446,12 @@ pub struct Trail {
     pub end_colour: Option<[f32; 3]>,
     #[serde(default)]
     pub ground: Option<f32>,
+    #[serde(default)]
+    pub shell: Option<(f32, f32)>,
+    #[serde(default)]
+    pub level: bool,
+    #[serde(default)]
+    pub drawn_in: (f32, f32),
     #[serde(default)]
     pub blend: Blend,
 }
@@ -499,6 +516,15 @@ pub struct GunFx {
     /// wall, in place of the kit's.
     #[serde(default)]
     pub panels: Option<Panels>,
+    /// What a shot of the kind shows once it stands open, as a rift.
+    #[serde(default)]
+    pub open: Option<Open>,
+    /// The funnel a gun's rays are drawn as, as the Qwack-O-Ray's.
+    #[serde(default)]
+    pub funnel: Option<Funnel>,
+    /// The mark where a thrown shot would land.
+    #[serde(default)]
+    pub marker: Option<Marker>,
     /// Flat ribbons through where each shot has been, as the Disc Blade's.
     #[serde(default)]
     pub sweep: Option<Vec<Sweep>>,
@@ -701,6 +727,18 @@ impl FxRecipes {
         self.own(key, level, shot, |fx| fx.panels.as_ref())
     }
 
+    pub fn open(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Open> {
+        self.own(key, level, shot, |fx| fx.open.as_ref())
+    }
+
+    pub fn funnel(&self, key: &str, level: u8) -> Option<&Funnel> {
+        self.own(key, level, None, |fx| fx.funnel.as_ref())
+    }
+
+    pub fn marker(&self, key: &str, level: u8) -> Option<&Marker> {
+        self.own(key, level, None, |fx| fx.marker.as_ref())
+    }
+
     pub fn sweep(&self, key: &str, level: u8, shot: Option<&str>) -> &[Sweep] {
         self.own(key, level, shot, |fx| fx.sweep.as_deref())
             .unwrap_or(&[])
@@ -771,8 +809,21 @@ impl FxRecipes {
             }
             let panels = fx.panels.iter().flat_map(|panels| &panels.layers);
             textures.extend(panels.map(|panel| panel.texture));
-            let trails = fx.trail.iter().flatten();
+            let open = fx.open.iter();
+            textures.extend(
+                open.clone()
+                    .flat_map(|open| &open.sprites)
+                    .map(|s| s.texture),
+            );
+            textures.extend(open.clone().flat_map(|open| &open.rays).map(|r| r.texture));
+            let open_trails = open.flat_map(|open| &open.trail);
+            let trails = fx.trail.iter().flatten().chain(open_trails);
             textures.extend(trails.flat_map(|trail| trail.textures.iter().copied()));
+            if let Some(funnel) = &fx.funnel {
+                textures.extend(funnel.textures());
+                textures.extend(funnel.emits().filter_map(Emit::texture));
+            }
+            textures.extend(fx.marker.iter().flat_map(|marker| marker.layers));
             let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
             for emits in emits.chain(&fx.ray_end).chain(&fx.arc_end) {
                 textures.extend(emits.iter().filter_map(Emit::texture));
@@ -787,6 +838,28 @@ impl FxRecipes {
         }
         for emits in self.sets.values() {
             textures.extend(emits.iter().filter_map(Emit::texture));
+        }
+        textures.sort();
+        textures.dedup();
+        textures
+    }
+
+    /// Every texture the recipes scroll, whose images must repeat: a funnel's and an open
+    /// shot's rays'.
+    pub fn scrolled(&self) -> Vec<Tex> {
+        fn gun(fx: &GunFx, textures: &mut Vec<Tex>) {
+            if let Some(funnel) = &fx.funnel {
+                textures.extend(funnel.textures());
+            }
+            let rays = fx.open.iter().flat_map(|open| &open.rays);
+            textures.extend(rays.map(|rays| rays.texture));
+            for fx in fx.from_level.values().chain(fx.shots.values()) {
+                gun(fx, textures);
+            }
+        }
+        let mut textures = Vec::new();
+        for fx in std::iter::once(&self.default).chain(self.guns.values()) {
+            gun(fx, &mut textures);
         }
         textures.sort();
         textures.dedup();
@@ -877,6 +950,9 @@ impl Fx {
 pub(crate) struct ShotLayer {
     pub spin: f32,
     pub flickers: bool,
+    /// How wide it starts and how much narrower it gets a tick, if it does.
+    pub size: f32,
+    pub shrink: f32,
 }
 
 /// The streak laid along a shot's way.
@@ -893,6 +969,13 @@ impl FxRng {
         self.0 ^= self.0 >> 17;
         self.0 ^= self.0 << 5;
         (self.0 >> 8) as f32 / (1u32 << 24) as f32
+    }
+
+    /// A tumble a tick: 3 to 6 degrees about a random axis (0x31D0B0, 0x31E488).
+    pub(crate) fn tumble(&mut self) -> Quat {
+        let axis = Vec3::new(self.unit() - 0.5, self.unit() - 0.5, self.unit() - 0.5);
+        let angle = self.between((3.0, 6.0)).to_radians();
+        Quat::from_axis_angle(axis.normalize_or(Vec3::Y), angle)
     }
 
     pub(crate) fn between(&mut self, (low, high): (f32, f32)) -> f32 {
@@ -946,11 +1029,17 @@ impl Plugin for FxPlugin {
             .init_resource::<CameraShake>()
             .init_resource::<light::ShotLights>()
             .init_resource::<shell::Shells>()
+            .init_resource::<funnel::Funnels>()
+            .init_resource::<open::ShownRays>()
+            .init_resource::<marker::Markers>()
             .add_systems(Startup, paint_placeholders)
             .add_systems(
                 FixedUpdate,
                 (
                     emit_gun_fx,
+                    funnel::draw_funnels,
+                    open::step_open_rays,
+                    marker::draw_markers,
                     emit_crate_blasts,
                     emit_trails,
                     rope::emit_along_ropes,
@@ -1102,12 +1191,31 @@ impl Spawner<'_, '_, '_> {
         else {
             return;
         };
+        let (shell, drawn_in) = match trail.shell {
+            Some(shell) => {
+                let heading = Vec3::new(
+                    rng.between((-1.0, 1.0)),
+                    if trail.level {
+                        0.0
+                    } else {
+                        rng.between((-1.0, 1.0))
+                    },
+                    rng.between((-1.0, 1.0)),
+                )
+                .normalize_or(Vec3::X);
+                (
+                    heading * rng.between(shell),
+                    -heading * rng.between(trail.drawn_in),
+                )
+            }
+            None => (Vec3::ZERO, Vec3::ZERO),
+        };
         let at = match trail.ground {
             Some(reach) => match on_ground(self.world, at, reach) {
-                Some(at) => at,
+                Some(at) => at + shell,
                 None => return,
             },
-            None => at,
+            None => at + shell,
         };
         let life = rng.ticks(trail.ticks, trail.ticks_to);
         let billboard = Billboard {
@@ -1123,7 +1231,7 @@ impl Spawner<'_, '_, '_> {
         // The path is one tick's, so 60 times it is the velocity.
         let back = -path * 60.0 * trail.back;
         let fx = Fx {
-            velocity: Vec3::Y * rng.between(trail.rise) + back + scatter,
+            velocity: Vec3::Y * rng.between(trail.rise) + back + scatter + drawn_in,
             gravity: trail.gravity,
             keep: trail.keep,
             end_alpha: trail.end_alpha,
@@ -1637,7 +1745,13 @@ fn emit_trails(
             {
                 spawner.glare(glare, shot.position, &mut rng);
             }
-            let trails = recipes.trail(key, shot.level, kind);
+            let open = recipes
+                .open(key, shot.level, kind)
+                .filter(|_| crate::guns::standing(&shot.kind));
+            let trails = open.map_or_else(
+                || recipes.trail(key, shot.level, kind),
+                |open| open.trail.as_slice(),
+            );
             let wake = recipes.wake(key, shot.level, kind);
             if trails.is_empty() && wake.is_empty() {
                 continue;
