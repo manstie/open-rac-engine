@@ -10,7 +10,7 @@ use super::{
     def::{Beam, Duck, Egg},
     fire::{Gun, Outcome},
     shots::{BOUNCE_GAP, DuckState, Flight, Shot, ShotKind, TICK, in_ball},
-    thrown::walk,
+    thrown::{rebound, walk},
 };
 
 /// Ducks fall as the agents do [placeholder: they keep to the ground in the game].
@@ -158,7 +158,7 @@ fn egg(shot: &mut Shot, egg: &Egg, life: u32, flight: &Flight, out: &mut Outcome
     match flight.world.cast_ray(shot.position, motion) {
         Some(hit) => {
             shot.position += motion * hit.fraction + hit.normal * BOUNCE_GAP;
-            shot.velocity = shot.velocity.reflect(hit.normal) * egg.bounce_keep;
+            shot.velocity = rebound(shot.velocity, hit.normal, egg.bounce_keep);
             if egg.seek_from.is_some_and(|from| shot.level >= from) {
                 seek(shot, egg, flight.targets);
             }
@@ -279,6 +279,7 @@ fn blitzer(
         near_speed,
         over,
         behind,
+        left,
         reach,
         peck_radius,
         pecks,
@@ -315,7 +316,9 @@ fn blitzer(
     let (goal, pace) = match chased {
         Some(chased) => (chased.centre, speed),
         None => {
-            let home = flight.hero + Vec3::Y * over - flat(flight.facing) * behind;
+            let facing = flat(flight.facing);
+            let home =
+                flight.hero + Vec3::Y * over - facing * behind + Vec3::Y.cross(facing) * left;
             let pace = if home.distance(shot.position) > 2.0 {
                 back_speed
             } else {

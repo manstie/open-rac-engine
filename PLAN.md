@@ -323,6 +323,8 @@ None at the moment.
 | 2026-10-22 | **The free look's aim assist is the stick's**, as lock-on is the gamepad's (2026-10-15): once the mouse turns the view the assist stops until the stick turns it again. **The quick-select ring plays as UYA's with QUICK SELECT PAUSE off**: it opens over the running world and holds the hero's input after 15 ticks, so co-op stays in step. |
 | 2026-10-23 | **The guns' sounds and effects go by the game's numbers, with placeholders made in code.** The kit cues sounds from `GunEvent`s and `Arsenal::sustain` and draws effects from recipes naming the game's effect textures and particle types; its placeholders are synthesized and painted at start-up, so no audio or art ships. With the user's disc the app claims the cues it plays (`SoundClaims`) and puts the disc's textures and shot models in place of the placeholders. **Sound is mixed by the game, not by Bevy's spatial audio** (which fades with the square of each ear's distance): the kit and the app each render a stereo stream (`rac_demo::sfx::SoundStream`) with UYA's falloff from the camera and pan round it; the disc's sounds play through `rac_audio`, a Rust port of OpenGOAL's 989snd sound effects (ISC). |
 | 2026-10-31 | **Help messages are named by the kit and worded by the app**: the kit asks for one by a key (`rac_combat::pickups::Help`) when the game would, once a world, and the HUD shows it on the game's timing. The demo words them itself; the game's own texts may take their place from the user's disc later, as its sounds and textures do (2026-10-23). |
+| 2026-10-31 | **A gun's muzzle comes from numbers, not from the rig's pose.** The game follows the posed hand, but the kit's rig runs per frame (`Update`), differs with or without a disc, and isn't part of the deterministic simulation that lockstep and rollback need (§4.2), so the simulation doesn't read it. The weapons file carries where the hand is by what he is doing (`Hands`, measured from the game) and each gun's point, within about 0.1 u of the game's standing and 0.3 u walking (`weapons.md`, "The muzzle"). |
+| 2026-10-31 | **DL's guns are chosen on their own, by `--guns dl`, while only some are in.** `--moves dl` keeps UYA's twenty, so a movement test doesn't lose them; once all ten are in and have looks, the guns should follow the game the hero moves like, in the menus too. |
 
 ## 6. Roadmap
 
@@ -513,6 +515,20 @@ committed (names, addresses, layouts, derived constants).
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
   `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
+  - Done 2026-10-31: every [placeholder] in the guns' file read in code, data and traces
+    and in the kit (`weapons.md` and its "In the kit"): when a drawn gun may fire, the
+    states a gun fires in (the no-firing flag 0x1A71CD), how long `firing` lasts (held
+    guns until let go), the first ammo, the muzzle (each gun's class point on a table of
+    where his hand is, a test checking both against the disc; §5, 2026-10-31), the
+    Annihilator's missile (it never homes), the small missile's search, spring turn,
+    wander, weave and lives, the bounce resolver's keeps and the Bouncer's roll, the
+    Rift's pull spring, the Suck Cannon's balls, the Miniturret's count, the five nearest
+    turrets, its barrels, the Megaturret's fade and move and 1600-tick life, the guns'
+    pushes and the Shock Blaster's falloff, thrown things off the world, a duck's XP,
+    the ducks' and eggs' speeds and keep, the Blitzer's place, the agents' gun, idle and
+    25 u leash. Read but not in the kit: an agent set down in front of the camera when
+    far from him, a Megaturret's move testing the ground's material and the view. Next:
+    the open items below; none is left in the guns' file.
   - Done 2026-10-23: how the hero holds a gun: the hold layers, their classes, weights
     and rests, and the whip's own scale (`weapons.md`, "Holding a gun").
   - Done 2026-10-22: the last of UYA's guns' open items: the Flux Rifle's piercing (its
@@ -790,6 +806,19 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
     double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Done 2026-10-31: UYA's guns' open list (`weapons.md`, "In the kit"): the five guns' own muzzle vectors; the Disc Blade Gun's flight, traced (lifted and falling, not turned and curving; through enemies from V3, not off them); the Liquid Nitrogen Gun's freeze; the Eruptor's tilt; the Nitro's L1 aim; the Vortex Cannon's comet; the shields' XP and the Ultrashield's picks; the agents' jet-in to slots.
+  - Earlier readers mistook 0x4C46A8 for a sight test (it asks the table of who was sent at what) and read 0x40CCA0's −π/8 about his left axis as 90° to a side. Corrected in `weapons.md`; check other readings of those two functions when a gun looks wrong.
+  - DL's guns, started 2026-10-31 (`weapons.md`, "Deadlocked's guns"). Done: the tables,
+    levels and mods' numbers read; the Dual Vipers, Magma Cannon (the `Cone` fire mode), The
+    Arbiter and Fusion Rifle in `Armory::dl`, given by `--guns dl`. Not done: the other six
+    guns, the mods in the kit, DL's sounds, looks and models, its rules and hands (still
+    UYA's). Next: the B6's blast at the end of 0x40F3E0's state 4, then the order in
+    `weapons.md`'s next steps 5.
+  - The Annihilator held on fire dropped Ratchet towards his idle for 6 ticks between
+    shots: `fire_ticks` (30, a placeholder) ran out before its 36-tick repeat. The guns
+    not held now keep `firing` for their standing sequence as the game plays it (66 for
+    sequence 49; `weapons.md`, "How long it plays"); seen on Xvfb with the disc. Held
+    guns fire until let go, as `hero_gun_update` stops them (RE.7).
   - Done 2026-10-23: with a UYA disc the arms hold each gun by its hold (one hand, both,
     or none for the whip and gloves), from UYA's hold classes 1 and 2 laid over the
     body's moves with the game's weights, rests and the flips' lift

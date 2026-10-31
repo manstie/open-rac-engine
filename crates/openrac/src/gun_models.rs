@@ -407,6 +407,88 @@ mod disc_tests {
     use super::*;
     use crate::discs::{Release, find};
 
+    /// The numbers in the weapons file come from here: guns' muzzles from their classes'
+    /// points (`moby-format.md`, "Points"), and the hand from the hero's sequences.
+    #[test]
+    #[ignore = "needs game discs"]
+    fn uyas_muzzles_are_their_classes_points_on_the_hand_in_his_sequences() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) =
+            find(std::path::Path::new(&folder), Release::UyaNtsc).expect("a UYA NTSC-U disc");
+        let core = rac_formats::level::Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+        let hero = core.hero().unwrap();
+        let armory = rac_combat::Armory::uya();
+        let hands = &armory.rules.hands;
+        // Right, up and forward of his feet, at a sequence's keyframe.
+        let hand = |sequence: usize, key: usize| {
+            let keyframe = &hero.sequences[sequence].as_ref().unwrap().keyframes[key];
+            let posed = crate::hero_anims::world(&hero, keyframe)[joint::HAND_R];
+            let place = Vec3::from(posed.translation) * hero.unit();
+            Vec3::new(-place.y, place.z, place.x)
+        };
+        let firing = |sequence| {
+            let (_, place) = hands.firing.iter().find(|(s, _)| *s == sequence).unwrap();
+            Vec3::from(*place)
+        };
+        let crouched = |sequence| {
+            let (_, place) = hands.crouched.iter().find(|(s, _)| *s == sequence).unwrap();
+            Vec3::from(*place)
+        };
+        for (name, want, got) in [
+            ("49's middle", firing(49), hand(49, 9)),
+            ("51 held", firing(51), hand(51, 2)),
+            ("46 held", firing(46), hand(46, 0)),
+            ("crouched 65", crouched(65), hand(65, 0)),
+            ("crouched 57", crouched(57), hand(57, 0)),
+            ("41 at 20 frames", Vec3::from(hands.thrown), hand(41, 5)),
+            (
+                "61 at 20 frames",
+                Vec3::from(hands.thrown_moving),
+                hand(61, 10),
+            ),
+        ] {
+            assert!(want.abs_diff_eq(got, 0.04), "{name}: {want} against {got}");
+        }
+
+        let table = GadgetTable::read_uya(&Toc::read_uya_disc(&mut disc).unwrap()).unwrap();
+        // Some guns' own code puts their shots elsewhere: the N60, the Infector below V5,
+        // the Disc Blade Gun, Rift Inducer, Qwack-O-Ray, RY3NO and Bouncer (`weapons.md`, "The
+        // muzzle"). The Shield Charger's class is the shield round him.
+        let own = |model: &GunModel| {
+            [0x2F, 0x16, 0x4F, 0x5F, 0x8F, 0x97, 0x13].contains(&model.item)
+                || (model.item == 0x37 && model.level < 4)
+        };
+        let mut classes = BTreeMap::new();
+        let mut checked = 0;
+        for model in UYA_GUN_MODELS.iter().filter(|model| !own(model)) {
+            let def = armory
+                .weapons
+                .iter()
+                .find(|def| def.item == model.item)
+                .unwrap_or_else(|| panic!("{:#x}", model.item));
+            let gadget = classes
+                .entry(model.class)
+                .or_insert_with(|| read_class(&mut disc, &table, &core, model.class).unwrap());
+            let class = &gadget.class;
+            // The Flux Rifle's shots leave from its point 1, every other's from point 0.
+            let point = class.points[usize::from(model.item == 0x6F)].unwrap();
+            let rest = usize::from(plays(class));
+            let keyframe = &class.sequences[rest].as_ref().unwrap().keyframes[0];
+            let at = Vec3::from(crate::hero_anims::world(class, keyframe)[point].translation)
+                * class.unit()
+                * moby_scale(model.item);
+            let (above, along) = def.muzzle.at(model.level).unwrap();
+            assert!(
+                (above - at.x).abs() < 0.01 && (along + at.y).abs() < 0.01,
+                "{} V{}: {above} up, {along} along, against {at}",
+                def.name,
+                model.level + 1,
+            );
+            checked += 1;
+        }
+        assert!(checked > 30, "{checked}");
+    }
+
     #[test]
     #[ignore = "needs game discs"]
     fn uyas_guns_sit_in_the_fist_barrel_ahead() {

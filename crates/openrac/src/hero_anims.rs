@@ -268,7 +268,7 @@ fn placed(
 /// Each joint's transform in the model for one keyframe, in its units and axes: its parent's,
 /// times its translation, rotation and scale, so a scale carries to its children
 /// (`moby-format.md`, "Posing a skeleton").
-fn world(class: &MobyClass, keyframe: &Keyframe) -> Vec<Affine3A> {
+pub(crate) fn world(class: &MobyClass, keyframe: &Keyframe) -> Vec<Affine3A> {
     let mut world: Vec<Affine3A> = Vec::with_capacity(class.joints.len());
     for ((rotation, translation, scale), joint) in
         locals(class, keyframe).into_iter().zip(&class.joints)
@@ -685,6 +685,7 @@ mod tests {
         MobyClass {
             scale: 1024.0,
             joints,
+            points: Vec::new(),
             sequences: vec![Some(Sequence {
                 bounds: [0.0; 4],
                 keyframes: vec![keyframe],

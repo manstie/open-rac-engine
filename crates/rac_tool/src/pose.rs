@@ -127,6 +127,7 @@ mod tests {
                     ],
                 },
             ],
+            points: Vec::new(),
             sequences: Vec::new(),
             packets: Vec::new(),
         };

@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use rac_combat::weapons::WeaponDef;
 use rac_combat::{Armory, Arsenal};
-use rac_hero::{CollisionScene, CollisionWorld, Hero};
+use rac_hero::{CollisionScene, CollisionWorld, Hero, HeroBody, HeroMotion};
 use rac_sim::SimTick;
 use serde::Deserialize;
 
@@ -104,19 +105,22 @@ struct Gun {
 }
 
 impl Gun {
-    /// As the weapons code puts the muzzle (`GunRules::muzzle`), from his place without
+    /// As the weapons code puts the muzzle (`WeaponDef::muzzle_at`), from his place without
     /// its pitch.
-    fn of(place: &GlobalTransform, armory: &Armory) -> Self {
+    fn of(
+        place: &GlobalTransform,
+        hero: &HeroMotion,
+        def: &WeaponDef,
+        level: u8,
+        armory: &Armory,
+    ) -> Self {
         let facing = (place.rotation() * Vec3::NEG_Z)
             .with_y(0.0)
             .normalize_or(Vec3::NEG_Z);
-        let right = facing.cross(Vec3::Y);
-        let [r, u, f] = armory.rules.muzzle;
-        let feet = place.translation();
         Self {
-            muzzle: feet + right * r + Vec3::Y * u + facing * f,
+            muzzle: place.translation() + def.muzzle_at(armory, level, hero, false) - hero.position,
             facing,
-            feet,
+            feet: place.translation(),
         }
     }
 }
@@ -206,13 +210,14 @@ fn charging<'a>(
     armory: &Armory,
     arsenal: &Arsenal,
     place: &GlobalTransform,
+    body: &HeroBody,
 ) -> Option<(&'a Charge, u32, Gun)> {
     let held = arsenal.charge_ticks()?;
     let weapon = arsenal.hand.gun()?;
     let def = armory.get(weapon)?;
     let level = arsenal.gun(weapon).map_or(0, |gun| gun.level);
     let charge = recipes.charge(&def.effects, level)?;
-    Some((charge, held, Gun::of(place, armory)))
+    Some((charge, held, Gun::of(place, &body.0, def, level, armory)))
 }
 
 /// Lays each charging gun's strands, anew on the ticks each crackle is laid on, and draws
@@ -225,7 +230,7 @@ pub(crate) fn draw_charges(
     time: Res<Time>,
     tick: Res<SimTick>,
     scene: Option<Res<CollisionScene>>,
-    heroes: Query<(&Hero, &Arsenal, &GlobalTransform)>,
+    heroes: Query<(&Hero, &Arsenal, &GlobalTransform, &HeroBody)>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut charges: ResMut<Charges>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -245,8 +250,8 @@ pub(crate) fn draw_charges(
     let charges = &mut *charges;
     let mut kept = Vec::new();
     let mut drawn = Vec::new();
-    for (hero, arsenal, place) in &heroes {
-        let Some((charge, held, gun)) = charging(&recipes, &armory, arsenal, place) else {
+    for (hero, arsenal, place, body) in &heroes {
+        let Some((charge, held, gun)) = charging(&recipes, &armory, arsenal, place, body) else {
             continue;
         };
         let amount = charge.amount(held);
@@ -324,7 +329,7 @@ pub(crate) struct ChargeLit;
 pub(crate) fn emit_charges(
     recipes: Res<FxRecipes>,
     armory: Res<Armory>,
-    heroes: Query<(&Hero, &Arsenal, &GlobalTransform)>,
+    heroes: Query<(&Hero, &Arsenal, &GlobalTransform, &HeroBody)>,
     others: Query<
         (),
         (
@@ -340,8 +345,8 @@ pub(crate) fn emit_charges(
     let mut free = light::SLOTS.saturating_sub(others.iter().count() + lit.0.len());
     let mut shown = BTreeMap::new();
     let mut spawner = making.spawner();
-    for (hero, arsenal, place) in &heroes {
-        let Some((charge, held, gun)) = charging(&recipes, &armory, arsenal, place) else {
+    for (hero, arsenal, place, body) in &heroes {
+        let Some((charge, held, gun)) = charging(&recipes, &armory, arsenal, place, body) else {
             continue;
         };
         let share = charge.share(held);

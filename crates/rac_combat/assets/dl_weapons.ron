@@ -1,0 +1,259 @@
+// The guns of Ratchet: Deadlocked (NTSC-U, SCUS-97465) read so far, with
+// docs/research/weapons.md, "Deadlocked's guns", and its labels. Units as in
+// uya_weapons.ron. Levels are V1 to V10.
+//
+// Not read in DL yet, so UYA's: the rules below, how each gun is held and its sequences (the
+// hero's rig plays UYA's), the muzzles, when a drawn gun may fire (`ready_ticks`).
+// The other six guns aren't in yet: "Deadlocked's guns", the end of its list.
+(
+    name: "DL NTSC-U",
+    rules: (
+        // "Checked in traces": the gun was in his hand 17 frames after Circle [verified].
+        draw_ticks: 17,
+        // "Switching and firing": Triangle let go within 20 frames, round the three most
+        // recent of eight guns [code].
+        quick_switch_ticks: 20,
+        quick_switch_guns: 3,
+        recent_guns: 8,
+        bought_level: 10, // past its last level: DL's levels are all earned [data]
+        // where his hand is as a gun fires, right, up and forward of his feet
+        // [computed from the hero's sequences on the disc, checked against the firing
+        // traces]. Standing, as a gun first fires from its rest, the barrel rises 0.2 u a
+        // unit along it; once it fires the hand follows the standing sequence: 49 at its
+        // middle keyframes, 51 and 46 about a hold, and 103 as the Shock Blaster's rays
+        // leave, 5 frames after its press (its rise taken into the place). A glove lets go
+        // 20 frames into its 41, or its arms' 61 [code].
+        hands: (
+            ready: (0.3, 0.56, 0.05),
+            ready_slope: 0.2,
+            firing: [
+                (49, (0.26, 0.43, -0.23)),
+                (51, (0.26, 0.6, 0.53)),
+                (46, (0.2, 0.3, 0.38)),
+                (103, (0.3, 0.58, -0.2)),
+            ],
+            moving: (0.29, 0.59, 0.09), // traced, walking
+            air: (0.32, 0.77, 0.1), // traced, jumping
+            crouched: [(65, (0.33, 0.26, 0.02)), (57, (0.33, 0.3, 0.4))],
+            thrown: (0.39, 1.17, -0.12),
+            thrown_moving: (0.05, 0.78, 0.43),
+            thrown_crouched: (0.05, 0.48, 0.43), // 61's hand, lowered as he crouches [simplified]
+        ),
+        // "How guns aim with it": aim_bend_to_point's 80°, a tenth within 4 u; the aim
+        // point is where the camera's 30 u line meets something (fps_cam_find_target)
+        // [code].
+        view_range: 30.0,
+        bend_degrees: 80.0,
+        bend_near: 4.0,
+        // "What shock and acid do" [code]: the first other living enemy in sight within
+        // 8 u, a quarter of the gun's damage for the guns here, reached in 10 frames.
+        shock: (range: 8.0, share: 0.25, reach_ticks: 10),
+        acid_slots: 30,
+        // "The quick-select ring" [code], as with QUICK SELECT PAUSE off: the hero's input
+        // held 15 ticks after the press (27 after a tap that switched nothing); picking
+        // after the hold check; a 30-tick lock-out for a stick already pushed; picks past
+        // 0.9 of full, kept within 33.75°, straight slots 27° of 45°; 8 ticks to open and
+        // to close; R1 keeps the second ring up 15 ticks.
+        // "Aim indicators": the wrench in the look draws 0x25, 40 px, blue-grey, no pulse
+        // [code].
+        wrench_sight: Some((
+            texture: 0x25,
+            size: (40.0, 40.0),
+            red_above: None,
+            pulse: false,
+            colour: Some((0.8, 0.89, 1.0)),
+            when: Look,
+        )),
+        ring: (
+            input_delay_ticks: 15,
+            input_delay_after_tap_ticks: 27,
+            hold_ticks: 6,
+            lock_out_ticks: 30,
+            pick: 0.9,
+            release: 0.5,
+            keep_degrees: 33.75,
+            cardinal_share: 0.6,
+            open_ticks: 8,
+            ring_two_ticks: 15,
+        ),
+    ),
+    weapons: [
+        (
+            name: "Dual Vipers",
+            upgraded_name: "Dual Raptors",
+            upgraded_from: 9,
+            item: 2,
+            held: true,
+            steady: true, // only the Vipers turn the walk as they fire [code]
+            ready_ticks: 19,
+            fire_ticks: 1,
+            look_wait_ticks: 0,
+            pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
+            muzzle: [(0, (0.2, 0.6))],
+            levels: [
+                (damage: 1.0, ammo: 200, xp: 200),
+                (damage: 1.75, ammo: 200, xp: 500),
+                (damage: 2.5, ammo: 200, xp: 900),
+                (damage: 3.25, ammo: 200, xp: 1500),
+                (damage: 4.0, ammo: 200, xp: 2300),
+                (damage: 4.75, ammo: 200, xp: 3300),
+                (damage: 5.5, ammo: 200, xp: 4600),
+                (damage: 6.25, ammo: 200, xp: 6200),
+                (damage: 7.0, ammo: 200, xp: 8200),
+                (damage: 8.0, ammo: 200, xp: 0),
+            ],
+            mods: (),
+            fire: Projectile((
+                timing: Rate(10.0), // `GadgetDef`+0x4C [data]
+                speed: (70.0, 70.0), // 1.1667 u a tick [code]
+                lifetime: [(0, 35)], // [code]
+                bounce_from: None,
+                world_radius: 0.6, // [code]
+                target_radius: 0.0, // a hit on a target is that target's [code]
+                muzzle_ball: 0.0,
+                // One gun of the pair and then the other [code]; how far apart [placeholder].
+                barrels: [(0.25, 0.0, 0.0), (-0.25, 0.0, 0.0)],
+                assist: None,
+                scope: None,
+                push: 0.5, // [placeholder]
+                // From V10 its life is 105 ticks and it goes on from the world up to 4 times
+                // [code]. Each bounce's 10 ticks more and its turn to an enemy aren't in.
+                hurricane: Some((
+                    from_level: 9,
+                    repeat_ticks: 6,
+                    reach: 122.5,
+                    extra_ticks: 0,
+                    bounces: 4,
+                )),
+            )),
+        ),
+        (
+            name: "Magma Cannon",
+            upgraded_name: "Vulcan Cannon",
+            upgraded_from: 9,
+            item: 3,
+            held: false,
+            steady: false,
+            ready_ticks: 19,
+            fire_ticks: 30,
+            look_wait_ticks: 0,
+            pose: (hold: OneHand, standing: Some(49), crouched: Some(57)),
+            muzzle: [(0, (0.2, 0.6))],
+            levels: [
+                (damage: 6.0, ammo: 20, xp: 200),
+                (damage: 8.0, ammo: 20, xp: 500),
+                (damage: 10.0, ammo: 20, xp: 900),
+                (damage: 12.0, ammo: 20, xp: 1500),
+                (damage: 14.0, ammo: 20, xp: 2300),
+                (damage: 16.0, ammo: 20, xp: 3300),
+                (damage: 18.0, ammo: 20, xp: 4600),
+                (damage: 20.0, ammo: 20, xp: 6200),
+                (damage: 25.0, ammo: 20, xp: 8200),
+                (damage: 30.0, ammo: 20, xp: 0),
+            ],
+            mods: (),
+            fire: Cone((
+                rate: 2.0, // [data]
+                range: 30.0, // 20 in multiplayer [code]
+                fan_degrees: 25.0, // [code]
+                per_side: 3, // [code]
+                // The middle row (10° at `0x406F30`, taken as the aim), the two either side
+                // of it a tick on, then the last two [code; which way is up isn't sure].
+                rows: [
+                    [(up_degrees: 0.0, middle: true)],
+                    [
+                        (up_degrees: 6.75, middle: false),
+                        (up_degrees: -6.75, middle: false),
+                    ],
+                    [
+                        (up_degrees: -1.69, middle: false),
+                        (up_degrees: -13.5, middle: true),
+                    ],
+                ],
+                push: 0.5, // half of a knockback vector [code]; its size [placeholder]
+            )),
+        ),
+        (
+            name: "The Arbiter",
+            upgraded_name: "The Silencer",
+            upgraded_from: 9,
+            item: 4,
+            held: false,
+            steady: false,
+            ready_ticks: 19,
+            fire_ticks: 30,
+            look_wait_ticks: 0,
+            pose: (hold: OneHand, standing: Some(49), crouched: Some(57)),
+            muzzle: [(0, (0.2, 0.6))],
+            levels: [
+                (damage: 60.0, ammo: 8, xp: 300),
+                (damage: 80.0, ammo: 8, xp: 900),
+                (damage: 100.0, ammo: 8, xp: 1900),
+                (damage: 120.0, ammo: 8, xp: 3400),
+                (damage: 140.0, ammo: 8, xp: 5400),
+                (damage: 160.0, ammo: 8, xp: 7900),
+                (damage: 180.0, ammo: 8, xp: 10900),
+                (damage: 200.0, ammo: 8, xp: 14400),
+                (damage: 220.0, ammo: 8, xp: 18400),
+                (damage: 250.0, ammo: 8, xp: 0),
+            ],
+            mods: (),
+            // Its rocket turns after a target at the first read of 0x40C8E0; here it flies
+            // straight [simplified].
+            fire: Projectile((
+                timing: Rate(0.66), // [data]
+                speed: (60.0, 60.0), // `GadgetDef`+0x48 [code]
+                lifetime: [(0, 95)], // 95 / its u a tick [code]
+                bounce_from: None,
+                world_radius: 5.0, // 0x40E5B8's ball [code]
+                target_radius: 5.0,
+                muzzle_ball: 0.0,
+                barrels: [(0.0, 0.0, 0.0)],
+                assist: None,
+                scope: None,
+                push: 0.5, // [placeholder]
+                hurricane: None,
+            )),
+        ),
+        (
+            name: "Fusion Rifle",
+            upgraded_name: "Anti-Matter Rifle",
+            upgraded_from: 9,
+            item: 5,
+            held: false,
+            steady: false,
+            ready_ticks: 19,
+            fire_ticks: 30,
+            look_wait_ticks: 0,
+            pose: (hold: OneHand, standing: Some(49), crouched: Some(57)),
+            muzzle: [(0, (0.2, 0.6))],
+            levels: [
+                (damage: 50.0, ammo: 8, xp: 100),
+                (damage: 65.0, ammo: 8, xp: 300),
+                (damage: 80.0, ammo: 8, xp: 700),
+                (damage: 95.0, ammo: 8, xp: 1300),
+                (damage: 110.0, ammo: 8, xp: 2200),
+                (damage: 125.0, ammo: 8, xp: 3400),
+                (damage: 140.0, ammo: 8, xp: 5000),
+                (damage: 155.0, ammo: 8, xp: 7000),
+                (damage: 170.0, ammo: 8, xp: 9500),
+                (damage: 200.0, ammo: 8, xp: 0),
+            ],
+            mods: (),
+            fire: Projectile((
+                timing: Rate(0.7), // [data]
+                speed: (1600.0, 1600.0), // `GadgetDef`+0x48 [code]
+                lifetime: [(0, 6)], // reaches 160 u [placeholder]
+                bounce_from: None,
+                world_radius: 0.0,
+                target_radius: 0.0,
+                muzzle_ball: 0.0,
+                barrels: [(0.0, 0.0, 0.0)],
+                assist: None,
+                scope: None,
+                push: 0.5, // [placeholder]
+                hurricane: None,
+            )),
+        ),
+    ],
+)

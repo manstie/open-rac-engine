@@ -6,17 +6,17 @@
 use bevy::{math::ops, prelude::*};
 use rac_hero::CollisionWorld;
 use rac_sim::SimRng;
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
 use super::{
-    GunEventKind,
+    Affliction, GunEventKind,
     aim::{GunTarget, first_target},
     def::{
         Armory, FireMode, Homing, Lobbed, Mods, Projectile, ScopeBeam, SlugRules, SmallMissile,
         Spray, Stream, WeaponId,
     },
     ducks,
-    fire::{GunInput, Hit, Outcome},
+    fire::{Afflict, GunInput, Hit, Outcome},
     grab, hand, seekers, thrown,
 };
 
@@ -76,11 +76,11 @@ pub enum ShotKind {
     Blob { life: u32, infected: Vec<Entity> },
     /// The Infecto-Bomb, falling.
     Bomb,
-    /// The Disc Blade Gun's disc: what it flies at, which way it curves (radians a tick),
-    /// and the target it last bounced off.
+    /// The Disc Blade Gun's disc: what it flies at, whether it falls for its first ticks,
+    /// and the target it last went through.
     Disc {
         target: Option<Entity>,
-        curve: f32,
+        falls: bool,
         last: Option<Entity>,
         /// The Multi-Disc Gun's splits it came of.
         splits: u32,
@@ -104,12 +104,20 @@ pub enum ShotKind {
     /// A turret's shot.
     Pellet,
     /// A Megaturret's missile at `target`.
-    Guided { target: Option<Entity> },
+    Guided {
+        target: Option<Entity>,
+        /// Its turn's rate, radians a tick.
+        turn: f32,
+        drift: Drift,
+    },
     /// One of the Decimator's seekers at `target`, gaining `accel` u/s a tick to `top`.
     Seeker {
         target: Option<Entity>,
         accel: f32,
         top: f32,
+        /// Its turn's rate, radians a tick.
+        turn: f32,
+        drift: Drift,
     },
     /// A holo shield.
     Barrier(BarrierState),
@@ -119,8 +127,9 @@ pub enum ShotKind {
     Agent(AgentState),
     /// UYA's small bullet, which the agents' guns and the Nitro Eruptor fire.
     Slug,
-    /// The comet an agent ends in from V2, flying `life` ticks.
-    Comet { life: u32 },
+    /// The comet an agent ends in from V2, or the Vortex Cannon's, flying `life` ticks,
+    /// pulled at `target` if it has one.
+    Comet { life: u32, target: Option<Entity> },
     /// The Plasma Whip's shock wave along the ground.
     Wave,
     /// The Quantum Whip's cutting wave, and what it has struck.
@@ -211,6 +220,16 @@ pub struct AgentState {
     /// Its own rounds, and ticks to its next shot.
     pub rounds: u32,
     pub cooldown: u32,
+    /// It jetted in and hasn't landed.
+    pub hover: Option<Hovering>,
+}
+
+/// An agent keeping to its slot round the hero ([`super::def::AgentHover`]), or on its way
+/// from there to `landing`, having given it up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hovering {
+    pub slot: usize,
+    pub landing: Option<Vec3>,
 }
 
 /// What an agent does while it has no target.
@@ -224,18 +243,49 @@ pub enum AgentMode {
 }
 
 /// What a hero's agents share: the rounds of their guns at the levels that share them,
-/// and the targets they have claimed, with the ticks each claim has left.
+/// and the targets they have claimed, with the ticks each claim has left. His discs and
+/// shields keep what they have been sent at the same way (the game's one table, 0x24FA60,
+/// by who sent them).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct AgentBook {
     pub(crate) rounds: u32,
     pub(crate) claims: Vec<(Entity, u32)>,
+    picks: Vec<Pick>,
 }
 
-/// A rift: open for the ticks since, and the target it is pulling in for how long.
+/// An enemy `by` has been sent at, with the ticks that has left to count.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Pick {
+    by: u32,
+    target: Entity,
+    left: u32,
+}
+
+impl AgentBook {
+    /// Whether `by` has been sent at `target` lately (0x4C46A8).
+    pub(crate) fn picked(&self, by: u32, target: Entity) -> bool {
+        self.picks
+            .iter()
+            .any(|pick| pick.by == by && pick.target == target)
+    }
+
+    /// Notes it for `ticks` (0x4C4640).
+    pub(crate) fn pick(&mut self, by: u32, target: Entity, ticks: u32) {
+        self.picks.push(Pick {
+            by,
+            target,
+            left: ticks,
+        });
+    }
+}
+
+/// A rift: open for the ticks since, its pull's strength, and the target it is pulling in
+/// with how far it has still to come and how fast it comes, in u a tick.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct RiftState {
     pub open: Option<u32>,
-    pub taking: Option<(Entity, u32)>,
+    pub spring: f32,
+    pub taking: Option<(Entity, f32, f32)>,
 }
 
 /// A RY3NO missile: it spirals round the line it set off along, `tilt` off it, its roll
@@ -264,11 +314,23 @@ pub struct TurretState {
     pub turn: f32,
     pub cooldown: u32,
     pub fired: u32,
-    /// Ticks since it landed or last fired.
+    /// Ticks since it left the hand or last fired.
     pub idle: u32,
-    /// The Megaturret: ticks to its next look at walking back, and where it walks to.
-    pub walk_wait: u32,
-    pub walk_to: Option<Vec3>,
+    /// The Megaturret: ticks to its next look at moving to him, where it is moving, and
+    /// the ticks it has been fading out and back.
+    pub move_wait: u32,
+    pub move_to: Option<Vec3>,
+    pub faded: u32,
+}
+
+impl TurretState {
+    /// How much of it shows, 0 to 1, as it fades out and back over `fade_ticks` each.
+    pub fn shown(&self, fade_ticks: u32) -> f32 {
+        if fade_ticks == 0 || self.move_to.is_none() {
+            return 1.0;
+        }
+        (self.faded.abs_diff(fade_ticks) as f32 / fade_ticks as f32).min(1.0)
+    }
 }
 
 /// A holo shield: falling until it lands, then standing as a wall that takes hits.
@@ -313,6 +375,36 @@ pub(super) struct Flight<'a> {
     pub facing: Vec3,
     /// He has less health than he can have.
     pub hurt: bool,
+    /// The landed turrets that turn and fire, by serial.
+    pub turrets: Vec<u32>,
+}
+
+/// The landed turrets nearest him, as many as may be active (0x4C7228), ties by serial.
+fn active_turrets(shots: &[Shot], armory: &Armory, hero: Vec3) -> Vec<u32> {
+    let mut landed: Vec<(f32, u32, usize)> = shots
+        .iter()
+        .filter_map(|shot| {
+            let ShotKind::Turret(state) = shot.kind else {
+                return None;
+            };
+            let FireMode::Turret(fire) = &armory.get(shot.weapon)?.fire else {
+                return None;
+            };
+            state.landed?;
+            Some((
+                shot.position.distance_squared(hero),
+                shot.serial,
+                fire.active,
+            ))
+        })
+        .collect();
+    landed.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let most = landed.first().map_or(0, |turret| turret.2);
+    landed
+        .into_iter()
+        .take(most)
+        .map(|turret| turret.1)
+        .collect()
 }
 
 /// Moves every shot a tick, hitting what they meet; shots that end are dropped, and those
@@ -333,6 +425,7 @@ pub(crate) fn step(
         hero: gun_input.hero.position,
         facing: Quat::from_rotation_y(gun_input.hero.yaw) * Vec3::NEG_Z,
         hurt: gun_input.hurt,
+        turrets: active_turrets(shots, armory, gun_input.hero.position),
     };
     let (world, targets) = (flight.world, flight.targets);
     let mut agents = shots
@@ -342,6 +435,10 @@ pub(crate) fn step(
     book.claims.retain_mut(|(_, left)| {
         *left = left.saturating_sub(1);
         *left > 0
+    });
+    book.picks.retain_mut(|pick| {
+        pick.left = pick.left.saturating_sub(1);
+        pick.left > 0
     });
     let mut discs = shots
         .iter()
@@ -414,10 +511,10 @@ pub(crate) fn step(
                     None => false,
                 },
                 ShotKind::Seeker { .. } => match &fire.seekers {
-                    Some(seekers) => seeker(shot, &seekers.missile, &flight, out),
+                    Some(seekers) => seeker(shot, &seekers.missile, &flight, rng, out),
                     None => false,
                 },
-                _ => match missile(shot, &Seek::homing(fire), world, targets, out) {
+                _ => match missile(shot, &Seek::homing(fire), &flight, out) {
                     Course::On => true,
                     Course::Out => false,
                     Course::Burst(at) => {
@@ -429,7 +526,7 @@ pub(crate) fn step(
             FireMode::Volley(fire) => seekers::rocket(shot, fire, &flight, out),
             FireMode::Coil(fire) => seekers::coil_shot(shot, fire, &flight, out, &mut born),
             FireMode::Disc(fire) => {
-                seekers::disc_shot(shot, fire, &flight, rng, out, &mut born, &mut discs)
+                seekers::disc_shot(shot, fire, &flight, rng, out, &mut born, &mut discs, book)
             }
             FireMode::Hydra(fire) => seekers::spit(shot, fire, &flight, out),
             FireMode::Cluster(fire) => {
@@ -437,18 +534,23 @@ pub(crate) fn step(
             }
             FireMode::Infect(fire) => thrown::blob(shot, fire, &flight, out),
             FireMode::Turret(fire) => thrown::turret_shot(shot, fire, &flight, rng, out, &mut born),
-            FireMode::Barrier(fire) => thrown::barrier_shot(shot, fire, &flight, out, &mut born),
+            FireMode::Barrier(fire) => {
+                thrown::barrier_shot(shot, fire, &flight, out, &mut born, book)
+            }
             FireMode::Agents(fire) => {
                 thrown::agents_shot(shot, fire, &flight, rng, out, &mut born, &mut agents, book)
             }
             FireMode::Rift(fire) => grab::rift_shot(shot, fire, &flight, rng, out, &mut born),
-            FireMode::Suck(fire) => grab::thing(shot, fire, &flight, out),
+            FireMode::Suck(fire) => match (&fire.comet, &shot.kind) {
+                (Some(comet), ShotKind::Comet { .. }) => grab::comet(shot, comet, &flight, out),
+                _ => grab::thing(shot, fire, &flight, out),
+            },
             FireMode::Whip(fire) if matches!(shot.kind, ShotKind::Cut { .. }) => {
                 hand::cut(shot, fire, &flight, out)
             }
             FireMode::Whip(fire) => hand::wave(shot, fire, &flight, out),
             FireMode::Beam(fire) => ducks::duck_shot(shot, fire, &flight, rng, out, &mut born),
-            FireMode::Hitscan(_) | FireMode::Shield(_) => false,
+            FireMode::Hitscan(_) | FireMode::Shield(_) | FireMode::Cone(_) => false,
         }
     });
     for mut shot in born {
@@ -768,7 +870,8 @@ fn blast(shot: &mut Shot, fire: &Lobbed, targets: &[GunTarget], out: &mut Outcom
 }
 
 /// One point of the Lava Gun's stream (0x304A18): it falls, stops on the world, and on a
-/// target does its damage, and the splash to everything near.
+/// target does its damage, and the splash to everything near. From V5 an enemy it would
+/// kill freezes instead: no splash, no hit in the queue.
 fn stream_point(
     shot: &mut Shot,
     fire: &Stream,
@@ -782,6 +885,18 @@ fn stream_point(
         Meets::Target(index, t) => {
             let target = &targets[index];
             let at = shot.position + motion * t;
+            let freezes = fire.freezes_from.is_some_and(|from| shot.level >= from)
+                && target.enemy
+                && target.health.is_some_and(|(left, _)| left <= shot.damage);
+            if freezes {
+                out.afflictions.push(Afflict {
+                    target: target.entity,
+                    weapon: shot.weapon,
+                    affliction: Affliction::Frozen,
+                });
+                out.shot_event(shot, GunEventKind::Impact { at, surface: None });
+                return false;
+            }
             out.hits
                 .push(shot.hit(target.entity, shot.damage, Vec3::ZERO));
             if shot.splash > 0.0 {
@@ -810,12 +925,10 @@ fn stream_point(
     }
 }
 
-/// How a missile turns after its target and bursts.
+/// How long a missile flies and how it bursts.
 pub(super) struct Seek {
-    speed: f32,
     lifetime: u32,
-    homing_ticks: u32,
-    turn_degrees: f32,
+    leash: f32,
     push: f32,
     blast_radius: f32,
 }
@@ -823,10 +936,8 @@ pub(super) struct Seek {
 impl Seek {
     fn homing(fire: &Homing) -> Self {
         Self {
-            speed: fire.speed,
             lifetime: fire.lifetime,
-            homing_ticks: fire.homing_ticks,
-            turn_degrees: fire.turn_degrees,
+            leash: fire.leash,
             push: fire.push,
             blast_radius: fire.blast_radius,
         }
@@ -843,34 +954,15 @@ enum Course {
     Burst(Vec3),
 }
 
-/// The Annihilator's missile (0x396A20): it turns after its target while that lives, and
-/// bursts on the first thing it meets, its blast doing the splash damage round it.
-fn missile(
-    shot: &mut Shot,
-    fire: &Seek,
-    world: &dyn CollisionWorld,
-    targets: &[GunTarget],
-    out: &mut Outcome,
-) -> Course {
-    let ShotKind::Missile { target } = &mut shot.kind else {
+/// The Annihilator's missile (0x396A20): it flies straight, as its homing is switched off
+/// as it spawns, and bursts on the first thing it meets, its blast doing the splash damage
+/// round it; far from him it goes.
+fn missile(shot: &mut Shot, fire: &Seek, flight: &Flight, out: &mut Outcome) -> Course {
+    let (world, targets) = (flight.world, flight.targets);
+    if !matches!(shot.kind, ShotKind::Missile { .. })
+        || shot.position.distance(flight.hero) > fire.leash
+    {
         return Course::Out;
-    };
-    let chased = target.and_then(|entity| {
-        targets
-            .iter()
-            .find(|candidate| candidate.entity == entity && candidate.alive)
-    });
-    match chased {
-        Some(chased) if shot.ticks <= fire.homing_ticks => {
-            let wanted = (chased.centre - shot.position).normalize_or_zero();
-            let direction = shot.velocity.normalize_or_zero();
-            if wanted != Vec3::ZERO && direction != Vec3::ZERO {
-                let turned = super::aim::bend(direction, wanted, fire.turn_degrees.to_radians());
-                shot.velocity = turned * fire.speed;
-            }
-        }
-        Some(_) => {}
-        None => *target = None,
     }
     let motion = shot.velocity * TICK;
     let at = match meets(world, targets, shot.position, motion) {
@@ -914,10 +1006,14 @@ fn burst_into(
         // Fanned either side of the way back from the blast towards the hero.
         let back = super::aim::flat(flight.hero - at).normalize_or(-flight.facing);
         let base = ops::atan2(-back.x, -back.z);
+        let mut claimed = Vec::new();
         for _ in 0..seekers.count {
             let bearing = base + rng.range_f32(-1.0, 1.0) * seekers.spread_degrees.to_radians();
             let way = Vec3::new(-ops::sin(bearing), 0.0, -ops::cos(bearing));
-            let target = nearest_enemy(flight.targets, at, seekers.range);
+            // Each takes the nearest enemy in its search that none before it claimed
+            // (0x343330's first frame); one finding none never looks again.
+            let target = nearest_enemy(flight.targets, at, seekers.range, &claimed);
+            claimed.extend(target);
             born.push(small_missile(shot, &seekers.missile, at, way, target, rng));
         }
         return;
@@ -952,29 +1048,133 @@ pub(super) fn small_missile(
         velocity: way * speed,
         ticks: 0,
         damage: shot.damage * missile.share,
-        kind: ShotKind::Seeker { target, accel, top },
+        kind: ShotKind::Seeker {
+            target,
+            accel,
+            top,
+            turn: 0.0,
+            drift: Drift::new(rng),
+        },
         ..shot.clone()
     }
 }
 
-/// The nearest living enemy within `range` of `at`.
-fn nearest_enemy(targets: &[GunTarget], at: Vec3, range: f32) -> Option<Entity> {
+/// The nearest living enemy within `range` of `at` but those `claimed`.
+fn nearest_enemy(
+    targets: &[GunTarget],
+    at: Vec3,
+    range: f32,
+    claimed: &[Entity],
+) -> Option<Entity> {
     targets
         .iter()
         .filter(|t| t.alive && t.enemy && t.centre.distance(at) <= range)
+        .filter(|t| !claimed.contains(&t.entity))
         .min_by(|a, b| a.centre.distance(at).total_cmp(&b.centre.distance(at)))
         .map(|t| t.entity)
 }
 
+/// The small missile's turn (0x449148): its rate `turn` springs towards the angle between
+/// `way` and `wanted`, gaining `gain` of the angle and losing `damping` of itself a tick,
+/// never past the angle; `close` (within 0.25 u, under 90° off) it turns half the angle.
+pub(super) fn spring_turn(
+    way: Vec3,
+    wanted: Vec3,
+    turn: &mut f32,
+    (gain, damping): (f32, f32),
+    close: bool,
+) -> Vec3 {
+    let angle = way.angle_between(wanted);
+    *turn = if close && angle < std::f32::consts::FRAC_PI_2 {
+        0.5 * angle
+    } else {
+        (*turn + gain * angle - damping * *turn).clamp(-angle, angle)
+    };
+    super::aim::bend(way, wanted, turn.abs())
+}
+
+/// Within this of what it turns after, a small missile turns half the angle at once.
+const SPRING_CLOSE: f32 = 0.25;
+
+/// How a small missile strays (0x343330; `weapons.md`, "The small missile"): its aim
+/// wanders round its target by two angles moving at random each tick, and from its spawn
+/// its weave's phase moves `rate` degrees a tick.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Drift {
+    round: f32,
+    rise: f32,
+    phase: f32,
+    rate: f32,
+}
+
+impl Drift {
+    pub(super) fn new(rng: &mut SimRng) -> Self {
+        Self {
+            round: 0.0,
+            rise: 0.0,
+            phase: rng.range_f32(-PI, PI),
+            rate: rng.range_f32(3.0, 5.0),
+        }
+    }
+
+    /// The point it aims at for a target's `centre`: a wander of up to 0.75 u across and
+    /// 1 u up, taken in as it nears. The angles move on.
+    pub(super) fn aim(&mut self, centre: Vec3, from: Vec3, rng: &mut SimRng) -> Vec3 {
+        let distance = from.distance(centre);
+        let near = if distance < SPRING_CLOSE {
+            0.0
+        } else {
+            distance
+        };
+        let wander = Vec3::new(
+            -ops::cos(self.round) * (0.751 * near).min(0.751),
+            (ops::sin(self.rise) + 1.0) * (0.5 * near).min(0.5),
+            -ops::sin(self.round) * (0.749 * near).min(0.749),
+        );
+        self.round = wrap(self.round + rng.range_f32(0.01, 0.1));
+        self.rise = wrap(self.rise + rng.range_f32(0.025, 0.25));
+        centre + wander
+    }
+
+    /// Its velocity turned by the weave, about its side and then its up, the phase moving
+    /// on: at most 3.14° a tick each way, keeping its speed.
+    pub(super) fn weave(&mut self, velocity: Vec3) -> Vec3 {
+        self.phase = wrap(self.phase + self.rate.to_radians());
+        let side = velocity.cross(Vec3::Y).normalize_or(Vec3::X);
+        let up = side.cross(velocity).normalize_or(Vec3::Y);
+        let angle = self.phase.to_radians();
+        Quat::from_axis_angle(up, angle) * Quat::from_axis_angle(side, angle) * velocity
+    }
+}
+
+/// An angle kept within ±π.
+fn wrap(angle: f32) -> f32 {
+    if angle > PI {
+        angle - TAU
+    } else if angle < -PI {
+        angle + TAU
+    } else {
+        angle
+    }
+}
+
 /// A small missile: faster each tick to its top speed, turning after its enemy, bursting
-/// on what it meets.
+/// on what it meets once armed.
 pub(super) fn seeker(
     shot: &mut Shot,
     missile: &SmallMissile,
     flight: &Flight,
+    rng: &mut SimRng,
     out: &mut Outcome,
 ) -> bool {
-    let ShotKind::Seeker { target, accel, top } = &mut shot.kind else {
+    let ShotKind::Seeker {
+        target,
+        accel,
+        top,
+        turn,
+        drift,
+    } = &mut shot.kind
+    else {
         return false;
     };
     let (accel, top) = (*accel, *top);
@@ -993,20 +1193,26 @@ pub(super) fn seeker(
     let speed = (shot.velocity.length() + accel).min(top);
     let mut way = shot.velocity.normalize_or(flight.facing);
     if let Some(chased) = chased {
-        let wanted = (chased.centre - shot.position).normalize_or(way);
-        way = super::aim::bend(way, wanted, missile.turn_degrees.to_radians());
+        let off = drift.aim(chased.centre, shot.position, rng) - shot.position;
+        let close = off.length() < SPRING_CLOSE;
+        way = spring_turn(way, off.normalize_or(way), turn, missile.turn, close);
+    }
+    if missile.weave {
+        way = drift.weave(way);
     }
     shot.velocity = way * speed;
     let motion = shot.velocity * TICK;
+    let armed = shot.ticks >= missile.armed_ticks;
     let at = match meets(flight.world, flight.targets, shot.position, motion) {
-        Meets::Target(_, t) | Meets::World(t, _) => shot.position + motion * t,
-        Meets::Nothing => {
+        Meets::Target(_, t) | Meets::World(t, _) if armed => shot.position + motion * t,
+        _ => {
             shot.position += motion;
             return true;
         }
     };
+    // Pushed by its velocity a frame.
     for near in in_ball(flight.targets, at, missile.blast_radius, None) {
-        out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
+        out.hits.push(shot.hit(near.entity, shot.damage, motion));
     }
     out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
@@ -1060,6 +1266,58 @@ fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
 mod tests {
     use super::*;
     use rac_hero::ParryWorld;
+
+    #[test]
+    fn a_small_missiles_aim_wanders_round_its_target_and_closes_in_as_it_nears() {
+        let mut rng = SimRng::new(7, 0);
+        let mut drift = Drift::new(&mut rng);
+        let centre = Vec3::new(1.0, 2.0, 3.0);
+        let mut seen = Vec3::ZERO;
+        for _ in 0..600 {
+            let off = drift.aim(centre, centre + Vec3::X * 10.0, &mut rng) - centre;
+            assert!(off.x.abs() <= 0.751 && off.z.abs() <= 0.749, "{off}");
+            assert!((0.0..=1.0).contains(&off.y), "{off}");
+            seen = seen.max(off.abs());
+        }
+        assert!(seen.min_element() > 0.7, "{seen}");
+        // Halfway in the wander is half, and within 0.25 u there is none.
+        let near = drift.aim(centre, centre + Vec3::X * 0.5, &mut rng) - centre;
+        assert!(near.with_y(0.0).length() <= 0.39 && near.y <= 0.5, "{near}");
+        assert_eq!(drift.aim(centre, centre + Vec3::X * 0.2, &mut rng), centre);
+    }
+
+    #[test]
+    fn a_small_missiles_weave_keeps_its_speed_and_swings_both_ways() {
+        let mut rng = SimRng::new(7, 0);
+        let mut drift = Drift::new(&mut rng);
+        let start = Vec3::new(0.0, 0.0, -12.0);
+        let (mut left, mut right) = (false, false);
+        for _ in 0..360 {
+            let turned = drift.weave(start);
+            assert!((turned.length() - 12.0).abs() < 1e-3);
+            // About each of two axes by at most π degrees.
+            assert!(turned.angle_between(start).to_degrees() < 4.5, "{turned}");
+            left |= turned.x < -0.1;
+            right |= turned.x > 0.1;
+        }
+        assert!(left && right);
+    }
+
+    #[test]
+    fn a_small_missiles_turn_springs_up_from_nothing_and_never_overshoots() {
+        let (way, wanted) = (Vec3::NEG_Z, Vec3::X);
+        let mut turn = 0.0;
+        // A quarter turn off: the first tick gains 0.03 of it.
+        let first = spring_turn(way, wanted, &mut turn, (0.03, 0.2), false);
+        assert!((turn - 0.03 * std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        assert!((first.angle_between(way) - turn).abs() < 1e-4);
+        // A rate bigger than what is left is cut to it, so it ends on its aim.
+        let mut big = 1.0;
+        let nearly = Quat::from_rotation_y(-0.1) * wanted;
+        let ended = spring_turn(nearly, wanted, &mut big, (0.03, 0.2), false);
+        assert!(ended.angle_between(wanted) < 1e-4);
+        assert!((big - 0.1).abs() < 1e-4);
+    }
 
     fn flux() -> (WeaponId, ScopeBeam) {
         let armory = Armory::uya();

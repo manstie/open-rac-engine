@@ -24,6 +24,8 @@ pub(crate) struct ShieldUp {
     zap: u32,
     /// The Tesla Barrier's bolts so far.
     bolts: u32,
+    /// Its points, as last seen.
+    points: f32,
 }
 
 /// What his moves need of the Plasma Whip in his hand: `None` for any other gun.
@@ -188,12 +190,14 @@ pub(super) fn shield(
     if !take_shot(arsenal, armory, gun, out) {
         return;
     }
-    out.shield = Some(fire.points.at(gun.level).unwrap_or(0.0));
+    let points = fire.points.at(gun.level).unwrap_or(0.0);
+    out.shield = Some(points);
     arsenal.shield = Some(ShieldUp {
         weapon: gun.weapon,
         level: gun.level,
         zap: 0,
         bolts: 0,
+        points,
     });
 }
 
@@ -222,6 +226,20 @@ pub(super) fn shield_tick(
     if !gun_input.hero.shield.is_up() && out.shield.is_none() {
         arsenal.shield = None;
         return;
+    }
+    // Dead, or falling out of the level, it goes (0x342FB0, whose other tests are of things
+    // the kit hasn't got).
+    if matches!(gun_input.hero.state, HeroState::Dead | HeroState::FallOut) {
+        out.shield = Some(0.0);
+        arsenal.shield = None;
+        return;
+    }
+    // Each point the hero's damage took from it gives the gun XP.
+    let points = gun_input.hero.shield.points;
+    if out.shield.is_none() && points != up.points {
+        let taken = (up.points - points).abs() as u32;
+        out.xp.push((up.weapon, taken * fire.xp_per_point));
+        up.points = points;
     }
     if let Some(tesla) = fire.tesla
         && up.level >= tesla.from_level

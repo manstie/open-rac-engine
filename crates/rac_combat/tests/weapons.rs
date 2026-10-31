@@ -7,7 +7,7 @@ use bevy::{ecs::message::MessageCursor, prelude::*, time::TimeUpdateStrategy};
 use rac_combat::{
     Afflicted, Affliction, Armory, Arsenal, Burns, CombatPlugin, CombatTuning, Destroyed, GunEvent,
     GunEventKind, Hitpoints, Hostile, KillXp, Sustain, WeaponId, target_bundle,
-    weapons::{Hand, Mods, ShotKind, block_shot},
+    weapons::{Hand, Mods, Shot, ShotKind, TurretState, block_shot},
 };
 use rac_hero::{
     CameraSetting, Collider, FollowCamera, GunPose, Health, HeroBody, HeroPlugin, HeroProfile,
@@ -53,6 +53,11 @@ impl Yard {
     /// One tick per update: a floor, and the hero at the origin facing −z with `guns` at
     /// their levels, the first in his hand and ready to fire.
     fn new(guns: &[(WeaponId, u8)]) -> Self {
+        Self::with_armory(Armory::uya(), guns)
+    }
+
+    /// The same with another game's guns.
+    fn with_armory(armory: Armory, guns: &[(WeaponId, u8)]) -> Self {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, SimPlugin, HeroPlugin, CombatPlugin))
             .init_resource::<PlayerInputs>()
@@ -65,7 +70,7 @@ impl Yard {
             },
             Transform::from_xyz(0.0, -0.5, 0.0),
         ));
-        let armory = Armory::uya();
+        app.insert_resource(armory.clone());
         let mut arsenal = Arsenal::default();
         for &(weapon, level) in guns {
             arsenal.give_at(weapon, level, &armory);
@@ -364,6 +369,19 @@ fn the_shock_blaster_fires_every_35_ticks_while_held_standing() {
 }
 
 #[test]
+fn the_shock_blasters_rays_do_less_the_further_they_reach() {
+    // Full within 10 u, three quarters to 14, half to 20 (0x36B888; an eighth beyond, where
+    // its assist no longer aims the rays at a target).
+    for (distance, left) in [(5.0, 98.0), (12.0, 98.5), (17.0, 99.0)] {
+        let mut yard = Yard::new(&[(BLASTER, 0)]);
+        let target = yard.target(Vec3::new(0.25, 1.0, -distance), 100.0);
+        yard.hold(&[Action::Fire], 1);
+        yard.idle(10);
+        assert_eq!(yard.hitpoints(target), left, "at {distance} u");
+    }
+}
+
+#[test]
 fn the_shock_blasters_charged_shot_does_three_times_the_damage() {
     let mut yard = Yard::new(&[(BLASTER, 1)]);
     let target = yard.target(Vec3::new(0.25, 1.0, -5.0), 100.0);
@@ -413,6 +431,33 @@ fn the_lava_guns_stream_takes_a_round_every_10_ticks_and_burns_what_it_reaches()
 }
 
 #[test]
+fn the_liquid_nitrogen_gun_freezes_an_enemy_it_would_kill_past_the_damage_queue() {
+    let damage = Armory::uya().get(LAVA).unwrap().level(4).damage;
+    let mut yard = Yard::new(&[(LAVA, 4)]);
+    let weak = yard.enemy(Vec3::new(0.25, 0.6, -3.0), damage);
+    yard.hold(&[Action::Fire], 120);
+    assert_eq!(yard.hitpoints(weak), 0.0);
+    assert!(
+        yard.afflicted
+            .iter()
+            .any(|hit| hit.target == weak && hit.affliction == Affliction::Frozen)
+    );
+
+    // A stronger one takes the hit, and below V5 no one freezes.
+    let mut yard = Yard::new(&[(LAVA, 4)]);
+    let strong = yard.enemy(Vec3::new(0.25, 0.6, -3.0), damage * 100.0);
+    yard.hold(&[Action::Fire], 60);
+    assert!(yard.hitpoints(strong) < damage * 100.0);
+    assert!(yard.afflicted.is_empty());
+    let damage = Armory::uya().get(LAVA).unwrap().level(0).damage;
+    let mut yard = Yard::new(&[(LAVA, 0)]);
+    let weak = yard.enemy(Vec3::new(0.25, 0.6, -3.0), damage);
+    yard.hold(&[Action::Fire], 120);
+    assert_eq!(yard.hitpoints(weak), 0.0);
+    assert!(yard.afflicted.is_empty());
+}
+
+#[test]
 fn the_lava_guns_stream_says_which_way_the_floor_it_lands_on_faces() {
     let mut yard = Yard::new(&[(LAVA, 0)]);
     yard.hold(&[Action::Fire], 60);
@@ -452,22 +497,53 @@ fn acid_from_the_lava_gun_burns_a_target_past_the_queue() {
 }
 
 #[test]
-fn the_annihilators_missile_turns_after_the_target_it_picked() {
+fn the_annihilators_missile_flies_straight_at_where_its_target_was() {
+    // Its homing is switched off as it spawns: it hits a target that stays put, and misses
+    // one that moves off as it flies.
+    for (moved, left) in [(0.0, 75.0), (2.0, 100.0)] {
+        let mut yard = Yard::new(&[(ANNIHILATOR, 0)]);
+        let target = yard.target(Vec3::new(3.0, 1.0, -12.0), 100.0);
+        // The pick takes 5 ticks of the target being best.
+        yard.idle(6);
+        yard.hold(&[Action::Fire], 1);
+        yard.app
+            .world_mut()
+            .get_mut::<SimTransform>(target)
+            .unwrap()
+            .translation
+            .x += moved;
+        yard.idle(40);
+        // The missile's 25, which the splash's 6 doesn't add to.
+        assert_eq!(yard.hitpoints(target), left, "moved {moved}");
+    }
+}
+
+#[test]
+fn the_annihilator_held_keeps_him_firing_from_shot_to_shot() {
+    // Its shots come 36 ticks apart, inside sequence 49's 66, so he never drops to his
+    // idle between them; the last plays out its 66 ticks once fire is let go.
     let mut yard = Yard::new(&[(ANNIHILATOR, 0)]);
-    let target = yard.target(Vec3::new(3.0, 1.0, -12.0), 100.0);
-    // The pick takes 5 ticks of the target being best.
-    yard.idle(6);
-    yard.hold(&[Action::Fire], 1);
-    // It moves off; the missile follows.
-    yard.app
-        .world_mut()
-        .get_mut::<SimTransform>(target)
-        .unwrap()
-        .translation
-        .x += 2.0;
-    yard.idle(40);
-    // The missile's 25, which the splash's 6 doesn't add to.
-    assert_eq!(yard.hitpoints(target), 75.0);
+    let mut firing = Vec::new();
+    let mut fired = Vec::new();
+    for tick in 0..80 {
+        let before = yard.events.len();
+        yard.hold(&[Action::Fire], 1);
+        let events = &yard.events[before..];
+        if events
+            .iter()
+            .any(|event| matches!(event.kind, GunEventKind::Fired { .. }))
+        {
+            fired.push(tick);
+        }
+        firing.push(yard.body().0.gun.firing);
+    }
+    assert_eq!(fired, [0, 36, 72]);
+    assert!(firing.iter().all(|&on| on));
+    // The last shot was 7 ticks ago.
+    yard.idle(58);
+    assert!(yard.body().0.gun.firing);
+    yard.idle(1);
+    assert!(!yard.body().0.gun.firing);
 }
 
 #[test]
@@ -702,6 +778,10 @@ const RIGHT: [i8; 2] = [127, 0];
 const UP_RIGHT: [i8; 2] = [127, 127];
 
 impl Yard {
+    fn body_mut(&mut self) -> Mut<'_, HeroBody> {
+        self.app.world_mut().get_mut(self.hero).unwrap()
+    }
+
     fn arsenal_mut(&mut self) -> Mut<'_, Arsenal> {
         self.app.world_mut().get_mut::<Arsenal>(self.hero).unwrap()
     }
@@ -863,8 +943,9 @@ fn the_shock_blaster_held_as_it_comes_out_fires_once_it_can() {
         .give_at(BLASTER, 2, &armory);
     yard.tick(&[], &[Action::Fire]);
     let log = yard.hold_logged(&[Action::Fire], 60);
-    // 17 ticks to his hand and 23 more before it may fire.
-    assert_eq!(Yard::fired_ticks(&log), [39]);
+    // 17 ticks to his hand and 19 more before it may fire: the game's count of the gun
+    // being out starts at 4 there and the Shock Blaster waits for 23.
+    assert_eq!(Yard::fired_ticks(&log), [35]);
 }
 
 #[test]
@@ -893,6 +974,28 @@ fn every_gun_fires_and_its_shots_run_out_at_v1_and_v5() {
             );
         }
     }
+}
+
+#[test]
+fn a_held_gun_keeps_him_firing_until_let_go_however_far_apart_its_shots() {
+    // The Plasma Coil's shots come 30 ticks apart; between them only the held button
+    // keeps him firing, as `hero_gun_update` stops a held gun only when it is let go.
+    let mut yard = Yard::new(&[(COIL, 0)]);
+    let mut fired = Vec::new();
+    for tick in 0..100 {
+        let before = yard.events.len();
+        yard.hold(&[Action::Fire], 1);
+        if yard.events[before..]
+            .iter()
+            .any(|event| matches!(event.kind, GunEventKind::Fired { .. }))
+        {
+            fired.push(tick);
+        }
+        assert!(yard.body().0.gun.firing, "tick {tick}");
+    }
+    assert_eq!(fired, [0, 30, 60, 90]);
+    yard.idle(1);
+    assert!(!yard.body().0.gun.firing);
 }
 
 #[test]
@@ -1040,6 +1143,79 @@ fn a_disc_glances_off_walls_and_from_v3_enemies_and_bursts_where_it_ends() {
     assert_eq!(through.iter().filter(|&&glance| !glance).count(), 1);
     assert_eq!(through.last(), Some(&false));
     assert!(yard.hitpoints(enemy) < 1000.0);
+}
+
+// Traced at V1 and V5 (`weapons.md`, "Disc Blade Gun").
+#[test]
+fn a_disc_arcs_up_and_on_below_v5_and_flies_flat_and_fast_from_two_muzzles_from_v5() {
+    let disc = |yard: &Yard, index: usize| yard.arsenal().shots[index].clone();
+    let mut yard = Yard::new(&[(DISC, 0)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let first = disc(&yard, 0);
+    // It has moved once and fallen once.
+    let up = 21.0 * 22.5f32.to_radians().sin();
+    assert!((first.velocity.y - (up - 16.0 / 60.0)).abs() < 1e-3);
+    assert!((-first.velocity.z - 21.0 * 22.5f32.to_radians().cos()).abs() < 1e-3);
+    assert!(first.velocity.x.abs() < 1e-3);
+    // It falls for 38 frames, and then goes on just below level for as long as it lives.
+    yard.idle(37);
+    let fell = disc(&yard, 0);
+    let down = up - 16.0 * 38.0 / 60.0;
+    assert!((fell.velocity.y - down).abs() < 0.05, "{}", fell.velocity.y);
+    assert!((1.5..2.5).contains(&(fell.position.y - first.position.y)));
+    yard.idle(20);
+    assert_eq!(disc(&yard, 0).velocity, fell.velocity);
+
+    let mut yard = Yard::new(&[(DISC, 4)]);
+    yard.hold_logged(&[Action::Fire], 31);
+    let (one, two) = (disc(&yard, 0), disc(&yard, 1));
+    assert_eq!(one.velocity, Vec3::new(0.0, 0.0, -42.0));
+    assert_eq!(two.velocity, one.velocity);
+    // His right first, then his left, 0.4 u apart.
+    assert!((one.position.x - two.position.x - 0.4).abs() < 0.05);
+}
+
+#[test]
+fn a_disc_lifts_higher_with_a_target_and_steers_down_on_to_it() {
+    let mut yard = Yard::new(&[(DISC, 0)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -12.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let velocity = yard.arsenal().shots[0].velocity;
+    assert!(velocity.y > 15.0, "{velocity}");
+    yard.idle(2);
+    let turned = yard.arsenal().shots[0].velocity;
+    assert!(turned.y < velocity.y);
+    yard.idle(90);
+    assert_eq!(yard.hitpoints(enemy), 975.0);
+}
+
+#[test]
+fn from_v3_a_disc_goes_on_through_an_enemy_and_is_sent_only_at_enemies_not_yet_picked() {
+    // Nothing near: it keeps its way through the enemy, as it did not at V1.
+    let mut yard = Yard::new(&[(DISC, 2)]);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    while yard.hitpoints(enemy) == 1000.0 {
+        yard.idle(1);
+    }
+    let way = yard.arsenal().shots[0].velocity;
+    yard.idle(1);
+    let on = yard.arsenal().shots[0].velocity;
+    assert_eq!((on.x, on.z), (way.x, way.z));
+
+    // A second enemy near the first: the disc goes on to it, then back to the first,
+    // whom it hasn't been sent at; then it has no one left to be sent at, nor has the next.
+    let mut yard = Yard::new(&[(DISC, 2)]);
+    let first = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 1000.0);
+    let second = yard.enemy(Vec3::new(6.0, 1.0, -8.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(100);
+    let damage = Armory::uya().get(DISC).unwrap().level(2).damage;
+    assert_eq!(yard.hitpoints(second), 1000.0 - damage);
+    assert_eq!(yard.hitpoints(first), 1000.0 - 2.0 * damage);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(100);
+    assert_eq!(yard.hitpoints(second), 1000.0 - damage);
 }
 
 #[test]
@@ -1323,6 +1499,187 @@ fn a_miniturret_lands_and_shoots_the_enemy_near_it() {
 }
 
 #[test]
+fn a_turrets_shots_leave_its_barrels() {
+    let barrels = |level| {
+        let mut yard = Yard::new(&[(TURRET, level)]);
+        yard.enemy(Vec3::new(0.0, 1.08, -16.0), 100_000.0);
+        yard.tick(&[Action::Fire], &[Action::Fire]);
+        let mut left = Vec::new();
+        for _ in 0..300 {
+            yard.idle(1);
+            let turret = yard
+                .arsenal()
+                .shots
+                .iter()
+                .find(|shot| matches!(shot.kind, ShotKind::Turret(_)))
+                .map(|shot| shot.position);
+            for shot in &yard.arsenal().shots {
+                let fresh = shot.ticks <= 1;
+                let flying = matches!(shot.kind, ShotKind::Pellet | ShotKind::Guided { .. });
+                let serial = shot.serial;
+                if let (true, true, Some(turret), false) = (
+                    fresh,
+                    flying,
+                    turret,
+                    left.iter().any(|(seen, _)| *seen == serial),
+                ) {
+                    left.push((serial, shot.position - turret));
+                }
+            }
+        }
+        left.into_iter().map(|(_, off)| off).collect::<Vec<_>>()
+    };
+    // The Miniturret's one, 1.08 u up and 0.72 u along its aim (its first tick's flight on
+    // top at 30 u/s).
+    let mini = barrels(0);
+    assert!(!mini.is_empty());
+    assert!(
+        mini.iter().all(|off| (off.y - 1.08).abs() < 0.05),
+        "{mini:?}"
+    );
+    assert!(mini.iter().all(|off| off.z < -0.7), "{mini:?}");
+    // The Megaturret's two in turn, 0.2 u to either side.
+    let mega = barrels(4);
+    assert!(mega.iter().any(|off| off.x > 0.15), "{mega:?}");
+    assert!(mega.iter().any(|off| off.x < -0.15), "{mega:?}");
+}
+
+#[test]
+fn six_megaturrets_may_land_and_nine_miniturrets() {
+    for (level, most) in [(0, 9), (4, 6)] {
+        let mut yard = Yard::new(&[(TURRET, level)]);
+        for _ in 0..12 {
+            yard.tick(&[Action::Fire], &[Action::Fire]);
+            yard.idle(90);
+        }
+        let landed = yard
+            .count_shots(|kind| matches!(kind, ShotKind::Turret(state) if state.landed.is_some()));
+        assert_eq!(landed, most, "level {level}");
+    }
+}
+
+#[test]
+fn from_v4_agents_jet_to_slots_round_him_and_land_when_their_rounds_are_gone() {
+    let hover = |yard: &Yard| -> Vec<(Vec3, Option<rac_combat::weapons::Hovering>)> {
+        yard.arsenal()
+            .shots
+            .iter()
+            .filter_map(|shot| match &shot.kind {
+                ShotKind::Agent(state) => Some((shot.position, state.hover)),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut yard = Yard::new(&[(AGENTS, 3)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(30);
+    let agents = hover(&yard);
+    assert_eq!(agents.len(), 4);
+    assert!(agents.iter().all(|(_, hovering)| hovering.is_some()));
+    let slots: Vec<usize> = agents.iter().map(|(_, h)| h.unwrap().slot).collect();
+    assert_eq!(slots, [0, 1, 2, 3]);
+    // By the slots: facing -z, his left is -x; behind him +z; over his head.
+    let (at, _) = agents[0];
+    let angle = 36f32.to_radians();
+    assert!((at.x + 1.475 * angle.cos()).abs() < 0.1, "{at}");
+    assert!((at.y - 1.475 * angle.sin()).abs() < 0.1, "{at}");
+    assert!((at.z - 0.5).abs() < 0.1, "{at}");
+    // A second press finds the slots taken: those go on foot beside him.
+    yard.idle(60);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(30);
+    let agents = hover(&yard);
+    assert_eq!(agents.len(), 8);
+    assert_eq!(agents.iter().filter(|(_, h)| h.is_some()).count(), 4);
+    // An enemy near a hoverer: no one on a slot chases it.
+    let before = agents[0].0;
+    yard.enemy(before + Vec3::new(0.0, -1.0, -6.0), 100_000.0);
+    yard.idle(30);
+    assert!(hover(&yard)[0].0.distance(before) < 0.5);
+
+    // With the shared rounds spent on an enemy, they come down and go on foot.
+    let mut yard = Yard::new(&[(AGENTS, 3)]);
+    yard.enemy(Vec3::new(4.0, 1.0, -6.0), 100_000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(30);
+    let mut ticks = 0;
+    while hover(&yard).iter().any(|(_, hovering)| hovering.is_some()) {
+        yard.idle(1);
+        ticks += 1;
+        assert!(ticks < 1900, "{:?}", hover(&yard));
+    }
+    // 120 rounds at one each 15 ticks from each of four.
+    assert!(ticks > 400, "{ticks}");
+}
+
+#[test]
+fn an_agent_too_far_from_him_ends() {
+    let mut yard = Yard::new(&[(AGENTS, 0)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let agents = |yard: &Yard| yard.count_shots(|kind| matches!(kind, ShotKind::Agent(_)));
+    for _ in 0..300 {
+        yard.idle(1);
+        if agents(&yard) > 0 {
+            break;
+        }
+    }
+    assert!(agents(&yard) > 0);
+    // Within its 25 u it stays; further, it goes.
+    let hero = yard.hero;
+    if let Some(mut body) = yard.app.world_mut().get_mut::<HeroBody>(hero) {
+        body.0.position.x += 20.0;
+    }
+    yard.idle(5);
+    assert!(agents(&yard) > 0);
+    if let Some(mut body) = yard.app.world_mut().get_mut::<HeroBody>(hero) {
+        body.0.position.x += 20.0;
+    }
+    yard.idle(5);
+    assert_eq!(agents(&yard), 0);
+}
+
+#[test]
+fn the_vortex_cannon_fires_a_slow_comet_that_finds_its_target_and_blasts_round_it() {
+    let mut yard = Yard::new(&[(SUCK, 4)]);
+    // One to take in, then too strong to take, and a second within its blast.
+    yard.enemy(Vec3::new(0.0, 1.0, -2.0), 5.0);
+    yard.hold(&[Action::Fire], 30);
+    assert_eq!(yard.arsenal().sucked, 1);
+    yard.idle(30);
+    let enemy = yard.enemy(Vec3::new(0.0, 1.0, -3.0), 1000.0);
+    let near = yard.enemy(Vec3::new(2.0, 1.0, -3.0), 1000.0);
+    let far = yard.enemy(Vec3::new(9.0, 1.0, -3.0), 1000.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let shot = yard.arsenal().shots[0].clone();
+    assert!(matches!(shot.kind, ShotKind::Comet { life: 680, .. }));
+    assert!((5.0..=7.5).contains(&shot.velocity.length()));
+    yard.idle(40);
+    let damage = Armory::uya().get(SUCK).unwrap().level(4).damage;
+    assert_eq!(yard.hitpoints(enemy), 1000.0 - damage);
+    assert_eq!(yard.hitpoints(near), 1000.0 - damage);
+    assert_eq!(yard.hitpoints(far), 1000.0);
+    assert!(yard.arsenal().shots.is_empty());
+}
+
+#[test]
+fn the_qwack_o_blitzers_duck_keeps_behind_and_above_him_with_nothing_to_peck() {
+    let mut yard = Yard::new(&[(QWACK, 4)]);
+    yard.enemy(Vec3::new(0.0, 1.0, -6.0), 10.0);
+    yard.hold(&[Action::Fire], 12);
+    yard.idle(200);
+    let duck = yard
+        .arsenal()
+        .shots
+        .iter()
+        .find(|shot| matches!(shot.kind, ShotKind::Duck(_)))
+        .map(|shot| shot.position)
+        .expect("the duck");
+    // He faces -z: 1 u behind him is +z, 2.8 u up, and 0.9 u to his left is -x.
+    let home = yard.body().0.position + Vec3::new(-0.9, 2.8, 1.0);
+    assert!(duck.distance(home) < 0.2, "{duck} for {home}");
+}
+
+#[test]
 fn a_holo_shield_stands_where_it_lands_and_takes_shots_crossing_it() {
     let mut yard = Yard::new(&[(HOLO, 0)]);
     yard.tick(&[Action::Fire], &[Action::Fire]);
@@ -1356,6 +1713,38 @@ fn a_holo_shield_stands_where_it_lands_and_takes_shots_crossing_it() {
     // One passing beside it isn't.
     let beside = from + Vec3::X * 3.0;
     assert_eq!(block_shot(&mut arsenal, &armory, beside, Vec3::Z), None);
+}
+
+#[test]
+fn a_hit_on_a_holo_shield_gives_the_glove_xp() {
+    let armory = Armory::uya();
+    let mut yard = Yard::new(&[(HOLO, 0)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(40);
+    let at = yard.arsenal().shots[0].position;
+    {
+        let mut arsenal = yard.arsenal_mut();
+        let from = at + Vec3::new(0.0, 1.0, -0.5);
+        assert!(block_shot(&mut arsenal, &armory, from, Vec3::Z).is_some());
+    }
+    yard.idle(1);
+    let row = armory.get(HOLO).unwrap().level(0).xp;
+    assert_eq!(yard.arsenal().gun(HOLO).unwrap().xp, row * 32 / 150);
+}
+
+#[test]
+fn the_shield_chargers_points_give_it_xp_and_it_goes_when_he_dies() {
+    let mut yard = Yard::new(&[(SHIELD, 0)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(30);
+    assert!(yard.body().0.shield.is_up());
+    let before = yard.body().0.shield.points;
+    yard.body_mut().0.shield.points = before - 10.0;
+    yard.idle(1);
+    assert_eq!(yard.arsenal().gun(SHIELD).unwrap().xp, 320);
+    yard.body_mut().0.state = rac_hero::HeroState::Dead;
+    yard.idle(1);
+    assert!(!yard.body().0.shield.is_up());
 }
 
 #[test]
@@ -1394,12 +1783,13 @@ fn a_v2_holo_shield_drains_a_near_enemy_to_heal_him_a_point_for_a_hit() {
 
 #[test]
 fn from_v2_agents_end_in_comets_and_from_v5_in_growing_blasts() {
-    for (level, comet) in [(1, true), (4, false)] {
+    // V5's stay by him, with their missiles, until those run out.
+    for (level, comet, ticks) in [(1, true, 400), (4, false, 2100)] {
         let mut yard = Yard::new(&[(AGENTS, level)]);
         let enemy = yard.enemy(Vec3::new(0.0, 1.0, -9.0), 10_000.0);
         yard.tick(&[Action::Fire], &[Action::Fire]);
         let mut seen = false;
-        for _ in 0..400 {
+        for _ in 0..ticks {
             yard.idle(1);
             seen |= yard.count_shots(|kind| match kind {
                 ShotKind::Comet { .. } => comet,
@@ -1685,7 +2075,7 @@ fn the_infecto_bomb_infects_every_enemy_near_where_it_bursts() {
 }
 
 #[test]
-fn the_megaturret_fires_guided_missiles_and_walks_back_to_a_far_hero() {
+fn the_megaturret_fires_guided_missiles_and_moves_to_a_far_hero() {
     let mut yard = Yard::new(&[(TURRET, 4)]);
     let enemy = yard.enemy(Vec3::new(0.0, 1.0, -16.0), 100_000.0);
     yard.tick(&[Action::Fire], &[Action::Fire]);
@@ -1697,7 +2087,9 @@ fn the_megaturret_fires_guided_missiles_and_walks_back_to_a_far_hero() {
     }
     assert!(guided > 0 && pellets == 0);
     assert!(yard.hitpoints(enemy) < 100_000.0);
-    // Carried 24 u off, with the enemy near him, it walks back to him.
+    // Carried 24 u off, with the enemy near him, it fades out and comes back by him (no
+    // leash ends it): 45 ticks fading out where it stands, then all at once within 3-6.5 u
+    // of him, 45 more fading in.
     let turret = |yard: &Yard| {
         yard.arsenal()
             .shots
@@ -1715,8 +2107,89 @@ fn the_megaturret_fires_guided_missiles_and_walks_back_to_a_far_hero() {
     if let Some(mut transform) = world.get_mut::<SimTransform>(enemy) {
         transform.translation = Vec3::new(at.x + 26.0, 0.0, at.z);
     }
-    yard.idle(400);
-    assert!(turret(&yard).distance(at) > 10.0, "{}", turret(&yard));
+    let mut last = at;
+    let mut moved_in_a_tick = 0.0_f32;
+    for _ in 0..400 {
+        yard.idle(1);
+        moved_in_a_tick = moved_in_a_tick.max(turret(&yard).distance(last));
+        last = turret(&yard);
+    }
+    assert!(moved_in_a_tick > 10.0, "{moved_in_a_tick}");
+    let hero = yard.body().0.position;
+    assert!(
+        last.with_y(0.0).distance(hero.with_y(0.0)) <= 6.5,
+        "{last} from {hero}"
+    );
+}
+
+#[test]
+fn a_turret_shot_ends_after_its_life_and_a_megaturret_lives_longer() {
+    // Nothing to shoot, it stands until its countdown from the hand runs out: 1200 ticks
+    // for the Miniturret, 1600 for the Megaturret.
+    for (level, life) in [(0, 1200), (4, 1600)] {
+        let mut yard = Yard::new(&[(TURRET, level)]);
+        yard.tick(&[Action::Fire], &[Action::Fire]);
+        // It leaves the hand 20 ticks after the press.
+        yard.idle(20);
+        let standing = |yard: &Yard| {
+            yard.arsenal()
+                .shots
+                .iter()
+                .any(|shot| matches!(shot.kind, ShotKind::Turret(_)))
+        };
+        assert!(standing(&yard));
+        yard.idle(life - 5);
+        assert!(standing(&yard), "level {level}");
+        yard.idle(10);
+        assert!(!standing(&yard), "level {level}");
+    }
+}
+
+#[test]
+fn only_the_five_turrets_nearest_him_fire() {
+    let mut yard = Yard::new(&[(TURRET, 0)]);
+    yard.enemy(Vec3::new(0.0, 1.0, -8.0), 100_000.0);
+    // Seven have landed, 1 to 7 u from him.
+    let turrets = (1..=7).map(|n| Shot {
+        serial: 100 + n,
+        weapon: TURRET,
+        level: 0,
+        position: Vec3::new(n as f32, 0.0, 0.0),
+        velocity: Vec3::ZERO,
+        ticks: 0,
+        damage: 1.0,
+        splash: 0.0,
+        mods: Mods::default(),
+        kind: ShotKind::Turret(TurretState {
+            landed: Some(100),
+            ..default()
+        }),
+    });
+    yard.arsenal_mut().shots.extend(turrets);
+    yard.idle(80);
+    let state = |n: u32| {
+        let turret = yard
+            .arsenal()
+            .shots
+            .iter()
+            .find(|shot| shot.serial == 100 + n)
+            .expect("the turret");
+        match turret.kind {
+            ShotKind::Turret(state) => state,
+            _ => panic!("not a turret"),
+        }
+    };
+    for near in 1..=5 {
+        assert!(state(near).fired > 0, "{near} u away");
+    }
+    // The two farthest stay folded, turned to nothing.
+    for far in 6..=7 {
+        assert_eq!(
+            (state(far).fired, state(far).landed),
+            (0, Some(0)),
+            "{far} u away"
+        );
+    }
 }
 
 #[test]
@@ -1743,6 +2216,22 @@ fn the_n90_hurricane_fires_every_10_ticks_and_its_bullets_bounce_seven_times() {
 }
 
 #[test]
+fn the_nitro_eruptors_launch_turns_down_five_degrees_or_up_ten_with_a_target() {
+    let launch = |level: u8, enemy: bool| {
+        let mut yard = Yard::new(&[(NITRO, level)]);
+        if enemy {
+            yard.enemy(Vec3::new(0.0, 1.0, -8.0), 1000.0);
+        }
+        yard.tick(&[Action::Fire], &[Action::Fire]);
+        let velocity = yard.arsenal().shots[0].velocity;
+        velocity.y.atan2(-velocity.z).to_degrees()
+    };
+    // Its muzzle is a little higher, which changes the arc by far less than the turn.
+    assert!((launch(0, false) - 5.0 - launch(4, false)).abs() < 1.5);
+    assert!((launch(4, true) - 10.0 - launch(0, true)).abs() < 1.5);
+}
+
+#[test]
 fn the_nitro_eruptors_blast_grows_to_eleven_units() {
     for (level, reaches) in [(3, false), (4, true)] {
         let mut yard = Yard::new(&[(NITRO, level)]);
@@ -1753,4 +2242,80 @@ fn the_nitro_eruptors_blast_grows_to_eleven_units() {
         assert!(yard.hitpoints(near) < 10_000.0);
         assert_eq!(yard.hitpoints(far) < 10_000.0, reaches, "V{}", level + 1);
     }
+}
+
+#[test]
+fn dls_guns_parse_with_ten_levels_and_take_their_upgraded_names_at_v10() {
+    let armory = Armory::dl();
+    for def in &armory.weapons {
+        assert_eq!(def.levels.len(), 10, "{}", def.name);
+        assert_eq!(def.levels[9].xp, 0, "{}", def.name);
+        assert_eq!(def.name_at(8), def.name);
+        assert_eq!(def.name_at(9), def.upgraded_name);
+    }
+}
+
+#[test]
+fn the_magma_cannon_hits_with_rows_of_lines_a_tick_apart_and_no_shot_flies() {
+    let armory = Armory::dl();
+    let cannon = armory.find("Magma Cannon").unwrap();
+    let def = armory.get(cannon).unwrap();
+    let damage = def.level(0).damage;
+
+    let mut yard = Yard::with_armory(armory.clone(), &[(cannon, 0)]);
+    let ahead = yard.target(Vec3::new(0.25, 0.6, -10.0), damage * 1000.0);
+    let past = yard.target(Vec3::new(0.25, 0.6, -40.0), damage);
+    let log = yard.hold_logged(&[Action::Fire], 1);
+    let first = log
+        .iter()
+        .flat_map(|(_, events)| events)
+        .filter(|event| matches!(event.kind, GunEventKind::Ray { .. }));
+    // The middle row: 3 lines a side and the middle one.
+    assert_eq!(first.count(), 7);
+    assert!(yard.hitpoints(ahead) < damage * 1000.0);
+    assert_eq!(yard.hitpoints(past), damage);
+    assert!(yard.arsenal().shots.is_empty());
+
+    // Two rows of 6 the next tick, one of 6 and one of 7 the tick after, and that's all
+    // until its rate lets it fire again.
+    let log = yard.hold_logged(&[Action::Fire], 2);
+    let rays: Vec<usize> = log
+        .iter()
+        .map(|(_, events)| {
+            events
+                .iter()
+                .filter(|event| matches!(event.kind, GunEventKind::Ray { .. }))
+                .count()
+        })
+        .collect();
+    assert_eq!(rays, [12, 13]);
+    let log = yard.hold_logged(&[Action::Fire], 26);
+    assert!(log.iter().all(|(_, events)| events.is_empty()));
+    let log = yard.hold_logged(&[Action::Fire], 2);
+    assert!(log.iter().any(|(_, events)| !events.is_empty()));
+}
+
+#[test]
+fn from_v10_a_dual_raptors_bullet_lives_longer_and_goes_on_from_the_world_four_times() {
+    let armory = Armory::dl();
+    let vipers = armory.find("Dual Vipers").unwrap();
+
+    let mut yard = Yard::with_armory(armory.clone(), &[(vipers, 8)]);
+    yard.hold(&[Action::Fire], 1);
+    match yard.arsenal().shots[0].kind {
+        ShotKind::Bullet { lifetime, bounces } => assert_eq!((lifetime, bounces), (35, 0)),
+        ref other => panic!("{other:?}"),
+    }
+    let mut yard = Yard::with_armory(armory.clone(), &[(vipers, 9)]);
+    yard.hold(&[Action::Fire], 1);
+    match yard.arsenal().shots[0].kind {
+        ShotKind::Bullet { lifetime, bounces } => {
+            assert!((104..=105).contains(&lifetime), "{lifetime}");
+            assert_eq!(bounces, 4);
+        }
+        ref other => panic!("{other:?}"),
+    }
+    // It flies 70 u/s.
+    let speed = yard.arsenal().shots[0].velocity.length();
+    assert!((speed - 70.0).abs() < 0.01, "{speed}");
 }

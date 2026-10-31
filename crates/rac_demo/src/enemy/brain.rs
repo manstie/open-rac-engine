@@ -349,7 +349,7 @@ pub fn afflict(enemy: &mut EnemyMotion, affliction: Affliction) {
     match affliction {
         Affliction::Infected { ticks } => enemy.infected = enemy.infected.max(ticks),
         Affliction::Duck => enemy.duck = true,
-        Affliction::Swallowed { .. } | Affliction::Sucked => return,
+        Affliction::Swallowed { .. } | Affliction::Sucked | Affliction::Frozen => return,
     }
     enemy.target = None;
     enemy.foe = None;

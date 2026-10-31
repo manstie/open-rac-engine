@@ -18,8 +18,8 @@ use super::{
     aim::{GunTarget, assist_target, assist_targets, bend, first_target, view_point},
     arsenal::{Arsenal, Hand, Sights},
     def::{
-        AimAssist, Armory, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Scope, Stream,
-        Timing, WeaponDef, WeaponId,
+        AimAssist, Armory, Cone, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Scope,
+        Stream, Timing, WeaponDef, WeaponId,
     },
     grab, hand,
     ring::RingInput,
@@ -57,6 +57,8 @@ pub struct Outcome {
     pub shield: Option<f32>,
     /// Health the guns gave him back (the Holo Shield's, from V2).
     pub heal: u32,
+    /// XP for things other than kills: a shield's taking a hit.
+    pub xp: Vec<(WeaponId, u32)>,
 }
 
 /// A gun afflicted a target ([`Affliction`]).
@@ -110,6 +112,8 @@ pub struct GunInput<'a> {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Trigger {
     pub(super) cooldown: u32,
+    /// The [`Cone`] tick to test next, while a shot's rows are going out.
+    pub(super) cone: Option<usize>,
     /// Ticks to the next shot while the button is held ([`Timing::Repeat`]).
     pub(super) repeat: u32,
     /// Ticks the fire button has been held.
@@ -146,21 +150,29 @@ pub(crate) struct Trigger {
     pub(super) dry: bool,
 }
 
-/// The states a gun fires in. The game's list isn't read: these are the ones where he has
-/// his hands free [placeholder].
+/// The states a gun fires in: all but those that set UYA's no-firing flag (0x1A71CD,
+/// `weapons.md`, "When a gun may fire"), which `hero_change_state` sets for the ledge
+/// states, the hand's update while swimming and the fall out of the level's update; the
+/// attacks and death put the gun away. DL's charge and its bounce aren't read.
 fn can_fire_in(state: HeroState) -> bool {
-    matches!(
+    !matches!(
         state,
-        HeroState::Idle
-            | HeroState::Look
-            | HeroState::Walk
-            | HeroState::Skid
-            | HeroState::Crouch
-            | HeroState::Fall
-            | HeroState::Jump(_)
-            | HeroState::DoubleJump
-            | HeroState::Glide
-            | HeroState::Grind
+        HeroState::LedgeGrab
+            | HeroState::LedgeHang
+            | HeroState::LedgeShimmy(_)
+            | HeroState::SurfaceSwim
+            | HeroState::SurfaceIdle
+            | HeroState::UnderwaterSwim
+            | HeroState::UnderwaterIdle
+            | HeroState::UnderwaterFast
+            | HeroState::FallOut
+            | HeroState::Combo(_)
+            | HeroState::JumpAttack
+            | HeroState::Throw
+            | HeroState::GrindAttack(_)
+            | HeroState::Dead
+            | HeroState::Charge
+            | HeroState::Bounce
     )
 }
 
@@ -219,7 +231,17 @@ pub fn step(
     } else {
         0
     };
-    arsenal.fire_ticks = arsenal.fire_ticks.saturating_sub(1);
+    // A held gun fires until its button is let go (`hero_gun_update` stops it then, and
+    // its animation's end doesn't); any other's firing animation runs out.
+    let held_on = input.held(Action::Fire)
+        && arsenal
+            .hand
+            .gun()
+            .and_then(|weapon| armory.get(weapon))
+            .is_some_and(|def| def.held);
+    if !held_on {
+        arsenal.fire_ticks = arsenal.fire_ticks.saturating_sub(1);
+    }
     let mut ready_now = false;
     arsenal.sustain = None;
     if let Hand::Gun { weapon, ticks } = arsenal.hand
@@ -240,6 +262,7 @@ pub fn step(
             FireMode::Hitscan(fire) => {
                 hitscan(arsenal, armory, &gun, fire, gun_input, rng, &mut out)
             }
+            FireMode::Cone(fire) => cone(arsenal, armory, &gun, fire, gun_input, &mut out),
             FireMode::Projectile(fire) => {
                 projectile(arsenal, armory, &gun, fire, gun_input, rng, &mut out);
             }
@@ -263,7 +286,9 @@ pub fn step(
             FireMode::Rift(fire) => {
                 grab::rift(arsenal, armory, &gun, fire, gun_input, rng, &mut out)
             }
-            FireMode::Suck(fire) => grab::suck(arsenal, armory, &gun, fire, gun_input, &mut out),
+            FireMode::Suck(fire) => {
+                grab::suck(arsenal, armory, &gun, fire, gun_input, rng, &mut out)
+            }
             FireMode::Beam(fire) => grab::beam(arsenal, armory, &gun, fire, gun_input, &mut out),
             FireMode::Turret(fire) => {
                 thrown::turret(arsenal, armory, &gun, fire, gun_input, &mut out);
@@ -322,6 +347,7 @@ pub fn step(
         &mut out,
     );
     hand::shield_tick(arsenal, armory, gun_input, rng, &mut out);
+    out.xp.append(&mut arsenal.pending_xp);
 
     let in_hand = arsenal.hand.gun().and_then(|weapon| armory.get(weapon));
     let firing = in_hand.is_some() && arsenal.fire_ticks > 0;
@@ -330,7 +356,7 @@ pub fn step(
         .gun()
         .and_then(|weapon| arsenal.gun(weapon))
         .map_or(0, |gun| gun.level);
-    let assisted = in_hand.and_then(|def| head_target(def, level, gun_input, armory));
+    let assisted = in_hand.and_then(|def| head_target(def, level, firing, gun_input, armory));
     let target = assisted.map(|(_, at)| at);
     let scope = in_hand.and_then(|def| def.sight.scope.as_ref());
     let (zoom, scope_on) =
@@ -454,6 +480,7 @@ fn look_through_scope(
 fn head_target(
     def: &WeaponDef,
     level: u8,
+    firing: bool,
     gun_input: &GunInput,
     armory: &Armory,
 ) -> Option<(Entity, Vec3)> {
@@ -465,8 +492,7 @@ fn head_target(
     if gun_input.lock.is_some() || strafing {
         return None;
     }
-    let [right, up, forward] = armory.rules.muzzle;
-    let muzzle = hero.position + Quat::from_rotation_y(hero.yaw) * Vec3::new(right, up, -forward);
+    let muzzle = def.muzzle_at(armory, level, hero, firing);
     let picked = assist_targets(
         gun_input.targets,
         muzzle,
@@ -578,9 +604,7 @@ impl<'a> Gun<'a> {
         let hero = gun_input.hero;
         let level = arsenal.gun(weapon).map_or(0, |gun| gun.level);
         let stats = def.level(level);
-        let rotation = Quat::from_rotation_y(hero.yaw);
-        let [right, up, forward] = armory.rules.muzzle;
-        let muzzle = hero.position + rotation * Vec3::new(right, up, -forward);
+        let muzzle = def.muzzle_at(armory, level, hero, arsenal.fire_ticks > 0);
         let lock = gun_input.lock.filter(|(entity, _)| {
             gun_input
                 .targets
@@ -845,7 +869,7 @@ fn hitscan_hit(
     let aim = gun.aim(gun.muzzle, armory);
     for target in ball(gun_input.targets, gun.muzzle, fire.ball_radius) {
         out.hits
-            .push(gun.hit(target.entity, damage, aim * fire.push));
+            .push(gun.hit(target.entity, damage, aim * fire.ball_push));
     }
     let mut rays = Vec::new();
     // Rays within the spread of the aim, turned any way round it.
@@ -875,10 +899,17 @@ fn hitscan_hit(
         let reach = match target {
             Some((index, t)) => {
                 let struck = &gun_input.targets[index];
+                let reached = t * fire.ray_length;
+                let share = fire
+                    .falloff
+                    .iter()
+                    .rev()
+                    .find(|&&(from, _)| reached >= from)
+                    .map_or(1.0, |&(_, share)| share);
                 // As read, only the ball's hits get the shock mod's check.
                 out.hits.push(Hit {
                     shock: false,
-                    ..gun.hit(struck.entity, damage, direction * fire.push)
+                    ..gun.hit(struck.entity, damage * share, direction * fire.push)
                 });
                 t
             }
@@ -892,6 +923,88 @@ fn hitscan_hit(
             },
         );
     }
+}
+
+/// DL's Magma Cannon: when it fires, the rows of lines of `fire.rows`, one entry a tick.
+fn cone(
+    arsenal: &mut Arsenal,
+    armory: &Armory,
+    gun: &Gun,
+    fire: &Cone,
+    gun_input: &GunInput,
+    out: &mut Outcome,
+) {
+    let trigger = &mut arsenal.trigger;
+    trigger.cooldown = trigger.cooldown.saturating_sub(1);
+    let held = gun_input.input.held(Action::Fire);
+    if held && gun.ready && trigger.cooldown == 0 && trigger.cone.is_none() {
+        if !take_shot(arsenal, armory, gun, out) {
+            run_dry(arsenal);
+            return;
+        }
+        let trigger = &mut arsenal.trigger;
+        trigger.cooldown = Timing::Rate(fire.rate).ticks();
+        trigger.cone = Some(0);
+        if let Some((entity, at)) = gun.lock
+            && at.distance(gun.muzzle) <= fire.range
+        {
+            let aim = (at - gun.muzzle).normalize_or(gun.facing);
+            out.hits.push(gun.hit(entity, gun.damage, aim * fire.push));
+        }
+    }
+    let trigger = &mut arsenal.trigger;
+    let Some(tick) = trigger.cone else {
+        return;
+    };
+    trigger.cone = (tick + 1 < fire.rows.len()).then_some(tick + 1);
+    let aim = gun.aim(gun.muzzle, armory);
+    let flat_right = Vec3::new(-aim.z, 0.0, aim.x).normalize_or(Vec3::X);
+    let step = fire.fan_degrees / fire.per_side.max(1) as f32;
+    for row in fire.rows.get(tick).into_iter().flatten() {
+        let raised = Quat::from_axis_angle(flat_right, row.up_degrees.to_radians()) * aim;
+        let per_side = fire.per_side as i32;
+        let lines = if row.middle {
+            -per_side..per_side + 1
+        } else {
+            -per_side..per_side
+        };
+        for line in lines {
+            let degrees = if row.middle {
+                line as f32 * step
+            } else {
+                (line as f32 + 0.5) * step
+            };
+            let direction = Quat::from_rotation_y(degrees.to_radians()) * raised;
+            cone_line(gun, fire, direction, gun_input, out);
+        }
+    }
+}
+
+/// One line of a [`Cone`]: what it reaches first takes a hit.
+fn cone_line(gun: &Gun, fire: &Cone, direction: Vec3, gun_input: &GunInput, out: &mut Outcome) {
+    let line = direction * fire.range;
+    let solid = gun_input
+        .world
+        .cast_ray(gun.muzzle, line)
+        .map_or(1.0, |hit| hit.fraction);
+    let target = first_target(gun_input.targets, gun.muzzle, gun.muzzle + line, |_| true)
+        .filter(|&(_, t)| t <= solid);
+    let reach = match target {
+        Some((index, t)) => {
+            let struck = &gun_input.targets[index];
+            out.hits
+                .push(gun.hit(struck.entity, gun.damage, direction * fire.push));
+            t
+        }
+        None => solid,
+    };
+    out.event(
+        gun.weapon,
+        GunEventKind::Ray {
+            from: gun.muzzle,
+            to: gun.muzzle + line * reach,
+        },
+    );
 }
 
 /// The N60 Storm (0x3A5928) and Flux Rifle (0x345350): a shot that flies, on the gun's
@@ -1075,8 +1188,29 @@ fn lobbed(
             )?;
             Some(gun_input.targets[index].centre)
         });
-    let aim_point = target.unwrap_or(gun.muzzle + gun.facing * fire.reach);
-    let velocity = lob(gun.muzzle, aim_point, gun.facing, fire);
+    let aim_point = target.unwrap_or_else(|| {
+        let strafing = gun_input.input.held(Action::Strafe);
+        let (way, reach) = gun_input
+            .view
+            .filter(|_| strafing)
+            .map_or((gun.facing, fire.reach), |view| {
+                lob_from_view(&view, hero.position.y, fire.reach, gun.facing)
+            });
+        gun.muzzle + way * reach
+    });
+    let left = Vec3::Y.cross(gun.facing).normalize_or_zero();
+    let turn = fire
+        .tilt
+        .filter(|tilt| gun.level >= tilt.from_level)
+        .map_or(Quat::IDENTITY, |tilt| {
+            let degrees = if target.is_some() {
+                -tilt.aimed_up_degrees
+            } else {
+                tilt.down_degrees
+            };
+            Quat::from_axis_angle(left, degrees.to_radians())
+        });
+    let velocity = lob(gun.muzzle, aim_point, gun.facing, turn, fire);
     let serial = arsenal.next_serial();
     arsenal.shots.push(gun.shot(
         serial,
@@ -1086,9 +1220,24 @@ fn lobbed(
     ));
 }
 
+/// With the strafe held and nothing to lob at (0x36EA80): the camera's way across the
+/// ground and how far off it meets his ground, up to `reach`, eased towards `reach`.
+fn lob_from_view(view: &View, ground: f32, reach: f32, facing: Vec3) -> (Vec3, f32) {
+    let way = Vec3::new(view.direction.x, 0.0, view.direction.z).normalize_or(facing);
+    let mut out = reach;
+    if view.direction.y < 0.0 {
+        let along = (ground - view.eye.y) / view.direction.y;
+        let across = (view.direction * along).with_y(0.0).length();
+        out = across.min(reach);
+    }
+    let left = 1.0 - out / reach;
+    (way, reach * (1.0 - left * left))
+}
+
 /// The launch that carries a charge from `from` across the ground at the arc's speed and
-/// up or down to `to`'s height under the aim's gravity (0x36EA80).
-fn lob(from: Vec3, to: Vec3, facing: Vec3, fire: &Lobbed) -> Vec3 {
+/// up or down to `to`'s height under the aim's gravity (0x36EA80), turned by `turn` before
+/// its speed is cut.
+fn lob(from: Vec3, to: Vec3, facing: Vec3, turn: Quat, fire: &Lobbed) -> Vec3 {
     let across = Vec3::new(to.x - from.x, 0.0, to.z - from.z);
     let distance = across.length();
     let way = if distance > 1e-4 {
@@ -1100,7 +1249,7 @@ fn lob(from: Vec3, to: Vec3, facing: Vec3, fire: &Lobbed) -> Vec3 {
     let seconds = (distance / fire.ground_speed).max(1.0 / 60.0);
     let rise = to.y - from.y;
     let up = (rise + 0.5 * fire.aim_gravity * seconds * seconds) / seconds;
-    let mut launch = way * fire.ground_speed + Vec3::Y * up;
+    let mut launch = turn * (way * fire.ground_speed + Vec3::Y * up);
     if launch.length() > fire.max_launch {
         launch = launch.normalize() * fire.cut_launch;
     }
@@ -1293,6 +1442,26 @@ fn pick(trigger: &mut Trigger, best: Option<Entity>, fire: &Homing, targets: &[G
 mod tests {
     use super::*;
 
+    #[test]
+    fn guns_fire_on_a_zip_line_and_knocked_back_but_not_on_a_ledge_or_swimming() {
+        for state in [
+            HeroState::ZipLine,
+            HeroState::Hit,
+            HeroState::Grind,
+            HeroState::Glide,
+        ] {
+            assert!(can_fire_in(state), "{state:?}");
+        }
+        for state in [
+            HeroState::LedgeHang,
+            HeroState::SurfaceSwim,
+            HeroState::UnderwaterIdle,
+            HeroState::FallOut,
+        ] {
+            assert!(!can_fire_in(state), "{state:?}");
+        }
+    }
+
     fn nitro() -> Lobbed {
         match &Armory::uya().weapons[2].fire {
             FireMode::Lobbed(fire) => fire.clone(),
@@ -1305,7 +1474,7 @@ mod tests {
         let fire = nitro();
         let from = Vec3::new(0.0, 1.0, 0.0);
         let to = Vec3::new(0.0, 0.0, -8.0);
-        let launch = lob(from, to, Vec3::NEG_Z, &fire);
+        let launch = lob(from, to, Vec3::NEG_Z, Quat::IDENTITY, &fire);
         // 12.5 u/s across the ground.
         assert!((Vec2::new(launch.x, launch.z).length() - 12.5).abs() < 1e-4);
         let seconds = 8.0 / 12.5;
@@ -1317,8 +1486,48 @@ mod tests {
     fn a_launch_too_fast_is_cut() {
         let fire = nitro();
         // Far above: the upward speed needed is well past 30 u/s.
-        let launch = lob(Vec3::ZERO, Vec3::new(0.0, 40.0, -1.0), Vec3::NEG_Z, &fire);
+        let launch = lob(
+            Vec3::ZERO,
+            Vec3::new(0.0, 40.0, -1.0),
+            Vec3::NEG_Z,
+            Quat::IDENTITY,
+            &fire,
+        );
         assert!((launch.length() - fire.cut_launch).abs() < 1e-4);
+    }
+
+    #[test]
+    fn with_the_strafe_held_a_lob_goes_where_the_view_meets_the_ground_eased_towards_its_reach() {
+        let view = |eye: Vec3, direction: Vec3| View {
+            setting: CameraSetting::ThirdPerson,
+            fov: 1.0,
+            eye,
+            direction: direction.normalize(),
+        };
+        // Looking 45 degrees down from 3 u up: 3 u off, a quarter of the 12 u.
+        let (way, reach) = lob_from_view(
+            &view(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, -1.0, 0.0)),
+            0.0,
+            12.0,
+            Vec3::NEG_Z,
+        );
+        assert!(way.distance(Vec3::X) < 1e-5);
+        assert!((reach - 12.0 * (1.0 - 0.75 * 0.75)).abs() < 1e-4, "{reach}");
+        // Looking up, or far: all of it.
+        let (_, reach) = lob_from_view(
+            &view(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, 0.2, 0.0)),
+            0.0,
+            12.0,
+            Vec3::NEG_Z,
+        );
+        assert_eq!(reach, 12.0);
+        let (_, reach) = lob_from_view(
+            &view(Vec3::new(0.0, 30.0, 0.0), Vec3::new(1.0, -0.5, 0.0)),
+            0.0,
+            12.0,
+            Vec3::NEG_Z,
+        );
+        assert_eq!(reach, 12.0);
     }
 
     #[test]

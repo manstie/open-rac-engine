@@ -73,6 +73,9 @@ struct Args {
     /// RON file. Overrides the one saved in the settings, which the menus change.
     #[arg(long, value_name = "GAME|FILE")]
     moves: Option<String>,
+    /// Whose guns the hero carries: `uya` (the default) or `dl`, Deadlocked's read so far.
+    #[arg(long, value_name = "GAME")]
+    guns: Option<String>,
     /// The hero's camera: `third-person`, `lock-strafe` or `first-person`. Without it, the
     /// one saved in the settings, which the menus change, or else the game's own (third
     /// person for UYA, lock-strafe for DL).
@@ -161,6 +164,11 @@ fn main() -> Result<AppExit> {
             }
             setting
         }),
+    })
+    .insert_resource(match args.guns.as_deref() {
+        None | Some("uya") => rac_combat::Armory::uya(),
+        Some("dl") => rac_combat::Armory::dl(),
+        Some(other) => anyhow::bail!("{other:?} isn't a game with guns: uya or dl"),
     })
     .insert_resource(rac_hero::HeroTuning(moves.1))
     .insert_resource(moves::ChosenMoves(moves.0))

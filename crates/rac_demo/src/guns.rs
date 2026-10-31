@@ -276,6 +276,14 @@ pub(crate) fn show_shots(
         };
         simulated.translation = shot.position;
         seen.push(*look);
+        // A Megaturret fades out and back as it moves; shrinking stands in for its alpha.
+        if let ShotKind::Turret(state) = shot.kind {
+            let fade = match draw.armory.get(shot.weapon).map(|def| &def.fire) {
+                Some(FireMode::Turret(fire)) => fire.mega.map_or(0, |mega| mega.fade_ticks),
+                _ => 0,
+            };
+            transform.scale = Vec3::splat(state.shown(fade));
+        }
         if facing {
             if let Some(turn) = way(shot.velocity) {
                 simulated.rotation = turn;

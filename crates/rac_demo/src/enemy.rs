@@ -196,11 +196,16 @@ fn run_enemies(
             fallen.push((i, None));
         }
     }
+    // Frozen, it pays its XP to the gun and no bolts (0x304A18).
+    let mut frozen = Vec::new();
     for afflict in afflicted.read() {
         let Ok(i) = order.binary_search(&afflict.target) else {
             continue;
         };
         brain::afflict(&mut enemies[i].2.0, afflict.affliction);
+        if afflict.affliction == Affliction::Frozen {
+            frozen.push(i);
+        }
         // A duck is no longer an enemy for the guns that take only enemies.
         if afflict.affliction == Affliction::Duck {
             commands.entity(enemies[i].0).remove::<Hostile>();
@@ -217,6 +222,9 @@ fn run_enemies(
         }
         // Out of reach of the wrench, guns and lock-on until it comes back.
         commands.entity(*entity).remove::<(Hurtbox, AimTarget)>();
+        if frozen.contains(&i) {
+            continue;
+        }
         let def = bestiary.get(enemy.kind);
         let at = body.0.position + Vec3::Y * (def.height / 2.0);
         // A hero's kill pays his doubling (`moby_killed`).

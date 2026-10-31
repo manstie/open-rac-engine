@@ -18,7 +18,29 @@
         quick_switch_guns: 3,
         recent_guns: 8,
         bought_level: 5, // "Owning, ammo, levels and XP": Mega is bought [code]
-        muzzle: (0.25, 1.0, 0.5), // [placeholder]: the hand joint's place isn't read
+        // where his hand is as a gun fires, right, up and forward of his feet
+        // [computed from the hero's sequences on the disc, checked against the firing
+        // traces]. Standing, as a gun first fires from its rest, the barrel rises 0.2 u a
+        // unit along it; once it fires the hand follows the standing sequence: 49 at its
+        // middle keyframes, 51 and 46 about a hold, and 103 as the Shock Blaster's rays
+        // leave, 5 frames after its press (its rise taken into the place). A glove lets go
+        // 20 frames into its 41, or its arms' 61 [code].
+        hands: (
+            ready: (0.3, 0.56, 0.05),
+            ready_slope: 0.2,
+            firing: [
+                (49, (0.26, 0.43, -0.23)),
+                (51, (0.26, 0.6, 0.53)),
+                (46, (0.2, 0.3, 0.38)),
+                (103, (0.3, 0.58, -0.2)),
+            ],
+            moving: (0.29, 0.59, 0.09), // traced, walking
+            air: (0.32, 0.77, 0.1), // traced, jumping
+            crouched: [(65, (0.33, 0.26, 0.02)), (57, (0.33, 0.3, 0.4))],
+            thrown: (0.39, 1.17, -0.12),
+            thrown_moving: (0.05, 0.78, 0.43),
+            thrown_crouched: (0.05, 0.48, 0.43), // 61's hand, lowered as he crouches [simplified]
+        ),
         // "How guns aim with it": aim_bend_to_point's 80°, a tenth within 4 u; the aim
         // point is where the camera's 30 u line meets something (fps_cam_find_target)
         // [code].
@@ -73,12 +95,14 @@
             pickup_rounds: 4,
             held: false,
             steady: true,
-            ready_ticks: 23,
-            // At least 35: the trace's next shot still found it playing [placeholder].
-            fire_ticks: 40,
+            ready_ticks: 19, // the gun out 23 frames [code]
+            // Sequence 103 as played: the 2 frames' blend, then 45 keyframes of 2 [data]; the
+            // trace kept it 59 frames without another shot.
+            fire_ticks: 92,
             look_wait_ticks: 40,
             // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
             pose: (hold: TwoHands, standing: Some(103)),
+            muzzle: [(0, (0.33, 0.95)), (4, (0.13, 0.73))], // point 0 [data]
             levels: [ // "Numbers" [data]
                 (damage: 2.0, ammo: 30, xp: 150, round_price: 5),
                 (damage: 2.5, ammo: 35, xp: 400, round_price: 5),
@@ -96,13 +120,15 @@
                 busy_hit_ticks: 5,
                 after_hit_ticks: 20,
                 ball_radius: 1.5,
+                ball_push: 1.75, // [code]
                 ray_length: 32.0,
+                falloff: [(10.0, 0.75), (14.0, 0.5), (20.0, 0.125)], // 0x36B888 [code]
                 random_rays: [(0, 20), (4, 23)], // the Shock Cannon's 0x385948
                 spread_degrees: 17.0,
                 down_rays: 3,
                 down_degrees: 15.0,
                 down_spread_degrees: 20.0,
-                push: 1.0, // "knocks enemies back" [text; placeholder strength]
+                push: 1.5, // each ray's, along it [code]
                 charge: Some((from_level: 1, try_ticks: 20, ticks: 78, damage_scale: 3.0)),
             )),
             effects: "shock_blaster",
@@ -119,11 +145,12 @@
             pickup_rounds: 15,
             held: true,
             steady: true,
-            ready_ticks: 23, // out more than 22 frames
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 0,
             // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
             pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
+            muzzle: [(0, (0.2, 0.6))], // its code's two points, side by side (`barrels`) [code]
             levels: [
                 (damage: 1.5, ammo: 150, xp: 200, round_price: 2),
                 (damage: 1.75, ammo: 175, xp: 500, round_price: 2),
@@ -143,11 +170,12 @@
                 world_radius: 0.6,
                 target_radius: 1.0,
                 muzzle_ball: 0.0,
-                // Two muzzle points in turn (0x1DE340, 0x1DE350) [placeholder places].
-                barrels: [(-0.08, 0.0, 0.0), (0.08, 0.0, 0.0)],
+                // Two muzzle points in turn (0x1DE340, then 0x1DE350): 0.2 u either side of
+                // the barrel [code; which side is his right isn't sure].
+                barrels: [(0.2, 0.0, 0.0), (-0.2, 0.0, 0.0)],
                 assist: Some((range: 35.0, near: (45.0, 45.0), far: (3.0, 6.0))),
                 scope: None,
-                push: 0.3, // [placeholder]
+                push: 0.58, // half its velocity a frame, 0.5–0.67 by its speed [code]
                 hurricane: Some((
                     from_level: 4,
                     repeat_ticks: 10,
@@ -173,11 +201,12 @@
             pickup_rounds: 1,
             held: false,
             steady: false,
-            ready_ticks: 23, // "the usual conditions"
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 40,
             // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.18, 0.82)), (4, (0.18, 0.99))], // point 0 [data]
             levels: [
                 (damage: 10.0, ammo: 8, xp: 200, round_price: 50),
                 (damage: 12.0, ammo: 8, xp: 500, round_price: 50),
@@ -200,12 +229,13 @@
                 aim_gravity: 16.0,
                 max_launch: 30.0, // 0.5 u a frame
                 cut_launch: 22.0,
+                tilt: Some((from_level: 4, down_degrees: 5.0, aimed_up_degrees: 10.0)),
                 gravity: 12.0,
                 target_radius: 1.5,
                 fuse_ticks: 10,
                 ground_after_ticks: 40,
                 ground_probe: 1.0,
-                lifetime: 300, // [placeholder]: no limit read
+                lifetime: 300, // the kit's own: the game's charge has none [code]
                 blast: (
                     flash_ticks: 12,
                     grow_ticks: 20,
@@ -247,11 +277,12 @@
             pickup_rounds: 15,
             held: true,
             steady: true,
-            ready_ticks: 23, // [placeholder]: not read for this gun
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 0,
             // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.23, 1.09)), (4, (0.05, 1.15))], // point 0 [data]
             levels: [
                 (damage: 8.0, splash: 8.0, ammo: 150, xp: 600, round_price: 1),
                 (damage: 12.0, splash: 12.0, ammo: 150, xp: 1500, round_price: 3),
@@ -283,6 +314,7 @@
                 gravity: 21.6,
                 splash_radius: 1.5,
                 nozzle_radius: 0.5,
+                freezes_from: Some(4),
             )),
             effects: "lava",
         ),
@@ -296,11 +328,12 @@
             pickup_rounds: 2,
             held: false,
             steady: false,
-            ready_ticks: 28,
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 24, // the gun out 28 frames [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 0,
             // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.22, 1.1))], // point 0 [data]
             levels: [
                 (damage: 25.0, splash: 6.0, ammo: 20, xp: 800, round_price: 20),
                 (damage: 30.0, splash: 6.0, ammo: 20, xp: 2400, round_price: 20),
@@ -320,11 +353,12 @@
                 pick_ticks: 5,
                 drop_ticks: 5,
                 near_radius: 1.0,
-                near_ahead: 1.0, // "just ahead of the barrel" [placeholder]
+                // 1 u along the barrel from the gun's origin [code], which is 0.1 u short of
+                // its muzzle.
+                near_ahead: -0.1,
                 speed: 60.0, // +0x4C
                 lifetime: 75,
-                homing_ticks: 294,
-                turn_degrees: 6.0, // [placeholder]: how it turns isn't read
+                leash: 75.0, // [code]
                 push: 1.5,
                 blast_radius: 0.75,
                 // "Annihilator": the blast's mines, the Bouncer's bomblets (gravity, life,
@@ -335,7 +369,7 @@
                         up_degrees: (50.0, 90.0),
                         speed: (4.0, 9.0),
                         radius: 0.125,
-                        bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                        bounce: (keep: 0.95, home_range: Some(7.0), home_speed: 4.0),
                         life: (240, 360),
                         armed_ticks: 70,
                         hit_radius: 2.0,
@@ -344,7 +378,7 @@
                         up_degrees: (50.0, 90.0),
                         speed: (4.0, 9.0),
                         radius: 0.125,
-                        bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                        bounce: (keep: 0.95, home_range: Some(7.0), home_speed: 4.0),
                         life: (240, 360),
                         armed_ticks: 70,
                         hit_radius: 2.0,
@@ -353,7 +387,7 @@
                         up_degrees: (40.0, 75.0),
                         speed: (4.0, 12.0),
                         radius: 0.25,
-                        bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                        bounce: (keep: 0.95, home_range: Some(7.0), home_speed: 4.0),
                         life: (240, 360),
                         armed_ticks: 70,
                         hit_radius: 7.0,
@@ -369,20 +403,22 @@
                     ))),
                 ],
                 // The Decimator's seven seekers, a fifth of the damage each, fanned ±80°,
-                // 1–3 u/s gaining 0.7–0.9 a tick to 15–20 u/s [code]; their search, turn,
-                // life and blast [placeholder], as the Megaturret's missiles.
+                // 1–3 u/s gaining 0.7–0.9 a tick to 15–20 u/s [code].
                 seekers: Some((
                     from_level: 4,
                     count: 7,
                     spread_degrees: 80.0,
-                    range: 30.0,
+                    range: 15.0, // [code]: each claims one, so they spread
+                    // "The small missile" [code]: this one weaves.
                     missile: (
                         share: 0.2,
                         speed: (1.0, 3.0),
                         accel: (0.7, 0.9),
                         top: (15.0, 20.0),
-                        turn_degrees: 6.0,
-                        lifetime: 100,
+                        turn: (0.03, 0.2),
+                        lifetime: 300,
+                        armed_ticks: 15,
+                        weave: true,
                         blast_radius: 1.0,
                     ),
                 )),
@@ -405,11 +441,12 @@
             crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
             held: false,
             steady: false,
-            ready_ticks: 23, // [placeholder]: not read for this gun
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 0,
             // "The hero's side of firing": rows +0x18, +0x24, +0x28, +0x2C [data].
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.14, 1.08))], // point 1 [data]
             levels: [
                 (damage: 15.0, ammo: 10, xp: 200, round_price: 50),
                 (damage: 20.0, ammo: 12, xp: 600, round_price: 50),
@@ -444,7 +481,7 @@
                     push: [(0, 1.0), (1, 1.75)],
                     shown: 100.0,
                 )),
-                push: 1.0, // [placeholder]
+                push: 1.0, // along its flight [code]
             )),
             effects: "flux",
             // "Aim indicators" [code, data]. The zoom (0x3444B0) [code]: 20° at V1-V2 and
@@ -475,10 +512,12 @@
             pickup_rounds: 2,
             held: true,
             steady: false,
-            ready_ticks: 23, // out more than 22 frames
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 0,
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            // 0.75 u along the barrel from its origin, 0.82 from V2 [code]; V5's class's point 0 [data].
+            muzzle: [(0, (0.0, 0.75)), (1, (0.0, 0.82)), (4, (0.0, 0.89))],
             levels: [
                 (damage: 9.0, ammo: 15, xp: 400, round_price: 20),
                 (damage: 12.0, ammo: 15, xp: 800, round_price: 20),
@@ -492,7 +531,6 @@
             mods: (),
             fire: Infect((
                 cooldown_ticks: 45,
-                below: 0.75,
                 speed: 12.0,
                 gravity: 14.58, // 0.00405 u a frame²
                 drag: 0.995,
@@ -527,10 +565,11 @@
             pickup_rounds: 2,
             held: false,
             steady: false,
-            ready_ticks: 23, // [placeholder]: not read for this gun
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 0,
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.1, 0.82)), (4, (0.02, 0.86))], // point 0 [data]
             levels: [
                 (damage: 10.0, splash: 5.0, ammo: 15, xp: 300, round_price: 5),
                 (damage: 12.0, splash: 5.0, ammo: 15, xp: 900, round_price: 5),
@@ -575,10 +614,11 @@
             pickup_rounds: 2,
             held: false,
             steady: false,
-            ready_ticks: 23,
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 0,
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.35, 1.1)), (4, (0.4, 1.2))], // its code's own, not a point [code, traced]
             levels: [
                 (damage: 25.0, ammo: 25, xp: 700, round_price: 10),
                 (damage: 30.0, ammo: 25, xp: 2100, round_price: 10),
@@ -596,10 +636,15 @@
                     (0, (range: 20.0, near: (45.0, 45.0), far: (30.5, 30.5))),
                     (3, (range: 35.0, near: (45.0, 45.0), far: (30.5, 30.5))),
                 ],
-                speed: 21.0, // +0x4C, 0.35 u a frame
-                side_degrees: 90.0,
-                side_aimed_degrees: 60.5,
-                curve_degrees: 2.0,
+                speed: [(0, 21.0), (4, 42.0)], // 0.35 and 0.7 u a frame [code, traced]
+                arc_below: 4, // lifted 22.5 degrees, it reaches about 2 u up and goes on 6 degrees down [traced]
+                lift_degrees: 22.5,
+                lift_aimed_degrees: 60.5,
+                gravity: 16.0, // 0.00444 u a frame squared, for 38 frames [traced]
+                fall_ticks: 38,
+                steer: 0.1,
+                chase_speed: 21.0,
+                barrels: [(0, 0.0), (4, 0.2)],
                 lifetime: [(0, 200), (3, 400)],
                 leash: 81.0,
                 radius: 1.0,
@@ -607,8 +652,9 @@
                 retarget_from: Some(1),
                 through_from: Some(2),
                 retarget_range: 10.0,
+                picked_ticks: 500,
                 end_blast: Some((from_level: 3, radius: 4.0, share: 0.5)),
-                split: Some((from_level: 4, most: 15, jitter: (0.1, 0.2))),
+                split: Some((from_level: 4, most: 15, jitter: (0.1, 0.2), crowded_leash: 50.0, deep: 4)),
             )),
             effects: "disc",
             // "Aim indicators" [code, data].
@@ -629,10 +675,11 @@
             crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
             held: false,
             steady: false,
-            ready_ticks: 23, // [placeholder]
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 111, // sequence 41 as played: the 11 frames' blend, then 25 keyframes of 4 [data]
             look_wait_ticks: 0,
             pose: (standing: Some(41), arms: Some(61), crouched: Some(41)),
+            muzzle: [(0, (0.0, 0.0))], // point 0, the hand itself [data]
             levels: [
                 (damage: 12.0, ammo: 6, xp: 400, round_price: 75),
                 (damage: 16.0, ammo: 6, xp: 1000, round_price: 75),
@@ -655,6 +702,22 @@
                 gravity: 11.0,
                 per_pod: 4,
                 direct_from: Some(3),
+                // 0x4C5220, 0x3BD298 [code]: 36 degrees apart from his left; 4 u/s squared and
+                // 10 u/s beyond 10 u.
+                hover: Some((
+                    slots: [(36.0, 1.475, 0.5), (72.0, 2.0, 1.0), (108.0, 2.2, 1.0), (144.0, 1.475, 0.5)],
+                    far: 10.0,
+                    far_gain: 4.0,
+                    far_top: 10.0,
+                    near_gain: (0.5, 1.0),
+                    near_top: (3.0, 6.0),
+                    land_gain: (1.0, 2.0),
+                    land_top: (3.0, 4.0),
+                    ahead: 5.0,
+                    below: 10.0,
+                    look: 0.2,
+                    landed: 0.1,
+                )),
                 spread: 0.5, // 0.25 to 0.75
                 // "Agents of Doom", the agent (0x3C0F78, 0x3BD298) [code]: the level search's
                 // 25 u for anything as it comes out, then 30 u for enemies, within 5° of
@@ -667,8 +730,9 @@
                     claim_ticks: 60,
                 ),
                 // walker_set_params' numbers by state [code]; the ray-fan path finding, the
-                // ledges and the coming out (7 u/s², 3 u/s) aren't followed [simplified];
-                // the idle loop taken as 60 ticks [placeholder].
+                // ledges and the coming out (7 u/s², 3 u/s) aren't followed [simplified].
+                // Frames 30, 35 and 59 of its idle sequence's 120 are its ticks 60, 70 and
+                // 118 of 240 [data].
                 moves: (
                     follow: (accel: 13.0, top: (6.5, 8.0), turn_accel: 0.2, turn_top: 12.0),
                     chase: (accel: 13.0, top: (5.5, 6.5), turn_accel: 0.2, turn_top: 12.0),
@@ -678,8 +742,8 @@
                     wander_stop: 0.4,
                     follow_beyond: 4.0,
                     idle_within: (1.0, 4.0),
-                    wander_ticks: (30, 35, 59),
-                    idle_cycle: 60,
+                    wander_ticks: (60, 70, 118),
+                    idle_cycle: 240,
                     wander_odds: 3,
                     wander_round: (2.0, 6.0),
                     wander_leave: 5.5,
@@ -689,7 +753,7 @@
                 reach: 2.0,
                 chase_ticks: 420,
                 life_ticks: 2000,
-                leash: 59.0, // [placeholder]
+                leash: 25.0, // tested every 60 frames [code]
                 end: [
                     (0, Blast(radius: 2.0, push: 0.0)),
                     (1, Comet(speed: (5.0, 7.5), life: 680, radius: 2.0, push: 1.0)),
@@ -699,13 +763,13 @@
                 // at 25 u/s at an enemy within 25 u (bearing 90°) in a clear line, jittered
                 // 0.05 u, 27 frames after it comes out, then every 30 (15 from V3); 50
                 // rounds each, a shared 120 at V4. From V5 by the hero, the small missile
-                // of a quarter of the damage every 80-120 frames, 40 rounds shared. The
-                // gun's height (joints 6-8) [placeholder].
+                // of a quarter of the damage every 80-120 frames, 40 rounds shared. Bullets
+                // leave its point 8 and missiles its points 6 and 7 [data].
                 gun: [
                     (1, Bullets(
                         range: 25.0,
                         bearing_degrees: 90.0,
-                        height: 0.6,
+                        height: 0.5,
                         jitter: 0.05,
                         speed: 25.0,
                         share: 0.03,
@@ -717,7 +781,7 @@
                     (2, Bullets(
                         range: 25.0,
                         bearing_degrees: 90.0,
-                        height: 0.6,
+                        height: 0.5,
                         jitter: 0.05,
                         speed: 25.0,
                         share: 0.03,
@@ -729,7 +793,7 @@
                     (3, Bullets(
                         range: 25.0,
                         bearing_degrees: 90.0,
-                        height: 0.6,
+                        height: 0.5,
                         jitter: 0.05,
                         speed: 25.0,
                         share: 0.03,
@@ -740,7 +804,7 @@
                     )),
                     (4, Missiles(
                         range: 25.0,
-                        height: 0.6,
+                        height: 0.7,
                         every: (80, 120),
                         rounds: 40,
                         missile: (
@@ -748,8 +812,8 @@
                             speed: (1.0, 3.0),
                             accel: (0.5, 0.9),
                             top: (12.0, 17.0),
-                            turn_degrees: 6.0,
-                            lifetime: 100,
+                            turn: (0.03, 0.2), // the small missile's [code]
+                            lifetime: 250, // [code]
                             blast_radius: 1.0,
                         ),
                     )),
@@ -767,10 +831,11 @@
             pickup_rounds: 1,
             held: false,
             steady: false,
-            ready_ticks: 23, // [placeholder]
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 0,
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.0, 0.7)), (4, (0.0, 1.0))], // its code's own, not a point [code]
             levels: [
                 (damage: 50.0, splash: 5.0, ammo: 8, xp: 800, round_price: 100),
                 (damage: 65.0, splash: 5.0, ammo: 8, xp: 2400, round_price: 100),
@@ -793,7 +858,7 @@
                 leash: 30.0,
                 reach: 9.0,
                 size: 0.5,
-                pull_ticks: 30, // [placeholder]: its spring's pull isn't modelled
+                pull: (7.0, 23.0), // [code]
                 // The Rift Ripper [code]; its bolt's life and push are the Hydra's.
                 ripper: Some((
                     from_level: 4,
@@ -818,10 +883,11 @@
             pickup_rounds: 1,
             held: false,
             steady: false,
-            ready_ticks: 23, // [placeholder]
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 111, // sequence 41 as played: the 11 frames' blend, then 25 keyframes of 4 [data]
             look_wait_ticks: 0,
             pose: (standing: Some(41), arms: Some(61), crouched: Some(41)),
+            muzzle: [(0, (0.02, 0.17))], // point 0 [data]
             levels: [
                 (damage: 10.0, splash: 5.0, ammo: 8, xp: 150, round_price: 20),
                 (damage: 15.0, splash: 5.0, ammo: 8, xp: 450, round_price: 20),
@@ -834,6 +900,7 @@
             ],
             mods: (),
             fire: Barrier((
+                hit_xp: (32, 150), // of the level's row +0x68 [code]
                 deploy: (
                     throw: (least: 1.5, most: 5.0, most_aimed: 8.0, ground_speed: 15.0, gravity: 11.0),
                     throw_ticks: 20,
@@ -863,6 +930,7 @@
                     from_level: 4,
                     react_ticks: 30,
                     every: 10,
+                    picked_ticks: 35,
                     range: 16.0,
                     share: 0.25,
                     accel: 25.0, // 0.4167 u a frame more each frame
@@ -890,9 +958,10 @@
             pickup_rounds: 3,
             held: false,
             steady: false,
-            ready_ticks: 0, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
             fire_ticks: 0,
             look_wait_ticks: 0,
+            muzzle: [(0, (0.28, 0.14))], // point 0, its handle at 0.3 of its size [data]
             levels: [
                 (damage: 2.0, splash: 2.0, ammo: 25, xp: 200, round_price: 3),
                 (damage: 2.5, splash: 2.5, ammo: 30, xp: 800, round_price: 3),
@@ -956,10 +1025,11 @@
             upgrade_price: 100000,
             held: true,
             steady: false,
-            ready_ticks: 16, // out more than 15 frames
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 12, // the gun out 16 frames [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 0,
             pose: (hold: TwoHands, standing: Some(46)),
+            muzzle: [(0, (0.0, 0.63)), (4, (0.0, 0.87))], // point 0 [data]
             levels: [
                 (damage: 10.0, splash: 10.0, ammo: 0, xp: 200),
                 (damage: 13.0, splash: 13.0, ammo: 0, xp: 600),
@@ -975,10 +1045,11 @@
                 capacity: [(0, 10), (1, 12), (2, 15), (3, 20)],
                 grab_every: 4,
                 vortex: 10.0, // ten 1 u links
-                // Balls at its first four links [placeholder: where on each link].
-                grabs: [(1.0, 1.2), (2.0, 1.4), (3.0, 1.7), (4.0, 1.9)],
-                // [placeholder]: the game asks each enemy's record (+0xF) whether it can
-                // be sucked in.
+                // Balls at its points 2, 4, 6 and 8 [code], the links taken as straight and
+                // 1 u long [simplified: they stretch to 2 u and blend in past the 5th].
+                grabs: [(2.0, 1.2), (4.0, 1.4), (6.0, 1.7), (8.0, 1.9)],
+                // [kit's own]: the game asks each enemy's record (+0xF), with no limit on
+                // its health; the kit's enemies have no such flag.
                 most_hitpoints: 10.0,
                 grab_damage: 1.0,
                 cooldown_ticks: 30,
@@ -993,6 +1064,8 @@
                 target_push: 2.0,
                 world_push: 3.0,
                 ricochet_from: Some(1),
+                // 10-15 u/s halved; 0.3 u a frame; 0.5 u/s squared; [code].
+                comet: Some((from_level: 4, speed: (5.0, 7.5), jitter: 0.15, pull: 18.0, gravity: 0.5, life: 680, radius: 3.0, push: 1.0)),
             )),
             effects: "suck",
             // "Aim indicators" [code, data].
@@ -1010,10 +1083,11 @@
             upgrade_price: 300000,
             held: true,
             steady: false,
-            ready_ticks: 23, // [placeholder]
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 40,
             pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
+            muzzle: [(0, (0.21, 0.6))], // its code's own, not a point [code]
             levels: [
                 (damage: 50.0, ammo: 0, xp: 1000),
                 (damage: 75.0, ammo: 0, xp: 3000),
@@ -1032,28 +1106,27 @@
                 near_degrees: 60.0,
                 near_height: 2.0,
                 hold_ticks: 30,
-                // The ducks (0x3D1728, 0x39DB60, 0x3D7998) [code unless marked]. Their
-                // walks are the game's animations, so their speeds are [placeholder].
+                // The ducks (0x3D1728, 0x39DB60, 0x3D7998) [code unless marked].
                 duck: [
                     (0, Waddle(
-                        speed: 1.5, // [placeholder]
+                        speed: 0.75, // its walker's top speed (0x3D2480)
                         turn_every: (120, 300),
                         ticks: 1400,
                         eggs: false,
                     )),
                     (1, Waddle(
-                        speed: 1.5, // [placeholder]
+                        speed: 0.75,
                         turn_every: (120, 300),
                         ticks: 1400,
                         eggs: true,
                     )),
                     (3, Soldier(
-                        waddle: 1.5, // [placeholder]
-                        speed: 4.0, // [placeholder]
+                        waddle: 0.25, // 0.0042 u a frame
+                        speed: 2.5, // 0.0417 u a frame
                         turn_every: (120, 300),
-                        look_every: 60, // [placeholder]: each time its idle animation ends
+                        look_every: 92, // its idle animations' mean length [data]
                         look_chance: 0.6,
-                        reach: 1.0, // [placeholder]: where its run ends
+                        reach: 1.0, // its run's 0.5 u sweep meeting the enemy [simplified]
                         radius: 3.0,
                         share: 0.2,
                     )),
@@ -1063,8 +1136,10 @@
                         speed: 13.0, // 0.2167 u a frame
                         back_speed: 7.0, // 6 to 8
                         near_speed: 4.5, // 3 to 6
-                        over: 2.0, // [placeholder]
-                        behind: 1.5, // [placeholder]
+                        // Slot 1 round him (0x4C5220).
+                        over: 2.8,
+                        behind: 1.0,
+                        left: 0.9,
                         reach: 0.75,
                         peck_radius: 2.0,
                         pecks: 11,
@@ -1079,13 +1154,13 @@
                     speed: (2.0, 5.0),
                     height: 0.75,
                     gravity: 14.58, // 0.00405 u a frame²
-                    bounce_keep: 0.5, // [placeholder]
+                    bounce_keep: 0.89, // of its velocity along the normal (0x1DF440)
                     life: (360, 500),
                     reach: 2.0,
                     push: 1.0,
                     seek_from: Some(2),
                     seek_range: 7.0,
-                    seek_speed: 2.0, // [placeholder]
+                    seek_speed: 4.0, // at least, along the ground
                 ),
             )),
             effects: "qwack",
@@ -1101,10 +1176,12 @@
             crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
             held: false,
             steady: false,
-            ready_ticks: 23,
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 66, // sequence 49 as played: the 2 frames' blend, then 16 keyframes of 4 [data]
             look_wait_ticks: 40,
             pose: (hold: TwoHands, standing: Some(49), crouched: Some(65)),
+            muzzle: [(0, (0.513, 1.0))], // its code's own, not a point [code]
+            muzzle_side: 0.183,
             levels: [
                 (damage: 300.0, splash: 30.0, ammo: 25, xp: 20000, round_price: 1000),
                 (damage: 350.0, splash: 35.0, ammo: 30, xp: 50000, round_price: 1000),
@@ -1152,10 +1229,11 @@
             pickup_rounds: 1,
             held: true,
             steady: true,
-            ready_ticks: 23,
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 0,
             pose: (hold: OneHand, standing: Some(51), crouched: Some(57)),
+            muzzle: [(0, (0.21, 0.6)), (4, (0.2, 0.74))], // point 0 [data]
             levels: [
                 (damage: 120.0, splash: 120.0, ammo: 15, xp: 8000, round_price: 50),
                 (damage: 150.0, splash: 150.0, ammo: 15, xp: 18000, round_price: 50),
@@ -1218,10 +1296,11 @@
             pickup_rounds: 1,
             held: false,
             steady: false,
-            ready_ticks: 23,
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 101, // sequence 103 as played: the 11 frames' blend, then 45 keyframes of 2 [data]
             look_wait_ticks: 40,
             pose: (hold: TwoHands, standing: Some(103)),
+            muzzle: [(0, (0.28, 0.85))], // its code's own, not a point [code]
             levels: [
                 (damage: 30.0, splash: 15.0, ammo: 10, xp: 2500, round_price: 50),
                 (damage: 35.0, splash: 17.5, ammo: 10, xp: 8500, round_price: 50),
@@ -1245,17 +1324,19 @@
                 radius: 0.3,
                 reach: 0.5,
                 bounces: 4,
-                bounce: (keep: 0.6, home_range: None, home_speed: 0.0), // keep [placeholder]
+                // Reflected, keeping 0.45 along the normal [code]; the 4th touch rolls it at
+                // 0.4 × 3° a frame (1.6 times that heavy) [code].
+                bounce: (keep: 0.45, home_range: None, home_speed: 0.0),
+                roll_speed: 1.2566,
                 roll_keep: 0.9,
                 roll_ticks: 30,
-                lifetime: 600, // [placeholder]
+                lifetime: 600, // the kit's own: the game has none [code]
                 bomblets: 17,
                 bomblet: (
                     up_degrees: (50.0, 90.0),
                     speed: (4.0, 9.0),
                     radius: 0.125,
-                    // Keep [placeholder]; the turn at an enemy as read.
-                    bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                    bounce: (keep: 0.95, home_range: Some(7.0), home_speed: 4.0), // [code]
                     life: (240, 360),
                     armed_ticks: 70,
                     hit_radius: 2.0,
@@ -1264,11 +1345,12 @@
                 heavy: Some((
                     from_level: 4,
                     radius: 0.5,
+                    roll_speed: 2.0106,
                     bomblet: (
                         up_degrees: (40.0, 75.0),
                         speed: (4.0, 12.0),
                         radius: 0.25,
-                        bounce: (keep: 0.6, home_range: Some(7.0), home_speed: 4.0),
+                        bounce: (keep: 0.95, home_range: Some(7.0), home_speed: 4.0),
                         life: (240, 360),
                         armed_ticks: 70,
                         hit_radius: 7.0,
@@ -1287,10 +1369,11 @@
             pickup_rounds: 1,
             held: false,
             steady: false,
-            ready_ticks: 23, // [placeholder]
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 0, // its code doesn't wait for the gun to be out [code]
+            fire_ticks: 111, // sequence 41 as played: the 11 frames' blend, then 25 keyframes of 4 [data]
             look_wait_ticks: 40,
             pose: (standing: Some(41), arms: Some(61), crouched: Some(41)),
+            muzzle: [(0, (0.0, 0.02))], // point 0 [data]
             levels: [
                 (damage: 1.5, ammo: 10, xp: 400, round_price: 15),
                 (damage: 2.0, ammo: 10, xp: 1000, round_price: 30),
@@ -1309,12 +1392,16 @@
                     throw_ticks: 20,
                     ready_ticks: 10,
                     gap_ticks: 0,
-                    most: 4, // [placeholder]: the turrets' slots aren't counted
+                    // Nine landed at most, six from V5 [code; not by level here]; only the five
+                    // nearest him turn and fire [not followed].
+                    most: 9,
                 ),
                 gravity: 11.0,
                 unfold_ticks: 6,
                 range: 15.0,
-                barrel_height: 0.5, // [placeholder]
+                // Point 1, joint 9 of its class, unfolded [data]: its barrel's muzzle.
+                barrel_height: 1.08,
+                barrel_along: 0.72,
                 turn_step: 0.0262,
                 fire_share: 0.9,
                 rate: [(0, 6.0), (4, 1.5)], // +0x50
@@ -1322,20 +1409,24 @@
                 speed: 30.0, // +0x4C
                 life_ticks: 1200,
                 leash: 30.0,
-                push: 0.5, // [placeholder]
+                push: 1.0, // along its shot [code]
+                active: 5, // the nearest him (0x4C7228) [code]
                 // The Megaturret (0x32DE00, missile 0x343330) [code unless marked].
                 mega: Some((
                     from_level: 4,
                     every_ticks: 25, // 0.4167 s
                     speed: (2.0, 15.0),
                     accel: 0.5,
-                    turn_degrees: 6.0, // [placeholder]: its turn isn't read
+                    turn: (0.03, 0.2), // the small missile's [code]
                     missile_ticks: 270,
                     blast_radius: 1.0,
+                    barrels: (0.57, 0.2), // points 1 and 2 [data]
+                    most: 6,
+                    life_ticks: 1600,
                     beyond: 20.0,
-                    walk_every: (180, 240),
+                    move_every: (180, 240),
                     round: (3.0, 6.5),
-                    walk_speed: 6.0, // [placeholder]: it walks by its animation
+                    fade_ticks: 45,
                 )),
             )),
             effects: "turret",
@@ -1351,8 +1442,8 @@
             crate_ammo: false, // "Ammo pickups, crates and the vendor" [code]
             held: true,
             steady: false,
-            ready_ticks: 23, // [placeholder]
-            fire_ticks: 30, // [placeholder]
+            ready_ticks: 19, // the gun out 23 frames [code]
+            fire_ticks: 1, // held: it fires until let go, whatever this [code]
             look_wait_ticks: 0,
             pose: (hold: OneHand, standing: Some(51), arms: Some(52), crouched: Some(57)),
             levels: [
@@ -1367,6 +1458,7 @@
             ],
             mods: (),
             fire: Shield((
+                xp_per_point: 32, // [code]
                 points: [
                     (0, 225.0), (1, 300.0), (2, 375.0), (3, 450.0),
                     (4, 525.0), (5, 600.0), (6, 675.0), (7, 750.0),
@@ -1374,14 +1466,14 @@
                 height: 0.75,
                 zap_ticks: 30, // 0.5 s
                 zap_radius: 0.9,
-                push: 1.0, // [placeholder]
+                push: 1.0, // from the shield to the enemy's middle [code]
                 // The Tesla Barrier (0x3410E8) [code].
                 tesla: Some((
                     from_level: 4,
                     most: 4,
                     reach: 4.0,
                     bolt_ticks: (20, 60),
-                    push: 0.5, // [placeholder]: the Hydra's bolt's
+                    push: 1.0, // the lightning bolt's, along it [code]
                     bolts: 40,
                 )),
             )),

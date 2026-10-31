@@ -3,12 +3,14 @@
 //! (`docs/research/weapons.md`).
 
 use bevy::prelude::*;
-use rac_hero::GunPose;
 use rac_hero::profile::Spring;
+use rac_hero::{GunPose, HeroMotion, HeroState, Hold};
 use serde::{Deserialize, Serialize};
 
 /// UYA NTSC-U's twenty guns.
 pub const UYA_RON: &str = include_str!("../../assets/uya_weapons.ron");
+/// Deadlocked's guns read so far (`weapons.md`, "Deadlocked's guns").
+pub const DL_RON: &str = include_str!("../../assets/dl_weapons.ron");
 
 /// A weapon by its place in [`Armory::weapons`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -37,6 +39,11 @@ impl Armory {
         Self::from_ron(UYA_RON).expect("the bundled UYA weapons parse")
     }
 
+    /// The bundled Deadlocked NTSC-U guns.
+    pub fn dl() -> Self {
+        Self::from_ron(DL_RON).expect("the bundled DL weapons parse")
+    }
+
     pub fn get(&self, weapon: WeaponId) -> Option<&WeaponDef> {
         self.weapons.get(weapon.0)
     }
@@ -60,6 +67,77 @@ fn yes() -> bool {
     true
 }
 
+fn v5() -> u8 {
+    4
+}
+
+/// Where the hand holding a gun is, each place right, up and forward of his feet
+/// (`weapons.md`, "The muzzle"). The game follows the posed hand; the rig's pose isn't the
+/// simulation's to read (PLAN §5, 2026-10-31), so these are where it stands as he fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hands {
+    /// Standing, the gun out, as it fires from there.
+    pub ready: [f32; 3],
+    /// How far the barrel rises per unit along it there, its top leaning back as much.
+    pub ready_slope: f32,
+    /// Standing, firing already, by the gun's standing sequence.
+    pub firing: Vec<(u8, [f32; 3])>,
+    /// On the move on the ground, and off it.
+    pub moving: [f32; 3],
+    pub air: [f32; 3],
+    /// Crouched, by the gun's crouched sequence; a gun without one takes the first.
+    pub crouched: Vec<(u8, [f32; 3])>,
+    /// A glove's hand as it lets go: standing, on the move or in the air, and crouched.
+    pub thrown: [f32; 3],
+    pub thrown_moving: [f32; 3],
+    pub thrown_crouched: [f32; 3],
+}
+
+impl Hands {
+    /// Where a gun's muzzle is from his feet, right, up and forward: its `point` (up and
+    /// along the barrel) on his hand, by what he is doing.
+    pub fn muzzle(
+        &self,
+        pose: &GunPose,
+        (above, along): (f32, f32),
+        hero: &HeroMotion,
+        firing: bool,
+    ) -> Vec3 {
+        let air = hero.ground.is_none();
+        let standing = matches!(hero.state, HeroState::Idle | HeroState::Look);
+        let crouched = hero.state == HeroState::Crouch;
+        let by = |list: &[(u8, [f32; 3])], sequence: Option<u8>| {
+            list.iter()
+                .find(|(number, _)| Some(*number) == sequence)
+                .map(|(_, place)| *place)
+        };
+        let mut slope = 0.0;
+        let place = if pose.hold == Hold::None {
+            if crouched {
+                self.thrown_crouched
+            } else if standing {
+                self.thrown
+            } else {
+                self.thrown_moving
+            }
+        } else if crouched {
+            by(&self.crouched, pose.crouched)
+                .or(self.crouched.first().map(|(_, place)| *place))
+                .unwrap_or(self.ready)
+        } else if air {
+            self.air
+        } else if !standing {
+            self.moving
+        } else if let Some(place) = by(&self.firing, pose.standing).filter(|_| firing) {
+            place
+        } else {
+            slope = self.ready_slope;
+            self.ready
+        };
+        Vec3::from(place) + Vec3::new(0.0, above + along * slope, along - above * slope)
+    }
+}
+
 /// What every gun of a game shares.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GunRules {
@@ -73,8 +151,8 @@ pub struct GunRules {
     pub recent_guns: usize,
     /// The level bought rather than reached by XP (Mega): XP starts again from 0 there.
     pub bought_level: u8,
-    /// Where the gun's muzzle is from his feet: right, up and forward.
-    pub muzzle: [f32; 3],
+    /// Where his hand is as a gun fires; each gun's muzzle is its own point from there.
+    pub hands: Hands,
     /// In the lock-strafe and first-person cameras, and the look, shots aim at the point
     /// the view centres on, looked for this far, bending from his facing by at most
     /// `bend_degrees`, a tenth of that when the point is within `bend_near`.
@@ -136,8 +214,11 @@ impl Default for SlugRules {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WeaponDef {
     pub name: String,
-    /// Its name from V5 on.
+    /// Its name from `upgraded_from` on.
     pub upgraded_name: String,
+    /// The level it takes its upgraded name at: V5 in UYA, V10 in DL.
+    #[serde(default = "v5")]
+    pub upgraded_from: u8,
     /// The game's item number (`weapons.md`, "Items").
     pub item: u16,
     /// The rounds one of its ammo pickups holds (`crate::pickups`); 0: it has none.
@@ -159,9 +240,16 @@ pub struct WeaponDef {
     pub held: bool,
     /// While it fires his walk turns on the profile's steady firing turn.
     pub steady: bool,
-    /// Ticks the gun is in his hand before it can fire.
+    /// Ticks the gun is in his hand before it can fire. The game's guns test how long the
+    /// hand's item has been out (0x1A5E00), which is already 4 on its first frame in his
+    /// hand, so a gun waiting for 23 frames is ready after 19 here; a gun whose code
+    /// doesn't test it fires from the first.
     pub ready_ticks: u32,
-    /// Ticks the firing animation plays after each shot, which keeps him `firing`.
+    /// Ticks the firing animation plays after each shot, which keeps him `firing`: for a
+    /// gun not held, its standing sequence as `hero_fire_anim` plays it, the first keyframe
+    /// taking the blend's frames (2 for sequence 49 and the Shock Blaster, else 11), until
+    /// it reaches its last keyframe. A held gun fires until its button is let go, so any
+    /// value above 0 does for it.
     pub fire_ticks: u32,
     /// In the look, ticks it waits before it fires.
     pub look_wait_ticks: u32,
@@ -169,6 +257,12 @@ pub struct WeaponDef {
     /// and +0x2C).
     #[serde(default)]
     pub pose: GunPose,
+    /// Its muzzle from his hand, up and along the barrel, as each level's class has it.
+    #[serde(default)]
+    pub muzzle: ByLevel<(f32, f32)>,
+    /// How far to his right of the gun's middle that point is.
+    #[serde(default)]
+    pub muzzle_side: f32,
     /// V1 to V5, then Mega, Giga and Omega.
     pub levels: Vec<Level>,
     pub mods: ModLevels,
@@ -285,8 +379,16 @@ impl WeaponDef {
         &self.levels[usize::from(level).min(last)]
     }
 
+    /// Its muzzle as the hero stands, in the world.
+    pub fn muzzle_at(&self, armory: &Armory, level: u8, hero: &HeroMotion, firing: bool) -> Vec3 {
+        let point = self.muzzle.at(level).unwrap_or_default();
+        let from_feet =
+            armory.rules.hands.muzzle(&self.pose, point, hero, firing) + Vec3::X * self.muzzle_side;
+        hero.position + Quat::from_rotation_y(hero.yaw) * from_feet.with_z(-from_feet.z)
+    }
+
     pub fn name_at(&self, level: u8) -> &str {
-        if level >= 4 {
+        if level >= self.upgraded_from {
             &self.upgraded_name
         } else {
             &self.name
@@ -422,6 +524,8 @@ pub enum FireMode {
     Shield(ShieldCharger),
     /// The wrench's moves with a rope: the Plasma Whip.
     Whip(Whip),
+    /// Rows of lines that hit at once, a tick apart: DL's Magma Cannon.
+    Cone(Cone),
 }
 
 impl FireMode {
@@ -485,9 +589,14 @@ pub struct Hitscan {
     pub busy_hit_ticks: u32,
     /// Ticks after a hit before the next shot.
     pub after_hit_ticks: u32,
-    /// A ball at the gun hits what it touches.
+    /// A ball at the gun hits what it touches, pushing it `ball_push` along the aim.
     pub ball_radius: f32,
+    pub ball_push: f32,
+    /// A ray's hit does less the further it reaches: from each distance on, that share
+    /// of the damage.
     pub ray_length: f32,
+    #[serde(default)]
+    pub falloff: Vec<(f32, f32)>,
     /// Rays at random within `spread_degrees` of the aim, turned any way round it, by
     /// level...
     pub random_rays: ByLevel<u32>,
@@ -540,6 +649,28 @@ pub struct Projectile {
     pub push: f32,
     /// From this level, the N90 Hurricane's timing and bullets.
     pub hurricane: Option<Hurricane>,
+}
+
+/// DL's Magma Cannon (0x406F30): no shot flies. Each tick of `rows` tests that tick's rows of
+/// lines from the muzzle out to `range`, and each line hits what it reaches. A lock-on target
+/// within `range` takes one hit besides, as the gun fires.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Cone {
+    pub rate: f32,
+    pub range: f32,
+    /// A row's lines go `fan_degrees` either side of the aim, `per_side` lines to a side.
+    pub fan_degrees: f32,
+    pub per_side: u32,
+    pub rows: Vec<Vec<ConeRow>>,
+    pub push: f32,
+}
+
+/// A row of a [`Cone`]: `up_degrees` above the aim. A row with the `middle` line has a line
+/// at each end of the fan; one without has one line fewer, half a step in from them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ConeRow {
+    pub up_degrees: f32,
+    pub middle: bool,
 }
 
 /// The Flux Rifle's scoped beam (class 0x186F: `flux_scope_beam_spawn` 0x37C818, its update
@@ -597,7 +728,18 @@ pub struct Lobbed {
     pub ground_after_ticks: u32,
     pub ground_probe: f32,
     pub lifetime: u32,
+    /// From a level (the Nitro Eruptor), its launch is turned about his left axis.
+    #[serde(default)]
+    pub tilt: Option<LobTilt>,
     pub blast: Blast,
+}
+
+/// How the Nitro Eruptor turns its launch (0x3893E8): down, or up with a target.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LobTilt {
+    pub from_level: u8,
+    pub down_degrees: f32,
+    pub aimed_up_degrees: f32,
 }
 
 /// A blast that flashes, then grows, hitting each target it touches once.
@@ -665,6 +807,10 @@ pub struct Stream {
     pub splash_radius: f32,
     /// A ball at the nozzle hits what it touches while the stream runs.
     pub nozzle_radius: f32,
+    /// From this level an enemy with no more hit points than a point's damage freezes
+    /// instead, past the damage queue (the Liquid Nitrogen Gun).
+    #[serde(default)]
+    pub freezes_from: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -680,15 +826,15 @@ pub struct Homing {
     pub pick_ticks: u32,
     pub drop_ticks: u32,
     /// With no target, an enemy within `near_radius` of a point `near_ahead` past the
-    /// muzzle becomes the missile's.
+    /// muzzle (before it, if less than 0) becomes the missile's.
     pub near_radius: f32,
     pub near_ahead: f32,
+    /// The missile flies straight, at its target's middle as it fires, else along the aim:
+    /// its homing is switched off as it spawns (0x3965B0). It goes after `lifetime`, and
+    /// without bursting once more than `leash` from him.
     pub speed: f32,
     pub lifetime: u32,
-    /// It turns after its target for at most `homing_ticks`, by up to `turn_degrees` a
-    /// tick.
-    pub homing_ticks: u32,
-    pub turn_degrees: f32,
+    pub leash: f32,
     pub push: f32,
     /// Its blast does the splash damage within this of where it hits.
     pub blast_radius: f32,
@@ -714,9 +860,10 @@ pub struct Throw {
     pub gravity: f32,
 }
 
-/// How a thrown thing bounces: off the world `keep` of its speed comes back, and, if
-/// `home_range` is set, its ground speed turns at the nearest living enemy within it, at
-/// least `home_speed`.
+/// How a thrown thing bounces: off the world its velocity reflects and `keep` of its part
+/// along the surface's normal comes back, all of it along the surface (UYA's resolver,
+/// 0x4C42C0); if `home_range` is set, its ground speed turns at the nearest living enemy
+/// within it, at least `home_speed`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Bounce {
     pub keep: f32,
@@ -792,18 +939,23 @@ pub struct Seekers {
 
 /// The small missile (class 0xA82, `small_missile_spawn` 0x3441D0, its flight 0x343330),
 /// which the Decimator and the Agents of Dread fire: `share` of the gun's damage,
-/// starting at a speed between `speed` and gaining `accel` u/s a tick to its `top`.
-/// How it turns after its enemy, how long it flies and its blast aren't read:
-/// `turn_degrees` a tick, `lifetime` ticks, and what it meets sets off a ball of
-/// `blast_radius`.
+/// starting at a speed between `speed` and gaining `accel` u/s a tick to its `top`,
+/// turning after its enemy on the spring `turn` (gain on the angle off it, damping on the
+/// rate; `weapons.md`, "The small missile"), for `lifetime` ticks; from `armed_ticks` on,
+/// what it meets sets off a ball of `blast_radius`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SmallMissile {
     pub share: f32,
     pub speed: (f32, f32),
     pub accel: (f32, f32),
     pub top: (f32, f32),
-    pub turn_degrees: f32,
+    pub turn: (f32, f32),
     pub lifetime: u32,
+    #[serde(default)]
+    pub armed_ticks: u32,
+    /// Its flight weaves as it goes (`Drift::weave`).
+    #[serde(default)]
+    pub weave: bool,
     pub blast_radius: f32,
 }
 
@@ -813,15 +965,17 @@ pub struct Cluster {
     pub rate: f32,
     pub throw: Throw,
     pub gravity: f32,
-    /// The canister bursts on a target within `radius + reach`; after `bounces` bounces it
-    /// rolls, keeping `roll_keep` of its speed a tick, and bursts `roll_ticks` later.
+    /// The canister bursts on a target within `radius + reach`; its `bounces`th touch of
+    /// the world sets it rolling along the surface at `roll_speed`, keeping `roll_keep` of
+    /// its speed a tick, and it bursts `roll_ticks` later.
     pub radius: f32,
     pub reach: f32,
     pub bounces: u32,
     pub bounce: Bounce,
+    pub roll_speed: f32,
     pub roll_keep: f32,
     pub roll_ticks: u32,
-    /// Ticks it may fly before it bursts anyway.
+    /// Ticks it may fly before the kit gives it up: the game has no limit.
     pub lifetime: u32,
     pub bomblets: u32,
     pub bomblet: Bomblet,
@@ -834,6 +988,7 @@ pub struct Cluster {
 pub struct Heavy {
     pub from_level: u8,
     pub radius: f32,
+    pub roll_speed: f32,
     pub bomblet: Bomblet,
 }
 
@@ -843,6 +998,14 @@ impl Cluster {
         match &self.heavy {
             Some(heavy) if level >= heavy.from_level => (heavy.radius, &heavy.bomblet),
             _ => (self.radius, &self.bomblet),
+        }
+    }
+
+    /// The canister's rolling speed at `level`.
+    pub fn roll_speed(&self, level: u8) -> f32 {
+        match &self.heavy {
+            Some(heavy) if level >= heavy.from_level => heavy.roll_speed,
+            _ => self.roll_speed,
         }
     }
 }
@@ -867,8 +1030,6 @@ pub struct Bomblet {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Infect {
     pub cooldown_ticks: u32,
-    /// It leaves this far below the muzzle.
-    pub below: f32,
     pub speed: f32,
     pub gravity: f32,
     /// The share of its speed it keeps each tick.
@@ -910,22 +1071,33 @@ pub struct InfectBomb {
 pub struct Disc {
     pub cooldown_ticks: u32,
     pub assist: ByLevel<AimAssist>,
-    pub speed: f32,
-    /// It leaves turned this far to his side, or `side_aimed_degrees` with a target, and
-    /// curves `curve_degrees` a tick.
-    pub side_degrees: f32,
-    pub side_aimed_degrees: f32,
-    pub curve_degrees: f32,
+    pub speed: ByLevel<f32>,
+    /// Below this level, and but in the views that aim, it leaves lifted `lift_degrees`
+    /// above its aim, or `lift_aimed_degrees` with a target, and falls at `gravity` for its
+    /// first `fall_ticks`, so it arcs and flies on nearly level.
+    pub arc_below: u8,
+    pub lift_degrees: f32,
+    pub lift_aimed_degrees: f32,
+    pub gravity: f32,
+    pub fall_ticks: u32,
+    /// Each frame with a target, this much towards it (u) is added to its way a frame, and
+    /// it flies at `chase_speed`, whatever it left at.
+    pub steer: f32,
+    pub chase_speed: f32,
+    /// Its two muzzles in turn: this far to each side of the gun's point, his right first.
+    pub barrels: ByLevel<f32>,
     pub lifetime: ByLevel<u32>,
     /// It goes this far from the hero.
     pub leash: f32,
     pub radius: f32,
     pub push: f32,
-    /// From these levels each bounce turns it at an enemy within `retarget_range`, and it
-    /// bounces off enemies too.
+    /// From `retarget_from` each bounce sends it at the nearest enemy within
+    /// `retarget_range`. From `through_from` it goes on through the enemies it hits, and
+    /// won't be sent at one the gun's discs were sent at in the last `picked_ticks`.
     pub retarget_from: Option<u8>,
     pub through_from: Option<u8>,
     pub retarget_range: f32,
+    pub picked_ticks: u32,
     /// From this level its end is a blast of `share` of its damage within `radius`.
     pub end_blast: Option<EndBlast>,
     /// From this level (the Multi-Disc Gun) a bounce off an enemy may split it.
@@ -941,6 +1113,10 @@ pub struct Split {
     pub from_level: u8,
     pub most: usize,
     pub jitter: (f32, f32),
+    /// While `most` are out, or at `from_level` for a disc of `deep` splits, a disc this far
+    /// from the hero ends.
+    pub crowded_leash: f32,
+    pub deep: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1041,10 +1217,11 @@ pub struct Rift {
     pub open_ticks: u32,
     pub leash: f32,
     /// Open, it takes an enemy within `reach` whose hit points are at most `size` × 2 × the
-    /// gun's damage, pulling it in over `pull_ticks`.
+    /// gun's damage, and pulls it in on a spring whose strength is drawn between these
+    /// two as it launches, times `size` × 1.5 (0x373738, `weapons.md`, "the pull").
     pub reach: f32,
     pub size: f32,
-    pub pull_ticks: u32,
+    pub pull: (f32, f32),
     /// From this level, the Rift Ripper's bolts.
     pub ripper: Option<Ripper>,
 }
@@ -1091,6 +1268,25 @@ pub struct Suck {
     pub target_push: f32,
     pub world_push: f32,
     pub ricochet_from: Option<u8>,
+    /// From a level (the Vortex Cannon) it fires a comet instead.
+    #[serde(default)]
+    pub comet: Option<VortexComet>,
+}
+
+/// The Vortex Cannon's comet (0x395480, its flight 0x394068): along his aim, thrown
+/// `jitter` either way across it, at a speed from `speed` u/s; pulled `pull` u/s at its
+/// target, falling at `gravity`, for `life` ticks. Meeting something, what it hits takes
+/// its damage, pushed `push` from the hero, and a blast of `radius` does the same round it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VortexComet {
+    pub from_level: u8,
+    pub speed: (f32, f32),
+    pub jitter: f32,
+    pub pull: f32,
+    pub gravity: f32,
+    pub life: u32,
+    pub radius: f32,
+    pub push: f32,
 }
 
 /// The Qwack-O-Ray (0x37DEB0, beam 0x37D7D8).
@@ -1145,9 +1341,10 @@ pub enum Duck {
         /// Back to the hero, and about him.
         back_speed: f32,
         near_speed: f32,
-        /// Where it keeps: this high over him, this far behind.
+        /// Where it keeps: this high over him, this far behind, this far to his left.
         over: f32,
         behind: f32,
+        left: f32,
         reach: f32,
         peck_radius: f32,
         pecks: u32,
@@ -1185,39 +1382,51 @@ pub struct Turret {
     /// Standing, it unfolds for `unfold_ticks`, then looks within `range` all round.
     pub unfold_ticks: u32,
     pub range: f32,
+    /// Its shots leave `barrel_along` from a point `barrel_height` above it.
     pub barrel_height: f32,
+    pub barrel_along: f32,
     /// Its turn to a target: a share growing this much a tick, firing past `fire_share`.
     pub turn_step: f32,
     pub fire_share: f32,
     pub rate: ByLevel<f32>,
     pub shots: ByLevel<u32>,
     pub speed: f32,
+    /// It bursts this long after it leaves the hand or last fired, and a Miniturret
+    /// further than `leash` from him.
     pub life_ticks: u32,
     pub leash: f32,
     pub push: f32,
-    /// From this level, the Megaturret's missiles and its walk back to the hero.
+    /// Only this many of those landed, the nearest him, turn and fire; the others fold up
+    /// until they are among them.
+    pub active: usize,
+    /// From this level, the Megaturret's missiles and its move to the hero.
     pub mega: Option<Mega>,
 }
 
 /// The Megaturret (class 0x1367, 0x32DE00): every `every_ticks` it fires a guided missile
 /// (0x3441D0, class 0xA82, its flight 0x343330) from `speed.0` gaining `accel` u/s a tick
-/// to `speed.1`, turning up to `turn_degrees` a tick after its target, living
+/// to `speed.1`, turning after its target on the small missile's spring `turn`, living
 /// `missile_ticks`; what it meets sets it off, a ball of `blast_radius` taking the damage.
-/// When the hero is more than `beyond` away with an enemy within `beyond` of him, every
-/// `walk_every` ticks it walks at `walk_speed` to a point `round` from him.
+/// At most `most` land. It lives `life_ticks`, and no leash ends it: when the hero is more
+/// than `beyond` away with an enemy within `beyond` of him, every `move_every` ticks it
+/// fades out over `fade_ticks`, moves to a point `round` from him, and fades back in.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Mega {
     pub from_level: u8,
     pub every_ticks: u32,
     pub speed: (f32, f32),
     pub accel: f32,
-    pub turn_degrees: f32,
+    pub turn: (f32, f32),
     pub missile_ticks: u32,
     pub blast_radius: f32,
+    /// Its two barrels in turn: how far along, and to each side of its middle.
+    pub barrels: (f32, f32),
+    pub most: usize,
+    pub life_ticks: u32,
     pub beyond: f32,
-    pub walk_every: (u32, u32),
+    pub move_every: (u32, u32),
     pub round: (f32, f32),
-    pub walk_speed: f32,
+    pub fade_ticks: u32,
 }
 
 /// How a glove throws: `throw_ticks` after the press it leaves, and the glove is ready
@@ -1236,6 +1445,9 @@ pub struct Deploy {
 pub struct Barrier {
     pub deploy: Deploy,
     pub gravity: f32,
+    /// Each hit it takes gives the glove the XP its level is short of, times the first
+    /// over the second.
+    pub hit_xp: (u32, u32),
     /// Where it lands, a ball of `land_radius` takes `land_damage`.
     pub land_radius: f32,
     pub land_damage: f32,
@@ -1281,11 +1493,39 @@ pub struct Pulse {
     pub react_ticks: u32,
     pub every: u32,
     pub range: f32,
+    /// It won't go at an enemy it went at in the last this many ticks.
+    pub picked_ticks: u32,
     pub share: f32,
     pub accel: f32,
     pub fade_from: u32,
     pub ticks: u32,
     pub push: f32,
+}
+
+/// Agents that jet in (0x3BD298's states 0x10, 7 and 8; slots 0x4C5220): each takes a slot
+/// round the hero and keeps to it, firing but neither chasing nor blowing up, while the
+/// shared rounds last. Then it lands on what a line `ahead` along his facing and `below`
+/// down from it meets, else by him, and walks as any other.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentHover {
+    /// Each slot: how far round from his left over his head, in degrees; how far out from
+    /// a point `behind` him.
+    pub slots: Vec<(f32, f32, f32)>,
+    /// Farther than `far`, it flies at `far_gain` and `far_top`, through the world; nearer,
+    /// at gains and tops drawn each tick, stopping for the world.
+    pub far: f32,
+    pub far_gain: f32,
+    pub far_top: f32,
+    pub near_gain: (f32, f32),
+    pub near_top: (f32, f32),
+    pub land_gain: (f32, f32),
+    pub land_top: (f32, f32),
+    pub ahead: f32,
+    pub below: f32,
+    /// How far past its way it looks for the world.
+    pub look: f32,
+    /// This near where it lands, it walks.
+    pub landed: f32,
 }
 
 /// The Agents of Doom (0x35C9F0, pod 0x35CEC8, agent 0x3BD298).
@@ -1296,6 +1536,9 @@ pub struct Agents {
     pub per_pod: u32,
     /// From this level they come to the hero at once instead of from a pod.
     pub direct_from: Option<u8>,
+    /// How those keep by him at first, while they have rounds.
+    #[serde(default)]
+    pub hover: Option<AgentHover>,
     /// Out from where they are let out, along his facing and sideways.
     pub spread: f32,
     pub sight: AgentSight,
@@ -1425,6 +1668,8 @@ pub enum AgentEnd {
 pub struct ShieldCharger {
     /// Its points at each level.
     pub points: ByLevel<f32>,
+    /// The XP each point it takes gives the gun.
+    pub xp_per_point: u32,
     /// While it is up, every `zap_ticks` a ball of `zap_radius`, `height` above his feet,
     /// strikes the enemies touching it.
     pub height: f32,
@@ -1509,7 +1754,17 @@ pub struct Wave {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::FRAC_PI_2;
+
+    use rac_hero::collision::BodyId;
+    use rac_hero::motor::Ground;
+
     use super::*;
+
+    const FLOOR: Ground = Ground {
+        normal: Vec3::Y,
+        body: BodyId(0),
+    };
 
     #[test]
     fn the_bundled_guns_parse_with_every_level() {
@@ -1564,6 +1819,76 @@ mod tests {
         assert_eq!(Timing::Rate(0.5).ticks(), 120);
         assert_eq!(Timing::Rate(1.0).ticks(), 60);
         assert_eq!(Timing::Repeat(14).ticks(), 14);
+    }
+
+    #[test]
+    fn a_muzzle_is_the_guns_point_on_his_hand_by_what_he_is_doing() {
+        let armory = Armory::uya();
+        let hands = &armory.rules.hands;
+        let pose = |name: &str| armory.get(armory.find(name).unwrap()).unwrap().pose;
+        let (above, along) = (0.2, 0.6);
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.ground = Some(FLOOR);
+        let muzzle = |hero: &HeroMotion, gun: &str, firing| {
+            hands.muzzle(&pose(gun), (above, along), hero, firing)
+        };
+        // At rest the barrel rises: 0.12 u up along 0.6, 0.04 u less far ahead for its top.
+        let ready = Vec3::from(hands.ready) + Vec3::new(0.0, above + 0.12, along - 0.04);
+        assert!(muzzle(&hero, "N60 Storm", false).abs_diff_eq(ready, 1e-5));
+        // Once it fires, the hand is where its sequence brings it, level.
+        let flat = Vec3::new(0.0, above, along);
+        let firing = |sequence| {
+            let (_, place) = hands.firing.iter().find(|(s, _)| *s == sequence).unwrap();
+            Vec3::from(*place) + flat
+        };
+        assert!(muzzle(&hero, "N60 Storm", true).abs_diff_eq(firing(51), 1e-5));
+        assert!(muzzle(&hero, "Flux Rifle", true).abs_diff_eq(firing(49), 1e-5));
+        hero.state = HeroState::Walk;
+        let moving = Vec3::from(hands.moving) + flat;
+        assert!(muzzle(&hero, "N60 Storm", true).abs_diff_eq(moving, 1e-5));
+        hero.ground = None;
+        let air = Vec3::from(hands.air) + flat;
+        assert!(muzzle(&hero, "N60 Storm", true).abs_diff_eq(air, 1e-5));
+        // Crouched, each by its own sequence, and a gun without one by the first.
+        hero.ground = Some(FLOOR);
+        hero.state = HeroState::Crouch;
+        let crouched = |index: usize| Vec3::from(hands.crouched[index].1) + flat;
+        assert!(muzzle(&hero, "Flux Rifle", false).abs_diff_eq(crouched(0), 1e-5));
+        assert!(muzzle(&hero, "N60 Storm", false).abs_diff_eq(crouched(1), 1e-5));
+        assert!(muzzle(&hero, "Shock Blaster", false).abs_diff_eq(crouched(0), 1e-5));
+        // A glove lets go of what it throws where its throw brings his hand.
+        let thrown = Vec3::from(hands.thrown_crouched) + flat;
+        assert!(muzzle(&hero, "Holo Shield Glove", false).abs_diff_eq(thrown, 1e-5));
+        hero.state = HeroState::Idle;
+        let thrown = Vec3::from(hands.thrown) + flat;
+        assert!(muzzle(&hero, "Holo Shield Glove", true).abs_diff_eq(thrown, 1e-5));
+    }
+
+    #[test]
+    fn a_guns_muzzle_stands_where_he_stands_and_faces() {
+        let armory = Armory::uya();
+        let def = armory.get(armory.find("Annihilator").unwrap()).unwrap();
+        let mut hero = HeroMotion::new(Vec3::new(10.0, 2.0, 5.0), FRAC_PI_2);
+        hero.ground = Some(FLOOR);
+        let at = def.muzzle_at(&armory, 0, &hero, true);
+        // 49's firing place, -0.23 forward, plus 1.1 along: 0.87 ahead, along -x at this yaw.
+        assert!((at.x - (10.0 - 0.87)).abs() < 1e-4, "{at}");
+        // 0.26 to his right, along -z.
+        assert!((at.z - (5.0 - 0.26)).abs() < 1e-4, "{at}");
+        assert!((at.y - (2.0 + 0.43 + 0.22)).abs() < 1e-4, "{at}");
+    }
+
+    #[test]
+    fn the_ry3nos_muzzle_is_to_his_right_of_the_guns_middle() {
+        let armory = Armory::uya();
+        let def = armory.get(armory.find("RY3NO").unwrap()).unwrap();
+        let mut hero = HeroMotion::new(Vec3::ZERO, 0.0);
+        hero.ground = Some(FLOOR);
+        let at = def.muzzle_at(&armory, 0, &hero, false);
+        assert!(
+            (at.x - (armory.rules.hands.ready[0] + 0.183)).abs() < 1e-5,
+            "{at}"
+        );
     }
 
     #[test]

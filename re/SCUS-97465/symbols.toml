@@ -2495,3 +2495,227 @@ address = 0x006693A8
 kind = "function"
 confidence = "medium"
 note = "Damages a hero by a float amount (if hero+0x266D is set and hero+0x420 is 0), scaled by the difficulty's factor and, in multiplayer, the armour's; sets hero+0x2ED8 to 360 frames and takes the rounded amount, at least 1, off the health (hero+0x2E20), down to 0. The tether calls it with 1000. Matched from Catacrom Four's co-op build (0x619398)."
+
+[[symbol]]
+name = "class_update_table"
+address = 0x003C5DFC
+kind = "data"
+confidence = "high"
+note = "12-byte entries of pointer, moby class and update, as UYA's."
+
+[[symbol]]
+name = "alpha_mod_table"
+address = 0x003C5710
+kind = "data"
+confidence = "high"
+note = "0x38 an entry by mod id: +0x0C the ten items it fits, +0x18 a value, +0x30 its price."
+
+[[symbol]]
+name = "omega_mod_table"
+address = 0x003C5908
+kind = "data"
+confidence = "high"
+note = "As alpha_mod_table, by omega mod id."
+
+[[symbol]]
+name = "gadget_ammo_per_mod"
+address = 0x003BDDE8
+kind = "data"
+confidence = "high"
+note = "A word by item: what one Ammo mod adds to its most ammo."
+
+[[symbol]]
+name = "gadget_damage_past_v10"
+address = 0x003BE47C
+kind = "data"
+confidence = "medium"
+note = "A word at 0x10 × item: damage added per level past V10 in challenge mode."
+
+[[symbol]]
+name = "gadget_alpha_mod_count"
+address = 0x006C0C60
+kind = "function"
+confidence = "high"
+note = "(box, item, mod): how many of the gun's ten alpha mods are this one."
+
+[[symbol]]
+name = "gadget_omega_mod"
+address = 0x006C0CB8
+kind = "function"
+confidence = "high"
+note = "(box, item): the gun's omega mod."
+
+[[symbol]]
+name = "gadget_shot_speed"
+address = 0x006BE9F0
+kind = "function"
+confidence = "high"
+note = "(item): GadgetDef+0x48 / 60, u a tick."
+
+[[symbol]]
+name = "gadget_shot_wait"
+address = 0x006BEA20
+kind = "function"
+confidence = "high"
+note = "(item): 1 / GadgetDef+0x4C, with multiplayer's overrides."
+
+[[symbol]]
+name = "gadget_throw"
+address = 0x006353E0
+kind = "function"
+confidence = "medium"
+note = "The throw of the B6, Mine and Turret launchers: least, most, ground speed, gravity."
+
+[[symbol]]
+name = "vipers_update"
+address = 0x003EB940
+kind = "function"
+confidence = "high"
+note = "Class 0x1094."
+
+[[symbol]]
+name = "vipers_fire"
+address = 0x003EA770
+kind = "function"
+confidence = "high"
+note = "A pair's shot, on the sequence's event 8."
+
+[[symbol]]
+name = "vipers_bullet_spawn"
+address = 0x003F1AB0
+kind = "function"
+confidence = "high"
+note = "Class 0x1095: its life, generation and damage."
+
+[[symbol]]
+name = "vipers_bullet_update"
+address = 0x003F41E8
+kind = "function"
+confidence = "high"
+note = "Class 0x1095."
+
+[[symbol]]
+name = "vipers_bullet_hit"
+address = 0x003F3928
+kind = "function"
+confidence = "high"
+note = "A hit: bounce from V10, else damage and a ball."
+
+[[symbol]]
+name = "magma_update"
+address = 0x00408260
+kind = "function"
+confidence = "high"
+note = "Class 0x1087."
+
+[[symbol]]
+name = "magma_cone"
+address = 0x00406450
+kind = "function"
+confidence = "high"
+note = "Fan, row spread, reach and lines a side."
+
+[[symbol]]
+name = "magma_rows"
+address = 0x00406F30
+kind = "function"
+confidence = "high"
+note = "A tick's rows of lines and their hits."
+
+[[symbol]]
+name = "arbiter_update"
+address = 0x0041D370
+kind = "function"
+confidence = "high"
+note = "Class 0x1864."
+
+[[symbol]]
+name = "arbiter_message"
+address = 0x0041E890
+kind = "function"
+confidence = "medium"
+note = "GadgetDef+0xA0: the fire message's handler."
+
+[[symbol]]
+name = "rocket_spawn"
+address = 0x0040BA00
+kind = "function"
+confidence = "high"
+note = "Class 0x108C."
+
+[[symbol]]
+name = "rocket_update"
+address = 0x0040C8E0
+kind = "function"
+confidence = "high"
+note = "Class 0x108C."
+
+[[symbol]]
+name = "rocket_end"
+address = 0x0040E5B8
+kind = "function"
+confidence = "high"
+note = "A 5 u ball at the second damage, and the omega mods."
+
+[[symbol]]
+name = "fusion_update"
+address = 0x00413EA0
+kind = "function"
+confidence = "high"
+note = "Class 0x1096."
+
+[[symbol]]
+name = "fusion_fire"
+address = 0x00412C40
+kind = "function"
+confidence = "high"
+note = "Its shot, class 0x1097, 0x414928."
+
+[[symbol]]
+name = "b6_update"
+address = 0x0040B498
+kind = "function"
+confidence = "high"
+note = "Class 0x108A."
+
+[[symbol]]
+name = "b6_fire"
+address = 0x0040B028
+kind = "function"
+confidence = "high"
+note = "Throws class 0x108E."
+
+[[symbol]]
+name = "b6_shell_update"
+address = 0x0040F3E0
+kind = "function"
+confidence = "high"
+note = "Class 0x108E; state 4 is its end."
+
+[[symbol]]
+name = "turret_launcher_update"
+address = 0x0046E820
+kind = "function"
+confidence = "high"
+note = "Class 0x24F2."
+
+[[symbol]]
+name = "turret_launcher_fire"
+address = 0x0046E348
+kind = "function"
+confidence = "high"
+note = "Throws class 0x24F8."
+
+[[symbol]]
+name = "turret_update"
+address = 0x0046EEF8
+kind = "function"
+confidence = "medium"
+note = "Class 0x24F8."
+
+[[symbol]]
+name = "time_bomb_update"
+address = 0x0046D138
+kind = "function"
+confidence = "medium"
+note = "Class 0x24F0: the Time Bomb omega mod's field."

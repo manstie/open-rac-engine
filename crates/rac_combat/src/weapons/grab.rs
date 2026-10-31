@@ -10,7 +10,7 @@ use super::{
     Affliction, GunEventKind, Sustain,
     aim::{flat, in_sight},
     arsenal::Arsenal,
-    def::{Armory, Beam, Rift, Ripper, Suck},
+    def::{Armory, Beam, Rift, Ripper, Suck, VortexComet},
     ducks,
     fire::{Afflict, Gun, GunInput, Outcome, ball, take_shot},
     shots::{
@@ -40,12 +40,16 @@ pub(super) fn rift(
     arsenal.trigger.cooldown = fire.cooldown_ticks;
     let (_, aim) = gun.seek(gun.muzzle, &fire.assist, gun_input, armory);
     let speed = rng.range_f32(fire.speed.0, fire.speed.1);
+    let spring = rng.range_f32(fire.pull.0, fire.pull.1) * fire.size * PULL_SCALE;
     let serial = arsenal.next_serial();
     arsenal.shots.push(gun.shot(
         serial,
         gun.muzzle,
         aim * speed,
-        ShotKind::Rift(RiftState::default()),
+        ShotKind::Rift(RiftState {
+            spring,
+            ..RiftState::default()
+        }),
     ));
 }
 
@@ -155,7 +159,7 @@ fn rift_tick(
     if *open >= fire.open_ticks || shot.position.distance(flight.hero) > fire.leash {
         return false;
     }
-    if let Some((entity, pulled)) = &mut state.taking {
+    if let Some((entity, left, speed)) = &mut state.taking {
         let Some(taken) = targets
             .iter()
             .find(|target| target.entity == *entity && target.alive)
@@ -163,7 +167,7 @@ fn rift_tick(
             state.taking = None;
             return true;
         };
-        *pulled += 1;
+        pull(left, speed, state.spring);
         out.shot_event(
             shot,
             GunEventKind::Arc {
@@ -171,7 +175,7 @@ fn rift_tick(
                 to: taken.centre,
             },
         );
-        if *pulled >= fire.pull_ticks {
+        if *left <= SWALLOW_WITHIN {
             out.afflictions.push(Afflict {
                 target: taken.entity,
                 weapon: shot.weapon,
@@ -191,9 +195,34 @@ fn rift_tick(
                 .is_some_and(|(health, _)| health > 0.0 && health <= most)
     });
     if let Some(taken) = taken {
-        state.taking = Some((taken.entity, 0));
+        state.taking = Some((taken.entity, taken.centre.distance(shot.position), 0.0));
     }
     true
+}
+
+/// The rift's spring is the drawn strength times its size and this (0x373738).
+const PULL_SCALE: f32 = 1.5;
+
+/// A target this near the rift's middle is swallowed.
+const SWALLOW_WITHIN: f32 = 0.1;
+
+/// A tick of the rift's pull (0x445208): `speed` springs towards the `left` still to come,
+/// at `spring` / 3600 a tick, at most `spring` / 60 u a tick and never past the middle, and
+/// carries it that much closer; under a hundredth of the most it snaps there.
+fn pull(left: &mut f32, speed: &mut f32, spring: f32) {
+    spring_towards(left, speed, spring / 3600.0, spring / 60.0);
+}
+
+/// `speed` springs towards the `left` still to come by `gain`, at most `most` a tick and
+/// never past it, and carries it that much closer (0x445208).
+pub(super) fn spring_towards(left: &mut f32, speed: &mut f32, gain: f32, most: f32) {
+    *speed = speed.clamp(-*left, *left);
+    *speed += gain * (*left - *speed);
+    *speed = speed.clamp(-most, most).clamp(-*left, *left);
+    *left -= *speed;
+    if *left < 0.01 * most {
+        *left = 0.0;
+    }
 }
 
 /// The Suck Cannon (0x3619C8): held, it sucks in every few ticks what its vortex touches,
@@ -204,6 +233,7 @@ pub(super) fn suck(
     gun: &Gun,
     fire: &Suck,
     gun_input: &GunInput,
+    rng: &mut SimRng,
     out: &mut Outcome,
 ) {
     let held = gun_input.input.held(Action::Fire);
@@ -226,12 +256,27 @@ pub(super) fn suck(
         }
         let (target, aim) = gun.seek(gun.muzzle, &fire.assist, gun_input, armory);
         let serial = arsenal.next_serial();
-        arsenal.shots.push(gun.shot(
-            serial,
-            gun.muzzle,
-            aim * fire.speed,
-            ShotKind::Thing { target },
-        ));
+        let (velocity, kind) = match fire.comet.filter(|comet| gun.level >= comet.from_level) {
+            Some(comet) => {
+                // The game's way a frame has its two ground axes thrown, then a new speed.
+                let way = aim * fire.speed * TICK
+                    + Vec3::new(
+                        rng.range_f32(-comet.jitter, comet.jitter),
+                        0.0,
+                        rng.range_f32(-comet.jitter, comet.jitter),
+                    );
+                let speed = rng.range_f32(comet.speed.0, comet.speed.1);
+                let life = comet.life;
+                (
+                    way.normalize_or(aim) * speed,
+                    ShotKind::Comet { life, target },
+                )
+            }
+            None => (aim * fire.speed, ShotKind::Thing { target }),
+        };
+        arsenal
+            .shots
+            .push(gun.shot(serial, gun.muzzle, velocity, kind));
         return;
     }
     if !held || !gun.ready {
@@ -344,6 +389,60 @@ pub(super) fn thing(shot: &mut Shot, fire: &Suck, flight: &Flight, out: &mut Out
     }
 }
 
+/// The Vortex Cannon's comet (0x394068): it drifts on, falling, pulled at its target; what
+/// it meets takes its damage and a blast does the same round it.
+pub(super) fn comet(
+    shot: &mut Shot,
+    comet: &VortexComet,
+    flight: &Flight,
+    out: &mut Outcome,
+) -> bool {
+    let ShotKind::Comet { life, target } = &mut shot.kind else {
+        return false;
+    };
+    let life = *life;
+    let chased = target.and_then(|entity| {
+        flight
+            .targets
+            .iter()
+            .find(|candidate| candidate.entity == entity && candidate.alive)
+    });
+    if chased.is_none() {
+        *target = None;
+    }
+    let from = shot.position;
+    let mut to = from + shot.velocity * TICK;
+    if let Some(chased) = chased {
+        to += (chased.centre - to).normalize_or_zero() * comet.pull * TICK;
+    }
+    shot.velocity.y -= comet.gravity * TICK;
+    let (at, direct) = match meets_where(flight.world, flight.targets, from, to - from, |t| t.alive)
+    {
+        Meets::Target(index, t) => (from + (to - from) * t, Some(index)),
+        Meets::World(t, _) => (from + (to - from) * t, None),
+        Meets::Nothing => {
+            shot.position = to;
+            return shot.ticks < life;
+        }
+    };
+    let struck = direct.map(|index| &flight.targets[index]);
+    if let Some(struck) = struck {
+        let away = (struck.centre - flight.hero).normalize_or_zero() * comet.push;
+        out.hits.push(shot.hit(struck.entity, shot.damage, away));
+    }
+    for near in in_ball(
+        flight.targets,
+        at,
+        comet.radius,
+        struck.map(|struck| struck.entity),
+    ) {
+        out.hits
+            .push(shot.hit(near.entity, shot.damage, Vec3::ZERO));
+    }
+    out.shot_event(shot, GunEventKind::Impact { at, surface: None });
+    false
+}
+
 /// The blast a sucked-in thing bursts in: every target within `radius` takes its damage.
 fn burst(shot: &Shot, flight: &Flight, at: Vec3, radius: f32, push: Vec3, out: &mut Outcome) {
     for near in in_ball(flight.targets, at, radius, None) {
@@ -443,4 +542,29 @@ fn beam_target(gun: &Gun, fire: &Beam, gun_input: &GunInput, aim: Vec3) -> Optio
         .filter(|(_, target)| in_sight(gun_input.world, gun.muzzle, target.centre))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, target)| target.entity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ticks_to_swallow(from: f32, spring: f32) -> u32 {
+        let (mut left, mut speed) = (from, 0.0);
+        let mut ticks = 0;
+        while left > SWALLOW_WITHIN {
+            pull(&mut left, &mut speed, spring);
+            ticks += 1;
+        }
+        ticks
+    }
+
+    #[test]
+    fn the_rifts_pull_brings_a_target_in_from_its_reach_in_36_to_111_ticks() {
+        // The size's 0.5 makes the springs 5.25 to 17.25.
+        let (weakest, strongest) = (7.0 * 0.5 * PULL_SCALE, 23.0 * 0.5 * PULL_SCALE);
+        let slow = ticks_to_swallow(9.5, weakest);
+        let fast = ticks_to_swallow(9.5, strongest);
+        assert!((108..=114).contains(&slow), "{slow}");
+        assert!((33..=39).contains(&fast), "{fast}");
+    }
 }

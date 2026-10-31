@@ -13,21 +13,26 @@ use super::{
     aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight, level_search, wrap, yaw_of},
     arsenal::Arsenal,
     def::{
-        AgentEnd, AgentGun, Agents, AimAssist, Armory, Barrier, Bomblet, Bounce, Cluster, Deploy,
-        FireMode, Gait, Infect, InfectBomb, Mega, Throw, Timing, Turret,
+        AgentEnd, AgentGun, AgentHover, Agents, AimAssist, Armory, Barrier, Bomblet, Bounce,
+        Cluster, Deploy, FireMode, Gait, Infect, InfectBomb, Mega, Throw, Timing, Turret,
     },
     fire::{Afflict, Gun, GunInput, Outcome, fire_anim, run_dry, take_shot},
+    grab,
     shots::{
-        AgentBook, AgentMode, AgentState, BOUNCE_GAP, BarrierState, Flight, Meets, Shot, ShotKind,
-        TICK, TurretState, in_ball, meets, meets_where, seeker, small_missile,
+        AgentBook, AgentMode, AgentState, BOUNCE_GAP, BarrierState, Drift, Flight, Hovering, Meets,
+        Shot, ShotKind, TICK, TurretState, in_ball, meets, meets_where, seeker, small_missile,
+        spring_turn,
     },
 };
 
-/// Ticks a thrown thing may fall before it is given up [placeholder: none read].
+/// Ticks the kit lets a thrown thing fall before it gives it up, where the game's rule
+/// needs what the kit doesn't know: the holo shield goes once it leaves the level's box
+/// (`weapons.md`, "Thrown things off the world") [kit's own].
 const FALL_TICKS: u32 = 600;
 
-/// A walking turret falls as the agents do [placeholder].
-const GRAVITY_WALK: f32 = 11.0;
+/// The agents' pod lets them out where it is once it has fallen this long unlanded
+/// (0x35D178 sets its countdown).
+const POD_TICKS: u32 = 300;
 
 /// The launch that carries a throw from `from` to `to` across the ground at `ground_speed`,
 /// its upward speed solved for `gravity` (`lob_velocity`, 0x4C3888).
@@ -67,11 +72,19 @@ fn throw(gun: &Gun, throw: &Throw, gun_input: &GunInput, from: Vec3) -> Vec3 {
     arc(from, point, way, throw.ground_speed, throw.gravity)
 }
 
-/// A bounce off the world: `keep` of the speed comes back, and if the bounce homes, its
-/// ground velocity turns at the nearest living enemy within reach (the Bouncer's bomblets,
-/// 0x31E488, and the Infector's blob).
+/// `velocity` reflected off a surface facing `normal`, keeping `keep` of its part along the
+/// normal and all of it along the surface (UYA's resolver, 0x4C42C0).
+pub(super) fn rebound(velocity: Vec3, normal: Vec3, keep: f32) -> Vec3 {
+    let reflected = velocity.reflect(normal);
+    let along = normal * reflected.dot(normal);
+    reflected - along + along * keep
+}
+
+/// A bounce off the world ([`rebound`]), and if the bounce homes, its ground velocity turns
+/// at the nearest living enemy within reach (the Bouncer's bomblets, 0x31E488, and the
+/// Infector's blob).
 fn bounce(shot: &mut Shot, normal: Vec3, bounce: &Bounce, targets: &[GunTarget]) {
-    shot.velocity = shot.velocity.reflect(normal) * bounce.keep;
+    shot.velocity = rebound(shot.velocity, normal, bounce.keep);
     let Some(range) = bounce.home_range else {
         return;
     };
@@ -169,9 +182,17 @@ pub(super) fn cluster_shot(
                 // Rolling, it keeps to the surface.
                 shot.velocity -= hit.normal * shot.velocity.dot(hit.normal);
             } else {
-                shot.velocity = shot.velocity.reflect(hit.normal) * fire.bounce.keep;
                 *bounces += 1;
-                if *bounces >= fire.bounces {
+                if *bounces < fire.bounces {
+                    shot.velocity = rebound(shot.velocity, hit.normal, fire.bounce.keep);
+                } else {
+                    // The last touch bounces only off a ceiling, then sets it rolling on
+                    // along the surface at its rolling speed.
+                    if hit.normal.y < 0.0 {
+                        shot.velocity = rebound(shot.velocity, hit.normal, fire.bounce.keep);
+                    }
+                    let along = shot.velocity - hit.normal * shot.velocity.dot(hit.normal);
+                    shot.velocity = along.normalize_or_zero() * fire.roll_speed(shot.level);
                     *rolled = Some(0);
                 }
             }
@@ -306,7 +327,7 @@ pub(super) fn infect(
         return;
     }
     arsenal.trigger.cooldown = fire.cooldown_ticks;
-    let from = gun.muzzle - Vec3::Y * fire.below;
+    let from = gun.muzzle;
     if let Some(bomb) = fire.bomb.filter(|bomb| gun.level >= bomb.from_level) {
         let velocity = throw(gun, &bomb.throw, gun_input, from);
         let serial = arsenal.next_serial();
@@ -468,14 +489,26 @@ pub(super) fn turret(
     gun_input: &GunInput,
     out: &mut Outcome,
 ) {
-    let out_now = count(arsenal, gun, |kind| matches!(kind, ShotKind::Turret(_)));
+    // It refuses a throw by those landed (0x3462F0), six of the Megaturret's.
+    let landed = count(
+        arsenal,
+        gun,
+        |kind| matches!(kind, ShotKind::Turret(state) if state.landed.is_some()),
+    );
+    let most = fire
+        .mega
+        .filter(|mega| gun.level >= mega.from_level)
+        .map_or(fire.deploy.most, |mega| mega.most);
     if !deploy(
         arsenal,
         armory,
         gun,
-        &fire.deploy,
+        &Deploy {
+            most,
+            ..fire.deploy
+        },
         gun_input,
-        out_now,
+        landed,
         false,
         out,
     ) {
@@ -488,8 +521,8 @@ pub(super) fn turret(
         gun.muzzle,
         velocity,
         ShotKind::Turret(TurretState {
-            // The Megaturret's first look at walking back is 3 s in (0x32DE00's state 0).
-            walk_wait: fire.mega.map_or(0, |mega| mega.walk_every.0),
+            // The Megaturret's first look at moving to him is 3 s in (0x32DE00's state 0).
+            move_wait: fire.mega.map_or(0, |mega| mega.move_every.0),
             ..default()
         }),
     ));
@@ -510,7 +543,7 @@ pub(super) fn turret_shot(
         return pellet(shot, fire.push, flight, out);
     }
     if let (ShotKind::Guided { .. }, Some(mega)) = (&shot.kind, fire.mega) {
-        return guided(shot, &mega, flight, out);
+        return guided(shot, &mega, flight, rng, out);
     }
     let ShotKind::Turret(mut state) = shot.kind else {
         return false;
@@ -538,7 +571,15 @@ fn turret_tick(
     out: &mut Outcome,
     born: &mut Vec<Shot>,
 ) -> bool {
-    if shot.position.distance(flight.hero) > fire.leash {
+    let mega = fire.mega.filter(|mega| shot.level >= mega.from_level);
+    // Left far behind a Miniturret bursts; a Megaturret goes to him.
+    if mega.is_none() && shot.position.distance(flight.hero) > fire.leash {
+        return false;
+    }
+    // Its countdown starts as it leaves the hand (0x32C320) and whatever it is doing runs
+    // on; each shot sets it again.
+    state.idle += 1;
+    if state.idle >= mega.map_or(fire.life_ticks, |mega| mega.life_ticks) {
         return false;
     }
     let Some(landed) = &mut state.landed else {
@@ -546,21 +587,23 @@ fn turret_tick(
             shot.velocity = Vec3::ZERO;
             state.landed = Some(0);
         }
-        return shot.ticks < FALL_TICKS;
+        return true;
     };
+    // Folded up until it is among the nearest him, then it unfolds again.
+    if state.move_to.is_none() && !flight.turrets.contains(&shot.serial) {
+        *landed = 0;
+        state.target = None;
+        state.turn = 0.0;
+        return true;
+    }
     *landed += 1;
     if *landed <= fire.unfold_ticks {
         return true;
     }
-    let mega = fire.mega.filter(|mega| shot.level >= mega.from_level);
     if let Some(mega) = mega
-        && walk_back(shot, state, &mega, flight, rng)
+        && move_to_him(shot, state, &mega, flight, rng)
     {
         return true;
-    }
-    state.idle += 1;
-    if state.idle >= fire.life_ticks {
-        return false;
     }
     let barrel = shot.position + Vec3::Y * fire.barrel_height;
     let targets = flight.targets;
@@ -613,16 +656,26 @@ fn turret_tick(
     );
     born.push(match mega {
         Some(mega) => Shot {
-            position: barrel,
+            // From its two barrels in turn.
+            position: barrel
+                + direction * mega.barrels.0
+                + direction.cross(Vec3::Y).normalize_or_zero()
+                    * if state.fired.is_multiple_of(2) {
+                        mega.barrels.1
+                    } else {
+                        -mega.barrels.1
+                    },
             velocity: direction * mega.speed.0,
             ticks: 0,
             kind: ShotKind::Guided {
                 target: Some(target.entity),
+                turn: 0.0,
+                drift: Drift::new(rng),
             },
             ..shot.clone()
         },
         None => Shot {
-            position: barrel,
+            position: barrel + direction * fire.barrel_along,
             velocity: direction * fire.speed,
             ticks: 0,
             kind: ShotKind::Pellet,
@@ -632,51 +685,67 @@ fn turret_tick(
     state.fired < fire.shots.at(shot.level).unwrap_or(0)
 }
 
-/// The Megaturret's walk back (0x32DE00's states 3, 10 and 11): with the hero far off and
-/// enemies near him, now and then it walks to a point near him. Returns whether it is
-/// walking.
-fn walk_back(
+/// The Megaturret's move to him (0x32DE00's states 3, 10 and 11, 0x407010): with the hero
+/// far off and enemies near him, now and then it fades out, goes to a point on the ground
+/// near him, and fades back in. Returns whether it is moving.
+fn move_to_him(
     shot: &mut Shot,
     state: &mut TurretState,
     mega: &Mega,
     flight: &Flight,
     rng: &mut SimRng,
 ) -> bool {
-    if let Some(to) = state.walk_to {
-        let across = flat(to - shot.position);
-        if across.length() <= mega.walk_speed * TICK {
-            state.walk_to = None;
+    if let Some(to) = state.move_to {
+        state.faded += 1;
+        if state.faded == mega.fade_ticks {
+            shot.position = to;
+        }
+        if state.faded >= mega.fade_ticks * 2 {
+            state.move_to = None;
+            state.faded = 0;
             return false;
         }
-        walk(
-            shot,
-            across.normalize_or_zero() * mega.walk_speed,
-            GRAVITY_WALK,
-            flight.world,
-        );
         return true;
     }
-    state.walk_wait = state.walk_wait.saturating_sub(1);
-    let far = flat(flight.hero - shot.position).length() > mega.beyond;
+    state.move_wait = state.move_wait.saturating_sub(1);
+    let far = flight.hero.distance(shot.position) > mega.beyond;
     let threat = flight.targets.iter().any(|target| {
         target.alive && target.enemy && target.centre.distance(flight.hero) <= mega.beyond
     });
-    if state.walk_wait > 0 || !far || !threat {
+    if state.move_wait > 0 || !far || !threat {
         return false;
     }
-    let (low, high) = mega.walk_every;
-    state.walk_wait = low + rng.below(high.saturating_sub(low) + 1);
+    let (low, high) = mega.move_every;
+    state.move_wait = low + rng.below(high.saturating_sub(low) + 1);
     let bearing = rng.unit_f32() * TAU;
     let reach = rng.range_f32(mega.round.0, mega.round.1);
-    state.walk_to =
-        Some(flight.hero + Vec3::new(-ops::sin(bearing), 0.0, -ops::cos(bearing)) * reach);
+    let above =
+        flight.hero + Vec3::new(-ops::sin(bearing) * reach, 1.0, -ops::cos(bearing) * reach);
+    // It stays if there's no ground under the point within 10 u (0x32E950).
+    let down = Vec3::NEG_Y * 10.0;
+    let Some(hit) = flight.world.cast_ray(above, down) else {
+        return false;
+    };
+    state.move_to = Some(above + down * hit.fraction);
+    state.faded = 0;
     true
 }
 
 /// The Megaturret's missile (0x343330): faster each tick to its most, after its target,
 /// going off where it meets something.
-fn guided(shot: &mut Shot, mega: &Mega, flight: &Flight, out: &mut Outcome) -> bool {
-    let ShotKind::Guided { target } = &mut shot.kind else {
+fn guided(
+    shot: &mut Shot,
+    mega: &Mega,
+    flight: &Flight,
+    rng: &mut SimRng,
+    out: &mut Outcome,
+) -> bool {
+    let ShotKind::Guided {
+        target,
+        turn,
+        drift,
+    } = &mut shot.kind
+    else {
         return false;
     };
     if shot.ticks >= mega.missile_ticks {
@@ -694,8 +763,9 @@ fn guided(shot: &mut Shot, mega: &Mega, flight: &Flight, out: &mut Outcome) -> b
     let speed = (shot.velocity.length() + mega.accel).min(mega.speed.1);
     let mut way = shot.velocity.normalize_or(flight.facing);
     if let Some(chased) = chased {
-        let wanted = (chased.centre - shot.position).normalize_or(way);
-        way = super::aim::bend(way, wanted, mega.turn_degrees.to_radians());
+        let off = drift.aim(chased.centre, shot.position, rng) - shot.position;
+        let close = off.length() < 0.25;
+        way = spring_turn(way, off.normalize_or(way), turn, mega.turn, close);
     }
     shot.velocity = way * speed;
     let motion = shot.velocity * TICK;
@@ -706,8 +776,9 @@ fn guided(shot: &mut Shot, mega: &Mega, flight: &Flight, out: &mut Outcome) -> b
             return true;
         }
     };
+    // Pushed by its velocity a frame.
     for near in in_ball(flight.targets, at, mega.blast_radius, None) {
-        out.hits.push(shot.hit(near.entity, shot.damage, way * 0.5));
+        out.hits.push(shot.hit(near.entity, shot.damage, motion));
     }
     out.shot_event(shot, GunEventKind::Impact { at, surface: None });
     false
@@ -824,6 +895,7 @@ pub(super) fn barrier_shot(
     flight: &Flight,
     out: &mut Outcome,
     born: &mut Vec<Shot>,
+    book: &mut AgentBook,
 ) -> bool {
     if matches!(shot.kind, ShotKind::Pulse { .. }) {
         return pulse(shot, fire, flight, out);
@@ -831,7 +903,7 @@ pub(super) fn barrier_shot(
     let ShotKind::Barrier(mut state) = shot.kind else {
         return false;
     };
-    let keep = barrier_tick(shot, &mut state, fire, flight, out, born);
+    let keep = barrier_tick(shot, &mut state, fire, flight, out, born, book);
     shot.kind = ShotKind::Barrier(state);
     keep
 }
@@ -843,6 +915,7 @@ fn barrier_tick(
     flight: &Flight,
     out: &mut Outcome,
     born: &mut Vec<Shot>,
+    book: &mut AgentBook,
 ) -> bool {
     let Some(landed) = &mut state.landed else {
         let velocity = shot.velocity;
@@ -907,9 +980,10 @@ fn barrier_tick(
                 .filter(|target| target.alive && target.enemy)
                 .find(|target| {
                     target.centre.distance(from) <= pulse.range
-                        && in_sight(flight.world, from, target.centre)
+                        && !book.picked(shot.serial, target.entity)
                 });
             if let Some(seen) = seen {
+                book.pick(shot.serial, seen.entity, pulse.picked_ticks);
                 born.push(Shot {
                     position: from,
                     velocity: Vec3::ZERO,
@@ -1093,6 +1167,16 @@ pub fn block_shot(arsenal: &mut Arsenal, armory: &Armory, from: Vec3, motion: Ve
             state.react = Some(0);
         }
     }
+    let weapon = shot.weapon;
+    let def = armory.get(weapon);
+    let xp = def.map_or(0, |def| {
+        let (times, over) = match &def.fire {
+            FireMode::Barrier(fire) => fire.hit_xp,
+            _ => (0, 1),
+        };
+        def.level(shot.level).xp * times / over.max(1)
+    });
+    arsenal.pending_xp.push((weapon, xp));
     Some(t)
 }
 
@@ -1127,12 +1211,36 @@ pub(super) fn agents(
             .take(fire.per_pod as usize)
             .take(fire.deploy.most.saturating_sub(about))
         {
+            // To a slot round him while one is free, else on foot beside him.
+            let free = fire.hover.as_ref().and_then(|hover| {
+                (0..hover.slots.len()).find(|slot| {
+                    !arsenal.shots.iter().any(|shot| {
+                        matches!(shot.kind, ShotKind::Agent(AgentState {
+                            hover: Some(Hovering { slot: taken, landing: None }),
+                            ..
+                        }) if taken == *slot)
+                    })
+                })
+            });
+            let (at, hovering) = match (free, &fire.hover) {
+                (Some(slot), Some(hover)) => (
+                    slot_place(hover.slots[slot], hero.position, facing),
+                    Some(Hovering {
+                        slot,
+                        landing: None,
+                    }),
+                ),
+                _ => (at, None),
+            };
             let serial = arsenal.next_serial();
             arsenal.shots.push(gun.shot(
                 serial,
                 at,
                 Vec3::ZERO,
-                ShotKind::Agent(AgentState::default()),
+                ShotKind::Agent(AgentState {
+                    hover: hovering,
+                    ..Default::default()
+                }),
             ));
         }
         return;
@@ -1142,6 +1250,72 @@ pub(super) fn agents(
     arsenal
         .shots
         .push(gun.shot(serial, gun.muzzle, velocity, ShotKind::Pod));
+}
+
+/// A slot round the hero (0x4C5220): turned over his head from his left, and out from a
+/// point behind him.
+fn slot_place((degrees, out, behind): (f32, f32, f32), hero: Vec3, facing: Vec3) -> Vec3 {
+    let left = Vec3::Y.cross(facing).normalize_or_zero();
+    let angle = degrees.to_radians();
+    hero - facing * behind + (left * ops::cos(angle) + Vec3::Y * ops::sin(angle)) * out
+}
+
+/// An agent's tick by its slot: it springs to the slot, or once the rounds are gone, to the
+/// ground, where it goes on foot.
+fn hover_tick(
+    shot: &mut Shot,
+    state: &mut AgentState,
+    hover: &AgentHover,
+    flight: &Flight,
+    rng: &mut SimRng,
+    book: &AgentBook,
+) {
+    let Some(mut now) = state.hover else {
+        return;
+    };
+    if now.landing.is_none() && book.rounds == 0 {
+        let way = flight.facing * hover.ahead - Vec3::Y * hover.below;
+        now.landing = Some(
+            flight
+                .world
+                .cast_ray(shot.position, way)
+                .map_or(flight.hero, |hit| shot.position + way * hit.fraction),
+        );
+    }
+    let goal = now
+        .landing
+        .unwrap_or_else(|| slot_place(hover.slots[now.slot], flight.hero, flight.facing));
+    let from_him = shot.position.distance(flight.hero);
+    let far = now.landing.is_none() && from_him > hover.far;
+    let (gain, top) = if now.landing.is_some() {
+        (draw(rng, hover.land_gain), draw(rng, hover.land_top))
+    } else if far {
+        (hover.far_gain, hover.far_top)
+    } else {
+        (draw(rng, hover.near_gain), draw(rng, hover.near_top))
+    };
+    let way = goal - shot.position;
+    let mut left = way.length();
+    let along = way.normalize_or_zero();
+    let before = left;
+    let mut speed = state.speed;
+    grab::spring_towards(&mut left, &mut speed, gain / 3600.0, top / 60.0);
+    let step = along * (before - left);
+    let look = step + along * hover.look;
+    let free = far || now.landing.is_some();
+    if free || flight.world.cast_ray(shot.position, look).is_none() {
+        shot.position += step;
+        state.speed = speed;
+    }
+    if let Some(landing) = now.landing
+        && shot.position.distance(landing) < hover.landed
+    {
+        state.hover = None;
+        state.mode = AgentMode::Follow;
+        state.speed = 0.0;
+        return;
+    }
+    state.hover = Some(now);
 }
 
 /// To the front, back, left and right of `at`.
@@ -1171,8 +1345,10 @@ pub(super) fn agents_shot(
     match shot.kind.clone() {
         ShotKind::Pod => {
             let way = flat(shot.velocity).normalize_or(Vec3::NEG_Z);
-            let Some(at) = fall(shot, fire.gravity, flight) else {
-                return shot.ticks < FALL_TICKS;
+            let at = match fall(shot, fire.gravity, flight) {
+                Some(at) => at,
+                None if shot.ticks >= POD_TICKS => shot.position,
+                None => return true,
             };
             for spot in round(at, way, fire.spread)
                 .into_iter()
@@ -1200,10 +1376,10 @@ pub(super) fn agents_shot(
             }
             keep
         }
-        ShotKind::Comet { life } => comet(shot, life, fire, flight, out),
+        ShotKind::Comet { life, .. } => comet(shot, life, fire, flight, out),
         ShotKind::Blast { .. } => grow(shot, fire, flight, out),
         ShotKind::Seeker { .. } => match fire.gun.at(shot.level) {
-            Some(AgentGun::Missiles { missile, .. }) => seeker(shot, &missile, flight, out),
+            Some(AgentGun::Missiles { missile, .. }) => seeker(shot, &missile, flight, rng, out),
             _ => false,
         },
         _ => false,
@@ -1270,14 +1446,25 @@ fn agent(
             }
             None => {}
         }
-        if let Some(index) =
-            level_search(targets, shot.position, bearing, sight.first, level, |t| {
-                t.alive && t.health.is_some()
-            })
+        if state.hover.is_none()
+            && let Some(index) =
+                level_search(targets, shot.position, bearing, sight.first, level, |t| {
+                    t.alive && t.health.is_some()
+                })
         {
             state.target = Some(targets[index].entity);
             book.claims.push((targets[index].entity, sight.claim_ticks));
         }
+    }
+    // Keeping to its slot it only fires.
+    if let (Some(_), Some(hover)) = (state.hover, &fire.hover) {
+        if shot.ticks >= fire.life_ticks || shot.position.distance(flight.hero) > fire.leash {
+            agent_end(shot, None, fire, flight, out, born);
+            return false;
+        }
+        hover_tick(shot, state, hover, flight, rng, book);
+        agent_gun(shot, state, fire, flight, rng, born, book);
+        return true;
     }
     // Its target while it lives; without one, the best enemy no agent has claimed.
     let kept = state.target.and_then(|entity| {
@@ -1538,7 +1725,7 @@ fn agent_end(
                 position: at,
                 velocity: way * (speed.0 + speed.1) / 2.0,
                 ticks: 0,
-                kind: ShotKind::Comet { life },
+                kind: ShotKind::Comet { life, target: None },
                 ..shot.clone()
             });
         }

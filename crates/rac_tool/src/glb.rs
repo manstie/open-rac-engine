@@ -344,6 +344,7 @@ mod tests {
         MobyClass {
             scale: 1024.0,
             joints: vec![joint(None, [0.0; 3]), joint(Some(0), [0.0, 0.0, 1.0])],
+            points: Vec::new(),
             sequences: vec![
                 None,
                 Some(Sequence {

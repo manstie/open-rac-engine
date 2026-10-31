@@ -5735,3 +5735,92 @@ address = 0x003177F8
 kind = "function"
 confidence = "low"
 note = "A moby's update that, once per entry (0x1BBC40 bits by +0xB0 and +0xB1), adds rewards from 0x1EFD00 to xp_bank and from 0x1EFDC0 to bolt_bank."
+
+# Read 2026-10-31 for the guns' placeholders (docs/research/weapons.md).
+
+[[symbol]]
+name = "shot_bounce_resolve"
+address = 0x004C42C0
+kind = "function"
+confidence = "medium"
+note = "Shared sweep and bounce for thrown shots (Bouncer canister and bomblets, Infector blob, Miniturret): reflects, scaling only the part along the normal by the caller's keep."
+
+[[symbol]]
+name = "small_missile_flight"
+address = 0x00343330
+kind = "function"
+confidence = "medium"
+note = "Update of the small missile (class 0xA82) the Decimator, Megaturret and Agents of Dread fire: search, spring turn, wander and weave."
+
+[[symbol]]
+name = "missile_spring_turn"
+address = 0x00449148
+kind = "function"
+confidence = "low"
+note = "The small missile's turn rate spring: rate += 0.03 angle - 0.2 rate, kept within the angle."
+
+[[symbol]]
+name = "ball_damage_pushed"
+address = 0x00443648
+kind = "function"
+confidence = "medium"
+note = "Damages everything in a ball, pushing by (cos yaw, sin yaw, 1) of the attacker times a strength."
+
+[[symbol]]
+name = "enemy_take_hit"
+address = 0x0044FCD0
+kind = "function"
+confidence = "low"
+note = "Shared enemy hit reaction: picks a reaction 0-6 by damage, knocks back by the record's push (at least 1 across and 1 up)."
+
+[[symbol]]
+name = "hero_hand_blocks_firing"
+address = 0x004E5540
+kind = "function"
+confidence = "medium"
+note = "True in hero state types 17 and 18 (swimming) and states 108, 119, 120, 132; the hand update then sets the no-firing flag 0x1A71CD."
+
+[[symbol]]
+name = "hero_no_firing"
+address = 0x001A71CD
+kind = "data"
+confidence = "medium"
+note = "Byte: guns refuse to fire while set. hero_change_state clears it on each change and sets it for the ledge states and others."
+
+# 2026-10-31, the turrets' count, the Megaturret's move, the points round the hero and the
+# ducks' and agents' numbers (PLAN.md RE.7; docs/research/weapons.md).
+
+[[symbol]]
+name = "nearest_mobys_pick"
+address = 0x004C7228
+kind = "function"
+confidence = "high"
+note = "Given a turret list (slots, then flags at +0x40 words, count +0x88, wanted +0x8A), marks the wanted number nearest the hero as active."
+
+[[symbol]]
+name = "megaturret_ground_below"
+address = 0x0032E950
+kind = "function"
+confidence = "medium"
+note = "Rays a given distance down from a point; true with the place when it meets ground of a solid material away from the hero's moby."
+
+[[symbol]]
+name = "moby_fade_move"
+address = 0x00407010
+kind = "function"
+confidence = "medium"
+note = "Fades a moby's alpha out by one step a frame, moves it to a point, and fades it in by another, each over the given frames; a phase counts to 2."
+
+[[symbol]]
+name = "hero_slots_update"
+address = 0x004C5220
+kind = "function"
+confidence = "medium"
+note = "Places the points round the hero each frame: slots at 0x1E2240 (agents jet in to them) and 0x1E24A0, where the V5 duck keeps."
+
+[[symbol]]
+name = "walker_step"
+address = 0x00457590
+kind = "function"
+confidence = "medium"
+note = "Runs a walker a frame towards a point at a yaw (0x4577D0 and others), once per frame count; walker_set_params gives its acceleration, top speed and turn."

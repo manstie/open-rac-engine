@@ -111,6 +111,8 @@ pub struct Arsenal {
     pub(crate) whip_seen: u32,
     /// What his agents share.
     pub(crate) agent_book: super::shots::AgentBook,
+    /// XP from hits on his shields since the last tick.
+    pub(crate) pending_xp: Vec<(WeaponId, u32)>,
     /// What the gun in his hand aims at, as of the last tick.
     pub sights: Sights,
     /// What the gun in his hand kept doing in the last tick, for looping sounds.
@@ -156,8 +158,8 @@ impl Arsenal {
                     weapon,
                     level: 0,
                     xp: 0,
-                    // The game's first ammo is row +0x8E, not tabulated yet [placeholder:
-                    // full].
+                    // The game's first ammo is row +0x8E, which is the maximum on every
+                    // gun's rows [data].
                     ammo,
                     extra_mods: Mods::default(),
                 });

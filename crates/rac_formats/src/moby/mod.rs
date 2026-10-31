@@ -110,6 +110,10 @@ pub struct MobyClass {
     /// The class's scale; one class unit is `scale / 1024` world units.
     pub scale: f32,
     pub joints: Vec<Joint>,
+    /// The joints the game asks the place of by number (`moby_point_position`,
+    /// `moby-format.md`, "Points"), the last of each chain the class lists; `None` for a
+    /// point with an empty chain. DL's aren't read.
+    pub points: Vec<Option<usize>>,
     /// By sequence number; unused numbers are `None`.
     pub sequences: Vec<Option<Sequence>>,
     /// The mesh's packets: high detail, low detail, then metal.
@@ -175,6 +179,7 @@ impl MobyClass {
         let sequence_count = image.u8(address + 0x0C)? as u32;
         let skeleton = pointer(address + 0x14)?;
         let offsets = pointer(address + 0x18)?;
+        let point_table = pointer(address + 0x1C)?;
         let scale = image.f32(address + 0x24)?;
 
         // A class with neither a skeleton nor joint offsets is only sequences that pose
@@ -228,6 +233,20 @@ impl MobyClass {
             });
         }
 
+        let points = if point_table == 0 {
+            Vec::new()
+        } else {
+            (0..image.u32(point_table)?)
+                .map(|index| {
+                    let chain = pointer(point_table + 4 + index * 4)?;
+                    Ok(match image.u8(chain)? {
+                        0 => None,
+                        length => Some(image.u8(chain + 3 + u32::from(length))? as usize),
+                    })
+                })
+                .collect::<Result<_, FormatError>>()?
+        };
+
         let mut sequences = Vec::with_capacity(sequence_count as usize);
         for index in 0..sequence_count {
             let (at, frames_from) = match external {
@@ -254,6 +273,7 @@ impl MobyClass {
         Ok(Self {
             scale,
             joints,
+            points,
             sequences,
             packets,
         })
@@ -317,6 +337,7 @@ impl MobyClass {
         Ok(Self {
             scale,
             joints,
+            points: Vec::new(),
             sequences: Vec::new(),
             packets,
         })
@@ -740,6 +761,28 @@ pub(crate) mod tests {
         assert_eq!((keyframe.ticks(), keyframe.stamp), (6.0, 16));
         // Read as if loaded, the relative pointers point nowhere sensible.
         assert!(MobyClass::read(&image, class).is_err());
+    }
+
+    #[test]
+    fn a_classs_points_are_the_last_joints_of_its_chains() {
+        let (bytes, class, sequence) = packed_hero();
+        let mut w = Writer { bytes };
+        // Pointers from the class's start: a table of three, the first chain two joints
+        // long, the second empty, the third one long with a second list after it.
+        w.poke_u32(class + 0x1C, 0x500);
+        w.at(class + 0x500).u32(3).u32(0x520).u32(0x530).u32(0x540);
+        w.at(class + 0x520).u16(2).u16(0).u8(0).u8(1);
+        w.at(class + 0x530).u16(0).u16(0);
+        w.at(class + 0x540)
+            .u8(1)
+            .u8(0)
+            .u8(2)
+            .u8(0)
+            .u8(1)
+            .u8(0)
+            .u8(1);
+        let hero = MobyClass::read_hero(&Image::new(&w.bytes, 0), class, &[sequence]).unwrap();
+        assert_eq!(hero.points, [Some(1), None, Some(1)]);
     }
 
     /// A DL class at 0 (pointers from its start) with three joints: the root, a hip 5

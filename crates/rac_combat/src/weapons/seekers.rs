@@ -13,7 +13,10 @@ use super::{
     arsenal::Arsenal,
     def::{AimAssist, Armory, Coil, Disc, Hydra, RocketBlast, Storm, Timing, Volley},
     fire::{Gun, GunInput, Outcome, ball, fire_anim, run_dry, take_shot},
-    shots::{BOUNCE_GAP, Flight, Meets, RocketState, Shot, ShotKind, TICK, in_ball, meets_where},
+    shots::{
+        AgentBook, BOUNCE_GAP, Flight, Meets, RocketState, Shot, ShotKind, TICK, in_ball,
+        meets_where,
+    },
 };
 
 /// How far off the world a coil ball sticks.
@@ -300,8 +303,8 @@ fn storm_ball(
     true
 }
 
-/// The Disc Blade Gun (0x36EFC0): held, a disc every so often, leaving turned to his side,
-/// each the other side from the last.
+/// The Disc Blade Gun (0x36EFC0): held, a disc every so often. Below V5 it leaves lifted
+/// above its aim and arcs; from V5 straight, twice as fast, from two muzzles in turn.
 pub(super) fn disc(
     arsenal: &mut Arsenal,
     armory: &Armory,
@@ -321,42 +324,49 @@ pub(super) fn disc(
     }
     let trigger = &mut arsenal.trigger;
     trigger.cooldown = fire.cooldown_ticks;
+    let side = fire.barrels.at(gun.level).unwrap_or(0.0);
     let side = if trigger.barrel.is_multiple_of(2) {
-        1.0
+        side
     } else {
-        -1.0
+        -side
     };
     trigger.barrel = trigger.barrel.wrapping_add(1);
     let Some(assist) = fire.assist.at(gun.level) else {
         return;
     };
     let (target, aim) = gun.seek(gun.muzzle, &assist, gun_input, armory);
-    let turn = if target.is_some() {
-        fire.side_aimed_degrees
+    let arcs = gun.level < fire.arc_below && gun.view_point.is_none();
+    let direction = if arcs {
+        let lift = if target.is_some() {
+            fire.lift_aimed_degrees
+        } else {
+            fire.lift_degrees
+        };
+        let left = Vec3::Y.cross(gun.facing).normalize_or_zero();
+        Quat::from_axis_angle(left, -lift.to_radians()) * aim
     } else {
-        fire.side_degrees
+        aim
     };
-    let direction = Quat::from_rotation_y(side * turn.to_radians()) * aim;
     let serial = arsenal.next_serial();
     arsenal.shots.push(gun.shot(
         serial,
-        gun.muzzle,
-        direction * fire.speed,
+        gun.muzzle + gun.facing.cross(Vec3::Y).normalize_or_zero() * side,
+        direction * fire.speed.at(gun.level).unwrap_or(0.0),
         ShotKind::Disc {
             target,
-            // It curves back across his aim.
-            curve: -side * fire.curve_degrees.to_radians(),
+            falls: arcs,
             last: None,
             splits: 0,
         },
     ));
 }
 
-/// A disc (0x36FA78): it flies at its target, or curves, and bounces off the world; a
-/// target it touches takes its damage. From V2 a bounce turns it at a new enemy; from V3
-/// it bounces off enemies too, hitting each; from V4 its end is a blast. Each bounce is a
-/// [`GunEventKind::Bounce`] and its end, wherever it comes, an impact, as the game sparks
-/// at each (0x370CD8) and bursts at its end.
+/// A disc (0x36FA78): it steers at its target, or arcs, and bounces off the world; a target
+/// it touches takes its damage. From V2 a bounce sends it at a near enemy; from V3 it goes
+/// on through enemies too, each sending it at another; from V4 its end is a blast. Each
+/// bounce or enemy gone through is a [`GunEventKind::Bounce`] and its end, wherever it
+/// comes, an impact, as the game sparks at each (0x370CD8) and bursts at its end.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn disc_shot(
     shot: &mut Shot,
     fire: &Disc,
@@ -365,14 +375,16 @@ pub(super) fn disc_shot(
     out: &mut Outcome,
     born: &mut Vec<Shot>,
     discs: &mut usize,
+    book: &mut AgentBook,
 ) -> bool {
-    let keep = disc_tick(shot, fire, flight, rng, out, born, discs);
+    let keep = disc_tick(shot, fire, flight, rng, out, born, discs, book);
     if !keep {
         *discs = discs.saturating_sub(1);
     }
     keep
 }
 
+#[allow(clippy::too_many_arguments)]
 fn disc_tick(
     shot: &mut Shot,
     fire: &Disc,
@@ -381,6 +393,7 @@ fn disc_tick(
     out: &mut Outcome,
     born: &mut Vec<Shot>,
     discs: &mut usize,
+    book: &mut AgentBook,
 ) -> bool {
     let targets = flight.targets;
     let level = shot.level;
@@ -389,41 +402,45 @@ fn disc_tick(
     let lifetime = fire.lifetime.at(level).unwrap_or(0);
     let ShotKind::Disc {
         mut target,
-        curve,
+        falls,
         mut last,
         mut splits,
     } = shot.kind
     else {
         return false;
     };
-    let speed = shot.velocity.length();
-    match target.and_then(|entity| alive(targets, entity)) {
-        Some(chased) => {
-            shot.velocity = (chased.centre - shot.position).normalize_or(shot.velocity) * speed;
-        }
-        None => {
-            target = None;
-            shot.velocity = Quat::from_rotation_y(curve) * shot.velocity;
-        }
+    let split = fire.split.filter(|split| level >= split.from_level);
+    let chased = target.and_then(|entity| alive(targets, entity));
+    if chased.is_none() {
+        target = None;
     }
-    let ended = shot.ticks >= lifetime || shot.position.distance(flight.hero) > fire.leash;
+    if let Some(chased) = chased {
+        let way =
+            shot.velocity * TICK + (chased.centre - shot.position).normalize_or_zero() * fire.steer;
+        shot.velocity = way.normalize_or(shot.velocity) * fire.chase_speed;
+    }
+    let speed = shot.velocity.length();
+    let leash = match split {
+        Some(split)
+            if *discs >= split.most || (level == split.from_level && splits >= split.deep) =>
+        {
+            split.crowded_leash
+        }
+        _ => fire.leash,
+    };
+    let ended = shot.ticks >= lifetime || shot.position.distance(flight.hero) > leash;
     let touching = in_ball(targets, shot.position, fire.radius, last)
         .find(|candidate| candidate.alive)
-        .map(|candidate| (candidate.entity, candidate.centre));
+        .map(|candidate| candidate.entity);
     let mut over = ended;
-    if !ended && let Some((entity, centre)) = touching {
+    if !ended && let Some(entity) = touching {
         let push = shot.velocity * TICK * fire.push;
         out.hits.push(shot.hit(entity, shot.damage, push));
         if through {
             out.shot_event(shot, GunEventKind::Bounce { at: shot.position });
-            // Off the enemy, and at another it can see.
-            let away = (shot.position - centre).normalize_or(-shot.velocity.normalize_or_zero());
-            if shot.velocity.dot(away) < 0.0 {
-                shot.velocity = shot.velocity.reflect(away);
-            }
             last = Some(entity);
-            target = retarget(targets, flight, shot.position, fire.retarget_range, last);
-            if let Some(split) = fire.split.filter(|split| level >= split.from_level)
+            target = None;
+            if let Some(split) = split
                 && *discs < split.most
             {
                 splits += 1;
@@ -439,7 +456,7 @@ fn disc_tick(
                         ticks: 0,
                         kind: ShotKind::Disc {
                             target: None,
-                            curve,
+                            falls: false,
                             last,
                             splits,
                         },
@@ -449,6 +466,7 @@ fn disc_tick(
                 }
                 over = rng.below(odds) != 0;
             }
+            send_on(shot, &mut target, fire, flight, book, speed, last);
         } else {
             over = true;
         }
@@ -476,36 +494,58 @@ fn disc_tick(
             shot.velocity = shot.velocity.reflect(hit.normal);
             out.shot_event(shot, GunEventKind::Bounce { at: shot.position });
             if retargets {
-                target = retarget(targets, flight, shot.position, fire.retarget_range, last);
+                send_on(shot, &mut target, fire, flight, book, speed, last);
             }
         }
         None => shot.position += motion,
     }
+    // It moves, then falls: `ticks` already counts this one.
+    if falls && target.is_none() && shot.ticks <= fire.fall_ticks {
+        shot.velocity.y -= fire.gravity * TICK;
+    }
     shot.kind = ShotKind::Disc {
         target,
-        curve,
+        falls,
         last,
         splits,
     };
     true
 }
 
-/// The nearest living enemy within `range` of `at` that can be seen from it, but `except`.
-fn retarget(
-    targets: &[GunTarget],
+/// Who his discs are in the book's picks: all of them, as the game's are all the gun's.
+const DISCS: u32 = u32::MAX;
+
+/// Sends a disc that has just bounced at the nearest living enemy within reach, but the one
+/// it just hit. From V3 that enemy is then picked: no disc of his goes at it for a while,
+/// and the disc stops chasing what it was after, as the game (0x36FA78) does. The game takes
+/// the first such enemy in its grid's order, which may be the one just hit.
+fn send_on(
+    shot: &mut Shot,
+    target: &mut Option<Entity>,
+    fire: &Disc,
     flight: &Flight,
-    at: Vec3,
-    range: f32,
+    book: &mut AgentBook,
+    speed: f32,
     except: Option<Entity>,
-) -> Option<Entity> {
-    targets
+) {
+    let picks = fire.through_from.is_some_and(|from| shot.level >= from);
+    let next = flight
+        .targets
         .iter()
-        .filter(|target| target.alive && target.enemy && Some(target.entity) != except)
-        .map(|target| (target.centre.distance(at), target))
-        .filter(|&(distance, _)| distance <= range)
-        .filter(|(_, target)| in_sight(flight.world, at, target.centre))
+        .filter(|near| near.alive && near.enemy && Some(near.entity) != except)
+        .filter(|near| !picks || !book.picked(DISCS, near.entity))
+        .map(|near| (near.centre.distance(shot.position), near))
+        .filter(|&(distance, _)| distance <= fire.retarget_range)
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, target)| target.entity)
+        .map(|(_, near)| (near.entity, near.centre));
+    let Some((entity, centre)) = next else {
+        return;
+    };
+    shot.velocity = (centre - shot.position).normalize_or(shot.velocity) * speed;
+    if picks {
+        book.pick(DISCS, entity, fire.picked_ticks);
+        *target = None;
+    }
 }
 
 /// The RY3NO (0x3805B0): it marks the enemies its assist finds each tick, and held, a round

@@ -740,6 +740,27 @@ fn in_an_app_a_charger_hurts_the_hero_and_dies_into_drops_he_collects() {
 }
 
 #[test]
+fn in_an_app_a_frozen_charger_dies_with_no_drops() {
+    let (mut app, _, enemy) = app(30.0);
+    app.world_mut().get_mut::<Hitpoints>(enemy).unwrap().current = 0.0;
+    app.world_mut().write_message(Afflicted {
+        target: enemy,
+        player: 0,
+        weapon: WeaponId(3),
+        affliction: Affliction::Frozen,
+    });
+    app.world_mut().write_message(Destroyed {
+        target: enemy,
+        player: 0,
+        weapon: Some(WeaponId(3)),
+    });
+    app.update();
+    assert_eq!(state(&app, enemy), EnemyState::Dead);
+    let drops = app.world_mut().query::<&Pickup>().iter(app.world()).count();
+    assert_eq!(drops, 0);
+}
+
+#[test]
 fn in_an_app_an_infected_charger_kills_another_into_its_drops() {
     let (mut app, hero, infected) = app(30.0);
     let def = Bestiary::default().charger;

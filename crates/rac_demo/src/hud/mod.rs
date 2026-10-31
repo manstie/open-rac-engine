@@ -41,6 +41,8 @@ pub const HUD_RON: &str = include_str!("../../assets/hud.ron");
 
 /// The levels' names, V1 to Omega.
 const TIERS: [&str; 8] = ["V1", "V2", "V3", "V4", "V5", "Mega", "Giga", "Omega"];
+/// DL's ten levels.
+const PLAIN_TIERS: [&str; 10] = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10"];
 
 /// A notice fades out over its last this many seconds.
 const NOTICE_FADE: f32 = 0.5;
@@ -197,7 +199,7 @@ impl HudLayout {
     pub fn icon(&self, def: &WeaponDef) -> (Shape, Rgb, String) {
         // The other guns take the shape of the archetype nearest how they fire.
         let by_mode = match def.fire {
-            FireMode::Hitscan(_) | FireMode::Beam(_) => self.shapes.hitscan,
+            FireMode::Hitscan(_) | FireMode::Beam(_) | FireMode::Cone(_) => self.shapes.hitscan,
             FireMode::Projectile(_) | FireMode::Rift(_) => self.shapes.projectile,
             FireMode::Lobbed(_)
             | FireMode::Cluster(_)
@@ -312,9 +314,15 @@ pub struct HudView {
     pub ring: Option<RingView>,
 }
 
-/// A level's name: V1 to V5, Mega, Giga and Omega.
-pub fn tier(level: u8) -> &'static str {
-    TIERS.get(usize::from(level)).copied().unwrap_or("")
+/// A level's name: V1 to V5, Mega, Giga and Omega for a gun of UYA's eight levels, else V1
+/// on.
+pub fn tier(def: &WeaponDef, level: u8) -> &'static str {
+    let names: &[&'static str] = if def.levels.len() == TIERS.len() {
+        &TIERS
+    } else {
+        &PLAIN_TIERS
+    };
+    names.get(usize::from(level)).copied().unwrap_or("")
 }
 
 /// How far a gun at `level` with `xp` is through its level: from the XP it reached the
@@ -353,7 +361,7 @@ pub fn gun_view(
         weapon,
         name: def.name_at(gun.level).to_owned(),
         level: gun.level,
-        tier: tier(gun.level),
+        tier: tier(def, gun.level),
         in_hand,
         ammo: (most > 0).then_some(Ammo { now, most }),
         xp: xp_progress(def, gun.level, gun.xp, armory.rules.bought_level),
@@ -505,7 +513,7 @@ pub fn ammo_rose(before: Option<(WeaponId, u32)>, now: Option<(WeaponId, u32)>) 
 
 /// The notice for a gun reaching `level`.
 pub fn level_up_notice(def: &WeaponDef, level: u8) -> String {
-    format!("{} upgraded to {}", def.name_at(level), tier(level))
+    format!("{} upgraded to {}", def.name_at(level), tier(def, level))
 }
 
 /// A said word stays on the vendor's menu this many ticks.
@@ -543,7 +551,9 @@ pub fn vendor_text(
         Row::Upgrade(weapon) => format!(
             "{} {}: {}",
             name(weapon, armory.rules.bought_level),
-            tier(armory.rules.bought_level),
+            armory
+                .get(weapon)
+                .map_or("", |def| tier(def, armory.rules.bought_level)),
             grouped(price)
         ),
     };
@@ -1707,7 +1717,9 @@ mod tests {
         assert_eq!(ammo_pulse(fine, 0.15, 0.7), 0.0);
         assert_eq!(ring_tier(0), "V1");
         assert_eq!(ring_tier(7), "V8");
-        assert_eq!(tier(7), "Omega");
+        let uya = Armory::uya();
+        assert_eq!(tier(&uya.weapons[0], 7), "Omega");
+        assert_eq!(tier(&Armory::dl().weapons[0], 7), "V8");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The hero's guns (PLAN.md P1.9), after UYA (`docs/research/weapons.md`).
 //!
 //! - [`Armory`] holds a game's guns as RON definitions: each one's levels, [`FireMode`]
-//!   and mods. [`Armory::uya`] is UYA NTSC-U's twenty.
+//!   and mods. [`Armory::uya`] is UYA NTSC-U's twenty, [`Armory::dl`] DL NTSC-U's read so far.
 //! - An [`Arsenal`] beside a hero holds what he owns: ammo, XP and levels, the gun the fire
 //!   button brings out, the quick-select rings ([`ring`]), and what is in his hand.
 //! - Each tick, before the heroes move, [`fire::step`] runs every hero's guns and their
@@ -38,7 +38,9 @@ pub use def::{
 };
 pub use fire::{Afflict, GunInput, Hit, Outcome, View};
 pub use ring::{OpenRing, QuickSelect, RingRules};
-pub use shots::{AgentMode, AgentState, BarrierState, RiftState, Shot, ShotKind, TurretState};
+pub use shots::{
+    AgentMode, AgentState, BarrierState, Drift, Hovering, RiftState, Shot, ShotKind, TurretState,
+};
 pub use thrown::block_shot;
 
 /// The XP a target gives the gun that kills it (UYA's per-class table, 0x4412D0).
@@ -110,6 +112,8 @@ pub enum Affliction {
     Swallowed { into: Vec3 },
     /// The Suck Cannon took it in: it is dead.
     Sucked,
+    /// The Liquid Nitrogen Gun froze it: it is dead, and drops nothing.
+    Frozen,
 }
 
 /// A gun afflicted a target.
@@ -276,6 +280,16 @@ pub(crate) fn fire_guns(
             health.current = (health.current + outcome.heal).min(health.max);
         }
         afflictions.extend(outcome.afflictions.iter().map(|&a| (hero.player, a)));
+        for &(weapon, xp) in &outcome.xp {
+            for up in arsenal.add_xp(weapon, xp, &armory) {
+                events.write(GunEvent {
+                    player: hero.player,
+                    weapon,
+                    kind: GunEventKind::LevelUp { level: up.level },
+                    shot: None,
+                });
+            }
+        }
         for (weapon, kind, shot) in outcome.events {
             events.write(GunEvent {
                 player: hero.player,
@@ -354,7 +368,8 @@ pub(crate) fn fire_guns(
     let mut kills: Vec<(usize, WeaponId, u32)> = Vec::new();
     // Swallowed, sucked in or made a duck, a target dies past the damage queue (a duck's
     // enemy is removed, 0x436220). An infection gives the gun XP as a kill does
-    // (0x3DE4F0); so does a duck [placeholder: not read].
+    // (0x3DE4F0); so does a duck, whose spawn calls `moby_killed` (0x39E5D8, for classes
+    // with flag 0x1000).
     for (player, afflict) in afflictions {
         let fire::Afflict {
             target,
@@ -376,7 +391,10 @@ pub(crate) fn fire_guns(
         kills.push((player, weapon, xp.map_or(0, |xp| xp.0)));
         if matches!(
             affliction,
-            Affliction::Swallowed { .. } | Affliction::Sucked | Affliction::Duck
+            Affliction::Swallowed { .. }
+                | Affliction::Sucked
+                | Affliction::Duck
+                | Affliction::Frozen
         ) {
             hitpoints.current = 0.0;
             destroyed.write(Destroyed {
