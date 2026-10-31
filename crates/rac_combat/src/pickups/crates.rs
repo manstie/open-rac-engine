@@ -3,16 +3,15 @@
 //! crates and the vendor"):
 //! - a bolt crate its bolts and the bank's share, a quarter more or less at random, in at
 //!   most 2 or 3 coins of 30000 down to 1, banking the rest ([`BoltBank`]; `moby_killed`,
-//!   `bolts_drop`). UYA drops fewer while many crates have broken lately
-//!   (`crate_debris_recent`), which the kit leaves out [simplified]. Every other crate
-//!   takes the bank's share too and, dropping no coins, banks it again, a quarter more
-//!   or less;
+//!   `bolts_drop`), and fewer while many crates have broken lately ([`CrateDebris`]).
+//!   Every other crate takes the bank's share too and, dropping no coins, banks it again,
+//!   a quarter more or less;
 //! - an ammo crate 1 ammo pickup, or 2 once in 5, for one gun of the hero who broke it, at
 //!   random among those not full, else among all, never one crates don't serve
 //!   (`ammo_crate_pick`, 0x440E98);
 //! - a nanotech crate its orbs, which wait for a hero with room ([`super::nanotech`]);
 //! - a doubler crate one more doubling of its breaker's bolts and XP, for 1800 ticks more
-//!   ([`BoltMultiplier`]).
+//!   ([`BoltMultiplier`]), and the first one its help message ([`HelpAsked`]).
 //!
 //! An explosive crate isn't broken by a hit: its fuse is lit instead, and it goes off
 //! when that runs out ([`super::explosive`]).
@@ -22,14 +21,14 @@
 
 use bevy::prelude::*;
 use rac_hero::Hero;
-use rac_sim::{SimRng, SimTransform};
+use rac_sim::{SimRng, SimTick, SimTransform};
 use serde::{Deserialize, Serialize};
 
 use super::explosive::Fuse;
 use super::nanotech::{NanotechOrbs, OrbCluster};
 use super::{
-    BoltBank, BoltMultiplier, PickupKind, PickupSound, PickupSoundKind, PickupTuning, between,
-    scatter, spawn,
+    BoltBank, BoltMultiplier, Help, HelpAsked, HelpGiven, PickupKind, PickupSound, PickupSoundKind,
+    PickupTuning, between, scatter, spawn,
 };
 use crate::weapons::{Armory, Arsenal, WeaponId};
 use crate::{Destroyed, Hurtbox, position};
@@ -70,6 +69,57 @@ pub struct CrateTable {
 
 /// The coins bolts are dropped in, largest first (`bolts_drop`, 0x44A0E8) [code].
 pub const COINS: [u32; 10] = [30000, 10000, 3000, 1000, 500, 100, 50, 20, 5, 1];
+
+/// UYA's count of crates broken lately (`crate_debris_recent`, 0x1DCFF0; `weapons.md`,
+/// "The bolt bank") [code]: past 10 a bolt crate drops a coin fewer, and past 20 two,
+/// banking the rest, so a busy scene throws out fewer coins. One for the world, as UYA's.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CrateDebris {
+    pub count: u32,
+    /// The tick the last crate broke.
+    pub last: u64,
+}
+
+impl CrateDebris {
+    /// A crate breaks at `tick` (`crate_break`, 0x33BE30): the count first falls a step for
+    /// each whole 4 ticks since the last fall, or to 0 after more than 240, then rises by
+    /// 4 while under 5, 3 under 10, 2 under 15 and 1 under 20, so it never passes 20.
+    /// Returns the rise, which sizes the crate's debris in the game.
+    ///
+    /// The game only counts it up that far while enough moby slots are free (251, 201,
+    /// 151 and 101 for each step); the kit has no slots and takes them all as free, as
+    /// Veldin's 362 are in both its savestates [simplified].
+    pub fn crate_broke(&mut self, tick: u64) -> u32 {
+        let since = tick.abs_diff(self.last);
+        if since > 240 {
+            self.count = 0;
+        } else {
+            // The ticks short of a step are dropped, as the game takes its frame anew.
+            self.count = self.count.saturating_sub((since / 4) as u32);
+        }
+        self.last = tick;
+        let rise = match self.count {
+            0..5 => 4,
+            5..10 => 3,
+            10..15 => 2,
+            15..20 => 1,
+            _ => 0,
+        };
+        self.count += rise;
+        rise
+    }
+
+    /// A bolt crate's range of most coins, `most` in a quiet scene, less 1 while the count
+    /// is over 10 and 2 over 20 (`crate_drop`, 0x33B940).
+    pub fn most_coins(&self, (low, high): (u32, u32)) -> (u32, u32) {
+        let fewer = match self.count {
+            0..=10 => 0,
+            11..=20 => 1,
+            _ => 2,
+        };
+        (low.saturating_sub(fewer), high.saturating_sub(fewer))
+    }
+}
 
 /// `bolts` a quarter more or less at random, or 1 under 8, as UYA's kills and crates pay
 /// out (`moby_killed`, 0x4412D0) [code].
@@ -210,10 +260,14 @@ pub fn contents(
 pub(crate) fn break_crates(
     tuning: Res<PickupTuning>,
     armory: Res<Armory>,
+    tick: Res<SimTick>,
     mut rng: ResMut<SimRng>,
     mut bank: ResMut<BoltBank>,
+    mut debris: ResMut<CrateDebris>,
+    mut given: ResMut<HelpGiven>,
     mut destroyed: MessageReader<Destroyed>,
     mut sounds: MessageWriter<PickupSound>,
+    mut help: MessageWriter<HelpAsked>,
     mut crates: Query<(
         &Crate,
         Option<&Hurtbox>,
@@ -253,6 +307,12 @@ pub(crate) fn break_crates(
                 if let Some((_, _, Some(doubled))) = &mut breaker {
                     doubled.add(tuning.crates.doubler_ticks);
                 }
+                if given.ask(Help::Doubler) {
+                    help.write(HelpAsked {
+                        player: event.player,
+                        help: Help::Doubler,
+                    });
+                }
             }
             CrateKind::Nanotech => {
                 commands.spawn((
@@ -269,14 +329,14 @@ pub(crate) fn break_crates(
             }
             None => (None, BoltMultiplier::default()),
         };
+        // Counted before its coins are, as `crate_break` runs before `crate_drop`.
+        debris.crate_broke(tick.0);
+        let table = CrateTable {
+            most_coins: debris.most_coins(tuning.crates.most_coins),
+            ..tuning.crates
+        };
         let kinds = contents(
-            kind.0,
-            &tuning.crates,
-            arsenal,
-            &doubled,
-            &mut bank,
-            &armory,
-            &mut rng,
+            kind.0, &table, arsenal, &doubled, &mut bank, &armory, &mut rng,
         );
         spawn(&mut commands, scatter(middle, kinds, &tuning, &mut rng));
         sounds.write(PickupSound::at(PickupSoundKind::CrateBroke(kind.0), middle));
@@ -390,6 +450,55 @@ mod tests {
             &mut rng,
         );
         assert!(bank.0 >= 980 && bank.0 < 1000 + 40, "{}", bank.0);
+    }
+
+    #[test]
+    fn crates_broken_close_together_cut_the_coins_until_the_count_falls_back() {
+        let mut debris = CrateDebris::default();
+        // A tick apart, the count climbs 4, 4, 3, 2, 2, then 1 at a time to 20, and stops.
+        let rises: Vec<u32> = (0..11).map(|i| debris.crate_broke(1000 + i)).collect();
+        assert_eq!(rises, [4, 4, 3, 2, 2, 1, 1, 1, 1, 1, 0]);
+        assert_eq!(debris.count, 20);
+        assert_eq!(debris.most_coins(TABLE.most_coins), (1, 2));
+        // 40 ticks on it has fallen 10 before this crate counts.
+        assert_eq!(debris.crate_broke(1050), 2);
+        assert_eq!(debris.count, 12);
+        // Breaks 3 ticks apart never let it fall: the part step is dropped each time.
+        debris.crate_broke(1053);
+        debris.crate_broke(1056);
+        assert_eq!(debris.count, 16);
+        // More than 240 ticks on, it starts again.
+        assert_eq!(debris.crate_broke(1297), 4);
+        assert_eq!(debris.most_coins(TABLE.most_coins), (2, 3));
+        // Past 20 (not reached by breaking crates alone), two fewer.
+        debris.count = 21;
+        assert_eq!(debris.most_coins(TABLE.most_coins), (0, 1));
+
+        // A busy scene's bolt crate drops at most 1 or 2 coins, banking the rest.
+        let armory = Armory::uya();
+        let mut rng = SimRng::new(3, 0);
+        let busy = CrateTable {
+            most_coins: (1, 2),
+            ..TABLE
+        };
+        let mut most = 0;
+        for _ in 0..50 {
+            let mut bank = BoltBank::default();
+            let held = contents(
+                CrateKind::Bolts,
+                &busy,
+                None,
+                &PLAIN,
+                &mut bank,
+                &armory,
+                &mut rng,
+            );
+            assert!((1..=2).contains(&held.len()), "{held:?}");
+            most = most.max(held.len());
+            let paid = total(&held) + bank.0;
+            assert!((33..=55 + 4).contains(&paid), "{paid}");
+        }
+        assert_eq!(most, 2);
     }
 
     #[test]

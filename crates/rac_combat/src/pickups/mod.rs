@@ -21,13 +21,16 @@
 //!   with later kills.
 //! - A nanotech crate leaves orbs that wait until a hero near enough has room for them
 //!   ([`nanotech`]); an explosive crate goes off when touched or hit ([`explosive`]); a
-//!   doubler crate doubles its breaker's bolts and XP for a while ([`BoltMultiplier`]).
+//!   doubler crate doubles its breaker's bolts and XP for a while ([`BoltMultiplier`]),
+//!   and the first one broken asks the HUD for its help message ([`HelpAsked`]).
 //! - The numbers are in `assets/pickups.ron`.
 
 pub mod crates;
 pub mod explosive;
 pub mod nanotech;
 pub mod vendor;
+
+use std::collections::BTreeSet;
 
 use bevy::prelude::*;
 use rac_hero::{CollisionScene, CollisionWorld, Health, Hero, HeroBody, HeroState, HeroTuning};
@@ -37,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use crate::TICK;
 use crate::weapons::{Armory, Arsenal, Hand, WeaponId};
 
-pub use crates::{Crate, CrateKind, CrateTable, capped_coins, kill_coins};
+pub use crates::{Crate, CrateDebris, CrateKind, CrateTable, capped_coins, kill_coins};
 pub use explosive::{Blast, CrateBlast, ExplosiveTuning, Fuse};
 pub use nanotech::{NanotechOrbs, NanotechTuning, Orb, OrbCluster};
 pub use vendor::{OpenMenu, Row, Said, Stage, Vendor, VendorMenu, VendorSound, VendorTuning};
@@ -299,6 +302,33 @@ impl BoltMultiplier {
             self.exp = 0;
         }
         was > 0 && matches!(self.ticks, 300 | 240 | 180 | 120 | 60 | 1)
+    }
+}
+
+/// A help message UYA shows the first time something happens (`help_show`, 0x417F60;
+/// `weapons.md`, "Help messages"). The kit names it; the app words it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Help {
+    /// The first doubler crate broken (UYA's text 0x1406).
+    Doubler,
+}
+
+/// Asks `player`'s HUD to show a help message.
+#[derive(Message, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HelpAsked {
+    pub player: usize,
+    pub help: Help,
+}
+
+/// The help messages already asked for: each once a world, as UYA's flags have them once
+/// a game, and gone for good if the HUD was showing another, as the game's are.
+#[derive(Resource, Debug, Default, Clone, PartialEq, Eq)]
+pub struct HelpGiven(pub BTreeSet<Help>);
+
+impl HelpGiven {
+    /// Whether `help` is still to be asked for, marking it asked.
+    pub fn ask(&mut self, help: Help) -> bool {
+        self.0.insert(help)
     }
 }
 

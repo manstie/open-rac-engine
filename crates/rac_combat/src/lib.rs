@@ -145,12 +145,15 @@ impl Plugin for CombatPlugin {
             .init_resource::<weapons::Arcs>()
             .init_resource::<PickupTuning>()
             .init_resource::<pickups::BoltBank>()
+            .init_resource::<pickups::CrateDebris>()
+            .init_resource::<pickups::HelpGiven>()
             .add_message::<Struck>()
             .add_message::<Destroyed>()
             .add_message::<GunEvent>()
             .add_message::<Afflicted>()
             .add_message::<pickups::CrateBlast>()
             .add_message::<pickups::PickupSound>()
+            .add_message::<pickups::HelpAsked>()
             .add_systems(
                 FixedUpdate,
                 (react, weapons::fire_guns).chain().in_set(SimSet::World),
@@ -415,6 +418,53 @@ mod tests {
                 weapon: None
             }]
         );
+    }
+
+    #[test]
+    fn the_first_doubler_crate_asks_for_its_help_and_the_next_only_doubles_again() {
+        let (mut app, first) = app(1.6, 1.0);
+        app.world_mut()
+            .entity_mut(first)
+            .insert(Crate(CrateKind::Doubler));
+        let hero = app
+            .world_mut()
+            .query_filtered::<Entity, With<Hero>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().entity_mut(hero).insert(Bolts::default());
+        let mut cursor = app
+            .world()
+            .resource::<Messages<pickups::HelpAsked>>()
+            .get_cursor();
+        let mut asked = Vec::new();
+        for _ in 0..2 {
+            press(&mut app, &[Action::Melee]);
+            for _ in 0..40 {
+                app.update();
+                let messages = app.world().resource::<Messages<pickups::HelpAsked>>();
+                asked.extend(cursor.read(messages).copied());
+            }
+            // The next crate where the first stood.
+            app.world_mut().spawn((
+                target_bundle(0.4, 0.5, 1.0),
+                Crate(CrateKind::Doubler),
+                SimTransform::from_xyz(0.0, 0.0, -1.6),
+            ));
+        }
+        assert!(app.world().get_entity(first).is_err());
+        assert_eq!(
+            asked,
+            [pickups::HelpAsked {
+                player: 0,
+                help: pickups::Help::Doubler
+            }]
+        );
+        let doubled = app
+            .world_mut()
+            .query::<&pickups::BoltMultiplier>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(doubled.exp, 2);
     }
 
     #[test]

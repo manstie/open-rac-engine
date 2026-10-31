@@ -17,7 +17,8 @@
     // "The HUD" [code]: the gun 10 frames after it goes away; health 720 frames after a
     // kill and 360 after damage, nanotech or the ring; bolts 180; under 15% health stays up
     // and pulses, and ammo pulses, every 40 frames; the bolt tally fades in over 15
-    // frames, and 61 frames after the last change rolls in over 15.
+    // frames, and 61 frames after the last change rolls in over 15. A help message's box
+    // opens over 9 frames, shows its text 4 frames and 7 a character, and closes over 8.
     timings: (
         gun_after: 0.1667,
         health_after_kill: 12.0,
@@ -28,6 +29,10 @@
         tally_fade: 0.25,
         tally_wait: 1.0167,
         tally_roll: 0.25,
+        help_open: 0.15,
+        help_lead: 0.0667,
+        help_per_char: 0.1167,
+        help_close: 0.1333,
     ),
 
     // UYA's nanotech: a pip a point up to `most_pips`, then each pip a share of the most.
@@ -46,6 +51,8 @@
         // The tally beside the count: gains and losses.
         gain: (0.55, 1.0, 0.55),
         loss: (1.0, 0.45, 0.35),
+        // The doubler's x2 at rest, in UYA's colours, pulsing by its code's steps.
+        times_size: 24.0,
     ),
 
     gun: (
@@ -74,6 +81,14 @@
     // Brought back after a death or a fall out of the level, UYA's screen is black and
     // clears by 1/8 a frame ("Getting hit and dying" [verified on UYA NTSC]).
     respawn_fade_seconds: 0.1333333,
+    // A help message, high in the middle (UYA's are low, where the app's controls are):
+    // its words' size, UYA's colour for them, and the widest its box grows ("Help
+    // messages" [code]).
+    help: (
+        size: 18.0,
+        colour: (1.0, 0.8, 0.4),
+        width: 560.0,
+    ),
 
     // The ring round the middle of the screen, slot 0 at the top and the rest clockwise.
     ring: (

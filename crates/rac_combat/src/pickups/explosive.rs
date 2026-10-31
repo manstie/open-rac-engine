@@ -5,10 +5,13 @@
 
 use bevy::prelude::*;
 use rac_hero::{Collider, Hero, HeroBody, HeroState, HeroTuning, HurtHero};
-use rac_sim::SimTransform;
+use rac_sim::{SimTick, SimTransform};
 use serde::{Deserialize, Serialize};
 
-use super::{PickupSound, PickupSoundKind, PickupTuning, crates::Crate, crates::CrateKind};
+use super::{
+    PickupSound, PickupSoundKind, PickupTuning,
+    crates::{Crate, CrateDebris, CrateKind},
+};
 use crate::{Destroyed, HitReaction, Hitpoints, Hurtbox, Struck, position};
 
 /// The fuse and the blast.
@@ -148,8 +151,11 @@ pub(crate) fn touch_crates(
     }
 }
 
-/// Burns each lit fuse down a tick, and sets off the crates whose fuses run out.
+/// Burns each lit fuse down a tick, and sets off the crates whose fuses run out, which
+/// count as broken ([`CrateDebris`]).
 pub(crate) fn burn_fuses(
+    tick: Res<SimTick>,
+    mut debris: ResMut<CrateDebris>,
     mut fuses: Query<(
         Entity,
         &mut Fuse,
@@ -175,6 +181,7 @@ pub(crate) fn burn_fuses(
             }
             continue;
         }
+        debris.crate_broke(tick.0);
         sounds.write(PickupSound::at(
             PickupSoundKind::CrateBroke(CrateKind::Explosive),
             at,

@@ -40,7 +40,8 @@ session is working on the task now; notes on problems met stay with their task (
   levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
   models, each level's, held in one hand or both as UYA's hold layers have them) with
   their firing animations, UYA's quick-select ring, UYA's ammo
-  pickups and bolt, ammo, nanotech, explosive and doubler crates, UYA's vendor menu (P1.10), and a HUD on UYA's timings with the guns'
+  pickups and bolt, ammo, nanotech, explosive and doubler crates (the doubler's x2 and
+  help message on the HUD), UYA's vendor menu and bolt bank (P1.10), and a HUD on UYA's timings with the guns'
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
   the disc's textures for them, P3.18). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
@@ -321,6 +322,7 @@ None at the moment.
 | 2026-10-20 | **What the games carry on the hero as mobys of their own are attachments** (UYA's Clank and heli-pack): a model part on a skeleton of its own, riding a rig joint with its place and turn but not its scale, as the games normalise the joint before placing a moby. Their clips hold each joint's whole transform, and the game hands the rig its rules for choosing them (`BackAnimations`), as for fidgets. The rig's skeleton stays the hero's; the open model keeps its own Clank on the rig's Clank joints. |
 | 2026-10-22 | **The free look's aim assist is the stick's**, as lock-on is the gamepad's (2026-10-15): once the mouse turns the view the assist stops until the stick turns it again. **The quick-select ring plays as UYA's with QUICK SELECT PAUSE off**: it opens over the running world and holds the hero's input after 15 ticks, so co-op stays in step. |
 | 2026-10-23 | **The guns' sounds and effects go by the game's numbers, with placeholders made in code.** The kit cues sounds from `GunEvent`s and `Arsenal::sustain` and draws effects from recipes naming the game's effect textures and particle types; its placeholders are synthesized and painted at start-up, so no audio or art ships. With the user's disc the app claims the cues it plays (`SoundClaims`) and puts the disc's textures and shot models in place of the placeholders. **Sound is mixed by the game, not by Bevy's spatial audio** (which fades with the square of each ear's distance): the kit and the app each render a stereo stream (`rac_demo::sfx::SoundStream`) with UYA's falloff from the camera and pan round it; the disc's sounds play through `rac_audio`, a Rust port of OpenGOAL's 989snd sound effects (ISC). |
+| 2026-10-31 | **Help messages are named by the kit and worded by the app**: the kit asks for one by a key (`rac_combat::pickups::Help`) when the game would, once a world, and the HUD shows it on the game's timing. The demo words them itself; the game's own texts may take their place from the user's disc later, as its sounds and textures do (2026-10-23). |
 
 ## 6. Roadmap
 
@@ -886,10 +888,19 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     as placeholders in the demo and, with the UYA disc, the game's entries from
     Veldin's core and, for the explosive and doubler crates, level 4's
     (`openrac/src/gun_sounds.rs`). Not heard yet by a person.
-  - Not done: of the bank, fewer coins while crate debris is recent, the drops scaled
-    by bolts per active minute (its gate 0x1D6714 by the killed moby's +0xB0 isn't
-    understood), the challenge multiplier and the XP bank (0x142698); the doubler's
-    HUD icon and help message.
+  - Not done: of the bank, the drops scaled by bolts per active minute (its gate
+    0x1D6714 by the killed moby's +0xB0 isn't understood), the challenge multiplier and
+    the XP bank (0x142698).
+  - Done 2026-10-31 (`CrateDebris`; `weapons.md`, "The bolt bank" and "In the kit"): the
+    bank's debris cap read and built: crates broken close together, explosive ones as
+    they go off, cut a bolt crate's coins by 1 past 10 and 2 past 20 on UYA's count;
+    every moby slot taken as free [simplified].
+  - Done 2026-10-31 (`rac_demo::hud::doubler_look`, `pickups::HelpAsked`; `weapons.md`,
+    "The doubler's x2", "Help messages" and "In the kit"): the doubler's x2 by the bolt
+    count, kept up while it runs, pulsing round each beep by the game's steps (a tick of
+    magenta included, as the game packs its colour); the first doubler crate's help
+    message, once a world, in the demo's words on the game's timing. Seen on screen
+    (`kitdemo-doubler.orin`). Not built: Triangle closing a help message, voiced help.
   - The vendor's menu, not done: what UYA's vendor moby needs to open it and its last
     special row (not read); UYA's stock growing with the story, the challenge-only
     five and the 9/10 discount (read, not built). The demo's hero owns every gun, so
@@ -900,8 +911,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     (1.2× with none, lighter past 6) and picking the nanotech crate's / 5, / 4 or / 3.
     UYA's areas spanning checkpoints, weighing their neighbours and switched off by
     flag 0x80 are not built.
-  - Next step: the doubler's HUD icon and help message (the help message 0x1406 and
-    the HUD's code not read), or the bank's debris cap (`crate_debris_recent`).
+  - Next step: move the enemies' drops (`rac_demo/src/drops.rs`, below) here, or read
+    what UYA's vendor moby needs to open its menu and its last special row.
   - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
     the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
     the crates and the vendor.

@@ -5,10 +5,13 @@
 //! - The gun shows while one is in his hand, and a moment after it goes away.
 //! - Health shows a while after a kill, longer than after damage, nanotech, more maximum
 //!   health or the ring opening; low, it stays up and pulses.
-//! - Bolts show a while after they change or the ring opens. The count trails the purse:
+//! - Bolts show a while after they change or the ring opens, and while his bolts are
+//!   doubled and that while after. The count trails the purse:
 //!   changes gather in a tally beside it, which some time after the last change rolls in
 //!   and then snaps to the purse.
 //! - The gun's ammo pulses under a share of its maximum.
+//! - A help message's box opens, shows its text a while by its length, and closes
+//!   ([`HudTimings::help_phase`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +37,13 @@ pub struct HudTimings {
     pub tally_fade: f32,
     pub tally_wait: f32,
     pub tally_roll: f32,
+    /// A help message's box opens over `help_open`, its text shows for `help_lead` and
+    /// `help_per_char` for each of its characters, then the box closes over `help_close`
+    /// (`help_update` 0x418478: a frame and 8, 4, 7 a character and 8).
+    pub help_open: f32,
+    pub help_lead: f32,
+    pub help_per_char: f32,
+    pub help_close: f32,
 }
 
 impl Default for HudTimings {
@@ -49,6 +59,37 @@ impl Default for HudTimings {
             tally_fade: 15.0 * FRAME,
             tally_wait: 61.0 * FRAME,
             tally_roll: 15.0 * FRAME,
+            help_open: 9.0 * FRAME,
+            help_lead: 4.0 * FRAME,
+            help_per_char: 7.0 * FRAME,
+            help_close: 8.0 * FRAME,
+        }
+    }
+}
+
+/// Where a help message is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HelpPhase {
+    /// How far its box is open, 0 to 1.
+    pub open: f32,
+    /// Its text shows: only while the box is fully open.
+    pub text: bool,
+}
+
+impl HudTimings {
+    /// A help message of `chars` characters `seconds` after it was asked for, or `None`
+    /// once it has closed.
+    pub fn help_phase(&self, seconds: f32, chars: usize) -> Option<HelpPhase> {
+        let shown = self.help_open + self.help_lead + self.help_per_char * chars as f32;
+        let phase = |open: f32, text| Some(HelpPhase { open, text });
+        if seconds < self.help_open {
+            phase(seconds / self.help_open, false)
+        } else if seconds < shown {
+            phase(1.0, true)
+        } else if seconds < shown + self.help_close {
+            phase(1.0 - (seconds - shown) / self.help_close, false)
+        } else {
+            None
         }
     }
 }
@@ -65,6 +106,9 @@ pub struct Seen {
     pub ring: bool,
     /// He killed something since the last frame.
     pub killed: bool,
+    /// His bolts are doubled: UYA's hero update shows the bolts for 180 frames each
+    /// frame they are (0x4FAA68) [code].
+    pub doubling: bool,
 }
 
 /// The bolt count as shown.
@@ -126,7 +170,7 @@ impl HudClock {
         if health_changed || opened {
             self.health = self.health.max(timings.health_after_change);
         }
-        if opened {
+        if opened || seen.doubling {
             self.bolts = self.bolts.max(timings.bolts_after);
         }
         self.pulse = (self.pulse + seconds / timings.pulse.max(f32::EPSILON)).fract();
@@ -276,6 +320,39 @@ mod tests {
         // Held open, they don't keep showing past their time.
         let showing = run(&mut clock, ring, 362);
         assert!(!showing.health && !showing.bolts);
+    }
+
+    #[test]
+    fn bolts_show_while_doubled_and_180_frames_after() {
+        let mut clock = HudClock::default();
+        run(&mut clock, seen(10, 0), 200);
+        let doubling = Seen {
+            doubling: true,
+            ..seen(10, 0)
+        };
+        assert!(run(&mut clock, doubling, 600).bolts);
+        assert!(run(&mut clock, seen(10, 0), 179).bolts);
+        assert!(!run(&mut clock, seen(10, 0), 2).bolts);
+    }
+
+    #[test]
+    fn a_help_message_opens_shows_7_frames_a_character_and_closes() {
+        let timings = HudTimings::default();
+        let at = |frames: f32| timings.help_phase(frames * FRAME, 10);
+        assert_eq!(at(0.0).map(|phase| phase.text), Some(false));
+        assert!((at(4.5).unwrap().open - 0.5).abs() < 1e-4);
+        // Open after 9 frames, then 4 and 70 frames of text.
+        assert_eq!(
+            at(9.5),
+            Some(HelpPhase {
+                open: 1.0,
+                text: true
+            })
+        );
+        assert_eq!(at(82.5).map(|phase| phase.text), Some(true));
+        let closing = at(87.0).unwrap();
+        assert!(!closing.text && (closing.open - 0.5).abs() < 1e-4);
+        assert_eq!(at(91.5), None);
     }
 
     #[test]

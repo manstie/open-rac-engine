@@ -1,5 +1,6 @@
 //! The demo's HUD (PLAN.md P1.12) and its quick-select ring on screen (P1.9): a hero's
-//! nanotech and bolts; the gun in his hand with its name at its level, its tier, ammo and
+//! nanotech and bolts, with the doubler's x2 while it runs; a help message the first time
+//! something calls for one; the gun in his hand with its name at its level, its tier, ammo and
 //! XP, and the next two of his recent guns; a flash when ammo goes up, a notice when a gun
 //! levels up; the ring while it is open; and the vendor's menu while it is open.
 //!
@@ -22,7 +23,7 @@ pub mod sights;
 use bevy::{math::ops, prelude::*, transform::TransformSystems, ui::UiSystems};
 use rac_combat::{
     Armory, Arsenal, Destroyed, GunEvent, GunEventKind, VendorMenu, WeaponId,
-    pickups::{OpenMenu, Row, Said, Stage, vendor},
+    pickups::{BoltMultiplier, Help, HelpAsked, OpenMenu, Row, Said, Stage, vendor},
     weapons::{
         FireMode, Hand, WeaponDef,
         ring::{RINGS, SLOTS},
@@ -32,7 +33,7 @@ use rac_hero::{Health, Hero, HeroRespawned};
 use serde::{Deserialize, Serialize};
 
 use crate::{Bolts, DemoEntity};
-pub use clock::{BoltCount, HudClock, HudTimings, Seen, Showing};
+pub use clock::{BoltCount, HelpPhase, HudClock, HudTimings, Seen, Showing};
 pub use sights::{SightImages, SightsClock};
 
 /// The bundled layout.
@@ -80,6 +81,7 @@ pub struct HudLayout {
     /// Brought back after a death or a fall, the view fades in from black over this long,
     /// under the HUD.
     pub respawn_fade_seconds: f32,
+    pub help: HelpLayout,
     pub ring: RingLayout,
     /// The icon's shape for each fire mode.
     pub shapes: Shapes,
@@ -107,6 +109,17 @@ pub struct BoltsLayout {
     /// The tally of changes not yet rolled in: gains and losses.
     pub gain: Rgb,
     pub loss: Rgb,
+    /// The doubler's x2 at rest; it pulses and takes UYA's colours ([`doubler_look`]).
+    pub times_size: f32,
+}
+
+/// A help message, high in the middle.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HelpLayout {
+    pub size: f32,
+    pub colour: Rgb,
+    /// The widest its box grows.
+    pub width: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -290,6 +303,8 @@ pub struct HudView {
     /// Health now and its most.
     pub health: Option<(u32, u32)>,
     pub bolts: Option<u32>,
+    /// His bolts and XP are doubled this many times over, with the ticks left.
+    pub doubled: Option<BoltMultiplier>,
     /// The gun in his hand or coming out, else the one the fire button brings out.
     pub gun: Option<GunView>,
     /// The next two of his recent guns, after the one shown.
@@ -381,10 +396,12 @@ pub fn hud_view(
     armory: &Armory,
     health: Option<&Health>,
     bolts: Option<&Bolts>,
+    doubled: Option<&BoltMultiplier>,
 ) -> HudView {
     HudView {
         health: health.map(|health| (health.current, health.max)),
         bolts: bolts.map(|bolts| bolts.0),
+        doubled: doubled.copied().filter(|doubled| doubled.exp > 0),
         gun: arsenal.and_then(|arsenal| shown_gun(arsenal, armory)),
         recent: arsenal.map_or([None; 2], recent_view),
         ring: arsenal.and_then(|arsenal| ring_view(arsenal, armory)),
@@ -430,6 +447,54 @@ pub fn tally(count: BoltCount) -> String {
             "\u{2212}{}",
             grouped(loss.unsigned_abs().min(u64::from(u32::MAX)) as u32)
         ),
+    }
+}
+
+/// The beeps the doubler's x2 pulses round, by its ticks left (0x476258) [code].
+const DOUBLER_BEEPS: [u32; 5] = [300, 240, 180, 120, 60];
+/// Its steps through a pulse, from 2 ticks before a beep: 2 up, 6 down, 3 up, then back
+/// at rest.
+const DOUBLER_STEPS: [i32; 11] = [1, 2, 1, 0, -1, -2, -3, -4, -3, -2, -1];
+/// Its scale at rest, and each step's.
+pub const DOUBLER_SCALE: f32 = 1.5;
+const DOUBLER_STEP_SCALE: f32 = 0.1;
+/// Its colour at rest, its green and blue a step's, and its alpha (0x70 of the PS2's
+/// 0x80).
+const DOUBLER_COLOUR: [i32; 3] = [0xFF, 0xD5, 0x7F];
+const DOUBLER_STEP_COLOUR: i32 = 30;
+pub const DOUBLER_ALPHA: f32 = 0x70 as f32 / 128.0;
+
+/// How UYA's HUD draws the doubler's x2 with `ticks` of the doubling left (0x476258)
+/// [code]: its scale and colour. Round each beep but the last it swells and pales, then
+/// shrinks and deepens, then swells back; over its last 4 ticks it shrinks away. Its
+/// colour is a tick behind its scale, as the game packs it before stepping, and packed as
+/// the game does: at a pulse's top the green's 273 spills into the blue, so for a tick it
+/// shows (255, 17, 187).
+pub fn doubler_look(ticks: u32) -> (f32, [u8; 3]) {
+    let level = |ticks: u32| {
+        DOUBLER_BEEPS
+            .iter()
+            .find_map(|beep| DOUBLER_STEPS.get((beep + 2).checked_sub(ticks)? as usize))
+            .copied()
+            .unwrap_or(0)
+    };
+    let scale = match ticks {
+        1..5 => DOUBLER_SCALE - 0.3 * (5 - ticks) as f32,
+        _ => DOUBLER_SCALE + DOUBLER_STEP_SCALE * level(ticks) as f32,
+    };
+    let shift = DOUBLER_STEP_COLOUR * level(ticks.saturating_add(1));
+    let [r, g, b] = DOUBLER_COLOUR;
+    let word = (((b + shift) << 16) | ((g + shift) << 8) | r) as u32;
+    (scale, [word as u8, (word >> 8) as u8, (word >> 16) as u8])
+}
+
+/// A help message's words: the demo's own, saying what the game's says.
+pub fn help_words(help: Help) -> &'static str {
+    match help {
+        Help::Doubler => {
+            "Bolt multiplier! Bolts and weapon XP count double for a while, and each one \
+             more doubles them again."
+        }
     }
 }
 
@@ -536,6 +601,7 @@ impl Plugin for HudPlugin {
                     note_level_ups,
                     note_kills,
                     note_respawns,
+                    note_help,
                     draw_huds,
                     sights::add_sight_sprites,
                 )
@@ -567,6 +633,8 @@ pub struct PlayerHud {
     killed: bool,
     /// The respawn's fade still to clear, from 1 (black) to 0.
     fade: f32,
+    /// A help message on screen, and the seconds since it was asked for.
+    help: Option<(Help, f32)>,
 }
 
 impl PlayerHud {
@@ -579,6 +647,7 @@ impl PlayerHud {
             clock: HudClock::default(),
             killed: false,
             fade: 0.0,
+            help: None,
         }
     }
 }
@@ -599,6 +668,7 @@ enum Part {
     Bolts,
     BoltsCount,
     BoltsTally,
+    BoltsTimes,
     Gun,
     GunShape,
     GunMark,
@@ -610,6 +680,9 @@ enum Part {
     RecentShape(usize),
     RecentMark(usize),
     Notice,
+    Help,
+    HelpBox,
+    HelpText,
     Ring,
     RingBack,
     RingLabel,
@@ -685,7 +758,8 @@ fn icon_box(parent: &mut ChildSpawnerCommands, size: f32, shape: HudPart, mark: 
 
 /// Spawns `player`'s HUD, covering the screen: health at the top left, bolts and the gun
 /// at the top right (clear of the app's controls at the bottom left), the ring round the
-/// middle while it is open, and the vendor's menu at the top in the middle while it is.
+/// middle while it is open, the vendor's menu at the top in the middle while it is, and a
+/// help message under it while one shows.
 pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> Entity {
     let part = |part| HudPart { player, part };
     let text = rgb(layout.text);
@@ -778,6 +852,10 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
                         bolts.spawn((
                             part(Part::BoltsTally),
                             label("", layout.small_size, rgb(layout.bolts.gain)),
+                        ));
+                        bolts.spawn((
+                            part(Part::BoltsTimes),
+                            label("", layout.bolts.times_size, text),
                         ));
                     });
 
@@ -944,6 +1022,33 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
                     ));
                 });
             });
+            // A help message, high in the middle: UYA's are low, where the app's controls
+            // are.
+            root.spawn((
+                part(Part::Help),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: percent(0),
+                    width: percent(100),
+                    top: percent(16),
+                    justify_content: JustifyContent::Center,
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .with_children(|row| {
+                let (mut node, back) = panel(layout);
+                node.max_width = px(layout.help.width);
+                row.spawn((part(Part::HelpBox), node, back))
+                    .with_children(|panel| {
+                        panel.spawn((
+                            part(Part::HelpText),
+                            label("", layout.help.size, rgb(layout.help.colour)),
+                            TextLayout::justify(Justify::Center),
+                            Visibility::Hidden,
+                        ));
+                    });
+            });
         })
         .id()
 }
@@ -977,6 +1082,18 @@ fn note_kills(mut kills: MessageReader<Destroyed>, mut huds: Query<&mut PlayerHu
     }
 }
 
+/// Puts a help message on its player's HUD, unless one is up already: UYA's `help_show`
+/// refuses it then, and it is lost.
+fn note_help(mut asked: MessageReader<HelpAsked>, mut huds: Query<&mut PlayerHud>) {
+    for asked in asked.read() {
+        for mut hud in huds.iter_mut().filter(|hud| hud.player == asked.player) {
+            if hud.help.is_none() {
+                hud.help = Some((asked.help, 0.0));
+            }
+        }
+    }
+}
+
 /// Blacks out each player who was just brought back, to fade in.
 fn note_respawns(mut respawns: MessageReader<HeroRespawned>, mut huds: Query<&mut PlayerHud>) {
     for respawn in respawns.read() {
@@ -996,6 +1113,8 @@ struct Shown {
     /// The ammo flash's share left, 1 to 0.
     flash: f32,
     notice: Option<(String, f32)>,
+    /// A help message's words and where it is.
+    help: Option<(&'static str, HelpPhase)>,
     /// The vendor's menu as words, and whether he can buy the row picked.
     vendor: Option<(String, bool)>,
 }
@@ -1021,6 +1140,7 @@ fn draw_huds(
         Option<&Arsenal>,
         Option<&Health>,
         Option<&Bolts>,
+        Option<&BoltMultiplier>,
         Option<&VendorMenu>,
     )>,
     mut huds: Query<&mut PlayerHud>,
@@ -1029,18 +1149,19 @@ fn draw_huds(
     let seconds = time.delta_secs();
     let mut shown = Vec::new();
     for mut hud in &mut huds {
-        let Some((_, arsenal, health, bolts, menu)) =
+        let Some((_, arsenal, health, bolts, doubled, menu)) =
             heroes.iter().find(|(hero, ..)| hero.player == hud.player)
         else {
             continue;
         };
-        let view = hud_view(arsenal, &armory, health, bolts);
+        let view = hud_view(arsenal, &armory, health, bolts, doubled);
         let seen = Seen {
             gun_out: arsenal.is_some_and(|arsenal| arsenal.hand != Hand::Wrench),
             health: view.health,
             bolts: view.bolts,
             ring: view.ring.is_some(),
             killed: std::mem::take(&mut hud.killed),
+            doubling: view.doubled.is_some(),
         };
         let showing = hud.clock.tick(seen, seconds, &layout.timings);
         let ammo = view
@@ -1060,6 +1181,15 @@ fn draw_huds(
         if over {
             hud.notice = None;
         }
+        let help = hud.help.as_mut().and_then(|(help, since)| {
+            *since += seconds;
+            let words = help_words(*help);
+            let phase = layout.timings.help_phase(*since, words.chars().count())?;
+            Some((words, phase))
+        });
+        if help.is_none() {
+            hud.help = None;
+        }
         let fade = hud.fade;
         hud.fade = fade_after(hud.fade, seconds, layout.respawn_fade_seconds);
         shown.push(Shown {
@@ -1069,6 +1199,7 @@ fn draw_huds(
             showing,
             flash: hud.flash / layout.ammo_flash_seconds.max(1e-3),
             notice: hud.notice.clone(),
+            help,
             vendor: menu
                 .and_then(|menu| menu.open.as_ref())
                 .zip(arsenal)
@@ -1129,6 +1260,20 @@ fn draw_huds(
                     layout.bolts.gain
                 };
                 look.colour(rgb(colour).with_alpha(count.tally_alpha));
+            }
+            Part::BoltsTimes => {
+                let Some(doubled) = view.doubled else {
+                    look.show(false);
+                    continue;
+                };
+                look.show(true);
+                look.text(&format!("x{}", doubled.apply(1)));
+                let (scale, [r, g, b]) = doubler_look(doubled.ticks);
+                look.colour(Color::srgb_u8(r, g, b).with_alpha(DOUBLER_ALPHA));
+                let scale = Vec2::splat(scale / DOUBLER_SCALE);
+                if transform.scale != scale {
+                    transform.scale = scale;
+                }
             }
             Part::Gun => look.show(showing.gun && view.gun.is_some()),
             Part::GunShape | Part::GunMark => {
@@ -1211,6 +1356,22 @@ fn draw_huds(
                     look.text(words);
                     let fade = (left / NOTICE_FADE).clamp(0.0, 1.0);
                     look.colour(rgb(layout.level_up_colour).with_alpha(fade));
+                }
+                None => look.show(false),
+            },
+            Part::Help => look.show(shown.help.is_some()),
+            Part::HelpBox => {
+                let open = shown.help.map_or(0.0, |(_, phase)| phase.open);
+                let scale = Vec2::new(1.0, open);
+                if transform.scale != scale {
+                    transform.scale = scale;
+                }
+            }
+            Part::HelpText => match shown.help {
+                // Laid out while hidden, so the box keeps its size as it opens.
+                Some((words, phase)) => {
+                    look.text(words);
+                    look.show(phase.text);
                 }
                 None => look.show(false),
             },
@@ -1488,6 +1649,42 @@ mod tests {
             );
         }
         assert_eq!(fade, 0.0);
+    }
+
+    #[test]
+    fn the_doubler_pulses_round_each_beep_and_shrinks_away_at_the_end() {
+        let look = |ticks| {
+            let (scale, colour) = doubler_look(ticks);
+            ((scale * 10.0).round() / 10.0, colour)
+        };
+        let rest = [255, 213, 127];
+        assert_eq!(look(1000), (1.5, rest));
+        // Round the beep at 300: the colour is a tick behind the scale.
+        assert_eq!(look(302), (1.6, rest));
+        assert_eq!(look(301), (1.7, [255, 243, 157]));
+        // The green's 273 spills into the blue for a tick.
+        assert_eq!(look(300), (1.6, [255, 17, 187]));
+        assert_eq!(look(299), (1.5, [255, 243, 157]));
+        assert_eq!(look(295), (1.1, [255, 123, 37]));
+        assert_eq!(look(292), (1.4, [255, 153, 67]));
+        assert_eq!(look(291), (1.5, [255, 183, 97]));
+        assert_eq!(look(290), (1.5, rest));
+        // The same round 60; none round the last beep at 1.
+        assert_eq!(look(60), look(300));
+        assert_eq!(look(5), (1.5, rest));
+        assert_eq!(look(4), (1.2, rest));
+        assert_eq!(look(1), (0.3, rest));
+        // Shown while doubled, as x2, x4 and on.
+        let mut doubled = BoltMultiplier::default();
+        let armory = Armory::uya();
+        assert_eq!(
+            hud_view(None, &armory, None, None, Some(&doubled)).doubled,
+            None
+        );
+        doubled.add(1800);
+        doubled.add(1800);
+        let view = hud_view(None, &armory, None, None, Some(&doubled));
+        assert_eq!(view.doubled.map(|doubled| doubled.apply(1)), Some(4));
     }
 
     #[test]

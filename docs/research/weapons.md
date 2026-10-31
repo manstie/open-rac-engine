@@ -262,11 +262,23 @@ kills, so few are lost.
   remainder isn't reduced by them, so they are banked as well (up to 4 bolts more than
   were paid; checked in the listing, 0x44A54C–0x44A584). Without flag 8 every bolt drops.
 - **The crate's cap** (`crate_drop`, 0x33B940) is 0 or 1 at random plus 2 while
-  `crate_debris_recent` (0x1DCFF0) is 10 or under, 1 up to 20, else 0. That count goes up
-  as crates break (`crate_break` 0x33BE30: by 4, 3, 2 or 1 as `moby_free_slots`
-  0x1DFFC0 is 251, 201, 151 or 101 and over and the count is low enough, else not at
-  all) and down by a step a 4 frames (reset after 240 frames without one), so it limits
-  coins while the scene is busy. Enemies pass their own caps (one passes 3).
+  `crate_debris_recent` (0x1DCFF0) is 10 or under, 1 from 11 to 20, else 0, so it limits
+  coins while the scene is busy. Enemies pass their own caps (one passes 3). Every crate
+  is counted, explosive ones as they go off, in `crate_break` (0x33BE30), which
+  `crate_update` calls just before `crate_drop`, so a crate's own count is in its cap
+  [code, 2026-10-31; decompiles in `cache/ghidra/out/bank/crates.c` and `ammo/a4.c`]:
+  - first the count falls: by (frames since the last crate broke) / 4 toward 0 (0x445110
+    steps an int toward a target by at most a step), or to 0 when more than 240 frames
+    have passed; the frame is taken anew whenever it differs, so the part step is lost
+    and crates broken 3 frames apart never let it fall;
+  - then it rises by 4 while `moby_free_slots` (0x1DFFC0) is 251 or more and the count
+    is 4 or under, else 3 with 201 free and 9 or under, else 2 with 151 and 14 or under,
+    else 1 with 101 and under 20, else 0; so breaking crates alone never takes it past
+    20, and the cap's 0 is never reached that way. Veldin had 362 slots free in both
+    savestates read [data].
+  - The rise sizes the crate's debris: bolt and ammo crates throw 1, 5 or 37 pieces for
+    a rise of 1, 2 or 3 and up; nanotech crates (0x1F5, 0x200) 2^(rise − 1) − 1 (0, 1,
+    3 or 7); the others none (the spawner 0x44ED60 not read).
 - **Coins out of the way are banked too:** a coin that would spawn 64 u or more from the
   camera (0x1E2A40) is banked instead (0x2F8F60), and a coin in its state 3 more than
   32 u from the hero is banked and removed (`bolt_coin_update` 0x2F7930; it also tests
@@ -540,6 +552,41 @@ Single player only: multiplayer is another program, not read.
   The count trails the real one: changes gather in a +N or −N beside it (fading in over 15
   frames), and 61 frames after the last change roll in over 15 frames, 1/14 a frame,
   then snap to the total. The doubler shows as "x2" and up.
+- **The doubler's x2** (`hud_bolts_draw` 0x475B38, its pulse 0x476258, the layout 0x4753A8)
+  [code, 2026-10-31; decompiles in `cache/ghidra/out/dbl/`]:
+  - "x%d" of (challenge multiplier + 1) << `bolt_multiplier_exp`, shown while that is 2
+    or more, as element 0x10007 inside the bolts' group (0x10000), so only while the
+    bolts show; at (0.925, 0.15) of the screen, just under the count (0.885, 0.06),
+    scale 1.5.
+  - While `bolt_multiplier_timer` runs, the hero's update (0x4FAA68) shows the bolts for
+    180 frames every frame, so the count and x2 stay up for the whole doubling and 3 s
+    after.
+  - At rest it is (255, 213, 127) with alpha 0x70 at scale 1.5. Round each beep but the
+    last (300, 240, 180, 120 and 60 frames left) it pulses: from 2 frames before the
+    beep, its green and blue go up 30 and its scale 0.1 each frame for 2 frames, down for
+    6, up for 3, then snap back (scale 1.6, 1.7, 1.6, 1.5 … 1.1, then 1.2, 1.3, 1.4).
+    Over its last 4 frames its scale drops 0.3 a frame (1.2 to 0.3).
+  - The colour is packed (B << 16 | G << 8 | R) from the values before each frame's step,
+    so it is a frame behind the scale, and the green's 273 at a pulse's top spills into
+    the blue: on each beep's frame it shows (255, 17, 187) for one frame.
+  - The beep (class 0x1F7's sound 1) is skipped while 0x417EA0 is set (the challenge
+    check `moby_killed` uses too).
+- **Help messages** (`help_show` 0x417F60, `help_update` 0x418478, `help_open` 0x4182C8,
+  `help_draw` 0x418F00 not read) [code, 2026-10-31]:
+  - `help_show(text, slot)` asks for a text from the help table (16-byte entries: text,
+    id, voice line or −1, a follow-up id) unless one is already up or asked for, three
+    other screen states are set (0x1CD03C, 0x1CCFF4, 0x1CD064; not read), the slot's
+    count is −1, the game is in state 6 (0x1D6694), or within the level's first 6
+    frames; it returns whether it was taken. Each slot counts how often it was shown
+    (`0x1A7E18 + slot × 24`, a halfword) and when.
+  - Shown for (the text's length × 7) frames after opening over 8 (and a frame and 4
+    more), then closed over 8; Triangle (pad bit 0x10) skips to its closing. Voiced
+    ones (sound 7000 + their voice id) wait for the line too. Its box is placed 60 lines
+    above the screen's bottom, and drawn with (255, 204, 102) (0x4182C8).
+  - The doubler crate asks for 0x1406 in slot 0x108 once a game: its flag (0x1B6E60) is
+    set whether or not the message was taken. The wrench-only crate (0x1F8) asks for
+    0x1405 in 0x107 while 0x1A8A6C is clear, and the 0x1FA crate 0x1409 in 0x10B while
+    0x1A8A9C is.
 - **Levelling up** (`xp_level_check`, 0x50F920): a gun not in hand levels up at once; one
   in hand, with him on the ground, plays the upgrade sequence with the world stopped
   (about 200 frames; `weapon_upgrade_start`), and his input stays locked 25 frames more.
@@ -2134,9 +2181,11 @@ profiles' `gun` section):
   coins at random (`most_coins`) and banks the rest, the coins of 1 twice as the game
   does; the other crates bank their share again, a quarter more or less. The demo's
   enemy kills drop the share as coins. Bolts that expire uncollected are banked, in
-  place of UYA's banking of coins far from the hero or the camera [placeholder]. Not
-  built: fewer coins while crate debris is recent, the bolts-per-minute scaling, the
-  challenge multiplier, the XP bank. The demo's enemies drop no ammo, as UYA's don't.
+  place of UYA's banking of coins far from the hero or the camera [placeholder]. Fewer
+  coins while crates have broken lately (`rac_combat::pickups::CrateDebris`, 2026-10-31)
+  by "The crate's cap" [code], with every moby slot taken as free [simplified]; the kit
+  draws no debris. Not built: the bolts-per-minute scaling, the challenge multiplier,
+  the XP bank. The demo's enemies drop no ammo, as UYA's don't.
   The crates' bolts (44, one of Veldin's sizes) [data]; how pickups pop out and bounce,
   and how bolts and nanotech fly in and expire, are the kit's [placeholder]. Rounds per
   pickup (+0x88) and the vendor's price a round (+0x84) are [data].
@@ -2198,8 +2247,24 @@ profiles' `gun` section):
     shared explosion's set at its own size.
   - a doubler crate gives its breaker one more doubling and 1800 ticks (`BoltMultiplier`,
     on every hero with `Bolts`): his crates' bolts, his kills' XP and the demo's enemies'
-    bolts he kills are doubled per doubling while it runs, and it all ends together. Not
-    done: the HUD's icon, the beeps and the help message.
+    bolts he kills are doubled per doubling while it runs, and it all ends together. Its
+    beeps are cued as `PickupSound`s ("Their sounds").
+  - The doubler on the HUD (2026-10-31; `rac_demo::hud`, `doubler_look`), by "The
+    doubler's x2" [code]: "x2" and up beside the bolt count while it runs, which keeps
+    the bolts up and 180 frames after; its pulse round each beep and its shrink over the
+    last 4 ticks follow the game's steps, by the ticks left, its colour a tick behind
+    its scale and packed as the game packs it. The demo's layout puts it in the bolts'
+    panel, not at the game's place. Seen on screen (`kitdemo-doubler.orin`, at lavapipe's
+    slow frame rate): the x2 at rest, and round the first beep swelling, magenta for a
+    frame, then smaller and orange.
+  - Its help message (2026-10-31; `rac_combat::pickups::{Help, HelpAsked, HelpGiven}`, the
+    demo's `PlayerHud`), by "Help messages" [code]: the first doubler crate broken asks
+    for it, once a world, and lost if the HUD shows one already. The demo shows it in
+    its own words with the game's timing (`HudTimings::help_phase`: the box opens over 9
+    frames, the text shows 4 and 7 a character, the box closes over 8), in the game's
+    colour, high in the middle rather than low (the app's controls are there). Not
+    built: Triangle closing it, voiced help, the help table's counts and follow-ups.
+    Seen on screen (`kitdemo-doubler.orin`).
   - Seen on screen (`kitdemo-yard-crates.orin`): the crates' placeholder looks, the
     explosive pair tinting as he touches them and going off in turn, his health 10 to 6.
 - **Quick select** (`weapons/ring.rs`, 2026-10-22): two rings of eight, filled as

@@ -37,7 +37,8 @@
     crates: (
         // Veldin's bolt crates hold 11, 44 or 61 [data].
         bolts: 44,
-        // `crate_drop`: at most 2 or 3 coins while few crates have broken lately, the
+        // `crate_drop`: at most 2 or 3 coins while few crates have broken lately, one
+        // fewer past 10 and two past 20 on `crate_debris_recent` (`CrateDebris`), the
         // rest banked ("The bolt bank") [code].
         most_coins: (2, 3),
         // `ammo_crate_pick`: 2 pickups once in 5 [code].
