@@ -150,6 +150,11 @@ impl Arsenal {
         (self.sustain == Some(Sustain::Charging)).then_some(self.trigger.held)
     }
 
+    /// The Shield Charger's shield is up round him, whatever is in his hand.
+    pub fn shield_up(&self) -> bool {
+        self.shield.is_some()
+    }
+
     /// Gives him a gun (`item_give`, 0x416B38): owned at V1 with its ammo full, put in the
     /// quick-select rings, and brought out by the fire button if nothing else is. Giving one
     /// he owns only tops up an empty gun.

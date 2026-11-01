@@ -13,6 +13,7 @@ use rac_combat::weapons::Hand;
 use rac_combat::{Armory, Arsenal};
 use rac_hero::Hero;
 use rac_rig::{HeroRig, RopeShape};
+use rac_sim::SimTick;
 use serde::Deserialize;
 
 use super::{Blend, Emit, FxImages, FxRecipes, FxRng, Making, Tex, eye, fx_material, opaque};
@@ -94,7 +95,7 @@ pub(crate) fn draw_strands(
     mut strands: ResMut<Strands>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rng: ResMut<FxRng>,
+    tick: Res<SimTick>,
     mut places: Query<&mut Transform>,
     mut commands: Commands,
 ) {
@@ -109,6 +110,7 @@ pub(crate) fn draw_strands(
             continue;
         };
         let recipe = recipes.rope(key, level);
+        let mut rng = FxRng::for_tick(tick.0, hero.player as u64);
         let laid = lay_strands(recipe, &rope.points, rope.attacking, eye, ticks, &mut rng);
         for (index, mesh, place) in laid {
             let id = (hero.player, level, index);

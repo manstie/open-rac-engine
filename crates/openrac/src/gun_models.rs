@@ -169,8 +169,11 @@ const GLOVE_POSE: (usize, usize) = (0, 0);
 /// of its own, 0.3, on its first frame (0x356110); no other gun's update scales its moby
 /// [code].
 fn moby_scale(item: u16) -> f32 {
-    if item == 0x7F { 0.3 } else { 1.0 }
+    if item == WHIP { 0.3 } else { 1.0 }
 }
+
+/// The Plasma Whip's item.
+const WHIP: u16 = 0x7F;
 
 /// Whether a class plays its own sequences in the hand: it has a rest to settle into.
 fn plays(class: &MobyClass) -> bool {
@@ -299,6 +302,7 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
     let skinned = plays(class);
     let scale = moby_scale(model.item);
     let mut builder = Builder::default();
+    let mut joint_0 = None;
     for mesh in std::iter::once(class.mesh(PacketKind::High)).chain(shown) {
         let mesh = mesh?;
         if skinned {
@@ -313,7 +317,8 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
             continue;
         }
         let chrome = chromed(&mesh, &metal);
-        let (mut vertices, _) = baked(class, &mesh, GLOVE_POSE, "a gun", Vec3::ZERO, |_| 0)?;
+        let (mut vertices, joints) = baked(class, &mesh, GLOVE_POSE, "a gun", Vec3::ZERO, |_| 0)?;
+        joint_0 = joint_0.or(joints.first().copied());
         for vertex in &mut vertices {
             vertex.position = into_grip.transform_point3(vertex.position * scale);
             vertex.normal = into_grip.transform_vector3(vertex.normal);
@@ -338,6 +343,11 @@ fn gun(gadget: &Gadget, model: &GunModel, into_grip: Affine3A) -> Result<DiscGun
             level: model.level,
             surfaces,
             skeleton,
+            frame: Some(Transform::from_matrix(Mat4::from(into_grip))),
+            // The whip handle's one joint is the top of its hilt, off its class's axis.
+            rope_from: joint_0
+                .filter(|_| model.item == WHIP)
+                .map_or(Vec3::ZERO, |top| top * scale),
         },
         paints,
     })
@@ -500,6 +510,10 @@ mod disc_tests {
         let hero = core.hero().unwrap();
         let guns = import(&mut disc, &core, &hero).unwrap();
         assert_eq!(guns.len(), UYA_GUN_MODELS.len());
+        // The whip's rope leaves its handle along the game's +x, the kit's −Z in a class's
+        // space (`weapons.md`, "The throw"): up the hilt, which stands in his fist.
+        let up_the_hilt = into_grip(&hero).unwrap().transform_vector3(Vec3::NEG_Z);
+        assert!(up_the_hilt.y > 0.9, "{up_the_hilt}");
         let mut previous: Option<(GunModel, usize)> = None;
         for (gun, model) in guns.into_iter().zip(UYA_GUN_MODELS) {
             let name = format!("{:#x} from V{}", model.item, model.level + 1);
@@ -545,6 +559,18 @@ mod disc_tests {
                 assert!(low.z < -0.05 && high.z < 0.3, "{name}: {low} to {high}");
                 let size = (high - low).max_element();
                 assert!(size > 0.3 && size < 0.6, "{name}: {size}");
+                // Its rope leaves the top of the hilt, on its axis, the hilt below it.
+                let frame = gun.data.frame.unwrap().compute_affine().inverse();
+                let (low, high) = points
+                    .iter()
+                    .map(|p| frame.transform_point3(*p) - gun.data.rope_from)
+                    .fold((Vec3::MAX, Vec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+                assert!(
+                    low.z.abs() < 0.01 && high.z > 0.4,
+                    "{name}: {low} to {high}"
+                );
+                let across = low.xy().abs().max(high.xy().abs()).max_element();
+                assert!(across < 0.09, "{name}: {low} to {high}");
             } else {
                 // Held as the game holds it, the barrel reaches well ahead of the grip and
                 // less behind it (the RY3NO rests on his shoulder), and the gun sits on the

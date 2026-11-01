@@ -380,8 +380,11 @@ on both discs, whose disc tests read every level.
 - **Level textures:** the core header lists the moby textures at +0x38 (count) and +0x3C
   (offset), 16 bytes each: where the pixels are, width, height, a kind (0 kept in the GS
   for the whole level, its pixels in the GS RAM image; 1 or 3 kept in EE memory, from the
-  core's texture base at header + 0x60, stored in the GS's 32-bit order), the palette
-  and a small mipmap in the GS RAM image, in 0x100-byte blocks. The GS RAM table (header
+  core's texture base at header + 0x60), the palette and a small mipmap in the GS RAM
+  image, in 0x100-byte blocks. DL stores the pixels kept in EE memory in the GS's 32-bit
+  order and UYA in rows, whatever their kind [verified 2026-11-01 on UYA NTSC Veldin and
+  DL NTSC level 1: each reads as a clean image only that way; `Core::moby_textures`'s
+  disc test]. The GS RAM table (header
   +0x00 count, +0x04 offset, 16 bytes an entry) lists the palettes and mipmaps sent first;
   the entry after them starts the textures the GS keeps.
 

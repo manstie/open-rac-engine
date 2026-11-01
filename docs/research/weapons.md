@@ -1540,19 +1540,27 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
     and draw distance (`moby_follow_parent`, 0x452E70).
   - Each frame, each piece (the whip, then links 1–8) wants its end at its joint 0 plus
     the rope's stretch (the whip's +0x14) along joint 0's x axis, raised to at least
-    0.15 u above the ground found by a line from 0.5 u above it. The stored end of each
-    piece then turns from where it was towards that by 0.1 + the whip's second value
-    (+0x1C: 0 at rest, up to 0.9 in a swing), so the rope trails more at rest and pulls
-    taut as he swings (the direction of the turn is read with medium confidence).
-  - Link k sits at the lagged end of piece k − 1, turned away from that piece's joint 0
-    (yaw by atan2 + 180°, pitch from the height difference, roll 90°), so its joint 0,
-    where piece k starts, is 0.194 u on along that piece's way. In the wrench
-    combo (state 0x13) the links lie flat (no pitch or roll), and links 1, 2 and 5 add
-    the hand's travel since last frame × 4, 2 and 1 (2 × (2 div k) in integer division;
-    the others none), so the first links trail the swing. (Read again 2026-10-29: in
-    `whip_link_place` that term is an angle added to the link's yaw, atan2 of the whip's
-    position less a vector the whip keeps at +0x68, times 4, 2 or 1; what the vector
-    holds after the spawn isn't read, so whether it is the travel is open.)
+    0.15 u above the ground found by a line from 0.5 u above it. The whip is piece 0
+    itself (the spawn stores it as 0x1E1AA0), so the rope starts at the handle's joint 0.
+    The aim (0x357678) runs before the links are placed (0x357F10), so each link's joint
+    is where it lay last frame and each piece lags the one before by a frame, in every
+    state. Then (0x3574D0) each piece's stored end turns from where it was towards its
+    aim, both as directions from the joint, by 0.1 + the whip's second value (+0x1C: 0
+    at rest, up to 0.9 in a swing) of the angle between (0x449008), and is set back at
+    the stretch from the joint (`vec_set_length`), so the rope trails more at rest and
+    pulls taut as he swings [code, 2026-11-01].
+  - Link k sits at the lagged end of piece k − 1, turned away from the joint 0 of link
+    k − 1 as just placed (yaw by atan2 + 180°, pitch from the height difference, roll
+    90°), so its joint 0, where piece k starts, is 0.194 u on along that piece's way. In
+    the wrench combo (state 0x13) the links lie flat (no pitch or roll), and links 1, 2
+    and 5 add to their yaw the bearing of the whip's travel this frame (`atan2` of its
+    position less its pvars' first vector, which 0x356110 fills with its position just
+    before moving it to the gun in his hand, 0x1A5DE0) times 4, 2 and 1 (2 × (2 div k)
+    in integer division below link 5, link 5 once, none after) [code, 2026-11-01]. In
+    the kit, that term as read throws the rope into a tangle all through a swing, where
+    the game's footage (take 13 in `re-setup.md`) shows wide smooth loops, as the kit
+    draws without it; so the kit leaves it out until a trace of the links' yaw (+0xF8)
+    through a combo shows what the game does.
   - So the rope is 9 × the stretch and 8 × 0.194 u long [code, data; corrected
     2026-10-29, the links' joint 0 having been left out]. The links hide with the whip, in
     cutscenes, and 300 frames after the ammo runs out. The stretch moves towards a goal
@@ -1583,7 +1591,34 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
 - **The throw** (0x4F1CE0, at the wrench's release frame): instead of the wrench, a moby of
   the thrown wrench's class (0x47, run by `wrench_update`) flies out as the thrown wrench
   does ("The thrown wrench" in `hero-controller.md`), and the whip's end follows it; the
-  rope hits along its length while it is out.
+  rope hits along its length while it is out. More exactly [code, 2026-11-01]: while it
+  is out, 0x356110 puts the whip's first link (0x1E1AA0) where the thrown moby is and
+  turned as it is (its +0x10 position and +0xC0–0xEC rows), as it otherwise copies the
+  gun in his hand's, so the rope starts at the spinning thrown moby; each frame the rope
+  then heads each point along its link as the links lay last frame (0x357678, 0x3574D0),
+  pulled all the way (0.1 + 0.9), before 0x357F10 turns the links to the new points, so
+  the links trail the spin in a curl. The throw spawns the moby hidden (its +0x34 flags
+  `| 0x41`, read as such, not checked) in state 10. Its spin is the thrown wrench's:
+  each frame `wrench_update` (0x338088) calls 0x44B010 with (0, 0, 0x3ED08238), which
+  makes a rotation of those angles, multiplies it into the moby's (+0xF0, as angles) and
+  writes the angles back [disassembly]: 0.40724 rad (23.3°) a frame about its z, 24.4
+  rad/s, a turn every 15.4 frames, turning its forward towards its left (z up, x
+  forward, y left, so anticlockwise seen from above; the sign is from those axes, not
+  traced). The rope's draw (0x359110) starts at link 0's joint 0, not at the gun in
+  his hand, and the throw sets the shared thrown flag (0x1A5DFA) by which the wrench
+  hides in his hand; it also hands the gun moby to the thrown one (0x452E70, not read).
+  Link 0 is the whip itself, and its class (0x1843) has one joint, the top of the hilt
+  on its axis: (0.94, −0.46, −0.19) of the class's units from its origin, the mesh's
+  axis running from there along −x [verified on the UYA NTSC-U disc, 2026-11-01]. The
+  class's +x runs up the hilt: through the hero's hand at rest it stands in his fist,
+  0.99 up the rig's gun space, as the game's footage shows it beside his head with the
+  rope rising out of its top (take 13 in `re-setup.md`). So the rope leaves the top of
+  the hilt, in his hand and thrown. Thrown, the whip copies the thrown moby's place and
+  turn, which spins flat about its z as the thrown wrench does, so the handle lies flat
+  with its origin at the thrown moby; it never stands up as it does in his fist (the
+  owner confirmed the game's isn't upright). The kit flies the whole whip so: his hand
+  empty, the handle's origin at the thrown moby, its +x level and turning, and the rope
+  out of its top (`GunData::frame` and `rope_from` in the rig).
 - **V4** (level 3 and up): at the jump attack's 20th frame a shock wave (class 0x1890,
   0x393690) sets off from the whip along his facing at 0.75 u a frame (45 u/s). It lives
   40 frames. From its 11th frame, every third frame, a ray 10 u down from where it was 6
@@ -2748,11 +2783,12 @@ profiles' `gun` section):
   (`rac_rig/src/springs.rs`) turn the waist, chest and clavicles for the raised arm and
   towards the gun's aim point, as `hero_gun_arm_raise` and `hero_head_look` set them, at
   60 Hz. Without a disc the guns are blocky placeholders [placeholder]. The open model
-  aims procedurally. The Plasma Whip's rope (`rac_rig/src/rope.rs`): nine links trailing from the handle by
-  `whip_rope_ends`' rules (the stretch and pull by state, the links lying flat and links
-  1 and 2 adding the hand's travel in a swing, kept 0.15 u off a floor taken at his feet,
-  the end following the thrown wrench; each piece after the first starting 0.194 u along
-  the link before), a visual only, since the kit's whip hits along a straight line. With
+  aims procedurally. The Plasma Whip's rope (`rac_rig/src/rope.rs`): nine links trailing from the top of the
+  handle's hilt by `whip_rope_ends`' rules (the stretch and pull by state, each piece
+  aimed along its link as it lay last tick and turned towards that aim, the links lying
+  flat in a swing, kept 0.15 u off a floor taken at his feet, the handle flying with the
+  thrown wrench; each piece after the first starting 0.194 u along the link before; the
+  swing's turn of links 1, 2 and 5 left out, "The rope"), a visual only, since the kit's whip hits along a straight line. With
   the disc its links are classes 0x183A and 0x183C at 0.2 of their scale, placed and
   stood on edge as `whip_link_place` does, at the game's opacity and glow by level
   (`rac_rig::RopeModels`, 2026-10-29); without it, glowing translucent bars from link to

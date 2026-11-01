@@ -1967,6 +1967,40 @@ fn the_whip_swings_on_the_fire_button_for_a_round_and_reaches_past_the_wrench() 
 }
 
 #[test]
+fn the_whips_rope_sends_its_hit_where_it_met_the_target_and_the_wrench_none() {
+    let centre = Vec3::new(0.0, 1.0, -5.0);
+    let mut yard = Yard::new(&[(WHIP, 0)]);
+    yard.target(centre, 100.0);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(40);
+    let hits: Vec<Vec3> = yard
+        .events
+        .iter()
+        .filter_map(|event| match event.kind {
+            GunEventKind::Impact { at, .. } if event.weapon == WHIP && event.shot.is_none() => {
+                Some(at)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    // On the rope, within the target's half a unit.
+    assert!(hits[0].distance(centre) <= 0.5 + 1e-3, "{hits:?}");
+
+    let mut yard = Yard::new(&[(N60, 0)]);
+    let near = yard.target(Vec3::new(0.0, 0.5, -1.5), 100.0);
+    yard.tick(&[Action::Melee], &[Action::Melee]);
+    yard.idle(40);
+    assert!(yard.hitpoints(near) < 100.0);
+    assert!(
+        !yard
+            .events
+            .iter()
+            .any(|event| matches!(event.kind, GunEventKind::Impact { .. }))
+    );
+}
+
+#[test]
 fn the_whips_rope_reaches_nine_stretches_and_the_links_between_them() {
     let mut yard = Yard::new(&[(WHIP, 0)]);
     yard.idle(2);

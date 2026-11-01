@@ -269,7 +269,17 @@ pub(crate) fn draw_charges(
                 if lay || (laid.points.is_empty() && laid.end.is_none()) {
                     crackle.lay(laid, &gun, amount, world, &mut rng);
                 }
-                let laid = lay_strands(&crackle.strands, &laid.points, false, eye, ticks, &mut rng);
+                // Its jitter and widths, picked again each frame, hold for the tick.
+                let seed = (hero.player as u64) << 48 | (which as u64) << 16 | strand_of as u64;
+                let mut jitter = FxRng::for_tick(tick.0, seed);
+                let laid = lay_strands(
+                    &crackle.strands,
+                    &laid.points,
+                    false,
+                    eye,
+                    ticks,
+                    &mut jitter,
+                );
                 for (index, mesh, at) in laid {
                     let strand = &crackle.strands[index];
                     let mut colour = strand.colour;

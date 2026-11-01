@@ -250,6 +250,19 @@ fn strike_targets(
                     reaction.struck_by.remove(0);
                 }
                 reaction.struck_by.push(mark);
+                // The rope's hit shows where it met the target: UYA sprays sparks there
+                // (0x357B20, `effects.md`, "Plasma Whip").
+                if let Some(weapon) = weapon {
+                    events.write(GunEvent {
+                        player: hero.player,
+                        weapon,
+                        kind: GunEventKind::Impact {
+                            at: strike.shape.nearest(centre),
+                            surface: None,
+                        },
+                        shot: None,
+                    });
+                }
                 reaction.flash_ticks = tuning.flash_ticks;
                 let push = strike.push * tuning.push_speed;
                 reaction.push = push;

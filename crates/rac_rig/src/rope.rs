@@ -30,12 +30,9 @@ pub const ROPE_POINTS: usize = PIECES + 1;
 /// What each piece's end may come no nearer the ground than (`whip_rope_ends`), the floor
 /// taken as level with his feet [simplified: UYA finds it with a line from 0.5 u above].
 const ABOVE_GROUND: f32 = 0.15;
-/// How far the ends move to where they would lie each tick: this plus the rope's second
-/// value.
+/// How far each piece turns towards where it would lie each tick (`whip_rope_lag`
+/// 0x3574D0): this plus the rope's second value, of the angle between.
 const PULL: f32 = 0.1;
-/// In a combo swing, links 1 and 2 add the hand's travel since the last tick this many
-/// times, so the first links trail the swing.
-const TRAVEL: [f32; 2] = [4.0, 2.0];
 /// The links hide this many ticks after the whip runs out of rounds.
 const EMPTY_TICKS: u32 = 300;
 /// How far along each link the next piece starts: its joint 0, which class 0x183A has
@@ -45,6 +42,12 @@ const EMPTY_TICKS: u32 = 300;
 pub const LINK_LEAD: f32 = 0.194;
 /// The links' opacity: 0x3C of 0x80 (0x3572B0).
 const LINK_ALPHA: f32 = 0x3C as f32 / 128.0;
+/// How much farther off the links sort among see-through things. The game draws its
+/// links, being mobys, before its effects, so the rope's bright strands always lie over
+/// them; sorted by distance alone, links nearer the camera than the hand (where the
+/// strands' meshes sit) would draw after the strands and darken them into chunks. A
+/// whip's length and more.
+const LINK_SORT_BIAS: f32 = -12.0;
 
 /// The links' glow by the whip's level (0x356110 each frame, `moby_set_colour`, 0x80
 /// being 1.0): (0xBF, 0x40, 0x20) at V1–V2 and (0x20, 0x40, 0xBF) at V3–V4. From V5 the
@@ -83,6 +86,14 @@ fn approach(value: f32, (goal, step): (f32, Option<f32>)) -> f32 {
     }
 }
 
+/// `from` turned towards `to` by `by` of the angle between them (0x449008).
+fn turned(from: Vec3, to: Vec3, by: f32) -> Vec3 {
+    if by >= 1.0 {
+        return to;
+    }
+    Quat::IDENTITY.slerp(Quat::from_rotation_arc(from, to), by) * from
+}
+
 /// One hero's rope.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Rope {
@@ -94,8 +105,7 @@ pub(crate) struct Rope {
     ways: [Vec3; PIECES],
     /// The links lie flat, as in a combo swing.
     flat: bool,
-    /// The hand as last ticked, and whether the rope has been laid out yet.
-    hand: Vec3,
+    /// Whether the rope has been laid out yet.
     laid: bool,
     /// Ticks since the whip last had a round.
     empty: u32,
@@ -110,7 +120,6 @@ impl Default for Rope {
             ends: [Vec3::ZERO; PIECES],
             ways: [Vec3::NEG_Z; PIECES],
             flat: false,
-            hand: Vec3::ZERO,
             laid: false,
             empty: 0,
             pending: 0.0,
@@ -119,8 +128,8 @@ impl Default for Rope {
 }
 
 impl Rope {
-    /// Moves on by `seconds` with the handle at `hand`, pointing `along`, and returns
-    /// whether the links show.
+    /// Moves on by `seconds` with the rope leaving the handle at `hand`, pointing `along`,
+    /// and returns whether the links show.
     pub fn step(&mut self, hero: &HeroMotion, hand: Vec3, along: Vec3, seconds: f32) -> bool {
         let Some(whip) = hero.gun.whip.filter(|_| hero.gun.item.is_some()) else {
             self.laid = false;
@@ -128,7 +137,6 @@ impl Rope {
         };
         if !self.laid {
             self.laid = true;
-            self.hand = hand;
             for k in 0..PIECES {
                 let pieces = (k + 1) as f32;
                 self.ends[k] = hand + along * (self.stretch * pieces + LINK_LEAD * k as f32);
@@ -149,38 +157,38 @@ impl Rope {
         let [stretch, second] = goals(hero);
         self.stretch = approach(self.stretch, stretch);
         self.second = approach(self.second, second);
-        let travel = hand - self.hand;
-        self.hand = hand;
         let swinging = matches!(hero.state, HeroState::Combo(_));
+        self.flat = swinging;
         let floor = hero.position.y + ABOVE_GROUND;
         let pull = (PULL + self.second).min(1.0);
-        let lie = |way: Vec3| {
-            if swinging {
-                Vec3::new(way.x, 0.0, way.z).normalize_or(way)
-            } else {
-                way
-            }
-        };
-        self.flat = swinging;
-        let mut start = hand;
-        let mut way = lie(along);
+        // Each piece runs on from its link's joint 0 along the link: the handle's as it is
+        // now, the links' as they lay last tick, the game aiming the pieces (0x357678)
+        // before it places the links (0x357778), so each lags the one before by a tick.
+        // Its end keeps a stretch from the joint and turns towards its aim.
+        let (ends, ways) = (self.ends, self.ways);
         for k in 0..PIECES {
-            let mut wanted = match hero.thrown {
-                // Its end follows the thrown wrench.
-                Some(thrown) => hand + (thrown.position - hand) * (k + 1) as f32 / PIECES as f32,
-                None => start + way * self.stretch,
+            let (start, way) = match k.checked_sub(1) {
+                Some(before) => (ends[before] + ways[before] * LINK_LEAD, ways[before]),
+                None => (hand, along),
             };
+            let mut wanted = start + way * self.stretch;
             wanted.y = wanted.y.max(floor);
-            let mut end = self.ends[k].lerp(wanted, pull);
-            if swinging && let Some(times) = k.checked_sub(1).and_then(|i| TRAVEL.get(i)) {
-                end += travel * *times;
+            let to = (wanted - start).normalize_or(way);
+            let from = (ends[k] - start).normalize_or(to);
+            self.ends[k] = start + turned(from, to, pull) * self.stretch;
+        }
+        // Each link then lies at its piece's end, away from the joint 0 of the link before
+        // it as now placed (0x357778), flat in a combo. There the game also turns links 1,
+        // 2 and 5 by the bearing of the handle's travel 4, 2 and 1 times; the kit leaves
+        // that out (`weapons.md`, "Plasma Whip").
+        let mut start = hand;
+        for k in 0..PIECES {
+            let mut way = (self.ends[k] - start).normalize_or(self.ways[k]);
+            if swinging {
+                way = Vec3::new(way.x, 0.0, way.z).normalize_or(way);
             }
-            self.ends[k] = end;
-            // The link at its end lies away from where the piece started, and the next
-            // piece starts at that link's joint 0.
-            way = lie((end - start).normalize_or(way));
             self.ways[k] = way;
-            start = end + way * LINK_LEAD;
+            start = self.ends[k] + way * LINK_LEAD;
         }
     }
 
@@ -251,16 +259,23 @@ pub(crate) struct LinkLook {
 }
 
 /// A link's material: its image, see-through at the game's opacity, lit by its glow alone
-/// while it has one.
+/// while it has one. With a glow it is added: the links' spawn sets mode bit 0x200
+/// below V5 (libuya's `MOBY_MODE_BIT_DRAW_TRANSPARENT_WEIRD`), read as an added draw, so
+/// they brighten what lies behind and never darken the rope; V5 clears it.
 fn link_material(image: Option<Handle<Image>>, glow: Option<[f32; 3]>) -> StandardMaterial {
     let [r, g, b] = glow.unwrap_or([1.0; 3]);
     StandardMaterial {
         base_color: Color::linear_rgba(r, g, b, LINK_ALPHA),
         base_color_texture: image,
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: if glow.is_some() {
+            AlphaMode::Add
+        } else {
+            AlphaMode::Blend
+        },
         unlit: glow.is_some(),
         double_sided: true,
         cull_mode: None,
+        depth_bias: LINK_SORT_BIAS,
         ..default()
     }
 }
@@ -348,6 +363,7 @@ pub(crate) fn register_rope_looks(
             emissive: purple.to_linear() * 4.0,
             alpha_mode: AlphaMode::Blend,
             unlit: true,
+            depth_bias: LINK_SORT_BIAS,
             ..default()
         }),
     });
@@ -359,6 +375,7 @@ pub(crate) fn draw_ropes(
     time: Res<Time>,
     looks: Option<Res<RopeLooks>>,
     models: Res<RopeModels>,
+    guns: Res<crate::RigGuns>,
     mut materials: Option<ResMut<Assets<StandardMaterial>>>,
     heroes: Query<(&HeroBody, &Transform)>,
     mut rigs: Query<&mut HeroRig>,
@@ -375,8 +392,23 @@ pub(crate) fn draw_ropes(
         };
         let hero = &body.0;
         let rig = &mut *rig;
-        let grip = placed.mul_transform(rig.grip);
-        let (hand, along) = (grip.translation, grip.rotation * Vec3::NEG_Z);
+        // The rope leaves the handle at its joint 0 (0x359110), heading along its +x: the
+        // gun in his hand's, or the thrown wrench's once thrown (0x356110).
+        let (frame, rope_from) = hero
+            .gun
+            .item
+            .and_then(|item| guns.get(item, hero.gun.level))
+            .map_or((Transform::IDENTITY, Vec3::ZERO), |(_, gun)| {
+                (gun.frame, gun.rope_from)
+            });
+        let handle = match hero.thrown {
+            Some(thrown) if thrown.whip => {
+                crate::thrown_handle(thrown.position, time.elapsed_secs())
+            }
+            _ => placed.mul_transform(rig.grip).mul_transform(frame),
+        };
+        let hand = handle.transform_point(rope_from);
+        let along = handle.rotation * Vec3::NEG_Z;
         let shown = rig.rope.step(hero, hand, along, seconds);
         rig.rope_shape = shown.then(|| RopeShape {
             points: rig.rope.points(hand),
@@ -482,6 +514,35 @@ mod tests {
         assert!((swing - (8.1 + links)).abs() < 0.3, "{swing}");
         let third = reach(HeroState::Combo(2), 120);
         assert!((third - (5.4 + links)).abs() < 0.3, "{third}");
+    }
+
+    #[test]
+    fn thrown_its_links_trail_the_spinning_handle() {
+        let root = Vec3::new(0.0, 1.0, -6.0);
+        let mut hero = with_whip(HeroState::Idle, 0);
+        hero.thrown = Some(rac_hero::ThrownWrench::at(root, Vec3::NEG_Z, true));
+        let mut rope = Rope::default();
+        for tick in 0..60 {
+            let along = crate::thrown_spin(tick as f32 / 60.0) * Vec3::NEG_Z;
+            rope.step(&hero, root, along, 1.0 / 60.0);
+        }
+        // The first piece runs from the handle along its spin; each after heads along the
+        // link before as it lay a tick ago, so the rope curls round behind it.
+        let first = rope.ends[0].distance(root);
+        assert!(
+            (first - rope.stretch).abs() < 1e-3,
+            "{first} {} {}",
+            rope.stretch,
+            rope.second
+        );
+        let curls = rope.ways.windows(2).all(|pair| pair[0].dot(pair[1]) < 0.9);
+        assert!(curls, "{:?}", rope.ways);
+        let most = PIECES as f32 * (rope.stretch + LINK_LEAD);
+        assert!(
+            rope.ends
+                .iter()
+                .all(|end| end.distance(root) <= most + 1e-3)
+        );
     }
 
     #[test]

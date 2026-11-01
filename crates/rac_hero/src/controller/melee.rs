@@ -74,6 +74,35 @@ impl StrikeShape {
             StrikeShape::Ball { centre, radius: r } => point.distance(centre) <= radius + r,
         }
     }
+
+    /// Where the shape, over this tick's sweep, comes nearest `point`: where it struck what
+    /// is there, for what shows at the hit.
+    pub fn nearest(&self, point: Vec3) -> Vec3 {
+        match *self {
+            StrikeShape::Sweep {
+                from,
+                to,
+                head_radius,
+            } => {
+                let lines = (1..=SWEEP_LINES).map(|i| {
+                    let s = i as f32 / SWEEP_LINES as f32;
+                    nearest_on_segment(point, from.0.lerp(to.0, s), from.1.lerp(to.1, s))
+                });
+                let head = to.1 - (to.1 - to.0).normalize_or_zero() * HEAD_INSET;
+                let ball = head + (point - head).clamp_length_max(head_radius);
+                lines
+                    .chain([ball])
+                    .min_by(|a, b| {
+                        a.distance_squared(point)
+                            .total_cmp(&b.distance_squared(point))
+                    })
+                    .unwrap_or(to.1)
+            }
+            StrikeShape::Ball { centre, radius } => {
+                centre + (point - centre).clamp_length_max(radius)
+            }
+        }
+    }
 }
 
 /// The game tests a swing's sweep as this many lines.
@@ -81,7 +110,7 @@ const SWEEP_LINES: u32 = 5;
 /// Its head ball sits this far in from the tip.
 const HEAD_INSET: f32 = 0.085;
 
-fn distance_to_segment(point: Vec3, a: Vec3, b: Vec3) -> f32 {
+fn nearest_on_segment(point: Vec3, a: Vec3, b: Vec3) -> Vec3 {
     let ab = b - a;
     let length_squared = ab.length_squared();
     let s = if length_squared > 0.0 {
@@ -89,7 +118,11 @@ fn distance_to_segment(point: Vec3, a: Vec3, b: Vec3) -> f32 {
     } else {
         0.0
     };
-    point.distance(a + ab * s)
+    a + ab * s
+}
+
+fn distance_to_segment(point: Vec3, a: Vec3, b: Vec3) -> f32 {
+    point.distance(nearest_on_segment(point, a, b))
 }
 
 /// The wrench clanking off a wall or the ground: where, and the surface's normal there.
@@ -113,6 +146,22 @@ pub struct ThrownWrench {
     speed: f32,
     accel: f32,
     serial: u32,
+}
+
+impl ThrownWrench {
+    /// One at `position`, thrown along `direction`, as a renderer or a test sees it: only
+    /// the hero's controller moves one.
+    pub fn at(position: Vec3, direction: Vec3, whip: bool) -> Self {
+        Self {
+            position,
+            returning: false,
+            direction,
+            whip,
+            speed: 0.0,
+            accel: 0.0,
+            serial: 0,
+        }
+    }
 }
 
 /// The attack under way, or the last one: the next combo swing depends on it.

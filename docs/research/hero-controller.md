@@ -1021,6 +1021,9 @@ the throw sends the wrench out and back (P1.8).
     on the way back.
 - **Duration:** standing still, the throw lasts 95 frames. He can walk off once the
   wrench is gone, at frame 34.
+- **Spin [disassembly, 2026-11-01]:** each frame `wrench_update` turns it 0.40724 rad
+  (0x3ED08238) about its z with 0x44B010, so a turn every 15.4 frames, anticlockwise
+  seen from above (`weapons.md`, "The throw"; the sign from the axes, not traced).
 
 ### The grind attack (state 42) [code, UYA NTSC, 2026-10-15]
 

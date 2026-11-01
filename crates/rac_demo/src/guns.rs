@@ -185,6 +185,12 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
         ShotKind::Pod => ball(0.3, &looks.agent),
         ShotKind::Agent(_) => ball(0.3, &looks.agent),
         ShotKind::Slug => ball(0.05, &looks.bullet),
+        // The agents' comet is drawn as its puffs and sparks alone: UYA sets its class's
+        // scale to 0.05 and draws it in code (`effects.md`, "Agents of Doom").
+        ShotKind::Comet { .. } if matches!(fire, Some(FireMode::Agents(_))) => Look {
+            scale: Vec3::ZERO,
+            ..ball(0.0, &looks.charge)
+        },
         ShotKind::Comet { .. } => ball(0.2, &looks.charge),
         ShotKind::Wave => ball(0.5, &looks.arc),
         ShotKind::Pulse { .. } => ball(0.2, &looks.holo),

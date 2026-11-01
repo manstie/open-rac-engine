@@ -30,9 +30,11 @@ mod sweep;
 
 use std::collections::BTreeMap;
 
+use bevy::camera::primitives::Frustum;
 use bevy::ecs::system::SystemParam;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use bevy::shape::ViewFrustum;
 use rac_combat::pickups::CrateBlast;
 #[cfg(doc)]
 use rac_combat::weapons::ShotKind;
@@ -69,6 +71,16 @@ pub enum Tex {
     Effect(u16),
     /// Entry `n` of particle type `t`'s list, which differs from level to level.
     Particle(u8, u8),
+}
+
+impl Tex {
+    /// How wide a sprite in it is drawn for each unit of its size ([`PARTICLE_ACROSS`]).
+    fn across(self) -> f32 {
+        match self {
+            Tex::Particle(..) => PARTICLE_ACROSS,
+            Tex::Effect(_) => 1.0,
+        }
+    }
 }
 
 /// How a sprite meets what's behind it (the game's blends 1 and 0; its brightening blend
@@ -128,6 +140,8 @@ pub enum Emit {
     /// `end_alpha`, turned by an angle within `roll` and turning `spin` a tick, and going
     /// `ahead` units a second along the shot's way; shown `delay` ticks after the event,
     /// `nearer` units toward the camera (as the game keeps a spark off the wall it is on).
+    /// In one of the game's particle textures, `size` is from corner to corner
+    /// ([`PARTICLE_ACROSS`]); with `flash`, it changes as a burst's does.
     Glow {
         texture: Tex,
         size: f32,
@@ -147,6 +161,8 @@ pub enum Emit {
         delay: u32,
         #[serde(default)]
         nearer: f32,
+        #[serde(default)]
+        flash: bool,
         #[serde(default)]
         blend: Blend,
     },
@@ -216,7 +232,9 @@ pub enum Emit {
     /// The whole view brightened by `colour`, added as the game's full-screen flashes are,
     /// for `ticks` as its alpha goes to `end_alpha`; shown `delay` ticks after the event.
     /// The colour is the game's bytes over 0x80 as elsewhere, though with no texture
-    /// under it 0x80 adds half of full white.
+    /// under it 0x80 adds half of full white. With `seen`, only when a ball of that
+    /// radius round the event is wholly in view, as the shared explosion's flash is (a
+    /// ball of 3S: 0x3317C8 draws it only when 0x40D0C0 found it inside the frustum).
     Screen {
         ticks: u32,
         colour: [f32; 4],
@@ -224,6 +242,8 @@ pub enum Emit {
         end_alpha: f32,
         #[serde(default)]
         delay: u32,
+        #[serde(default)]
+        seen: Option<f32>,
     },
     /// A model of the game's class `class` (a game gives it, [`FxModels`]; else the
     /// kit's crown), standing level at any yaw, `scale` times its size (between the two)
@@ -280,9 +300,9 @@ pub enum Emit {
 
 /// How wide a particle the game draws is for each unit of its size: its renderer
 /// (0x45E810) puts the corners at the size from the middle, so the size is half the
-/// diagonal (measured on screen, `effects.md`, "Particles"). A burst's particles in the
-/// game's particle textures are its particles, as are a trail's, and their `size` is twice
-/// the game's, so it is their diagonal.
+/// diagonal (measured on screen, `effects.md`, "Particles"). Only that renderer draws the
+/// game's particle textures, so a glow, burst or trail in one is one of its particles, and
+/// its `size`, twice the game's, is its diagonal.
 const PARTICLE_ACROSS: f32 = std::f32::consts::FRAC_1_SQRT_2;
 
 fn up() -> Vec<Shaking> {
@@ -426,7 +446,8 @@ pub struct Streak {
 /// each tick and turns up to `spin` degrees a tick either way. With `ground`, each is laid
 /// on the floor within that many units below, or not at all where there's none. With a
 /// `shell`, it starts that far out from the shot any way round (or round it, if `level`),
-/// heading in to it at between the two of `drawn_in` units a second.
+/// heading in to it at between the two of `drawn_in` units a second. With `flash`, each
+/// changes as a burst's does.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Trail {
     #[serde(default)]
@@ -465,6 +486,8 @@ pub struct Trail {
     pub level: bool,
     #[serde(default)]
     pub drawn_in: (f32, f32),
+    #[serde(default)]
+    pub flash: bool,
     #[serde(default)]
     pub blend: Blend,
 }
@@ -1001,6 +1024,18 @@ pub(crate) struct ShotStreak(pub Streak);
 pub(crate) struct FxRng(u32);
 
 impl FxRng {
+    /// Numbers for one thing drawn afresh every frame, `which` of them, the same all
+    /// through sim tick `tick`: what the game picks again each frame then holds for a
+    /// tick at any frame rate, and not just a frame.
+    pub(crate) fn for_tick(tick: u64, which: u64) -> FxRng {
+        let mixed = (tick.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ which.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+        .rotate_left(29);
+        let mut rng = FxRng((mixed ^ (mixed >> 32)) as u32 | 1);
+        rng.unit();
+        rng
+    }
+
     pub(crate) fn unit(&mut self) -> f32 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 17;
@@ -1171,6 +1206,8 @@ struct Spawner<'w, 's, 'a> {
     shake: &'a mut CameraShake,
     /// The light slots not taken.
     lights_free: usize,
+    /// What the active camera takes in, for what shows only in view.
+    view: Frustum,
 }
 
 /// A system's way to a [`Spawner`].
@@ -1186,6 +1223,7 @@ struct Making<'w, 's> {
     scene: Option<Res<'w, CollisionScene>>,
     shake: ResMut<'w, CameraShake>,
     lights: Query<'w, 's, (), Or<(With<light::Lit>, With<light::Riding>)>>,
+    views: Query<'w, 's, (&'static Camera, &'static Frustum), With<Camera3d>>,
 }
 
 impl<'w> Making<'w, '_> {
@@ -1204,8 +1242,22 @@ impl<'w> Making<'w, '_> {
                 .map(|scene| &scene.0 as &dyn CollisionWorld),
             lights_free: light::SLOTS.saturating_sub(self.lights.iter().count()),
             shake: &mut self.shake,
+            view: self
+                .views
+                .iter()
+                .find(|(camera, _)| camera.is_active)
+                .map_or_else(Frustum::default, |(_, frustum)| *frustum),
         }
     }
+}
+
+/// Whether a ball of `radius` round `at` is wholly inside `view`'s sides and past its near
+/// plane. A frustum not worked out yet (no normals) takes in everything.
+fn wholly_in(view: &Frustum, at: Vec3, radius: f32) -> bool {
+    let at = at.extend(1.0);
+    view.half_spaces[..=ViewFrustum::NEAR_PLANE_IDX]
+        .iter()
+        .all(|side| side.normal_d().dot(at) >= radius * side.normal().length())
 }
 
 /// Where something put at `at` lies on the floor within `reach` below it, just above it
@@ -1267,10 +1319,7 @@ impl Spawner<'_, '_, '_> {
         );
         // The path is one tick's, so 60 times it is the velocity.
         let back = -path * 60.0 * trail.back;
-        let scale = match texture {
-            Tex::Particle(..) => scale * PARTICLE_ACROSS,
-            Tex::Effect(_) => scale,
-        };
+        let scale = scale * texture.across();
         let fx = Fx {
             velocity: Vec3::Y * rng.between(trail.rise) + back + scatter + drawn_in,
             gravity: trail.gravity,
@@ -1278,6 +1327,7 @@ impl Spawner<'_, '_, '_> {
             end_alpha: trail.end_alpha,
             fade: fade(colour, trail.end_colour),
             spin: rng.between((-trail.spin, trail.spin)).to_radians(),
+            flashes: trail.flash,
             ..Fx::still(
                 life,
                 Vec2::splat(trail.size * scale),
@@ -1378,6 +1428,7 @@ impl Spawner<'_, '_, '_> {
                 ahead,
                 delay,
                 nearer,
+                flash,
                 blend,
             } => {
                 let material = self.material(texture, colour, blend);
@@ -1386,15 +1437,17 @@ impl Spawner<'_, '_, '_> {
                     roll: rng.roll(roll),
                 };
                 let at = at + (eye - at).normalize_or_zero() * nearer;
+                let across = texture.across();
                 let fx = Fx {
                     velocity: way.map_or(Vec3::ZERO, Vec3::normalize_or_zero) * ahead,
                     wait: delay,
                     end_alpha,
                     spin: spin.to_radians(),
+                    flashes: flash,
                     ..Fx::still(
                         ticks,
-                        Vec2::splat(size),
-                        Vec2::splat(end_size),
+                        Vec2::splat(size * across),
+                        Vec2::splat(end_size * across),
                         colour[3],
                         material,
                     )
@@ -1463,9 +1516,9 @@ impl Spawner<'_, '_, '_> {
                     };
                     let start = size_to.map_or(size, |to| rng.between((size, to)));
                     let end = end_size * start / size;
-                    let across = match (texture, streak) {
-                        (Tex::Particle(..), None) => PARTICLE_ACROSS,
-                        _ => 1.0,
+                    let across = match streak {
+                        None => texture.across(),
+                        Some(_) => 1.0,
                     };
                     let (start, end) = (start * across, end * across);
                     let (billboard, start, end) = match streak {
@@ -1511,7 +1564,11 @@ impl Spawner<'_, '_, '_> {
                 colour,
                 end_alpha,
                 delay,
+                seen,
             } => {
+                if seen.is_some_and(|radius| !wholly_in(&self.view, at, radius)) {
+                    return;
+                }
                 let [r, g, b, a] = colour;
                 let material = self.materials.add(StandardMaterial {
                     base_color: Color::srgba(r * 0.5, g * 0.5, b * 0.5, a),
@@ -1943,6 +2000,24 @@ mod tests {
     }
 
     #[test]
+    fn a_ball_is_in_view_only_wholly_inside_the_frustum() {
+        // Looking down −Z from the origin, 90° wide and high, as Bevy's cameras project: at
+        // 10 u the view reaches 10 u to each side.
+        let clip_from_view =
+            bevy::math::proj::perspective_infinite_reverse(std::f32::consts::FRAC_PI_2, 1.0, 0.1);
+        let view = Frustum(ViewFrustum::from_clip_from_world(&clip_from_view));
+        let everything = Frustum::default();
+        assert!(wholly_in(&view, Vec3::new(0.0, 0.0, -10.0), 3.0));
+        assert!(wholly_in(&view, Vec3::new(5.0, 0.0, -10.0), 3.0));
+        // Across the side, behind the eye, or round it.
+        assert!(!wholly_in(&view, Vec3::new(9.0, 0.0, -10.0), 3.0));
+        assert!(!wholly_in(&view, Vec3::new(0.0, 0.0, 10.0), 3.0));
+        assert!(!wholly_in(&view, Vec3::new(0.0, 0.0, -1.0), 3.0));
+        // A camera whose frustum isn't worked out yet takes in everything.
+        assert!(wholly_in(&everything, Vec3::new(0.0, 0.0, 10.0), 3.0));
+    }
+
+    #[test]
     fn every_gun_has_effects_and_every_texture_a_look() {
         let recipes = FxRecipes::default();
         let armory = Armory::uya();
@@ -2259,6 +2334,29 @@ mod tests {
         };
         assert_eq!(rings(recipes.impact("infector", 0, Some("blob"))), 1);
         assert_eq!(rings(recipes.impact("whip", 3, Some("wave"))), 1);
+        // The rope's own hit is its sparks, not the wave's blast.
+        let whip = recipes.impact("whip", 3, None);
+        assert_eq!(rings(whip), 0);
+        assert!(whip.iter().all(|emit| matches!(
+            emit,
+            Emit::Burst {
+                texture: Tex::Particle(0x5B, _),
+                count: 15,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn what_is_picked_afresh_each_frame_holds_for_a_tick() {
+        let picks = |tick, which| {
+            let mut rng = FxRng::for_tick(tick, which);
+            [rng.unit(), rng.unit(), rng.unit()]
+        };
+        // However many frames draw tick 7, they draw it alike.
+        assert_eq!(picks(7, 3), picks(7, 3));
+        assert_ne!(picks(7, 3), picks(8, 3));
+        assert_ne!(picks(7, 3), picks(7, 4));
     }
 
     #[test]

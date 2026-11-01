@@ -319,7 +319,7 @@ the banks and tables, and its disc tests check them against the image.
   | Holo Shield Glove (0x3717A8, both) | 2 | 1 | | 3 with none left to throw. Its V5 class (0x1C65, in the core) has no sound table on Veldin: silent. |
   | Plasma Whip (0x356110) | 1 to V2, 4 from V3 (by the row's level, 0x1425C0 + 0x7F) | on another moby (0x1E1AC4) | 0, from V3 3 | |
   | Suck Cannon (0x3619C8, both) | 2 | | 0 while sucking | |
-  | Qwack-O-Ray (0x37DEB0, both) | | | 0 | 1 when a timer ends; neither mapped to a cue yet |
+  | Qwack-O-Ray (0x37DEB0, both) | | | 0, the beam while on | 1 as a target turns into a duck (below) |
   | RY3NO (0x3805B0, both) | 1 at V1, 3 from V2 | 2 | | V5 also plays class 0x1F4's 1 on the hero |
   | Plasma Coil (0x315638; 0x306F68) | 2 | 7; V5 6 | | |
   | Bouncer (0x31C890, both) | 0 | 1 | | 3 when its timer ends with ammo |
@@ -331,12 +331,85 @@ the banks and tables, and its disc tests check them against the image.
   the last round went (a per-gun flag such as 0x1E1D90). Most are entries pitched up
   three semitones (381). The calls of every caller of 0x4A7200 and 0x4A72A8, with the
   class each update is for, are listed in `cache/snd/soundcalls.txt` (not committed).
+- **The shots' entries** [code, 2026-11-01; spot-checked in the Holo Shield's, the
+  rift's and the whip's updates]: what the guns' shots and things they leave play, of
+  their own classes (Veldin's core) unless a gun's ("gun") or another class is named.
+  Besides direct calls, a sequence can play entries as its animation passes set frames
+  (+0x12 a count, then {entry, frame × 16} after the frame table; 0x4389D8, forwards and
+  not while blending), and +0x11 names a looped entry for the sequence (no shot uses
+  one). A call past a class's count is silent, and `sound_start` never drops repeats.
+
+  | Gun | What plays it | Entry |
+  |---|---|---|
+  | Agents of Doom | each agent appearing (0x3C0F78) | 0x1ADA's 3 |
+  | | an agent's end: its blast at V1 (0x3C2140); from V2 the comet or blast it ends in has no table | 0; silent |
+  | | each bullet, V2–V4 (0x3C0128); each missile while hovering, V5 | 7; 8 |
+  | | jetting in and hovering, V4–V5, stopped as it lands | 9, looped |
+  | | walking (sequence 2, frames 0.5, 5.25, 9.75); running (sequence 3: 6 at frame 2, 5 at 7.3) | 10; 6, 5 |
+  | Rift Inducer | open (0x373990), stopped as it goes | 0x186B's 0, looped |
+  | | something pulled in reaching within 0.1 u of its middle | 2 |
+  | | two rifts merging: the one taken in, at the end of its 21-frame close | 1 |
+  | Holo Shield Glove | landing, as it unfolds (0x376B88) | 0x186D's 2 |
+  | | standing, from unfolded through its hits and its 20-frame fold | 0, looped |
+  | | each hit, and the end of its 30-frame reaction | 1, then 2 |
+  | Plasma Whip | out and shown (0x356110) | gun 0, from V3 3, looped |
+  | | each rope piece that meets something, each frame of a lash (0x357F10) | gun 6 |
+  | | no ammo, on the tip link | 0x183C's 0 |
+  | | V5's cutting wave, its 40 frames (0x3D6740) | 0x1CB8's 0, looped |
+  | Miniturret Glove | landing open, or opening again (0x32AFB0; its sequence 1 plays it again at frame 0.5) | 0x1366's 1; V5 0x1367's |
+  | | each shot (0x32BF28); its end's burst | 0; 3 (V5 the same of 0x1367) |
+  | | V5 teleporting: as it fades out, and 5 frames into fading in (0x32DE00) | 0x1367's 5 |
+  | Bouncer | the canister's burst (0x31D6C0); its bounce asks for an entry past its one | 0xE64's 0; silent |
+  | | each bomblet's bounce, and its burst (0x31E488; the Annihilator's mines the same) | 0xECE's 0, 1 |
+  | Qwack-O-Ray | the beam, while it is on (0x37DEB0) | gun 0, looped |
+  | | a target turning into a duck | gun 1 |
+  | | a duck laying, V2–V3 (0x3D1728); its end in feathers (0x3D2870) | 0x1BC3's 0; 1 |
+  | | V4's duck: laying as it runs at an enemy, and blowing up | 0x189B's 0, 1 |
+  | | V5's: each peck (at most every 10 frames), and blowing up | 0x1D3E's 3, 3 |
+  | | an egg bouncing, and popping (V2–V5) | 0x1C59's 0, 1 |
+  | | the ducks' sequences also quack (frames listed in `cache/snd/shot-sounds.md`) | |
+  | RY3NO | the missile's burst at V1 (0x383370); from V2 the missile (0x1DCE) has no table; V5's big blast plays the bolt crate's | 0x1873's 0; silent; 0x1F4's 2 |
+  | Disc Blade Gun | in flight, stopped at its burst (0x36FA78) | 0x1867's 0, looped |
+  | Infector | the blob bouncing (at most every 7 frames), and bursting (0x3DE4F0) | 0x1E05's 0, 1 |
+  | | V5's bursts (0x38E3A0, 0x39B500) | 0x188A's 0, 0x1899's 0 |
+  | Plasma Coil | the ball, flying or stuck, stopped as it starts to go (0x30BF18) | 0xA9B's 0, looped |
+  | | each arc, 15 frames after it sticks; the ball going | 1; 2 |
+  | | V5: each arc sent (0x309480), each rebound and strike | 0x9A9's 0; 1 |
+  | Lava Gun | V5: the ice on a frozen enemy shattering (0x3E1328; its time inferred) | 0x1E52's 0 |
+  | Annihilator | V5's small missile bursting (0x343330; the Megaturret's and V5 agents' too) | 0xA82's 0 |
+  | Suck Cannon | something taken in at the muzzle (0x362908) | gun 1 |
+  | Shield Charger | the shield raised (0x340DD0), up (0x3410E8, looped), each bolt, its end | 0xA5C's (V5 0x1192's) 1, 3, 5, 2 |
+  | | no ammo, at the hero | 0xA5C's 0 |
+
+  Silent, with no table: the pod 0x1853, the comet 0x1893, 0x188F, the whip's wave
+  0x1890, 0x1872, 0x1DCE, 0x1881, 0x1195, 0x1869 and every shot with no model. The
+  Shock Blaster's entry 2 plays 50 frames after its last shot (0x1DD88C counts them
+  down), for what isn't known.
 - **In the kit and the app** (2026-10-23): `rac_demo::sfx` turns the guns' events into
   cues (fire, no ammo, impact, arc, level up, and the loops of charging, the stream, the
   vortex and the scope) and plays placeholders made in code with this volume and pan;
   with the disc, `openrac/src/gun_sounds.rs` claims the cues of the table above and plays
   the disc's sounds through `rac_audio`. Bevy's spatial audio isn't used: it fades with
-  the square of each ear's distance.
+  the square of each ear's distance. Since 2026-11-01 the shots' entries above too: a
+  cue's row can name a kind of shot (an event's `shot`), taken before the gun's own, or
+  be silent where the game plays nothing, so the placeholder stays quiet; what no event
+  marks, the app follows each hero's shots by serial for (`play_shots`): the shots'
+  loops (an agent hovering, an open rift, a holo shield standing, V5's cutting wave, a
+  disc, a coil ball), an agent appearing and its bullets and missiles, a duck made and
+  its eggs laid, a turret landing open, a holo shield's hits and their reactions' end;
+  and the hero's own loops, the whip out and the Shield Charger's shield up, with its
+  end. The Qwack-O-Ray's beam is a held loop (`Sustain::Beaming`). The disc test checks
+  each loop is a looped entry and each of the rest isn't [data]. Not played: the
+  sequences' sounds (the agents' steps, the ducks' quacks), the bounces of the
+  canister, bomblets, blobs and eggs (the kit sends no event), two rifts merging, the
+  coil's arcs at V1–V4, the Megaturret's teleport, the V5 ice
+  shattering and the Shock Blaster's entry 2. The whip hits once a strike where the game
+  sounds each rope piece each frame. Since the owner's second look (2026-11-01): the
+  rift's pull, an arc event each tick it holds something, played the kit's "spark" each
+  tick; it is now silent, as the game's, which plays entry 2 as it swallows (the kit's
+  `Afflicted` swallow); the Suck Cannon plays its entry 1 as it takes something; the
+  Agents of Doom's throw is silent, its glove's bank holding only the empty click
+  [data, `openrac-tool sounds --gadget 1852`].
 
 ## Shot classes on the disc [data, every single-player level]
 
@@ -409,7 +482,11 @@ Inducer, Suck Cannon, Qwack-O-Ray, RY3NO and Infector (2026-10-29). Their conven
   reach halfway from start to final size (and half their alpha) by frame 5 (0x5C: a
   phase its spawner sets), then go on to the final size and alpha 0 (0x35's 0x467F40;
   0x4E's 0x46B050 the same, and it homes on a target within 2 u; checked on live
-  particles, 2026-10-31); 0x5A is a streak
+  particles, 2026-10-31). 0x5C's (0x46D740; spawner 0x46D570, 2026-10-31) first waits
+  out a timer at +0x38 (the spawner's ninth argument), then keeps the first phase while
+  its age is under +0x3E (the eleventh argument), still stepping by age / 5, so a phase
+  longer than 5 overshoots halfway and one of 0 starts at half alpha; the spawner puts it
+  0.9 u toward the camera. Which arguments each caller passes isn't read; 0x5A is a streak
   from its head back 0.9 of its velocity, white, fading after its first 15 frames; 0x17
   grows by a random factor a frame and fades in before it fades out. Spins are in 1/256
   turns a frame (assumed). A particle drawn with another type's texture has its texture
@@ -732,7 +809,23 @@ No level changes anything drawn (V5 is the heavy one, class 0xE9E).
   glow or rings, and colour set A ((0xF7, 0x8E, 0x38), (0xF7, 0x63, 0), (0xFF, 0x7F,
   0x40), (0xFF, 0x20, 0), (0xFF, 0x8F, 0), (0xFF, 0x64, 0x30), smoke (0xFF, 0xA0, 0x60));
   then the 17 bomblets, each bursting in `explosion_spawn` at S 0.6 (1.2 heavy), no
-  shake, counts 6, 5, 6, 8, 10 glares, no flags, set A (0x31ECC8).
+  shake, counts 6, 5, 6, 8, 10 glares, no flags, set A (0x31ECC8). Both canister calls
+  pass 1 for the refraction and the flash (the 13th and 15th arguments, on the stack
+  [disassembly]).
+- **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 11`, PCSX2 at 48%
+  speed so the capture holds about every frame, against the kit's `-bouncer-near` drawn
+  every tick):
+  - The throw yellows the ground more each frame for 9 frames, then cuts off, as the
+    light's colour climbs.
+  - The canister bursts on the ground among the crates at 7.5 s. The bursts at 9.5 and
+    10.7 s follow hits on the robots; the second has a dome, which the Bouncer's lacks.
+  - The burst is a low fireball, saturated yellow-white, then orange streaks thrown up
+    and smoke. The kit's has the same shape, half hidden by the floor, but is paler on
+    its bright floor.
+  - In the game the two flashes white out the whole frame for one frame. The kit's add
+    in linear light ("Importing them" 3), so a dark sky rises only to about 0.65.
+  - The flash shows only when the burst is wholly in view ("The shared explosion"). The
+    kit does the same now (`Screen`'s `seen`).
 - **Not read:** the Bouncer light's offset (zero in the image, set to length 1.5, so probably
   at the muzzle); the coil's spring 0x445208 beyond its arguments; the render byte +9
   (0x74 on the coil's sparkles); which moby the Bouncer's second burst follows (gp −
@@ -764,6 +857,14 @@ the row's level byte (under 2: orange and red; from V3 blue, as its ice shots ar
   and grey 0x7F.
 - **Its end** (state 8): sound 3 and the small blast (0x4488B8, below) at S 0.5 with a
   light of radius 13 (weapons.md's "0.5 and 13").
+- **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 12` against the kit's
+  arena `-turret` take drawn every tick; `-turret-near` has nothing in reach, so it
+  never fires):
+  - Both show each hit as a white glow with sparkles for about 20 ticks.
+  - The game's tracers are blue streaks with bright heads. The kit's are thin pale
+    lines: its `Streak` is one even sprite, so the recipe gives the two quads' average
+    width and alpha (0.1 u, 0.5), not their taper and fade from the head.
+  - The muzzle's glows and flames can't be made out at either take's 20–25 u.
 - **In water** (state 7, landing where 0x4C73B0 finds water): it sinks at a tenth of
   gravity with a 0x22 bubble one frame in five (size 0.05–0.1, colour 0x88A0A0A0), and
   lands with a splash and a ring moby (class 0x307, 0x301508: scale 2, growing 1.025 a
@@ -811,6 +912,12 @@ the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05
 - **An agent appearing** (0x3BD298, state 0x10): 0x35 sparkles of rand(0.35, 0.6) to
   0.001, rising, 20–40 frames, in blue (R rand & 0x2F, G 0x10–0x4F, B 0x7F) and one of
   type 0x68's four textures, added, as its opacity climbs 4 a frame.
+- **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 8` against the kit's
+  `-agents-near` drawn every tick, V3): both show the cyan landing ring, the throw and
+  agents appearing at his hand in blue sparkles, which in the game add up to a brighter
+  white-blue burst; the game's agents run out ahead to the enemies and blow up in the
+  shared explosion, the kit's run off to the demo's enemies out of view. The sparkles now
+  flash as 0x35s; how many the game sheds a frame isn't read (the kit sheds one a tick).
 
 #### The small blast (0x4488B8)
 
@@ -882,6 +989,30 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
   - Textures (`openrac-tool fx-textures`, Veldin): 8 a ring, 11 a soft glow, 27 a thin
     blue ring, 57 a fiery wisp, 67 a smoky cloud, 71 a starburst, 72 a fibrous disc, 75 a
     swirl, 76 a soft ring.
+- **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 10` against the kit's
+  `-holo-near` drawn every tick, V3, three shields stacked): both an oval of turning
+  purple-blue layers. The game's is rounder on screen (about 1.3 wide for 1 high, from
+  behind him), deeper in colour with a white middle, and has a dark grey rim; the kit's
+  is flatter (about 1.8 to 1), paler on the demo's floor, with a soft edge. Not worked
+  out: why the game's is rounder than the 4 by 2.4 its matrix gives, and which layers
+  make its dark rim (the blended ones, 0x54, perhaps).
+- **Its shape, checked** (2026-10-31):
+  - **The corners** at 0x1D7C50 are (0, ±1, ±1) [read from the Veldin memory image].
+  - **The order:** both kinds of quad (0x37ABF8, 0x37AD80) copy the moby's matrix and
+    multiply the turn in first (0x40C960(out, A, B) gives B·A, rows as axes, and
+    0x40C2F8 takes the rows as axes), so each layer turns and is then stretched [code].
+  - **The axes:** row 1 is set to the width's length (pvar +0x18, 2) and row 2 to the
+    height's (+0x1C, 1.2) [code]. The rotation is the hero's, copied at the spawn
+    (0x376960, from the moby at 0x1A71A0 + 0xF0) [code].
+  - **Facing the camera:** a branch turns the wall about the level's up to face the
+    camera, but its flag at 0x1D673C is 0 on Veldin [memory image].
+  - So every layer lies inside a 4 by 2.4 oval in the hero's facing plane, as the kit
+    draws it (4 by 2.3).
+- **On screen** (2026-10-31): the first wall alone (take 10 at 5.6 and 6.2 s), measured
+  across its dark rim, is about 305 by 220 px (1.39), and the stacked walls at 11 s are
+  the same. Stacking doesn't explain it, and seen from above a 1.67 oval looks flatter,
+  not rounder. A turn of about 34° between the wall's plane and the view would. Next:
+  read the shield's yaw (+0xF0) and the camera's during take 10 with `pine-probe`.
 
 #### The lightning bolt (0x34DAA0, class 0x1195) [code, 2026-10-28]
 
@@ -1171,9 +1302,23 @@ row's flag 0x1DDA84.
   s is 0.5, from its spawn's first argument (0x373738, called from 0x372990). The rays' alpha
   is 0 at their middle (0x2020FF has no alpha byte), so they show only toward their blue
   ends. The rings of 54 are a mask and a refraction of the frame in the game (0x3750E0),
-  shown faintly added here, and the lens isn't drawn. The drawn-in smoke uses the dark smoke
-  of 0x17, on which the 0x61 entry isn't read. The rays stop at once as it closes, where the
-  game's shorten for 20 frames.
+  shown faintly added here, and the lens isn't drawn. The rays stop at once as it closes,
+  where the game's shorten for 20 frames.
+- **Its smoke** [code, 2026-10-31] (0x373990): every 0x61 it draws in has its texture byte
+  set to 0x17's first (0x221174), and keeps 0x61's own blend, added (0x48; the spawner
+  0x46DCB8 sets +3 = 0x48, +9 = 0x44), fading in from alpha 0 to 0x7F: the four from the
+  shell in (0x40, 0x40, 0x80), and each of the two rings of five (on the ground, in the
+  view's plane) in grey 0x40, the fourth of each blended (0x44), the ground's with a
+  brown rock half the time. So most of it brightens; the dark disc seen round the open
+  rift in the game is its lens.
+- **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 9` against the kit's
+  `-rift-near` drawn every tick, `--every-tick`): firing and flight close (a tick of
+  white flames and star, the pink 0x55 sparkles fading over 7–12 ticks, the shot leaving
+  inside them). Open, the game shows a faint dark disc round a bright purple star with
+  long rays, dust stirring; the kit drew grey lumps, as it blended all its smoke at half
+  alpha. With the smoke added as the game's, the kit shows a bright centre in faint
+  rings with dark bits and rocks on the ground. Not drawn still: the lens, which
+  darkens the game's, and the view's-plane ring.
 - **Closing** (states 3 and 4, 20 frames, 0x375C70): the rings shrink away, the rays
   shorten 0.125 a frame, and the stars of 57 (half 0.25 and 0.27) and glows of 11 (0.3
   and 0.35) stay at new rolls; sound 1 at its end.
@@ -1377,6 +1522,16 @@ here in u/s.
   level at 15 S units a second, 1.1 S, life 20–27). The flash shows on the first frame
   only (0x3317C8: grey 0x80 added at alpha 0x80, as the Nitro's [code]); the glow is off
   at every call above.
+- **Only in view** [code, 0x32FE90 and 0x3317C8; seen on UYA NTSC]:
+  - **The test:** at the spawn, 0x4562A0 tests a ball of 3S round the burst against the
+    view frustum (0x40D0C0, VU0: −1 outside, 0 across an edge, 1 wholly inside).
+  - **On 1:** pvar +0x14 is set to 10. The flash (+0x1A, the 15th argument) and the glow
+    (+0x1E) are drawn only while it is set.
+  - **Otherwise:** the refraction (+0x18, the 13th argument; texture 0x3B, 2S to 4S over
+    10 frames) is turned off as well. On 1 it is kept only while 90° less the angle
+    between the camera's vector at 0x1E2E40 (not read) and the way from the camera to
+    the burst is under 26° (0.4538).
+  - **On screen:** the Bouncer's flash whites out the frame, two adds of 0x80.
 - **At each call:** the N60 at V1 (S 0.14; counts 5, 2, 2, 2; dome; a sparse ring); the
   Annihilator (S 0.6, then 1.0; 25, 20, 20, 20; 45 glares, 35 at V2; 2 debris; dome,
   flash, ring; shake); its mines (S 0.6, 1.0 heavy); the Decimator's seekers (S 0.4); the
@@ -1417,9 +1572,17 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      Whip"). The rope now starts each piece at the link before's joint 0, 0.194 u on,
      which it had left out. Seen on screen at V3 (`-whip.orin`): small translucent blue
      lozenges along the strands, lying flat in the swings and standing on edge at rest.
-     A 128-pixel texture of four repeated strips (Veldin's 49, and class 0x165's) looked
-     like a misdecoding, but a simulation of the GS's memory decodes it the same under
-     every upload that covers it: the textures are made that way.
+     Their texture (Veldin's 49) looked like four repeated strips until UYA's textures
+     kept in EE memory were read in rows (`disc-layout.md`, "Level textures"); read so,
+     it is an atlas, and the links take its silver chevron strip. In the game the links,
+     being mobys, are drawn before the effects, so the rope's bright strands lie over
+     them and they hardly show; sorted by distance alone, the kit drew those nearer the
+     camera than the hand after the strands and darkened them into chunks. Their
+     materials now sort 12 u farther off (`rac_rig`'s `LINK_SORT_BIAS`). That wasn't
+     all: the owner still saw dark chunks (2026-11-01, in a throw's curl, where links
+     lie off the strands). Below V5 the links' spawn sets mode bit 0x200, libuya's
+     `MOBY_MODE_BIT_DRAW_TRANSPARENT_WEIRD`, which V5 clears with their colour; read as
+     an added draw, the kit now adds them below V5, so they only brighten.
 3. **An effects layer in the kit**, ISO-free as the rest: billboards, beams, strips,
    trails, rings, point lights, camera shake, screen flashes and particles with the
    game's motion (size and alpha lerped over a life, velocity and gravity, spin), drawn
@@ -1443,14 +1606,20 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      strips (`fx_ring_fan`), discs and refraction, rumble, glows over the view, decals other than the Lava Gun's pools (the whip's scorches, below), meshes
      the effects spawn other than the ring (the explosion's dome and debris), and children
      particles.
-   - Extended (2026-10-31) for the particle renderer: a burst's or trail's sprites in a
-     particle texture are drawn with `size` corner to corner (`PARTICLE_ACROSS`), as the
-     game draws its particles ("Particles"), which makes every such sprite 1/√2 as wide
-     as before; and a burst can `flash`, following the two-phase curve of types 0x35,
-     0x4E and 0x5C (`Fx::look`). Only the Qwack-O-Ray's sparks flash so far; the other
-     recipes of those types still change evenly, and glows that stand for the game's
-     particles (the explosion's 0x5C) are still drawn with `size` across. The six first
-     guns' check on screen (2026-10-28) was made before this.
+   - Extended (2026-10-31) for the particle renderer: a glow's, burst's or trail's
+     sprites in a particle texture (which only that renderer draws) are drawn with `size`
+     corner to corner (`PARTICLE_ACROSS`), as the game draws its particles ("Particles"),
+     which makes every such sprite 1/√2 as wide as before; and a glow or burst can
+     `flash`, following the two-phase curve of types 0x35, 0x4E and 0x5C (`Fx::look`).
+     They flash where the game's type is 0x35 or 0x4E: the Qwack-O-Ray's sparks, the
+     growing sparkles of the Nitro, Annihilator, Flux Rifle and Disc Blade Gun, the
+     Plasma Coil's and the Miniturret's hit sparkles, the lightning bolt's, the Shield
+     Charger's and an appearing agent's (a trail can `flash` too). Not the ones only in
+     0x35's or 0x5C's texture: the shared explosion's (types 0x55, 0x61, 0x5A, 0x17),
+     the Shock Blaster's, N60's and Rift Inducer's firing sparkles (0x55), and the
+     orange 0x0F puffs behind the Disc Blade, rift and Suck Cannon shots. The 0x5C glows stay even: whether each spawner
+     sets 0x5C's phase isn't read. The six first guns' check on screen (2026-10-28) was
+     made before this.
    - Extended (2026-10-29) for decals and rings. Gun events' `Impact` carries the
      normal of the world's surface where a shot ended on it (`surface`; given so far by
      bullets and streams), and recipes leave marks there (`mark`: glows lying on the
@@ -1467,7 +1636,10 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      Nitro's blast and the Annihilator's explosions. Seen on screen for the Annihilator;
      the others last 2 and 3 ticks, too short to catch at the software renderer's 8 or so
      frames a second. They brighten in linear light, where the GS adds in the
-     framebuffer's, so they are dimmer over bright pixels than the game's.
+     framebuffer's, so they are dimmer than the game's over all but black, most where
+     two stack (the Bouncer's white out the game's frame; the kit's lift a dark sky to
+     about 0.65). Extended (2026-10-31): the shared explosion's show only when a ball of
+     3S round it is wholly in view (`seen`), as in the game.
    - Extended (2026-10-28) for the Bouncer, Plasma Coil and Plasma Whip: each gun event
      names the kind of shot that sent it (`GunEvent::shot`, by `ShotKind::name`), and a
      recipe can give parts for each kind (`shots`), so the Bouncer's bomblets and the
@@ -1558,11 +1730,13 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      its rope's bands and strips by level and the sparkles, smoke and sparks along it
      (V5's sparkles and smoke drawn as V4's), seen on screen at V3 with the disc (the
      arena replay `-whip.orin`): a blue band and glow hanging from his hand at rest, and
-     strands with a sheath of sparkles following the rope out in each swing. The sparks
-     where it hits, the scorches and its light wait for lights (above) and an event, as
-     the kit's whip strikes through the hero's moves and sends none; the wave's ring
-     since drawn (below); the links are still the rig's placeholders, not classes
-     0x183A and 0x183C.
+     strands with a sheath of sparkles following the rope out in each swing. Since
+     2026-11-01 the sparks where it hits: a whip strike sends an impact where the rope's
+     sweep came nearest what it struck (`StrikeShape::nearest`), and the recipe throws
+     its 30 sparks there, once a strike where the game sprays them each frame a link
+     meets something. Not drawn: the scorches where it hits and its light. The wave's
+     ring since drawn (below), its blast now under the wave's own shots; the links from
+     classes 0x183A and 0x183C (below).
    - Done (2026-10-28) for the Miniturret Glove, its parts by the kind of shot (`shots`):
      nothing for the glove's throw; for the turret's shots its muzzle's glows and flames
      (each flame drawn untapered, at its mean width), for its pellets the tracer's glow
@@ -1582,7 +1756,8 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      turret's shots already do), the explosions' domes, debris and distortion, the
      second explosion. Seen on screen with the disc (2026-10-28, the arena replay): the
      agents' bullets and comets with their trails of puffs, and explosions throwing the
-     crates' pieces.
+     crates' pieces. Since 2026-11-01 the comet is its puffs and sparks alone; the kit had
+     also drawn its own ball there, which the game doesn't (it scales the class to 0.05).
    - Done (2026-10-28) for the lightning bolt the Spitting Hydra, Holo Shield, Shield
      Charger and Rift Inducer share: each tick its two bent lines as cores of 23 and
      glows of 14, blue (purple for the rift), and from its strike its sparkles, spread
@@ -1639,7 +1814,12 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      (the arena replay `-hydra.orin`): the rings growing out round him, the arcs bowing
      up and to the sides into the aim, and dark smoke rising where they struck. Not
      drawn: arcs cut short at walls, the bolt it throws ahead as it spits; the rings show
-     on a release at marks too.
+     on a release at marks too. The arcs' jitter and widths, which the game picks again
+     each frame at 60 Hz, were picked each frame drawn, so at a higher refresh each shape
+     showed for one frame (seen by the owner, 2026-11-01); they now hold for a tick
+     (`FxRng::for_tick`), as do the whip's strands, the charge's strips, the streams'
+     ribbons' widths and the holo walls' panels' turns. Everything else random is picked
+     in the fixed step already, or (the Shield Charger's shell) in whole ticks.
    - Done (2026-10-29) for the Hydra's charge while held ("Spitting Hydra", "While
      held"; `rac_demo::fx::charge`, from `Arsenal::charge_ticks`): the strips into the
      gun and, from V3, out to the world (the kit's own ray from the muzzle, then the

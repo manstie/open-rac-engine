@@ -99,6 +99,8 @@ pub enum Sustain {
     /// The scope zooming in, and out.
     ZoomingIn,
     ZoomingOut,
+    /// The Qwack-O-Ray's beam on, held.
+    Beaming,
 }
 
 /// What a gun did to an enemy beyond its damage (`weapons.md`: the Infector, Qwack-O-Ray,

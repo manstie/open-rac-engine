@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use rac_combat::weapons::ShotKind;
 use rac_combat::{Armory, Arsenal};
 use rac_hero::Hero;
+use rac_sim::SimTick;
 use serde::Deserialize;
 
 use super::rope::{Slots, Strand, drop_undrawn, lay_strands, put_mesh};
@@ -85,7 +86,7 @@ pub(crate) fn draw_fans(
     mut fans: ResMut<Fans>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rng: ResMut<FxRng>,
+    tick: Res<SimTick>,
     mut places: Query<&mut Transform>,
     mut commands: Commands,
 ) {
@@ -108,6 +109,8 @@ pub(crate) fn draw_fans(
                     continue;
                 }
                 let curve = fan.curve(end, shot.position, to);
+                let which = (hero.player as u64) << 48 | u64::from(shot.serial) << 8 | end as u64;
+                let mut rng = FxRng::for_tick(tick.0, which);
                 let laid = lay_strands(&fan.strands, &curve, false, eye, ticks, &mut rng);
                 for (index, mesh, place) in laid {
                     let id = (hero.player, shot.serial, end, index);

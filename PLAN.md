@@ -807,11 +807,49 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
   - Done 2026-10-31: the game's footage of all six (`uyantsc-veldin-fxref.sh` takes
-    7–12) and the Qwack-O-Ray's beam compared with it (`effects.md`, "Qwack-O-Ray"): the
-    kit's white haze round the gun came from its sparks not flashing and every particle
-    being drawn √2 too wide (P3.18); fixed, it is close. Not compared yet: takes 8–12
-    (Agents, Rift, Holo Shield, Bouncer, Miniturret) against the kit's `-near` takes.
-    Next: take 9 against `-rift-near`, then the others.
+    7–12) compared with the kit's takes for all six (`effects.md`, each gun's
+    "Compared with the game"). The Qwack-O-Ray's white haze came from its sparks not
+    flashing and every particle drawn √2 too wide (P3.18); fixed, it is close. The Rift
+    Inducer's firing and flight are close; its open smoke was blended where the game adds
+    it (fixed), and its lens is still missing. The Holo Shield's wall is flatter and paler
+    than the game's, which also has a dark rim (not worked out). The Agents of Doom match
+    but for a dimmer burst as they appear. The Bouncer's burst matches in shape. Its
+    flash whites out the game's frame but only lifts the kit's, which adds in linear
+    light. It shows only with the burst wholly in view, which the kit now checks too.
+    The Miniturret's hits match; its tracers lack the game's bright heads, since the
+    kit's `Streak` neither tapers nor fades. Recordings on lavapipe hold frames and skip
+    ticks, so judge effects with `--every-tick`.
+    The Holo Shield's wall is 4 by 2.4 in the hero's facing plane by its code, as the
+    kit draws it. The game's still looks rounder on screen (1.39 for one wall) for a
+    reason not found (`effects.md`, "Its shape, checked").
+    Next: read the shield's and the camera's yaw during take 10 with `pine-probe`; then
+    a tapering, fading `Streak` for the Miniturret's tracers.
+  - Every UYA class texture kept in EE memory (the shots', the whip's links') came out
+    scrambled: UYA stores those pixels in rows, only DL in the GS's order. Fixed
+    (`Core::gs_ordered`; `disc-layout.md`, "Level textures").
+  - In progress (2026-11-01): the owner's reviews. Done: the Rift Inducer's pull
+    silent and its swallow sounded, the Agents of Doom's throw silent, their comet drawn
+    without the kit's ball, the whip's crouch throw flying whole (the handle at the
+    thrown end lying flat, the links trailing) and spinning at the game's 0.40724 rad a
+    frame, the rope leaving the top of the handle's hilt (its joint 0) in his hand and
+    thrown (`GunData::frame` and `rope_from`; `weapons.md`, "The throw"), and the rope
+    moved as the game's code does (each piece aimed along its link as it lay last tick,
+    turning towards it), so the third swing's spin trails it round him, compared with
+    take 13's footage (`weapons.md`, "The rope"), its links added below V5 so they
+    no longer darken into chunks (`effects.md`, "Plasma Whip"), and the effects picked afresh each frame held for a
+    tick at any refresh (`effects.md`, "Spitting Hydra"). Also: the Miniturret's and ducks'
+    textures (UYA's textures kept in EE memory read in rows, `disc-layout.md`); the
+    whip's hit sparks (a strike sends an impact where the rope met the target) and its
+    links sorted behind the rope's strands, which they had darkened into chunks
+    (`effects.md`, "Plasma Whip"); the shots' sounds read from the game's code
+    (`effects.md`, "The shots' entries") and played from the disc by shot kind, with the
+    shots' and the hero's loops and what no event marks (`gun_sounds.rs`,
+    `play_shots`; P3.13). Not done: the swing's turn of links 1, 2 and 5 (read from the code but tangling the
+    kit's rope; trace the links' yaw, +0xF8, through a combo in PCSX2); the whip's
+    scorches and light; the sounds listed
+    as not played under "In the kit and the app". Next: hear them in the app with the
+    disc (the arena replays `-agents`, `-rift`, `-whip`, `-qwack`), then the bounces'
+    events.
   - Done 2026-10-31, the Agents of Doom, Rift Inducer, Qwack-O-Ray, Bouncer, Miniturret Glove and Holo Shield Glove against the game: the gloves' throw (state 34), which fixes the Holo Shield's timing, and firing cut short per gun (`weapons.md`, "What cuts it short"); what they send out as their classes' skinned models playing their own sequences, by level, and the ducks' idling, walking and eggs from it (`weapons.md`, "How they play"); the Qwack-O-Ray's funnel, also with nothing to take (`effects.md`), the open rift, the landing marker, the agents' sparkles. Seen on screen at V3, and the duck and turret at V5; the turret's head joint is inferred. Not done: the V4 duck on screen and its bangles; the rift's lens and refraction, spirals of 71, orbiting sparks, 0x13 spray and rays shortening as it closes; the holo shield's class; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's marker, and the marker's conditions (the hero's state, the turrets' limit, the Holo Shield's own "can't" colours); a duck's first random speed and an appearing agent's opacity.
   - The Miniturret was drawn and fired at its class's scale; its spawn scales it to 0.75, so its muzzle is 0.81 u up, 0.54 u along (`weapons.md`, "Its barrel"). The Megaturret keeps 1.08 (`Mega::barrel_height`).
   - Done 2026-10-31: UYA's guns' open list (`weapons.md`, "In the kit"): the five guns' own muzzle vectors; the Disc Blade Gun's flight, traced (lifted and falling, not turned and curving; through enemies from V3, not off them); the Liquid Nitrogen Gun's freeze; the Eruptor's tilt; the Nitro's L1 aim; the Vortex Cannon's comet; the shields' XP and the Ultrashield's picks; the agents' jet-in to slots.
@@ -1234,9 +1272,10 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Bevy's spatial audio falls off with the square of the distance per ear, nothing like
     UYA's even falloff, so both the kit and the app render their own stereo stream
     (`rac_demo::sfx::SoundStream`) and pan and fade each sound themselves (§5).
-  - Not done: the Qwack-O-Ray's sounds and the guns' unmapped extras (`effects.md`),
-    989snd's MIDI music, VAG ADPCM streaming (music, speech) and an approximation of the
-    SPU reverb. Next step: music and VAG streams.
+  - Done (2026-11-01): the shots' sounds and the Qwack-O-Ray's (`effects.md`, "The
+    shots' entries", and "In the kit and the app" for what isn't played yet).
+  - Not done: 989snd's MIDI music, VAG ADPCM streaming (music, speech) and an
+    approximation of the SPU reverb. Next step: music and VAG streams.
 - [ ] **P3.14** Video:
   - Demultiplex PSS (MPEG-2 plus SPU ADPCM per language).
   - Choose a decoder: an `ffmpeg` feature flag or a pure-Rust MPEG-2 decoder.
@@ -1386,13 +1425,13 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - The Tesla Barrier's `rand(20, 60)` is each slot's wait before its next bolt, not a
     bolt's life (0x3410E8), but the kit's tesla bolts last that long. Still open.
   - Every particle was drawn √2 too wide: the game's renderer takes a particle's size as
-    half its diagonal (measured on screen, `effects.md`, "Particles"). Fixed for bursts
-    and trails in particle textures (`PARTICLE_ACROSS`), with `flash` for the two-phase
-    curve of types 0x35, 0x4E and 0x5C (`Fx::look`), so far set only on the Qwack-O-Ray's
-    sparks. Not done: `flash` on the other recipes of those types, and the glows that
-    stand for the game's particles (the shared explosion's 0x5C) drawn the same way.
-    Next: go through `effects.ron`'s bursts in 0x35 and 0x5C, checking each against its
-    spawner in `effects.md` (a texture borrowed from 0x35's list isn't type 0x35).
+    half its diagonal (measured on screen, `effects.md`, "Particles"). Fixed for glows,
+    bursts and trails in particle textures (`PARTICLE_ACROSS`), with `flash` for the
+    two-phase curve of types 0x35 and 0x4E (`Fx::look`), set on every recipe whose game
+    type is one of them (`effects.md`, "Importing them" 3). Not done: 0x5C, whose update
+    is read but not each caller's delay and first-phase length (its 9th and 11th
+    arguments), so its glows still change evenly; the 0.9 u its spawner puts it toward
+    the camera.
   textures and vertex colours match in classic mode, and the collision overlay lines up.
   Check this against PCSX2 screenshots, kept locally and never committed.
 

@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use rac_combat::weapons::{FireMode, ShotKind};
 use rac_combat::{Armory, Arsenal};
 use rac_hero::Hero;
+use rac_sim::SimTick;
 use serde::Deserialize;
 
 use super::{Blend, FxImages, FxQuad, FxRecipes, FxRng, Tex, eye, fx_material, opaque};
@@ -71,11 +72,13 @@ pub(crate) fn draw_panels(
     mut shown: ResMut<ShownPanels>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut rng: ResMut<FxRng>,
+    tick: Res<SimTick>,
     mut places: Query<&mut Transform>,
     mut commands: Commands,
 ) {
     let eye = eye(&cameras);
-    // The game turns them a frame at a time, at 60 a second.
+    // The game turns them a frame at a time, at 60 a second, by a turn picked each frame:
+    // the kit's pick holds for the tick, however many frames draw it.
     let frames = time.delta_secs() * 60.0;
     let mut drawn = Vec::new();
     for (hero, arsenal) in &heroes {
@@ -138,7 +141,8 @@ pub(crate) fn draw_panels(
                         roll: rng.between((0.0, 360.0)),
                     }
                 });
-                entry.roll += rng.between(panel.spin) * frames;
+                let seed = (hero.player as u64) << 48 | u64::from(shot.serial) << 8 | index as u64;
+                entry.roll += FxRng::for_tick(tick.0, seed).between(panel.spin) * frames;
                 if let Ok(mut transform) = places.get_mut(entry.frame) {
                     *transform = Transform {
                         translation: centre + facing * Vec3::Z * panel.offset,

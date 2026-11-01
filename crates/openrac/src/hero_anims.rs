@@ -541,7 +541,7 @@ const ARM_JOINTS: usize = 20;
 const ARM_SEQUENCES: usize = 23;
 /// The hero's sequences the held arms don't follow, holding their rest (sequence 0)
 /// instead (0x4E55A8): the left, right and back flips, the grind's stances and its jump,
-/// and others the kit doesn't play.
+/// wading (80), and others the kit doesn't play.
 const ARMS_REST_IN: [usize; 12] = [28, 29, 31, 44, 45, 50, 66, 67, 72, 80, 84, 85];
 
 /// The arms holding a gun, from the hold classes in `core`, as `hero` plays them: for
@@ -944,6 +944,7 @@ mod disc_tests {
         assert_eq!(
             hold.rest_in,
             [
+                RigMove::Wade,
                 RigMove::Land(Landing::Flip(Left)),
                 RigMove::Land(Landing::Flip(Right)),
                 RigMove::Land(Landing::Flip(Back)),

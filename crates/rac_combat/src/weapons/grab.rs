@@ -468,6 +468,7 @@ pub(super) fn beam(
         return;
     }
     arsenal.fire_ticks = gun.def.fire_ticks;
+    arsenal.sustain = Some(Sustain::Beaming);
     let targets = gun_input.targets;
     let kept = arsenal.trigger.beam.filter(|&(entity, ticks, _)| {
         ticks < fire.hold_ticks

@@ -594,6 +594,9 @@ pub struct Core {
     pub bytes: Vec<u8>,
     /// The level's GS RAM image ([`DataHeader::gs_ram`]).
     pub gs_ram: Vec<u8>,
+    /// Whether the moby textures it keeps in EE memory are stored in the GS's 32-bit order
+    /// (DL's) rather than in rows (UYA's), whatever their kind ([`Core::moby_textures`]).
+    pub gs_ordered: bool,
 }
 
 impl Core {
@@ -603,7 +606,7 @@ impl Core {
         let header = LevelHeader::read_uya_disc(disc, level)?;
         let data = (header.sector as u64 + header.data.sector as u64) * SECTOR;
         let parts = DataHeader::read(&disc.read(data, DataHeader::SIZE)?)?;
-        Self::read_parts(disc, data, parts)
+        Self::read_parts(disc, data, parts, false)
     }
 
     /// Reads and unpacks the core of DL (or Gladiator) level `level` from the disc, with
@@ -613,7 +616,7 @@ impl Core {
         let header = LevelHeader::read_dl_disc(disc, level)?;
         let data = (header.sector as u64 + header.data.sector as u64) * SECTOR;
         let parts = DataHeader::read_dl(&disc.read(data, DataHeader::SIZE)?)?;
-        Self::read_parts(disc, data, parts)
+        Self::read_parts(disc, data, parts, true)
     }
 
     /// The core, its header and the GS RAM image of a level whose data starts at `data`.
@@ -621,6 +624,7 @@ impl Core {
         disc: &mut impl DiscReader,
         data: u64,
         parts: DataHeader,
+        gs_ordered: bool,
     ) -> Result<Self, FormatError> {
         let (offset, size) = parts.core_header;
         let core_header = CoreHeader::read(&disc.read(data + offset as u64, size as usize)?)?;
@@ -631,6 +635,7 @@ impl Core {
             header: core_header,
             bytes,
             gs_ram,
+            gs_ordered,
         })
     }
 
@@ -691,16 +696,20 @@ impl Core {
                     });
                 }
                 let len = (width * height) as usize;
-                // The game sends the GS RAM image to the GS as 8-bit images, but the
-                // textures in EE memory as 32-bit ones, so those are stored in the GS's
-                // order.
+                // The game sends the GS RAM image to the GS as 8-bit images. DL sends the
+                // textures in EE memory as 32-bit ones, so it stores them in the GS's
+                // order; UYA keeps them in rows (`disc-layout.md`).
                 let pixels = if texture.kept_in_gs() {
                     gs_ram
                         .bytes(self.header.gs_kept_textures()? + texture.data, len)?
                         .to_vec()
                 } else {
                     let stored = core.bytes(self.header.texture_base()? + texture.data, len)?;
-                    unswizzle_psmt8(stored, width, height)?
+                    if self.gs_ordered {
+                        unswizzle_psmt8(stored, width, height)?
+                    } else {
+                        stored.to_vec()
+                    }
                 };
                 let palette = csm1_palette(gs_ram.bytes(texture.palette as u32 * 0x100, 0x400)?);
                 Ok(Texture {
@@ -878,6 +887,7 @@ mod tests {
             header: CoreHeader::read(&header.bytes).unwrap(),
             bytes: core.bytes,
             gs_ram: Vec::new(),
+            gs_ordered: false,
         };
         let textures = read.fx_textures().unwrap();
         assert_eq!(textures.len(), 2);
@@ -1193,6 +1203,63 @@ pub(crate) mod disc_tests {
                 .map(|&i| texture.palette[i as usize])
                 .collect();
             assert!(colours.len() > 32, "{} colours", colours.len());
+        }
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn uyas_textures_in_ee_memory_are_in_rows_and_dls_in_the_gs_order() {
+        // How much neighbouring pixels differ on average. Read the wrong way, an image
+        // breaks into scattered pixels and its neighbours differ far more.
+        fn rough(texture: &Texture) -> f32 {
+            let grey = |index: u8| {
+                let [r, g, b, _] = texture.palette[index as usize];
+                (r as f32 + g as f32 + b as f32) / 3.0
+            };
+            let pairs = texture.pixels.windows(2).enumerate();
+            let steps: Vec<f32> = pairs
+                .filter(|(at, _)| (at + 1) % texture.width as usize != 0)
+                .map(|(_, pair)| (grey(pair[0]) - grey(pair[1])).abs())
+                .collect();
+            steps.iter().sum::<f32>() / steps.len() as f32
+        }
+        // The other reading of the same stored pixels, taken as `texture`'s.
+        fn misread(core: &Core, class: u32) -> (Texture, Texture) {
+            let texture = core.moby_textures(class).unwrap().remove(0);
+            let index = core.header.moby_class(class).unwrap().textures[0];
+            let entry = core.header.moby_textures().unwrap()[index as usize];
+            assert!(!entry.kept_in_gs());
+            let at = core.header.texture_base().unwrap() + entry.data;
+            let len = (texture.width * texture.height) as usize;
+            let stored = Image::new(&core.bytes, 0).bytes(at, len).unwrap().to_vec();
+            let pixels = if core.gs_ordered {
+                stored
+            } else {
+                unswizzle_psmt8(&stored, texture.width, texture.height).unwrap()
+            };
+            let other = Texture {
+                pixels,
+                ..texture.clone()
+            };
+            (texture, other)
+        }
+        // UYA's Miniturret and duck (kind 3) and a kind-1 class on Veldin; DL's wrench
+        // (kind 1) and a kind-3 class on its first level.
+        let uya = Core::read_uya(&mut disc(rac_iso::Release::UyaNtsc), 1).unwrap();
+        let dl = Core::read_dl(&mut disc(rac_iso::Release::DlNtsc), 1).unwrap();
+        for (core, class) in [
+            (&uya, 0x1366),
+            (&uya, 0x1BC3),
+            (&uya, 0x4A8),
+            (&dl, DL_WRENCH),
+            (&dl, 0x165),
+        ] {
+            let (read, other) = misread(core, class);
+            let (read, other) = (rough(&read), rough(&other));
+            assert!(
+                read * 1.5 < other,
+                "class {class:#X}: {read} read, {other} the other way"
+            );
         }
     }
 

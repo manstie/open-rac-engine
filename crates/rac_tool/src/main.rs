@@ -143,6 +143,13 @@ enum Command {
         /// The level whose core to read them from (1 is Veldin).
         #[arg(long, default_value_t = 1)]
         level: usize,
+        /// A DL or Gladiator disc: only the classes' textures.
+        #[arg(long)]
+        dl: bool,
+        /// Also these moby classes' textures, in hex (`class-XXXX-N.pam`), with the level
+        /// texture table's entry for each.
+        #[arg(long, value_parser = parse_hex)]
+        class: Vec<u32>,
         /// Write them here (under cache/).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -274,21 +281,52 @@ fn main() -> Result<()> {
                 write_glb(&hero, "hero", &path)?;
             }
         }
-        Command::FxTextures { iso, level, out } => {
+        Command::FxTextures {
+            iso,
+            level,
+            dl,
+            class,
+            out,
+        } => {
             let mut disc = open_disc(&iso)?;
-            let core = Core::read_uya(&mut disc, level)
-                .with_context(|| format!("reading level {level}'s core"))?;
-            let effects = core.fx_textures().context("reading the effect textures")?;
-            let particles = core
-                .particle_textures()
-                .context("reading the particle textures")?;
+            let core = if dl {
+                Core::read_dl(&mut disc, level)
+            } else {
+                Core::read_uya(&mut disc, level)
+            }
+            .with_context(|| format!("reading level {level}'s core"))?;
+            let mut sets = Vec::new();
+            if !dl {
+                let effects = core.fx_textures().context("reading the effect textures")?;
+                let particles = core
+                    .particle_textures()
+                    .context("reading the particle textures")?;
+                sets.push(("effect".to_owned(), "fx".to_owned(), effects));
+                sets.push(("particle".to_owned(), "part".to_owned(), particles));
+            }
+            let table = core.header.moby_textures()?;
+            for class in class {
+                let textures = core
+                    .moby_textures(class)
+                    .with_context(|| format!("reading class {class:#X}'s textures"))?;
+                if let Some(entry) = core.header.moby_class(class) {
+                    for &index in entry.textures.iter().take_while(|&&index| index != 0xFF) {
+                        if let Some(texture) = table.get(index as usize) {
+                            println!("class {class:#X} uses level texture {index}: {texture:?}");
+                        }
+                    }
+                }
+                sets.push((
+                    format!("class {class:#X}"),
+                    format!("class-{class:04X}"),
+                    textures,
+                ));
+            }
             if let Some(out) = &out {
                 std::fs::create_dir_all(out)
                     .with_context(|| format!("creating {}", out.display()))?;
             }
-            for (kind, prefix, textures) in
-                [("effect", "fx", effects), ("particle", "part", particles)]
-            {
+            for (kind, prefix, textures) in sets {
                 println!("{kind} textures:");
                 for (index, texture) in textures.iter().enumerate() {
                     println!("{index:3}: {} by {}", texture.width, texture.height);

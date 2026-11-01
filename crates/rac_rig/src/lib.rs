@@ -607,12 +607,14 @@ fn hold_guns(
     guns: Res<RigGuns>,
     heroes: Query<&HeroBody>,
     mut rigs: Query<(Entity, &mut HeroRig)>,
+    roots: Query<&GlobalTransform>,
     mut transforms: Query<&mut Transform, Or<(With<HeldGun>, With<GunJoint>)>>,
     mut commands: Commands,
 ) {
     let seconds = time.delta_secs();
     for (root, mut rig) in &mut rigs {
-        let hand = heroes.get(rig.hero).ok().map(|body| body.0.gun);
+        let body = heroes.get(rig.hero).ok().map(|body| &body.0);
+        let hand = body.map(|body| body.gun);
         let wanted = hand.and_then(|hand| {
             let item = hand.item?;
             let (from, gun) = guns.get(item, hand.level)?;
@@ -698,10 +700,22 @@ fn hold_guns(
             });
             continue;
         }
-        let grip = rig.grip;
+        let mut grip = rig.grip;
         let (Some(held), Some((_, _, gun)), Some(hand)) = (rig.gun.as_mut(), wanted, hand) else {
             continue;
         };
+        // A thrown whip flies whole, its handle where the thrown wrench is and lying flat
+        // as it spins: the game's thrown moby keeps his axes, not the hand's.
+        if let Some(thrown) = body
+            .and_then(|body| body.thrown)
+            .filter(|thrown| thrown.whip)
+            && let Ok(placed) = roots.get(root)
+        {
+            let handle = thrown_handle(thrown.position, time.elapsed_secs());
+            grip = Transform::from_matrix(
+                placed.to_matrix().inverse() * handle.to_matrix() * gun.frame.to_matrix().inverse(),
+            );
+        }
         if let Ok(mut transform) = transforms.get_mut(held.entity) {
             *transform = grip;
         }
@@ -886,14 +900,31 @@ fn fly_thrown_wrenches(
             commands.entity(entity).despawn();
             continue;
         };
-        let Some(thrown) = body.0.thrown else {
+        // The whip's own handle flies in its place (`rope.rs`).
+        let Some(thrown) = body.0.thrown.filter(|thrown| !thrown.whip) else {
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
         visibility.set_if_neq(Visibility::Visible);
         *transform = Transform::from_translation(thrown.position)
-            .with_rotation(Quat::from_rotation_y(time.elapsed_secs() * -25.0));
+            .with_rotation(thrown_spin(time.elapsed_secs()));
     }
+}
+
+/// How the thrown wrench, or the whip's handle in its place, is turned `seconds` in. UYA
+/// turns it by 0x3ED08238 (0.40724) radians a frame about its up axis (`wrench_update`
+/// 0x338088, through 0x44B010), a turn every 15.4 frames, forward towards the left as
+/// the game's z angle turns its x to its y (`weapons.md`, "The throw").
+pub(crate) fn thrown_spin(seconds: f32) -> Quat {
+    const PER_FRAME: f32 = 0.407_243_5;
+    Quat::from_rotation_y(seconds * PER_FRAME * 60.0)
+}
+
+/// The thrown whip's handle in its frame ([`GunData::frame`]), the thrown wrench at
+/// `position`: the game's whip copies the thrown wrench's place and turn (0x356110), so it
+/// lies flat and turns with [`thrown_spin`].
+pub(crate) fn thrown_handle(position: Vec3, seconds: f32) -> Transform {
+    Transform::from_translation(position).with_rotation(thrown_spin(seconds))
 }
 
 #[cfg(test)]
@@ -1130,6 +1161,76 @@ mod tests {
     }
 
     #[test]
+    fn the_whips_rope_leaves_the_top_of_its_handle_and_the_thrown_handle_lies_flat() {
+        let mut app = app();
+        // The game's frame of the handle, its +x (the frame's −Z) up the gun's top, and the
+        // top of the hilt in it, off its axis.
+        let frame = Transform::from_xyz(0.0, -0.1, 0.05).looking_to(Vec3::Y, Vec3::Z);
+        let rope_from = Vec3::new(0.14, -0.06, -0.28);
+        let mut surface = Surface::new(Paint::Own(Handle::default()), false);
+        surface.push_rigid(&[[Vec3::ZERO, Vec3::X, Vec3::Y]], 0);
+        let whip = GunData {
+            item: Some(0x7F),
+            level: 0,
+            surfaces: vec![surface],
+            skeleton: None,
+            frame: Some(frame),
+            rope_from,
+        };
+        let world = app.world_mut();
+        world.resource_scope(|world, mut guns: Mut<RigGuns>| {
+            world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                let mut bindposes = world.resource_mut::<Assets<SkinnedMeshInverseBindposes>>();
+                guns.add(whip, &mut meshes, &mut bindposes);
+            });
+        });
+        let mut motion = HeroMotion::new(Vec3::ZERO, 0.0);
+        motion.gun = rac_hero::GunHand {
+            out: true,
+            item: Some(0x7F),
+            whip: Some(rac_hero::WhipHand {
+                loaded: true,
+                ..default()
+            }),
+            ..default()
+        };
+        let hero = app
+            .world_mut()
+            .spawn((
+                HeroBody(motion),
+                RigLook::for_player(0),
+                Transform::default(),
+            ))
+            .id();
+        for _ in 0..3 {
+            app.update();
+        }
+        let rig = |app: &mut App| {
+            let mut rigs = app.world_mut().query::<&HeroRig>();
+            let rig = rigs.iter(app.world()).next().unwrap();
+            (rig.grip, rig.rope().unwrap().points[0])
+        };
+        let (grip, start) = rig(&mut app);
+        let top = grip.mul_transform(frame).transform_point(rope_from);
+        assert!(start.distance(top) < 1e-4, "{start} {top}");
+
+        let thrown = Vec3::new(1.0, 1.0, -3.0);
+        app.world_mut().get_mut::<HeroBody>(hero).unwrap().0.thrown =
+            Some(rac_hero::ThrownWrench::at(thrown, Vec3::NEG_Z, true));
+        app.update();
+        let mut held = app
+            .world_mut()
+            .query_filtered::<&Transform, With<HeldGun>>();
+        let handle = held.iter(app.world()).next().unwrap().mul_transform(frame);
+        let up_the_hilt = handle.rotation * Vec3::NEG_Z;
+        assert!(up_the_hilt.y.abs() < 1e-4, "{up_the_hilt}");
+        assert!(handle.translation.distance(thrown) < 1e-4);
+        let (_, start) = rig(&mut app);
+        let top = handle.transform_point(rope_from);
+        assert!(start.distance(top) < 1e-4, "{start} {top}");
+    }
+
+    #[test]
     fn a_gun_with_a_skeleton_grows_in_settles_and_recoils_on_its_own_joints() {
         let mut app = app();
         app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
@@ -1168,6 +1269,8 @@ mod tests {
                     settle_ticks: 2.0,
                 },
             }),
+            frame: None,
+            rope_from: Vec3::ZERO,
         };
         let world = app.world_mut();
         world.resource_scope(|world, mut guns: Mut<RigGuns>| {

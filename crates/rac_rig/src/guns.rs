@@ -37,6 +37,13 @@ pub struct GunData {
     /// origin's space; without one they are rigid.
     pub surfaces: Vec<Surface>,
     pub skeleton: Option<GunSkeleton>,
+    /// Where the game's own frame of the gun sits in its space: its origin where the game
+    /// places it, its −Z the game's +x (up a whip's handle) and its +Y the game's +z. A
+    /// thrown whip's handle flies flat in it (`rope.rs`). `None` puts it on the grip.
+    pub frame: Option<Transform>,
+    /// Where a whip's rope leaves it, in [`Self::frame`]: the handle's joint 0, the top of
+    /// its hilt.
+    pub rope_from: Vec3,
 }
 
 /// A gun's own skeleton and sequences, as a moby's.
@@ -89,6 +96,8 @@ pub enum Recoil {
 pub(crate) struct RigGun {
     pub surfaces: Vec<RigSurface>,
     pub skeleton: Option<RigGunSkeleton>,
+    pub frame: Transform,
+    pub rope_from: Vec3,
 }
 
 #[derive(Debug, Clone)]
@@ -139,8 +148,16 @@ impl RigGuns {
             clips: skeleton.clips,
             motion: skeleton.motion,
         });
-        self.guns
-            .insert((data.item, data.level), RigGun { surfaces, skeleton });
+        let frame = data.frame.unwrap_or_default();
+        self.guns.insert(
+            (data.item, data.level),
+            RigGun {
+                surfaces,
+                skeleton,
+                frame,
+                rope_from: data.rope_from,
+            },
+        );
     }
 
     /// The model for `item` at `level`, and the level it shows from: its own latest model
@@ -390,6 +407,8 @@ pub fn open_guns(materials: &mut Assets<StandardMaterial>) -> Vec<GunData> {
                 level: 0,
                 surfaces,
                 skeleton: None,
+                frame: None,
+                rope_from: Vec3::ZERO,
             }
         })
         .collect()
@@ -474,6 +493,8 @@ mod tests {
                     level,
                     surfaces: vec![surface],
                     skeleton: None,
+                    frame: None,
+                    rope_from: Vec3::ZERO,
                 },
                 &mut meshes,
                 &mut bindposes,

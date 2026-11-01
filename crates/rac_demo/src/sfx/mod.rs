@@ -64,6 +64,7 @@ pub enum Cue {
     Suck,
     ZoomIn,
     ZoomOut,
+    Beam,
 }
 
 impl Cue {
@@ -91,13 +92,14 @@ impl Cue {
             Sustain::Sucking => Cue::Suck,
             Sustain::ZoomingIn => Cue::ZoomIn,
             Sustain::ZoomingOut => Cue::ZoomOut,
+            Sustain::Beaming => Cue::Beam,
         }
     }
 
     pub fn loops(self) -> bool {
         matches!(
             self,
-            Cue::Charge | Cue::Flow | Cue::Suck | Cue::ZoomIn | Cue::ZoomOut
+            Cue::Charge | Cue::Flow | Cue::Suck | Cue::ZoomIn | Cue::ZoomOut | Cue::Beam
         )
     }
 }

@@ -172,7 +172,9 @@ the app with `DISPLAY=:97 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`
 software Vulkan), drive it with `xdotool` (focus its window first, `xdotool search --name
 "Open Ratchet" windowfocus --sync`, or keys never reach it), and take screenshots with
 `xwd -root -display :97` and `ffmpeg`. Stop Xvfb and the app afterwards. A plain `cargo
-run` opens a window on the owner's desktop.
+run` opens a window on the owner's desktop. Lavapipe may draw only a few frames a second,
+so a recording skips most ticks and holds each frame drawn; to judge effects or timing,
+add `--every-tick`, which runs one tick per frame drawn (slowed down, with every tick).
 
 ## Workspace conventions
 

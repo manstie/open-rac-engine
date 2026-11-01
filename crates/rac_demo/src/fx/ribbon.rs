@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use rac_combat::weapons::Shot;
 use rac_combat::{Armory, Arsenal, WeaponId};
 use rac_hero::Hero;
+use rac_sim::SimTick;
 use serde::Deserialize;
 
 use super::{Blend, FxImages, FxRecipes, FxRng, Tex, eye, fx_material, opaque, whole};
@@ -49,7 +50,7 @@ pub(crate) fn draw_ribbons(
     mut ribbons: ResMut<Ribbons>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rng: ResMut<FxRng>,
+    tick: Res<SimTick>,
     mut places: Query<&mut Transform>,
     mut commands: Commands,
 ) {
@@ -76,7 +77,12 @@ pub(crate) fn draw_ribbons(
                 let left = shots[0].position - shots[0].velocity * shots[0].ticks as f32 / 60.0;
                 points.insert(0, left);
             }
-            let share = rng.unit();
+            // Its width, picked again each frame at 60 Hz, holds for the tick.
+            let kind = name
+                .bytes()
+                .fold(0u64, |sum, byte| sum.wrapping_mul(31) + u64::from(byte));
+            let seed = (hero.player as u64) << 48 ^ (weapon.0 as u64) << 32 ^ kind;
+            let share = FxRng::for_tick(tick.0, seed).unit();
             for (index, ribbon) in recipes.ribbon(key, level, Some(name)).iter().enumerate() {
                 let id = (hero.player, weapon.0, name, index);
                 let width = ribbon.width.0 + (ribbon.width.1 - ribbon.width.0) * share;

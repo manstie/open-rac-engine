@@ -81,6 +81,10 @@ struct Args {
     /// person for UYA, lock-strafe for DL).
     #[arg(long, value_name = "SETTING", value_parser = parse_camera)]
     camera: Option<rac_hero::CameraSetting>,
+    /// Run one simulation tick for each frame drawn, however long drawing it takes, so an
+    /// off-screen recording on a slow renderer shows every tick, slowed down.
+    #[arg(long)]
+    every_tick: bool,
 }
 
 fn parse_camera(name: &str) -> Result<rac_hero::CameraSetting, String> {
@@ -225,6 +229,9 @@ fn main() -> Result<AppExit> {
     if let Some(frames) = args.exit_after_frames {
         app.insert_resource(ExitAfterFrames(frames))
             .add_systems(Update, exit_after_frames);
+    }
+    if args.every_tick {
+        app.insert_resource(bevy::time::TimeUpdateStrategy::FixedTimesteps(1));
     }
 
     Ok(app.run())
