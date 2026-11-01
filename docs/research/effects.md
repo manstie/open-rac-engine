@@ -55,6 +55,13 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   (0x45E788) runs each through its type's update (`particle_update_table`, 0x220EC0,
   types 0–0x80, filled by 0x45F4D0); `particle_draw_all` (0x45E810, scratchpad and VU0
   code) sorts them and draws camera-facing sprites.
+- **When it first draws one** [code, 2026-11-01; footage agrees]: `gameplay_update`
+  (0x4B5368) runs the mobys' updates (0x45B2B8) and `hero_tick`, then
+  `particle_update_all`, so a particle a moby makes steps once before its first draw. Its
+  life test (0x40BAC0) frees it on the step that takes its life to 0, so one of life L
+  shows for L − 1 frames, the first a step from its start, and one of life 1 never shows.
+  The whip's life-2 sparkles show once, at half their start size. Effect textures aren't
+  drawn by this pool and show for their whole count.
 - **How big it draws one** [verified on UYA NTSC, 2026-10-31]: its corners are the size
   from the middle (each a unit vector from the spin's table at scratchpad 0x3400 × size /
   depth [code]), so the size is half the diagonal and the half width size / √2.
@@ -434,7 +441,7 @@ classes in italics have no model.
 
 | Gun (V5) | Shots | Particle types | Effect textures | Other |
 |---|---|---|---|---|
-| Shock Blaster (Shock Cannon) | *0x1862* (*0x1883*) | 0F 17 2C 55 61 (+6F) | 11 23 26 44 61, 66 with −7 (V5 +10) | Rays drawn by a callback (0x36C078) in quads of 26 and 61 and a glow of 11 (blend 4); rings (0x36C910, 0xFF8080 and 0xFFC480); a screen warp and a flash; shake 0.04 and 0.09 (V5 0.06, 0.12); rumble 0x2B3940 (0x2B3C10). |
+| Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's; the kit's ring sphere looks bigger than the game's ring round the gun | The charged lance (held 79 frames) and the screen warp (0x388490) aren't drawn |
 | N60 Storm (N90 Hurricane) | *0x1851* (0x1881) | 0F 17 2C 55 5A 5C 61 (+5B) | 11 47 49 57 63 65 (V5 62) | A muzzle flame quad of 63 (62 at V5); an explosion on a hit; a flash; shake 0.075; rumble 0x2BAF00 (0x2AEA10). |
 | Nitro Launcher (Eruptor) | 0x185A; *0x1858* (*0x1888*) | 04 17 2C 35 55 5A 5B 5C 61 6F 76 77 | 11 14 16 23 26 43 47 57 61 63 66 73–77 | The blast's shake (0.4 − 0.02 × distance, within 20 u); a screen warp, a flash, a landing marker, a strip; rumbles 0x2B3A40, 0x2B3DE0 (V5 0x2B3CE0). |
 | Lava Gun | *0xC41*, 0x1E52 | 19 61 6D 72 7E 80 | 11 14 23 43 44 | The stream drawn by a callback (0x305858). |
@@ -447,7 +454,7 @@ classes in italics have no model.
 | Shield Charger | *0x1195* | 35 3E | 11 14 21 23 | The bubble's strips and glows (`weapons.md`, "Shield Charger"). |
 | Holo Shield | 0x186D, *0x1869*, *0x1195* | 0F 17 2C 35 3C 5A 61 | 11 14 23 42 43 44 47 49 57 62 63 | A light, bolts, a landing marker, the explosion. |
 | Agents of Doom | 0x1853, 0x1ADA, 0x1893, *0x188F* | 04 17 19 23 2C 35 4A 55 5A 61 6A–6E | 11 23 43 44 47 50 57 63 | Shake 0.45; a landing marker. |
-| Infector (Infecto-Bomb) | 0x1E05 (0x188A, *0x188B*, 0x1899) | 19 22 34 61 | none | V5 shake 0.4 − 0.0175 × distance; rumble 0x2B3D60. |
+| Infector (Infecto-Bomb) | Partial. V5's blob, its smoke, globs and bubbles, gas and rings are from code (2026-11-01); the game's yellow-green spatter lands on enemies, the kit's blob bursts in the air off to the side | V3's wash is its gas clouds (0x34) on a grey floor |
 | Spitting Hydra | *0x1195* | 17 2C 35 6F | 11 14 23 43 57 61 71 | Bolts; a light; rumble 0x2AE990. |
 | Disc Blade Gun | 0x1867 | 0F 17 2C 35 55 5A 5C 61 74 | 11 47 49 57 | A trail; the explosion. |
 | Rift Inducer | 0x186B, *0x1195* | 0F 13 2C 35 55 61 | 11 14 18 23 49 57 62 63 65 75–77 | Bolts; a light; rumble 0x2B3AC0. |
@@ -721,8 +728,16 @@ shock wave; the level colours are immediates in the code, not tables.
     with the same spark rolls; the V3–V4 spark goes to (0x46, 0x46, 0xFF) instead.
   - The segments are rope points 1–2 to 8–9 (0x2843A0, the hand's piece left out).
     "Attacking" is states 0x13 and 0x14 (the combo and the jump attack) or the end
-    thrown. Texture 12 is 0x5B's entry 0 and 27 its entry 1 (0x221284, 0x5B's list). V5
-    lays other sparkles (0x35's texture, wider) and no smoke; not read further.
+    thrown. Texture 12 is 0x5B's entry 0 and 27 its entry 1 (0x221284, 0x5B's list).
+  - **V5** (0x357F10 [code, 2026-11-01]): attacking, eight a segment each
+    of black (size rand(0.4, 0.7) to 0.03, life 2–3, alpha 0x7F held, blended, 0x35's
+    entry 0, spin ±2–3) and violet (the same × 1.3 to 0.06, (0x30, 0, 0x7C), alpha 0x30
+    held). At rest, two a segment of each of (size 0.11 to 0.2, life 6–12, (0x20, 0x40,
+    0x80), alpha 0x3F to 0, added, spin 1), one in 0x68's entries 0–3 at random and one
+    in 0x5B's entry 1, and on each of those black (rand(0.25, 0.35) to 0.01, life 8,
+    0x7F held, blended, its texture read through the words at 0x1DD6C8 and 0x1DD6CC, which
+    hold 0x35 and 0 in memory, so 0x35's entry 0)
+    and violet (× 1.1 to 0.02, alpha 0x30 to 0). No smoke below V6.
 - **Hits:** each link whose line meets something, each frame (0x357B20 × 10): 30 0x2C
   (size 0.01–0.1 growing 0.143 u/s, ±0.3, 0.1–3.5 u/s toward the camera's bearing ±80°
   and 0–80° up, life 7–15, grey 0x7F fading from 0x7F, spin ±1–2, texture 12 or 27);
@@ -744,7 +759,49 @@ shock wave; the level colours are immediates in the code, not tables.
   growing 1.04 a frame and fading 5 a frame);
   shake 0.45 for 25 frames on a cast at age 12–13. On some ground materials (above 1,
   not 0xB) two 0x61 rocks (0x393E28: size 0.06–0.22, 1–4.5 u/s any way plus 5–8 up,
-  gravity 15.6, life 90–150, browns, textures 48–50, blended).
+  gravity 15.6, life 90–150, browns, textures 48–50, blended). From V5 each cast adds
+  four each (0x393BC0 [code, 2026-11-01]) of black (size rand(0.8, 1.25) to 0.01, life 60,
+  gravity 15.6, 1.5–4 u/s any way and 1–3 u/s more up, 0x7F held, blended, 0x35's entry
+  0) and violet (× 1.25 to 0.02, (0x30, 0, 0x7C), 0x30 held). Its class has no model.
+
+#### The Quantum Whip's cutting wave (class 0x1CB8, V5 and up) [code, disc, 2026-11-01]
+
+- **The spawn** (0x3D6578): from 0.7 u above his feet (0x1A4CC0) and 1 u along his facing,
+  turned 0, −20° or +10° for swings 1, 2 and 3 (frames 10, 10 and 30); 0.5 u a frame for
+  40 frames. Scale +0x2C 0.1 (2.151 times the class's 0.046492), yaw its heading + 90° (its
+  +x to the left of its flight, its +y back along it), matrix row +0xD0 stretched to
+  length 3, opacity 0x40 (half), mode bits clear 0x200 and set 0x100,
+  `moby_set_colour(0, 0, 0)`.
+- **The class** [disc]: 46 vertices, 30 triangles, all on joint 0 of 7, one sequence of 11
+  equal frames, so rigid. One 64×64 grey metal texture. As drawn, a shallow arrowhead 4.8 u
+  across, its tips 2.25 u behind its middle: joints across and back (2.40, 2.25), (1.85,
+  1.23), (0.80, 0.33), (0, 0.03), then the same on the other side.
+- **Each frame it flies** (0x3D6740): with fewer than 30 frames left, for each of its 6
+  joint pieces at a random point black (size rand(0.4, 0.8) to 0.1, life 3–6, spin ±2–3,
+  0x7F held, blended, 0x35's entry 0) and violet (× 1.35, (0x30, 0, 0x7C), 0x30 held, the
+  same texture), moving −1 u/s along its flight, ±2 u/s each way and −1 u/s up. A looped
+  sound (class 0, entry 0, flag 4). No sparks or hit sound in its update.
+- **Its draw** (0x3D6C00): a ribbon (0x4068C8) through 8 places kept every 8 frames, ±2.25
+  along its x, from (0x30, 0x10, 0xFF) at 0x7F to (0x20, 0, 0xFF) at 0, effect texture 6,
+  added; and two strands (0x359518) from the middle joint to each tip through 4 points (t
+  = 0, 0.25, 0.5, 0.75), jittered ±0.175, half width rand(0.03, 0.05), grey 0x7F at FIX
+  0x4F, with a glow rand(3, 5) times as wide in (0x40, 0x80, 0xFF) at FIX 0x1A.
+- **Against the game** [footage, UYA NTSC, takes 14 and 15 against `kitdemo-arena-whip-combo`
+  and `-whip-jump-open`, `docs/re-setup.md`, 2026-11-01]: the blade's shape, its size, where
+  it leaves and how it flies match, as do the strands; the rope reads as the game's at rest
+  and close to it swinging: blue with black dots in a violet haze and a jagged white line
+  off it. What differs:
+  - The game's black balls in the shock wave are soft and wide and the kit's are small
+    dark stars: the same sprite and size, but the kit blends in linear light, where a soft
+    edge darkens far less ("Importing them" 3).
+  - Its blade's steel grey is lit by the kit's sun and looks lighter.
+  - The ribbon and other added colours wash out on the kit's bright floor.
+  - **Tonemapping:** Bevy's default `Tonemapping::TonyMcMapface` turns saturated colours
+    towards white, so the ring's violet tint (0x40, 0x10, 0xFF) shows periwinkle and the
+    rope's pure blue pales. Seen on screen with only the ring drawn; with `None` the ring
+    is the game's violet but the kit's floor blows out, and `ReinhardLuminance` gives the
+    violet with the floor as it was. It applies to every effect. The demo kit stays on
+    Bevy's default; the remaster takes the closest match to the game (PLAN §5, 2026-11-01).
 
 #### Plasma Coil (0x315638, ball class 0xA9B, V1–V4)
 
@@ -909,6 +966,17 @@ the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05
     size 0.05–0.2 growing 500 / 210000 a frame, 0.5–1 u/s within 80° round a bearing and
     0–80° up, 30 frames, grey 0x7F fading from 0x7F, spin ±1–2).
 - **Its gun:** no flash where its bullet leaves (0x3C0128), only a sound [code, 2026-10-31].
+- **Its jets** (V4 and up; 0x3C1D38, while it hovers and while it lands): each frame three
+  type 0x4A particles (0x46A9C8, 0x4A's texture, added) at its point 0 (joint 54, 0.11 u up)
+  ±0.025, falling rand(30, 40) / 600 u a frame and keeping 0.98 of it, carried with it. From
+  the templates at 0x1DEC08, 0x1DEC18 and 0x1DEC28 [data]: blue at 0xCF fading to (0, 0,
+  0xCF) over 5 frames, half 30000 → 40000 (/ 210000); yellow (0xFF, 0xFF, 0) at 0x60 to
+  (0x80, 0, 0) over 6, the same size; (0x4F, 0x7F, 0xFF) at 0xEF to blue over 4, half 10000
+  → 30000.
+- **Hovering, it faces** [code, verified on UYA NTSC]: with no target, its slot while it is
+  0.1 u or more off it (0x445758, 0.0087 rad a frame², at most 0.524), else where its spring
+  takes it; with one, its target. In `uyantsc-veldin-agents-v5-hover.p2s` the four stood on
+  their slots at the class's own scale (0.0983) and faced 8–14° off the hero's way.
 - **An agent appearing** (0x3BD298, state 0x10): 0x35 sparkles of rand(0.35, 0.6) to
   0.001, rising, 20–40 frames, in blue (R rand & 0x2F, G 0x10–0x4F, B 0x7F) and one of
   type 0x68's four textures, added, as its opacity climbs 4 a frame.
@@ -1504,6 +1572,215 @@ here in u/s.
     from 0.025 to its size × rand(0.75, 1.25), keeps 0.97 of its velocity, rises toward
     1.3 u/s and wobbles side to side; above its height argument (the water's) it stops
     rising and lives 12 frames more; it fades over its last 14 frames.
+
+#### The twenty guns against the game at V5 and V3 [footage, 2026-11-01]
+
+Each gun fired on Veldin at its V5 row, and seven at V3, against the kit's arena on the
+same firing pattern (`uyantsc-veldin-fxreview-all.sh`, `kitdemo-arena-review-all.sh`;
+`docs/re-setup.md`). The kit was filmed as built and again on a darker floor with no tone
+mapping, a temporary build, so that colours could be judged. The place, camera and enemies
+differ, so sizes and distances are rough, and lavapipe holds frames, so timing isn't judged
+here. **Not filmed:** V1, V2, V4 and V6–V8. The Shield Charger hangs the game on Veldin at
+V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V3 not at all.
+
+| Gun (V5) | V5 against the game | What's behind it |
+|---|---|---|
+| Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's | The charged lance (held 79 frames) and the screen warp (0x388490) aren't drawn |
+| N60 Storm (N90 Hurricane) | Close. The flame matches; the game's tracer is one long flame, the kit's separate dots | Not worked out |
+| Nitro Launcher (Eruptor) | Close, but for the game's rocks | Rocks not drawn |
+| Lava Gun (Liquid Nitrogen Gun) | Partial. Its stream, nozzle and pools are V5's blue from code (2026-11-01); the kit's stream fires level, so from behind it's a stub where the game's arcs onto an enemy by lock-on | Its arc onto the lock-on target |
+| Annihilator (Decimator) | Close as far as the takes show; they land at different distances | |
+| Flux Rifle (Splitter Rifle) | Partial. The game's an orange ring and red trail; the kit's a pink streak with a big white flash at the hero | No V5 recipe |
+| Infector (Infecto-Bomb) | Partial. V5's blob, its smoke, globs and bubbles, gas and rings are from code (2026-11-01); the game's yellow-green spatter lands on enemies, the kit's blob bursts in the air off to the side | V3's wash is its gas clouds (0x34) on a grey floor |
+| Spitting Hydra (Tempest) | Partial, the same at V3. The game's huge violet domes, white lightning and a gold ground bolt; the kit's a blue halo, rays and a fan of lightning | The domes aren't drawn |
+| Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
+| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. No spawn burst of violet and gold lightning | Their size on screen not compared at a matching camera |
+| Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it | The lens isn't drawn, so the placeholder ball shows |
+| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white bubble warping what's behind it; the kit's a violet dome with dark bands | No V5 recipe |
+| Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
+| Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |
+| Qwack-O-Ray (Qwack-O-Blitzer) | Partial. The game's a big yellow beam, red curls and a lit floor; the kit's a shorter whitish beam and star sprites | Read at V5; the colours add in linear light in the kit (below, "Importing them"), and the floor isn't lit |
+| RY3NO (Rynocirator) | Partial. The tail and the sun (rays and white screen) are from code (2026-11-01); the game's curling ribbons are thicker | The sun's strike on everything in view within 60 u isn't in the simulation |
+| Plasma Coil (Plasma Storm) | Close, at V3 too; the kit's glow is bigger | V5's arcs (0x30A3D0) not read |
+| Bouncer (Heavy Bouncer) | Close | |
+| Miniturret Glove (Megaturret Glove) | Partial. The olive dome is the explosions' dome (class 0x70), now drawn with every small blast; the kit's take shows no missile bursting in view | Not filmed against an enemy |
+| Shield Charger (Tesla Barrier) | Partial. The game's a tall oval with a crisp white rim; the kit's rounder with a soft violet halo | Not worked out |
+
+**The numbers** match at all eight levels of all twenty: damage, ammo, XP, round price, price,
+upgrade price, pickup, hold and animations, by script against the table at 0x2C5640 in EE
+memory [code, data]. **The sounds** were checked against the code, not by ear; those not
+played are listed under "In the kit and the app".
+
+#### Which code draws each class [data, EE memory on Veldin]
+
+The moby update table holds triples of class, update and 0x2F73B4, around 0x2F6xxx:
+
+| Class | Update | Class | Update | Class | Update |
+|---|---|---|---|---|---|
+| 0x70 | 0x2F9760 | 0x1885 | 0x3893E8 | 0x1893 | 0x394068 |
+| 0x1192 | 0x3410E8 | 0x1886 | 0x389F58 (Infecto gun) | 0x1894 | 0x396A20 |
+| 0x1195 | 0x34DD38 | 0x1887 | 0x38A648 | 0x1896 | 0x398E58 |
+| 0x1855 | 0x35D9C0 | 0x1888 | 0x38A7B8 | 0x1898 | 0x39A1D8 |
+| 0x186B | 0x373990 | 0x1889 | 0x38D640 | 0x1899 | 0x39B500 |
+| 0x186D | 0x376B88 | 0x188A | 0x38E3A0 | 0x189A | 0x39CC78 |
+| 0x1872 | 0x381B98 | 0x188B | 0x38EF90 | 0x189B | 0x39DB60 |
+| 0x1881 | 0x384338 | 0x188D | 0x38FEF0 | 0x1ADA | 0x3BD298 |
+| 0x1882 | 0x385948 (Shock Cannon gun) | 0x188F | 0x390EE0 | 0x1C65 | 0x3717A8 |
+| 0x1883 | 0x388920 | 0x1890 | 0x393690 | 0x1CB8 | 0x3D6740 |
+| 0x1892 | 0x3619C8 | | | 0x1DCE | 0x3DB4D0 |
+| | | | | 0x1DF6 | 0x3DD558 |
+
+A particle type's texture is at 0x221118 + 4 × type (0x17 → 0x221174, 0x22 → 0x2211A0, 0x35
+→ 0x2211EC, 0x5B → 0x221284, 0x5C → 0x221288, 0x61 → 0x22129C, 0x68 → 0x2212B8, 0x69 →
+0x2212BC).
+
+#### The dome drawn by code (`fx_dome` 0x409A50) [code]
+
+Its arguments are a scroll, a matrix, a texture, a colour, a ring count and a mode. It is a unit
+ball from its pole (+z): rings every 18° (radius sin, height cos), 10 quads round, u
+alternating by column and v falling 1 a ring plus the scroll. The colour fades to the last ring
+(mode 0 blended with GS alpha 0x44, its alpha going to 0; otherwise added with 0x48, its RGB
+going to 0).
+
+#### The explosions' dome (class 0x70) [code]
+
+0x2F95A0 (factor, life, place, turn, life, r, g, b, opacity) spawns the class, a unit ball at
+its class's scale (0.0416, read from the disc), at the class's scale × factor, turned at random
+−π to π on all three axes. Its update (0x2F9760): scale × (life − timer) / life, the timer
+starting at life − 4 and ending the moby at 0, so it starts at 4/life of its size; each axis
+turns 0.0524 rad a frame; its opacity holds, then falls linearly over the last half of its life.
+
+Callers: the small blast (0x4488B8: factor 4 S, life 20, tint (0x7F, 0x40, 0), opacity 0x30;
+3 S, life 29, tint (0x60, 0x20, 0), opacity 0x20), `explosion_spawn` (0x330C80: 3.5 S, life 16,
+colour and opacity from its +0x5C, raised 8 S / 60, when flag +0x1C is set) and pieces
+(0x447D00). The Megaturret take's olive dome is very likely its small missiles' burst [not
+yet compared].
+
+#### The Dread blast (0x390EE0, spawned by 0x3914C0, class 0x188F) [code]
+
+The Agents of Dread's end at V5.
+
+- **Its radius r** (+0x10) grows 2/3 u a frame (state 1 for 20 frames, state 2 for 40); in state
+  6 the speed falls 1/60 a frame to 1/12 while flames last. Opacity +0x24 starts at 0x6F and
+  falls 5 a frame; opacity +0x1C holds 0x7F for 20 frames, then falls to 0 over 40.
+- **At the start:** the small blast at S 2 (radius 20), a shake of 0.45 for 40 frames within
+  100 u, the flames, and 0x391648: seven pieces of debris (0x329470(1.6, 14.3, ..., life
+  60–90)), not read further, again at timer 0x14.
+- **Drawn by 0x3919E0:**
+  - 0x391AC0: a ring from data (positions 0x2B6BF0, faces 0x2B70F0, UV 0x2B74F0), 64 quads, r
+    0.407–0.469, z ±0.062, at scale (2r, 2r, r/4), 0.5 up, texture 43 added, (0x80, 0x40, 0x20),
+    alpha +0x24.
+  - 0x391D08: the same at (r, r, r/8).
+  - 0x391938: the whole screen white at +0x24.
+  - 0x391F48: a column from data (0x2B77A0, 0x2B8480, UV 0x2B9200), 215 quads, radius 0.198 ×
+    (2 + cos height), height 0.155 × 0.865 r, texture 50 white added, its foot unseen, v scrolling
+    −0.04.
+  - 0x3923A0: a ball from data (0x2B9900, 0x2BA160, UV 0x2BAA60), scale (r/16 + 1, r/16 + 1, 1),
+    raised 0.15 r plus a bump, texture 50, v scrolling +0.04.
+  - 0x392A48 → 0x393258 → 0x3933C8: flames, texture 46, added, (0x80, 0x30, 0x10) going to grey
+    0–13, spinning ±18–20°, alpha 0x5F–0x7F. A ring of 48 at 0.15–0.75 u (half 0.25–0.35 →
+    0.75–1.0, life 100–120) and flames on the ball's visible quads (half 0.25–0.5 → 1.0–1.5, 4–5
+    u/s); all fade over 30–45 frames once state 2 has passed 2 frames.
+
+#### The Shock Cannon at V5 (0x385948; rays class 0x1883) [code]
+
+- **Numbers** (data 0x1DDDF0–0x1DDE58): 2 and 8-frame counters, spoke length 4, widths 0.1 and
+  0.5, ring sizes 1.5→20, turns 2° and −2.5°, a 3-frame flash, 32, texture 23.
+- **Each shot** (draws 0x387BF0, 0x3871E8, 0x3873F8, 0x388490): 40 dust of 0x17 for two frames
+  (half 0.3→0.8, 10 u/s level, grey 0x70 at 0x40, life 10–30); 8 spokes of texture 26 for 2
+  frames, (0x20, 0x40, 0xFF), alpha 255 × n/2; two sprites of 61, (0x80, 0x80, 0xFF), alpha
+  20 t, flying 16 u out and growing from half 1.5 to 20.
+- **The uncharged lance:** 20 frames, a dome of 4 rings of texture 23 (0x80, 0x80, 0xFF) at alpha
+  5 t, and one of 2 rings of texture 11 (0x30, 5, 0xBF) at alpha 3 t, 1.25 times as wide; its
+  centre 5 ahead, 5 long, its widths growing 0.5 and 0.3 a frame for 4, then falling 0.3 and
+  0.2.
+- **The flash on the lens** [code, seen on UYA NTSC]: for 3 frames, a sprite of texture 11 half
+  0.04 wide, 0.1 u in front of the camera on its way to the muzzle (+0x40 × +0x44 × 255 of alpha,
+  grey 0x80), so a soft white ball about 0.4 of the view's height across that hides the hero;
+  and the whole screen added at FIX 32 × that share.
+- **Charged** (held 79 frames; a 30-frame lance, 0x3873F8: domes of texture 23 along 15 u, shake
+  0.12): not in the kit's recipe.
+- **Its rays** (0x388920, drawn 0x388DD8): texture 23 (0x20, 0x40, 0x80), alpha 96 t, blended;
+  texture 44 (0, 0x40, 0xFF) added; end sparkles (0x20, 0x20, 0x80). Shake 0.06. Each frame
+  two 0x5A glares at its end (0x46C468, 0x35's texture, (0x20, 0x20, 0x80)) and two pairs of
+  0x5B sparkles (entry 1) anywhere along it, ±0.04, white at 0x30, 1.8 − 0.25 × its pitch in
+  degrees across, a fifth of that at the end, life 2–9 by where along it; so the kit's orange
+  embers (0x2C) at its end were wrong [code, seen on UYA NTSC: the game's plume is white and
+  blue]. The ray goes
+  from the gun 2-ish u out toward the target along the first of its tests (0x386FB0: a line test
+  (0x3F8448), then the moby's distance sets damage: under 10 u all of it, under 14 ¾, under 20
+  ½, else ⅛).
+- **0x388490 → 0x388508:** a screen warp in texture 66. Not drawn in the kit.
+
+#### The Lava Gun at V5 (0x305858, 0x305CA0) [code]
+
+Width parameter 0.1 where V1's is 0.05; its core texture 69 (0x45); its glow three times the
+width, so as wide as V1's, (0x10, 0x30, 0x80) at FIX 0x50. Its nozzle's glows are (0x10, 0x30,
+0x7F) at 0x7F half 0.25 and (8, 0x18, 0x3F) at 0x3F half 0.5.
+
+#### The RY3NO's tail and its sun [code]
+
+- From V2 the missile is class 0x1DCE (0x3DAEA8) at 2.5 of its scale. **Its tail:** 4 points,
+  each going 0.2 of the way to the one before it a frame; a strip facing the camera, in texture
+  43 (0x3DC8D0(0, 0.85, 0.25, ..., 0x1030FF, 4)), half 0.2125 and again doubled, ×0.7 a segment,
+  u 0.25 a segment, alpha 0x7F and 0x3F, shown after 4 frames. Its glow is of 44, (0xFF, 0x40,
+  0x20).
+- **V5** (0x3805B0: `3 < level && first`): after the missiles' 30-frame wait, the first missile
+  spawns class 0x1DF6 (0x3DD390) at the rally point, 10 u ahead and 3 up. State 1 lasts 30 frames
+  with nothing drawn. State 5 lasts 64 frames: 24 rays (0x3DDB38, drawn 0x3DD9B0) of texture 14
+  (0x1DF590), length 4 + 0.06 a frame, each turning 2° about its own random axis, half 0.3, its
+  tip ×1.1, (0xFF, 0x80, 0x40) at 0x20 going to (0xFF, 0, 0) at 0, v scrolling −0.018; and four
+  added full-screen layers of grey (0x80 − 2 × timer) (0x3DD8E8). State 3: everything in view
+  within 60 u (0x44CF68, 4.71 and 1.396 rad) takes the row's damage, and it ends.
+
+#### The Infecto-Bomb's looks at V5 [code]
+
+- **Its blob** (class 0x188A, 0x38EE78): scale set to 0.0165 where its class's is 0.0588, opacity
+  0x28.
+- **Each frame** (0x38E930): a smoke of 0x17 (half 0.45→0.95, 2.1–3 u/s, alpha 0x20, half added),
+  a glob of 0x69 (0.35→0.25, 0.6–2.4 u/s), a bubble of 0x22 (0.35→0.15, 0.6–1.8 u/s), life
+  10–30, gravity 24; one in three a drop. All (0x82, 0xA1, 5).
+- **Where a ray of it hits ground** (0x38ED30): gas, (0x62, 0xC1, 5) at 0x50, half 0–1.5 → 1–5,
+  life 100–160. **On landing:** one dark cloud (0x20, 0x50, 0x30) at 0x30, then class 0x188B.
+- **Class 0x188B** (0x38EF90): a strike of 5 u; a ring class 0x307 (scale 3.5–4.5, growing 1.05,
+  tint (0x52, 0xD1, 5)) three times, at timers 69, 65 and 60; each frame two bubbles (tint
+  0x10D162…) and one gas cloud ((0x52, 0xD1, 5) at 0x50, half 0–1.5 → 3–5, within 2.5 u, life
+  100–160).
+- **Class 0x1899** (0x39B500): the smaller blobs it splits into (ring 2–2.5, growing 1.04).
+
+#### The Suck Cannon's vortex (0x363E98, drawn by 0x3633F8 and 0x3650A0) [code]
+
+The suck's update (0x3619C8) calls 0x363E98 each frame the gun sucks; 0x363C60 starts it
+straight along the aim the first time.
+- **Its rope:** ten points a step of 1 u (0x1E1B64) apart from the muzzle. What it reaches
+  for wanders: every 60 frames a new point 0.1 u off the aim at a heading turned a random
+  45–315°, reached linearly over the 60. Each piece turns towards the way of the piece
+  before it on a spring (0x3F1438: gain 0.06, damping 0.2, never past the angle), and any
+  lag over 0.314 rad is taken up at once; pieces past the fifth keep a tenth of their old way
+  per piece.
+- **Its rings:** twenty points round each (the unit circle at 0x2B37B0, starting 18° round),
+  radius 0.2 × ring + 0.1 + 0.1 sin(pulse + 0.7 × ring), the pulse going 0.1 a frame.
+- **How far it shows:** a counter per ring (0x1E1B90): the first grows 4 a frame and each
+  ring is 32 behind the one before. Where a line test along the aim meets the world, the
+  rings past it fall 4 a frame to nothing and those before stay 32 apart.
+- **The tube** (0x3633F8): quads between the rings, only those turned from the camera, in
+  texture 21 (0x1DD7B0), added; grey 0x40 to V2, (0x80, 0x60, 0x40) from V3; each ring's
+  alpha its counter held to 0–0x20, the last ring's 0. u is 0.3 a ring, scrolling 0.001 a
+  frame; v 0.05 a point, scrolling 0.006 a frame for each ring.
+- **The arcs** (0x365328 → 0x3650A0): round each ring whose counter is past 0x20, a strip of
+  21 pairs on a ball of radius 0.17 × ring + 0.35, from 15° to 35° up towards the rope's
+  way, spanning a random 40–150° and turned on a random 17–25° a frame; texture 29, (0x40,
+  0x40, 0x60) at 0x20, added.
+- **What flows to the gun:** up to 200 sprites, five new a frame at the furthest ring fully
+  shown, each following a point of the rings back to the gun (between points rand(0.1,
+  0.3) a frame, along rand(0.1, 0.4) u a frame), turning ±0.147 rad a frame; the last piece
+  straight at the gun, shrinking 0.95 a frame. Smoke of 0x17, half rand(90000, 270000) /
+  210000, one in four blended, grey 0x7F to V2, (0x80, 0x60, 0x40) from V3. One in ten past
+  the second ring is dust, twice as far out (rand(0.5, 0.9) along, rand(0.2, 0.5) between):
+  0x61's entry 3 grey at 0x2F, half 0.09–0.21, to V2; from V3 entries 10–12 in (0x38, 0x35,
+  0x27), blended, half 0.13–0.25.
+- **Not drawn in the kit:** six refractions (0x3630E0, texture 0x36) once it has run 30
+  frames.
 
 #### The shared explosion (`explosion_spawn` 0x32FE90)
 

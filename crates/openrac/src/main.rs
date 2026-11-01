@@ -76,11 +76,18 @@ struct Args {
     /// Whose guns the hero carries: `uya` (the default) or `dl`, Deadlocked's read so far.
     #[arg(long, value_name = "GAME")]
     guns: Option<String>,
+    /// The level the demo gives every gun, 1 (V1) to 8 (V8); without it, 3.
+    #[arg(long, value_name = "LEVEL", value_parser = clap::value_parser!(u8).range(1..=8))]
+    gun_level: Option<u8>,
     /// The hero's camera: `third-person`, `lock-strafe` or `first-person`. Without it, the
     /// one saved in the settings, which the menus change, or else the game's own (third
     /// person for UYA, lock-strafe for DL).
     #[arg(long, value_name = "SETTING", value_parser = parse_camera)]
     camera: Option<rac_hero::CameraSetting>,
+    /// Draw on a sandy floor with a tone mapping that keeps effects' colours, to judge them
+    /// against the game's.
+    #[arg(long)]
+    plain_colours: bool,
     /// Run one simulation tick for each frame drawn, however long drawing it takes, so an
     /// off-screen recording on a slow renderer shows every tick, slowed down.
     #[arg(long)]
@@ -169,6 +176,12 @@ fn main() -> Result<AppExit> {
             setting
         }),
     })
+    .insert_resource(
+        args.gun_level
+            .map_or_else(rac_demo::DemoGunLevel::default, |level| {
+                rac_demo::DemoGunLevel(level - 1)
+            }),
+    )
     .insert_resource(match args.guns.as_deref() {
         None | Some("uya") => rac_combat::Armory::uya(),
         Some("dl") => rac_combat::Armory::dl(),
@@ -229,6 +242,10 @@ fn main() -> Result<AppExit> {
     if let Some(frames) = args.exit_after_frames {
         app.insert_resource(ExitAfterFrames(frames))
             .add_systems(Update, exit_after_frames);
+    }
+    if args.plain_colours {
+        app.add_systems(Update, plain_colours)
+            .insert_resource(rac_demo::DemoGround((0.4, 0.31, 0.16)));
     }
     if args.every_tick {
         app.insert_resource(bevy::time::TimeUpdateStrategy::FixedTimesteps(1));
@@ -462,6 +479,17 @@ fn imported(
 
 #[derive(Resource)]
 struct ExitAfterFrames(u32);
+
+fn plain_colours(
+    mut cameras: bevy::prelude::Query<
+        &mut bevy::core_pipeline::tonemapping::Tonemapping,
+        bevy::prelude::Added<bevy::prelude::Camera3d>,
+    >,
+) {
+    for mut tonemapping in &mut cameras {
+        *tonemapping = bevy::core_pipeline::tonemapping::Tonemapping::ReinhardLuminance;
+    }
+}
 
 fn exit_after_frames(
     limit: Res<ExitAfterFrames>,

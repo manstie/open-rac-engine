@@ -1165,6 +1165,20 @@ pub struct Volley {
     pub ahead_from: Option<u8>,
     pub ahead: f32,
     pub up: f32,
+    /// From its level, the volley's first missile sets off a sun at that point.
+    #[serde(default)]
+    pub sun: Option<VolleySun>,
+}
+
+/// The RYNOCIRATOR's sun (class 0x1DF6, 0x3DD390, its update 0x3DD558): `after` ticks from
+/// the volley it strikes the `most` enemies nearest its cone round his aim (`gun_aim_target`
+/// with no line test), each taking the row's damage.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VolleySun {
+    pub from_level: u8,
+    pub after: u32,
+    pub assist: AimAssist,
+    pub most: usize,
 }
 
 /// A RY3NO missile's burst.
@@ -1756,15 +1770,18 @@ pub struct Whip {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Cut {
     pub from_level: u8,
-    /// It leaves `at_ticks` into swings 1, 2 and 3, along his facing turned by `turns`
-    /// degrees, at `speed`, living `ticks`.
+    /// It leaves `at_ticks` into swings 1, 2 and 3, `rise` above his feet and `ahead` of
+    /// him, along his facing turned by `turns` degrees, at `speed`, living `ticks`.
     pub at_ticks: [u32; 3],
+    pub rise: f32,
+    pub ahead: f32,
     pub turns: [f32; 3],
     pub speed: f32,
     pub ticks: u32,
-    /// Each tick the line across it, `width` long, strikes what it crosses for the damage,
-    /// pushed by its velocity a frame times `push`.
+    /// Each tick the line across it between its tips, `width` long and `behind` it, strikes
+    /// what it crosses for the damage, pushed by its velocity a frame times `push`.
     pub width: f32,
+    pub behind: f32,
     pub push: f32,
 }
 

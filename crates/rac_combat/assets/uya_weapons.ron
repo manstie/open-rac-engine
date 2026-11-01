@@ -1009,10 +1009,15 @@
                 cut: Some((
                     from_level: 4,
                     at_ticks: (10, 10, 30),
+                    rise: 0.7, // 0x1A4CC0, 0.7 u above his feet
+                    ahead: 1.0, // his forward row added to it (0x356110)
                     turns: (0.0, -20.0, 10.0),
                     speed: 30.0, // 0.5 u a frame
                     ticks: 40,
-                    width: 3.0, // [data]: between its class's joints 0 and 6, read as 3 u
+                    // [data]: its class's joints 0 and 6 at the 0.1 it is drawn at (0x3D6578),
+                    // its tips trailing with its y row stretched to 3.
+                    width: 4.8,
+                    behind: 2.25,
                     push: 1.75,
                 )),
             )),
@@ -1229,6 +1234,9 @@
                 ahead_from: Some(4),
                 ahead: 10.0,
                 up: 3.0,
+                // The sun (0x3DD558): after the missiles' 30-tick wait, 30 ticks unseen and
+                // 64 of rays, it searches 60 u, 4.71 and 1.396 rad near, nothing far [code].
+                sun: Some((from_level: 4, after: 124, assist: (range: 60.0, near: (269.9, 80.0), far: (0.0, 0.0)), most: 32)),
             )),
             effects: "ryno",
             // "Aim indicators" [code, data].

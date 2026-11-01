@@ -60,6 +60,8 @@ pub enum ShotKind {
     Missile { target: Option<Entity> },
     /// The RY3NO's missile.
     Rocket(RocketState),
+    /// The RYNOCIRATOR's sun, striking along `aim` once `ticks` have run out.
+    Sun { ticks: u32, aim: Vec3 },
     /// The Plasma Coil's ball; once it sticks, to a target or the world, the ticks since.
     Ball {
         stuck: Option<(Option<Entity>, u32)>,
@@ -201,6 +203,7 @@ impl ShotKind {
             ShotKind::Stream => "stream",
             ShotKind::Missile { .. } => "missile",
             ShotKind::Rocket(_) => "rocket",
+            ShotKind::Sun { .. } => "sun",
             ShotKind::Ball { .. } => "ball",
             ShotKind::Arc { .. } => "arc",
             ShotKind::Storm { .. } => "storm",

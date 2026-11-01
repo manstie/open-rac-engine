@@ -78,6 +78,36 @@ fn whip<'a>(armory: &'a Armory, arsenal: &Arsenal) -> Option<(&'a str, u8)> {
 #[derive(Resource, Debug, Default)]
 pub(crate) struct Strands(Slots<(usize, u8, usize)>);
 
+/// Where a rope's strands come in the order see-through things are drawn: ahead of the
+/// particles, which the game draws over them (take 14: its black dots cut its white core).
+const ROPE_STRANDS: f32 = -1000.0;
+
+/// How far apart strands are in that order: enough that their recipe's decides it, as the
+/// game draws its strips in the order it lays them. V5's blue strand only shows added on
+/// its black band.
+pub(crate) const STRAND_ORDER: f32 = 10.0;
+
+/// A strand's material, drawn at `order` among see-through things: Bevy sorts them by
+/// distance plus this.
+pub(crate) fn strand_material(
+    materials: &mut Assets<StandardMaterial>,
+    images: &FxImages,
+    strand: &Strand,
+    order: f32,
+) -> Handle<StandardMaterial> {
+    let handle = fx_material(
+        materials,
+        images,
+        strand.texture,
+        strand.colour,
+        strand.blend,
+    );
+    if let Some(mut material) = materials.get_mut(&handle) {
+        material.depth_bias = order;
+    }
+    handle
+}
+
 /// Meshes rebuilt each frame, by an id, each with its entity.
 pub(crate) type Slots<K> = BTreeMap<K, (Entity, Handle<Mesh>)>;
 
@@ -123,13 +153,8 @@ pub(crate) fn draw_strands(
                 &mut meshes,
                 &mut places,
                 |shown| {
-                    let material = fx_material(
-                        &mut materials,
-                        &images,
-                        strand.texture,
-                        strand.colour,
-                        strand.blend,
-                    );
+                    let order = ROPE_STRANDS + STRAND_ORDER * index as f32;
+                    let material = strand_material(&mut materials, &images, strand, order);
                     commands
                         .spawn((Name::new("whip strand"), shown, MeshMaterial3d(material)))
                         .id()

@@ -35,6 +35,38 @@ pub(crate) struct Grows {
     pub alpha: f32,
     pub end_alpha: f32,
     pub material: Handle<StandardMaterial>,
+    /// Growing as the explosions' dome does, instead.
+    pub dome: Option<Dome>,
+}
+
+/// The explosions' dome (class 0x70, 0x2F95A0, its update 0x2F9760): it starts with 4 ticks of
+/// its life gone and reaches `scale` as the life ends; each axis turns 3° a tick; it holds its
+/// opacity, then fades over the last half of its life.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Dome {
+    pub scale: f32,
+}
+
+const DOME_TURN: f32 = 0.05235988;
+
+/// The ticks a new dome of `total` ticks has left.
+pub(crate) fn dome_start(total: u32) -> u32 {
+    total.saturating_sub(4).max(1)
+}
+
+/// How much of its scale a dome of `total` ticks has with `left` of them left.
+pub(crate) fn dome_share(total: u32, left: u32) -> f32 {
+    total.saturating_sub(left) as f32 / total.max(1) as f32
+}
+
+/// How much of its opacity a dome of `total` ticks has with `left` of them left.
+pub(crate) fn dome_alpha(total: u32, left: u32) -> f32 {
+    let half = (total / 2).max(1);
+    if left < half {
+        left as f32 / half as f32
+    } else {
+        1.0
+    }
 }
 
 /// Grows and fades each model a tick, dropping those whose time is up; as 0x301530, it
@@ -50,10 +82,16 @@ pub(crate) fn step_models(
             continue;
         }
         grows.ticks_left -= 1;
-        transform.scale *= grows.grow;
         let left = grows.ticks_left as f32 / grows.total as f32;
+        let alpha = if let Some(dome) = grows.dome {
+            transform.scale = Vec3::splat(dome.scale * dome_share(grows.total, grows.ticks_left));
+            transform.rotation *= Quat::from_euler(EulerRot::XYZ, DOME_TURN, DOME_TURN, DOME_TURN);
+            grows.alpha * dome_alpha(grows.total, grows.ticks_left)
+        } else {
+            transform.scale *= grows.grow;
+            grows.end_alpha + (grows.alpha - grows.end_alpha) * left
+        };
         if let Some(mut material) = materials.get_mut(&grows.material) {
-            let alpha = grows.end_alpha + (grows.alpha - grows.end_alpha) * left;
             material.base_color.set_alpha(alpha);
         }
     }
@@ -97,6 +135,16 @@ pub(crate) fn crown() -> Mesh {
 mod tests {
     use super::*;
     use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn a_dome_grows_over_its_life_and_fades_over_the_last_half() {
+        assert_eq!(dome_start(20), 16);
+        assert_eq!(dome_share(20, 16), 0.2);
+        assert_eq!(dome_share(20, 0), 1.0);
+        assert_eq!(dome_alpha(20, 15), 1.0);
+        assert_eq!(dome_alpha(20, 5), 0.5);
+        assert_eq!(dome_alpha(20, 0), 0.0);
+    }
 
     #[test]
     fn the_crown_flares_out_from_its_foot() {

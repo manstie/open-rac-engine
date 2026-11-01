@@ -287,11 +287,6 @@ pub(super) fn suck(
     }
     arsenal.fire_ticks = gun.def.fire_ticks;
     arsenal.sustain = Some(Sustain::Sucking);
-    let trigger = &mut arsenal.trigger;
-    trigger.held += 1;
-    if !(trigger.held - 1).is_multiple_of(fire.grab_every.max(1)) || arsenal.sucked >= capacity {
-        return;
-    }
     // The vortex runs along his aim, cut short where it meets the world.
     let aim = gun.view_aim(gun.muzzle, armory);
     let length = fire.vortex;
@@ -299,6 +294,20 @@ pub(super) fn suck(
         .world
         .cast_ray(gun.muzzle, aim * length)
         .map_or(length, |hit| hit.fraction * length);
+    out.events.push((
+        gun.weapon,
+        GunEventKind::Sucking {
+            from: gun.muzzle,
+            aim,
+            reach,
+        },
+        None,
+    ));
+    let trigger = &mut arsenal.trigger;
+    trigger.held += 1;
+    if !(trigger.held - 1).is_multiple_of(fire.grab_every.max(1)) || arsenal.sucked >= capacity {
+        return;
+    }
     let mut taken: Vec<Entity> = Vec::new();
     for &(along, radius) in &fire.grabs {
         if along > reach {

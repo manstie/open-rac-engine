@@ -1625,10 +1625,12 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   frames before finds the ground, and a 2 u ball there takes half the row's damage, pushed
   0.5 (flags 0x210000).
 - **V5 and up** (the Quantum Whip): in swings 1 and 2 at frame 10 and swing 3 at frame 30,
-  a cutting wave (class 0x1CB8, 0x3D6578) leaves along his facing, turned −20° for swing 2
-  and +10° for swing 3. Its flight (0x3D6740) runs on at 0.5 u a frame (30 u/s) for 40
-  frames; each frame the line between its joints 0 and 6 (about 3 u across it) strikes
-  what it crosses for the row's damage, pushed by its velocity × 1.75 (flags 0x210000).
+  a cutting wave (class 0x1CB8, 0x3D6578) leaves 0.7 u above his feet and 1 u ahead of him
+  along his facing, turned −20° for swing 2 and +10° for swing 3. Its flight (0x3D6740)
+  runs on at 0.5 u a frame (30 u/s) for 40 frames; each frame the line between its joints
+  0 and 6 (4.8 u long and 2.25 u behind its middle, as the class is drawn [disc]; `effects.md`,
+  "The Quantum Whip's cutting wave") strikes what it crosses for the row's damage, pushed
+  by its velocity × 1.75 (flags 0x210000).
   The game strikes every frame it crosses; the kit strikes each target once.
 - **Looks** (2026-10-22): each frame the links take a glow colour (`moby_set_colour`,
   0x438908; R, G, B) of (0xBF, 0x40, 0x20) at V1–V2 and (0x20, 0x40, 0xBF) at V3–V4;
@@ -1914,8 +1916,11 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
     state 8 springs (gain 1–2 /3600, top 3–4 u/s) to where a line from it, 5 u along his
     facing and 10 u down, meets something, else to him. Within 0.1 u it goes on foot,
     state 3 (following).
-  - **In the kit:** all of that but the spin and alpha, the 0.8 u with the camera and its
-    facing while it hovers; and it isn't drawn jetting.
+  - **Facing** (read 2026-11-01): with no target, its slot while 0.1 u or more off it (0.0087
+    rad a frame², at most 0.524), else where its spring takes it; with one, its target.
+  - **In the kit:** all of that but the spin and alpha as it appears, the 0.8 u with the
+    camera, and its facing at its slot (it keeps its way). Its jets are drawn (`effects.md`,
+    "Agents of Doom").
 - **An agent** (class 0x1ADA; spawned by 0x3C0F78, its update 0x3BD298, about 1500
   lines, read in part):
   - **sight** (corrected 2026-10-22): as it comes out it takes anything with health
@@ -2320,8 +2325,14 @@ The gun uses no ammo.
     (0x3DBDA0);
   - after 300 frames (120 from V5), or more than 60 u from the hero, it goes with no blast.
 - **V5** (the RYNOCIRATOR): the volley has no targets and all go at a point 10 u ahead
-  and 3 u up; the first also sets off a big blast of its own (class 0x1DF6, 0x3DD390, not
-  read further).
+  and 3 u up; the first, after its wait, sets off a sun there (class 0x1DF6, 0x3DD390, its
+  update 0x3DD558; read 2026-11-01): 30 frames unseen, 64 of rays (`effects.md`, "The RY3NO's
+  tail and its sun"), then it strikes and goes. The strike is `gun_aim_target` from the
+  sun along the camera's way, 60 u, near 4.71 rad by 1.396, far nothing, at most 32, with no
+  line test: each enemy takes the row's damage (flags 0x110000), or one it would kill gives
+  its bolts and dies (0x3154D8). The gun's own marks at V5 search 60 u, near 4.71 by 1.396,
+  far 1.396 by 1.222. In the kit: the strike, 124 ticks after the volley, along his aim as it
+  fired (`VolleySun`); no bolts on a kill.
 
 ### Gun aim assist (0x44D930, 0x44CF68) [code, UYA NTSC, 2026-10-16]
 

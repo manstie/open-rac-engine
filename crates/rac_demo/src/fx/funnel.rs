@@ -144,7 +144,7 @@ fn frame(rope: &[Vec3], point: usize, eye: Vec3) -> (Vec3, Vec3, Vec3) {
 
 /// What goes into a mesh of vertices each with a colour.
 #[derive(Default)]
-struct Quads {
+pub(super) struct Quads {
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     colours: Vec<[f32; 4]>,
@@ -154,7 +154,7 @@ struct Quads {
 impl Quads {
     /// A quad of corners `a`, `b` at one end and `c`, `d` at the other, each its position,
     /// coordinates and alpha.
-    fn push(&mut self, corners: [(Vec3, [f32; 2], f32); 4]) {
+    pub(super) fn push(&mut self, corners: [(Vec3, [f32; 2], f32); 4]) {
         let first = self.positions.len() as u32;
         for (position, uv, alpha) in corners {
             self.positions.push(position.to_array());
@@ -165,7 +165,11 @@ impl Quads {
             .extend([first, first + 1, first + 2, first + 2, first + 1, first + 3]);
     }
 
-    fn mesh(self) -> Mesh {
+    pub(super) fn mesh(mut self) -> Mesh {
+        // Bevy's allocator warns of a mesh with no vertices: a quad of none across shows nothing.
+        if self.positions.is_empty() {
+            self.push([(Vec3::ZERO, [0.0, 0.0], 0.0); 4]);
+        }
         let normals = vec![[0.0, 1.0, 0.0]; self.positions.len()];
         Mesh::new(
             PrimitiveTopology::TriangleList,

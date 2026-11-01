@@ -25,7 +25,9 @@ use crate::hero_model::{Builder, ImportError, ImportPaint, add_skinned, material
 /// What a gun sends out, as a class in Veldin's core: the gun's item, the kind of shot
 /// ([`rac_combat::weapons::ShotKind::name`]), the level it shows from (0 for V1), the class,
 /// its scale of the class's own as the gun's code sets it, the bangles it shows, the joint
-/// that aims it, and the glow it adds.
+/// that aims it, the glow it adds, and its opacity if it isn't whole. With `across` it is
+/// rigid, its class's x lying across its way and its y back along it, that many times as
+/// long.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShotClass {
     pub item: u16,
@@ -36,6 +38,8 @@ pub struct ShotClass {
     pub bangles: u16,
     pub aim_joint: Option<usize>,
     pub glow: Option<[u8; 3]>,
+    pub opacity: Option<f32>,
+    pub across: Option<f32>,
 }
 
 const fn shot(item: u16, kind: &'static str, level: u8, class: u32, scale: f32) -> ShotClass {
@@ -48,6 +52,8 @@ const fn shot(item: u16, kind: &'static str, level: u8, class: u32, scale: f32) 
         bangles: 0,
         aim_joint: None,
         glow: None,
+        opacity: None,
+        across: None,
     }
 }
 
@@ -82,9 +88,25 @@ pub const UYA_SHOT_CLASSES: &[ShotClass] = &[
         ..shot(0x15, "turret", 4, 0x1367, 1.0)
     },
     shot(0x97, "rocket", 0, 0x1873, 1.0),
+    // From V2 another class, at 2.5 times its scale (0x3DAEA8).
+    shot(0x97, "rocket", 1, 0x1DCE, 2.5),
     // A random 0.25 to 0.3 (0x3DE3A8), a mound of goo that tumbles there and here faces
     // its way.
     shot(0x37, "blob", 0, 0x1E05, 0.275),
+    // At V5 the same mound, its own class, set to 0.0165 where the class's is 0.0588 and
+    // nearly clear (+0x23 at 0x28, 0x38EE78).
+    ShotClass {
+        opacity: Some(0.3125),
+        ..shot(0x37, "blob", 4, 0x188A, 0.2806)
+    },
+    // The Quantum Whip's blade: drawn at 0.1 where its class's scale is 0.0465, half see-
+    // through (+0x23 at 0x40), yawed a quarter from its way with its y row stretched to 3
+    // (0x3D6578). Its vertices are all on one still joint.
+    ShotClass {
+        opacity: Some(0.5),
+        across: Some(3.0),
+        ..shot(0x7F, "cut", 4, 0x1CB8, 2.151)
+    },
     // The pod at 1.2 (0x35B240); an agent's bangles by level (0x3C0F78).
     shot(0x57, "pod", 0, 0x1853, 1.2),
     showing(shot(0x57, "agent", 0, 0x1ADA, 1.0), 0b0001),
@@ -135,8 +157,13 @@ pub fn import(core: &Core) -> Vec<Result<DiscShot, ImportError>> {
 /// shows; one with none has its mesh at rest, at its scale.
 fn read_shot(core: &Core, row: &ShotClass) -> Result<DiscShot, ImportError> {
     let moby = core.moby_class(row.class)?;
-    if moby.joints.is_empty() {
-        let (surfaces, paints) = read_class(core, row.class, row.scale)?;
+    if moby.joints.is_empty() || row.across.is_some() {
+        let (mut surfaces, paints) = read_class(core, row.class, row.scale)?;
+        if let Some(stretch) = row.across {
+            for surface in &mut surfaces {
+                lay_across(surface, stretch);
+            }
+        }
         return Ok(DiscShot {
             row: *row,
             surfaces,
@@ -175,10 +202,22 @@ fn read_shot(core: &Core, row: &ShotClass) -> Result<DiscShot, ImportError> {
     })
 }
 
+/// Turns a shot's surface from its class's x along its way (the kit's −Z) to across it, and
+/// stretches what then lies along its way.
+fn lay_across(surface: &mut Surface, stretch: f32) {
+    for position in &mut surface.positions {
+        *position = Vec3::new(position.z, position.y, -position.x * stretch);
+    }
+    for normal in &mut surface.normals {
+        *normal = Vec3::new(normal.z, normal.y, -normal.x / stretch).normalize_or_zero();
+    }
+}
+
 /// The classes the guns' effects spawn as models, at their classes' scale: the ring the
 /// Infector's burst and the Plasma Whip's wave leave (0x3013B0; `effects.md`, "Rings"), a
-/// crown of sixteen walls in a streaked white texture, tinted by its caller.
-pub const UYA_EFFECT_CLASSES: &[u32] = &[0x307];
+/// crown of sixteen walls in a streaked white texture, tinted by its caller; and the explosions'
+/// dome (0x2F95A0; `effects.md`, "The explosions' dome").
+pub const UYA_EFFECT_CLASSES: &[u32] = &[0x307, 0x70];
 
 /// An effect's model read from the disc, waiting for its images.
 #[derive(Debug, Clone, PartialEq)]
@@ -295,6 +334,10 @@ pub fn register_disc_shots(
                 let mut paint = material(paint, &mut images);
                 if let Some([r, g, b]) = row.glow {
                     paint.emissive = Color::srgb_u8(r, g, b).into();
+                }
+                if let Some(opacity) = row.opacity {
+                    paint.base_color = paint.base_color.with_alpha(opacity);
+                    paint.alpha_mode = AlphaMode::Blend;
                 }
                 let mesh = if shot.skeleton.is_some() {
                     surface.skinned_mesh()
@@ -500,6 +543,42 @@ mod disc_tests {
             "{low} {high}"
         );
         assert!((wide - 0.23).abs() < 0.01, "{wide}");
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn the_quantum_whips_blade_lies_across_its_way_its_tips_trailing() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) = crate::discs::find(
+            std::path::Path::new(&folder),
+            crate::discs::Release::UyaNtsc,
+        )
+        .expect("a UYA NTSC-U disc");
+        let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+        // Its scale gives the 0.1 the game draws it at.
+        let moby = core.moby_class(0x1CB8).unwrap();
+        let row = UYA_SHOT_CLASSES
+            .iter()
+            .find(|row| row.kind == "cut")
+            .unwrap();
+        assert!((moby.unit() * 1024.0 * row.scale - 0.1).abs() < 1e-3);
+        let shot = read_shot(&core, row).unwrap();
+        assert!(shot.skeleton.is_none());
+        let (low, high) = shot
+            .surfaces
+            .iter()
+            .flat_map(|surface| surface.positions.iter())
+            .fold((Vec3::MAX, Vec3::MIN), |(l, h), p| (l.min(*p), h.max(*p)));
+        // About 4.8 u across, the middle at the front and the tips 2.25 u behind it, thin.
+        assert!(
+            (low.x + 2.4).abs() < 0.01 && (high.x - 2.4).abs() < 0.01,
+            "{low} {high}"
+        );
+        assert!(
+            low.z.abs() < 0.03 && (high.z - 2.25).abs() < 0.01,
+            "{low} {high}"
+        );
+        assert!(high.y < 0.2 && low.y > -0.2, "{low} {high}");
     }
 
     #[test]

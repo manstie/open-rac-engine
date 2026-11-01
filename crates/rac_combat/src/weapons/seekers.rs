@@ -9,7 +9,7 @@ use std::f32::consts::TAU;
 
 use super::{
     GunEventKind, Sustain,
-    aim::{ALL_ROUND, GunTarget, assist_targets, flat, in_sight},
+    aim::{ALL_ROUND, GunTarget, assist_targets, cone_targets, flat, in_sight},
     arsenal::Arsenal,
     def::{AimAssist, Armory, Coil, Disc, Hydra, RocketBlast, Storm, Timing, Volley},
     fire::{Gun, GunInput, Outcome, ball, fire_anim, run_dry, take_shot},
@@ -628,6 +628,14 @@ pub(super) fn volley(
             .shots
             .push(gun.shot(serial, gun.muzzle, along * speed, ShotKind::Rocket(state)));
     }
+    if let (Some(sun), Some(at)) = (fire.sun.filter(|sun| gun.level >= sun.from_level), ahead) {
+        let serial = arsenal.next_serial();
+        let kind = ShotKind::Sun {
+            ticks: sun.after,
+            aim,
+        };
+        arsenal.shots.push(gun.shot(serial, at, Vec3::ZERO, kind));
+    }
 }
 
 /// A RY3NO missile (0x383370; 0x3DB4D0 from V2): after its wait it spirals round the line
@@ -635,12 +643,45 @@ pub(super) fn volley(
 /// takes the damage, and it bursts ([`RocketBlast`]); out of time, or too far from the
 /// hero, it goes with no blast.
 pub(super) fn rocket(shot: &mut Shot, fire: &Volley, flight: &Flight, out: &mut Outcome) -> bool {
+    if let ShotKind::Sun { ticks, aim } = shot.kind {
+        return sun(shot, ticks, aim, fire, flight, out);
+    }
     let ShotKind::Rocket(mut state) = shot.kind else {
         return false;
     };
     let keep = rocket_tick(shot, &mut state, fire, flight, out);
     shot.kind = ShotKind::Rocket(state);
     keep
+}
+
+/// The RYNOCIRATOR's sun ([`super::def::VolleySun`]): it waits, then strikes and goes.
+fn sun(
+    shot: &mut Shot,
+    ticks: u32,
+    aim: Vec3,
+    fire: &Volley,
+    flight: &Flight,
+    out: &mut Outcome,
+) -> bool {
+    let Some(sun) = fire.sun else {
+        return false;
+    };
+    if ticks > 1 {
+        shot.kind = ShotKind::Sun {
+            ticks: ticks - 1,
+            aim,
+        };
+        return true;
+    }
+    let struck = cone_targets(flight.targets, shot.position, aim, &sun.assist, |target| {
+        target.enemy
+    });
+    for index in struck.into_iter().take(sun.most) {
+        let target = &flight.targets[index];
+        out.hits
+            .push(shot.hit(target.entity, shot.damage, Vec3::ZERO));
+    }
+    false
 }
 
 fn rocket_tick(

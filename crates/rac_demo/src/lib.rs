@@ -35,7 +35,7 @@ use rac_sim::{SimSet, SimTick, SimTransform};
 pub use drops::PickupLooks;
 pub use enemy::def::{Bestiary, EnemyKind};
 pub use enemy::{Enemy, EnemyBody, EnemyLooks, EnemyPlugin, EnemyShot, FoeHits, enemy_bundle};
-pub use guns::{ShotModel, ShotModels, ShotSkeleton, demo_arsenal};
+pub use guns::{DemoGunLevel, ShotModel, ShotModels, ShotSkeleton, demo_arsenal};
 pub use hud::{HudLayout, HudPlugin, PlayerHud, spawn_hud};
 pub use level::{
     CRATE_HALF, DUMMY_HEIGHT, DUMMY_RADIUS, EnemySpawn, GAP_WIDTHS, Mover, Piece, Shape, Surface,
@@ -103,6 +103,8 @@ impl Plugin for DemoPlugin {
         app.add_plugins((EnemyPlugin, HudPlugin, fx::FxPlugin, sfx::SfxPlugin))
             .init_resource::<DemoSettings>()
             .init_resource::<ShotModels>()
+            .init_resource::<DemoGunLevel>()
+            .init_resource::<DemoGround>()
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
             .add_systems(
                 FixedUpdate,
@@ -143,12 +145,24 @@ impl Plugin for DemoPlugin {
     }
 }
 
+/// The colour of the demo level's ground, which a review of effects' colours can darken.
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct DemoGround(pub (f32, f32, f32));
+
+impl Default for DemoGround {
+    fn default() -> Self {
+        Self((0.55, 0.57, 0.6))
+    }
+}
+
 /// Spawns the greybox level, its lights and the spectator camera.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_demo(
     settings: Res<DemoSettings>,
     tuning: Res<HeroTuning>,
     armory: Res<Armory>,
+    gun_level: Res<DemoGunLevel>,
+    ground: Res<DemoGround>,
     bestiary: Res<Bestiary>,
     hud: Res<HudLayout>,
     mut commands: Commands,
@@ -168,7 +182,7 @@ pub fn spawn_demo(
         // Neighbouring pieces alternate shades so edges show without textures.
         let shade = if index.is_multiple_of(2) { 1.0 } else { 0.85 };
         let (r, g, b) = match surface {
-            Surface::Ground => (0.55, 0.57, 0.6),
+            Surface::Ground => ground.0,
             Surface::Ledge => (0.85, 0.55, 0.25),
             Surface::WallJump => (0.3, 0.45, 0.8),
             Surface::Moving => (0.9, 0.8, 0.2),
@@ -440,7 +454,7 @@ pub fn spawn_demo(
         Name::new("hero"),
         DemoEntity,
         hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
-        demo_arsenal(&armory),
+        demo_arsenal(&armory, *gun_level),
         Bolts::default(),
         // The rig dresses him in the chosen model.
         RigLook::for_player(0),

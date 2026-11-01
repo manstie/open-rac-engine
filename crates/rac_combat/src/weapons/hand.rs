@@ -102,25 +102,27 @@ pub(super) fn whip(
         let facing = Vec3::new(gun.facing.x, 0.0, gun.facing.z).normalize_or(Vec3::NEG_Z);
         let turn = cut.turns.get(swing as usize).copied().unwrap_or(0.0);
         let along = Quat::from_rotation_y(turn.to_radians()) * facing;
+        let from = hero.position + Vec3::Y * cut.rise + facing * cut.ahead;
         let serial = arsenal.next_serial();
         arsenal.shots.push(gun.shot(
             serial,
-            gun.muzzle,
+            from,
             along * cut.speed,
             ShotKind::Cut { struck: Vec::new() },
         ));
     }
 }
 
-/// The Quantum Whip's cutting wave (0x3D6740): it runs on, and each tick the line across
-/// it strikes what it crosses [each target once: the game strikes each tick].
+/// The Quantum Whip's cutting wave (0x3D6740): it runs on, and each tick the line between
+/// its tips strikes what it crosses [each target once: the game strikes each tick].
 pub(super) fn cut(shot: &mut Shot, fire: &Whip, flight: &Flight, out: &mut Outcome) -> bool {
     let Some(cut) = fire.cut else {
         return false;
     };
     shot.position += shot.velocity * TICK;
     let across = Vec3::Y.cross(shot.velocity).normalize_or(Vec3::X) * cut.width / 2.0;
-    let (a, b) = (shot.position - across, shot.position + across);
+    let middle = shot.position - shot.velocity.normalize_or_zero() * cut.behind;
+    let (a, b) = (middle - across, middle + across);
     let push = shot.velocity * TICK * cut.push;
     let crossed: Vec<Entity> = flight
         .targets

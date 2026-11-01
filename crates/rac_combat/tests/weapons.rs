@@ -1238,6 +1238,28 @@ fn the_ry3no_fires_eight_missiles_a_round_each_at_a_marked_enemy() {
 }
 
 #[test]
+fn the_rynocirators_sun_strikes_what_is_ahead_124_ticks_after_its_volley() {
+    let mut yard = Yard::new(&[(RYNO, 4)]);
+    // Far from the point its missiles go at, so they don't reach either.
+    let ahead = yard.enemy(Vec3::new(0.0, 1.0, -40.0), 100_000.0);
+    let behind = yard.enemy(Vec3::new(0.0, 1.0, 40.0), 100_000.0);
+    yard.hold(&[Action::Fire], 1);
+    assert_eq!(
+        yard.count_shots(|kind| matches!(kind, ShotKind::Sun { .. })),
+        1
+    );
+    yard.idle(110);
+    assert_eq!(yard.hitpoints(ahead), 100_000.0);
+    yard.idle(20);
+    assert!(yard.hitpoints(ahead) < 100_000.0);
+    assert_eq!(yard.hitpoints(behind), 100_000.0);
+    assert_eq!(
+        yard.count_shots(|kind| matches!(kind, ShotKind::Sun { .. })),
+        0
+    );
+}
+
+#[test]
 fn the_sights_name_the_guns_target_and_marks_for_a_hud() {
     let mut yard = Yard::new(&[(N60, 0)]);
     let enemy = yard.enemy(Vec3::new(0.0, 1.0, -8.0), 100.0);
@@ -2025,6 +2047,51 @@ fn the_quantum_whips_swings_send_cutting_waves_that_strike_once_far_past_the_rop
             yard.idle(60);
             assert_eq!(100.0 - yard.hitpoints(far), struck);
         }
+    }
+}
+
+#[test]
+fn the_quantum_whips_cutting_wave_leaves_low_down_a_unit_ahead_of_him() {
+    let mut yard = Yard::new(&[(WHIP, 4)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    let cut = (0..30).find_map(|_| {
+        yard.idle(1);
+        let shots = &yard.arsenal().shots;
+        let cut = shots
+            .iter()
+            .find(|shot| matches!(shot.kind, ShotKind::Cut { .. }));
+        cut.map(|shot| (shot.position, shot.velocity))
+    });
+    let (position, velocity) = cut.expect("a cutting wave");
+    let hero = yard
+        .app
+        .world()
+        .get::<SimTransform>(yard.hero)
+        .unwrap()
+        .translation;
+    // Just out, at 30 u/s along his facing: at most a tick past where it left, and he moves
+    // on in that tick too.
+    assert!(
+        (velocity.z + 30.0).abs() < 1e-3 && velocity.x.abs() < 1e-3,
+        "{velocity}"
+    );
+    assert!(position.x.abs() < 1e-3, "{position}");
+    assert!(
+        (position.y - hero.y - 0.7).abs() < 0.05,
+        "{position} {hero}"
+    );
+    let ahead = hero.z - position.z;
+    assert!((0.9..=1.5).contains(&ahead), "{position} {hero}");
+}
+
+#[test]
+fn the_quantum_whips_cutting_wave_strikes_between_its_tips_and_no_wider() {
+    for (x, struck) in [(0.0, true), (2.6, true), (-2.6, true), (4.0, false)] {
+        let mut yard = Yard::new(&[(WHIP, 4)]);
+        let target = yard.target(Vec3::new(x, 1.0, -14.0), 100.0);
+        yard.tick(&[Action::Fire], &[Action::Fire]);
+        yard.idle(60);
+        assert_eq!(yard.hitpoints(target) < 100.0, struck, "at x {x}");
     }
 }
 

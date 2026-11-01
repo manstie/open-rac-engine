@@ -117,6 +117,21 @@ pub fn assist_targets(
     wanted: impl Fn(&GunTarget) -> bool,
     most: usize,
 ) -> Vec<usize> {
+    cone_targets(targets, from, aim, assist, wanted)
+        .into_iter()
+        .filter(|&index| in_sight(world, from, targets[index].centre))
+        .take(most)
+        .collect()
+}
+
+/// Every target `wanted` in the cone [`assist_targets`] searches, best first, seen or not.
+pub fn cone_targets(
+    targets: &[GunTarget],
+    from: Vec3,
+    aim: Vec3,
+    assist: &AimAssist,
+    wanted: impl Fn(&GunTarget) -> bool,
+) -> Vec<usize> {
     let aim_yaw = yaw_of(aim);
     let aim_pitch = pitch_of(aim);
     let mut scored: Vec<(f32, usize)> = Vec::new();
@@ -144,12 +159,7 @@ pub fn assist_targets(
     }
     // Ties go to the first in the list, as the game's strict comparison keeps it.
     scored.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    scored
-        .into_iter()
-        .map(|(_, index)| index)
-        .filter(|&index| in_sight(world, from, targets[index].centre))
-        .take(most)
-        .collect()
+    scored.into_iter().map(|(_, index)| index).collect()
 }
 
 /// A cone that takes in everything round, for the searches that look all round.

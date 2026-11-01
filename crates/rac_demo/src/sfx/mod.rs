@@ -80,7 +80,7 @@ impl Cue {
             GunEventKind::LevelUp { .. } => Some((Cue::LevelUp, None)),
             GunEventKind::Marked { at } => Some((Cue::Mark, Some(at))),
             GunEventKind::Fizzled { at } => Some((Cue::Fizzle, Some(at))),
-            GunEventKind::Ray { .. } => None,
+            GunEventKind::Ray { .. } | GunEventKind::Sucking { .. } => None,
         }
     }
 

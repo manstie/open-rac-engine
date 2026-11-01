@@ -243,6 +243,7 @@ pub const UYA_GUN_SOUNDS: &[(u16, &[CueSound])] = &[
             gun(Cue::Impact, 0, 6),
             shot(Cue::Empty, 0, 0x183C, 0),
             of("wave", silent(Cue::Impact, 0)),
+            of("cut", silent(Cue::Impact, 0)),
         ],
     ),
     // Suck Cannon (0x3619C8, both classes): the vortex's loop, and what it fires.
@@ -1156,6 +1157,10 @@ mod tests {
         assert_eq!(entry(0x7F, Cue::Impact, 3, None), Some(Entry::Gun(6)));
         assert_eq!(
             entry(0x7F, Cue::Impact, 3, Some("wave")),
+            Some(Entry::Silent)
+        );
+        assert_eq!(
+            entry(0x7F, Cue::Impact, 4, Some("cut")),
             Some(Entry::Silent)
         );
         // A kind with no row of its own takes the gun's.

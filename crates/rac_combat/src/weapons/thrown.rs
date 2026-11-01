@@ -1289,6 +1289,7 @@ pub(super) fn agents(
                 Vec3::ZERO,
                 ShotKind::Agent(AgentState {
                     hover: hovering,
+                    yaw: yaw_of(facing),
                     ..Default::default()
                 }),
             ));
@@ -1309,6 +1310,10 @@ fn slot_place((degrees, out, behind): (f32, f32, f32), hero: Vec3, facing: Vec3)
     let angle = degrees.to_radians();
     hero - facing * behind + (left * ops::cos(angle) + Vec3::Y * ops::sin(angle)) * out
 }
+
+/// How a hovering agent turns, radians a tick (0x445758's arguments in 0x3BD298).
+const HOVER_TURN_ACCEL: f32 = 0.008_726_646;
+const HOVER_TURN_TOP: f32 = std::f32::consts::FRAC_PI_6;
 
 /// An agent's tick by its slot: it springs to the slot, or once the rounds are gone, to the
 /// ground, where it goes on foot.
@@ -1347,6 +1352,16 @@ fn hover_tick(
     let way = goal - shot.position;
     let mut left = way.length();
     let along = way.normalize_or_zero();
+    // It faces its slot while it is any way off it (0x3BD298's state 7); there, it stays
+    // turned as it was.
+    if left >= hover.landed {
+        let off = wrap(yaw_of(flat(way)) - state.yaw);
+        let ease = (2.0 * HOVER_TURN_ACCEL * off.abs()).sqrt();
+        state.turn = (state.turn + HOVER_TURN_ACCEL)
+            .min(HOVER_TURN_TOP)
+            .min(ease);
+        state.yaw = wrap(state.yaw + off.signum() * state.turn.min(off.abs()));
+    }
     let before = left;
     let mut speed = state.speed;
     grab::spring_towards(&mut left, &mut speed, gain / 3600.0, top / 60.0);

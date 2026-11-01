@@ -66,6 +66,9 @@ pub enum GunEventKind {
     Fired { at: Vec3, direction: Vec3 },
     /// One of a hitscan's rays, from the muzzle to where it stopped.
     Ray { from: Vec3, to: Vec3 },
+    /// The Suck Cannon sucked this tick, along `aim` from the muzzle, its vortex cut short
+    /// `reach` from it where it meets the world.
+    Sucking { from: Vec3, aim: Vec3, reach: f32 },
     /// A shot hit something, burst or splashed; where it ended on the world, the
     /// `surface`'s normal there, for what it leaves on it (the Lava Gun's pools). Only
     /// bullets and streams give it so far.

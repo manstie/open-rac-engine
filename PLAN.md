@@ -78,7 +78,9 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. P3.18 and P1.10 have what is left in their tasks.
+1. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
+   next gun to fix (the Tempest's domes).
+   P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
@@ -325,6 +327,7 @@ None at the moment.
 | 2026-10-31 | **Help messages are named by the kit and worded by the app**: the kit asks for one by a key (`rac_combat::pickups::Help`) when the game would, once a world, and the HUD shows it on the game's timing. The demo words them itself; the game's own texts may take their place from the user's disc later, as its sounds and textures do (2026-10-23). |
 | 2026-10-31 | **A gun's muzzle comes from numbers, not from the rig's pose.** The game follows the posed hand, but the kit's rig runs per frame (`Update`), differs with or without a disc, and isn't part of the deterministic simulation that lockstep and rollback need (§4.2), so the simulation doesn't read it. The weapons file carries where the hand is by what he is doing (`Hands`, measured from the game) and each gun's point, within about 0.1 u of the game's standing and 0.3 u walking (`weapons.md`, "The muzzle"). |
 | 2026-10-31 | **DL's guns are chosen on their own, by `--guns dl`, while only some are in.** `--moves dl` keeps UYA's twenty, so a movement test doesn't lose them; once all ten are in and have looks, the guns should follow the game the hero moves like, in the menus too. |
+| 2026-11-01 | **The demo kit keeps Bevy's default tonemapper; playing the original games remastered uses the closest match to the game.** The PS2 has no tone curve and clamps each channel, while Bevy's default pales saturated colours (V5's violet ring shows periwinkle). The match is chosen when real levels run (P3.17), against footage of the game. Tried on the demo level only: `None` is the game's colours but blows out its floor, as the kit's lights aren't calibrated for it; `ReinhardLuminance` keeps the violet and the floor (`effects.md`, "The Quantum Whip's cutting wave"). |
 
 ## 6. Roadmap
 
@@ -806,6 +809,38 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
     double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - Reviewed 2026-11-01: all twenty UYA guns against the game, by gun in `effects.md`
+    ("The twenty guns against the game at V5 and V3"). The numbers match at all eight
+    levels of all twenty (by script against EE memory). Not complete, on the looks at V5:
+    - Fixed from their code since, compared on `--plain-colours --gun-level 5` takes: the
+      Shock Cannon and the Vortex Cannon (now close); the Liquid Nitrogen Gun's stream and
+      nozzle, the Dread blast and the agents' jets, the RYNOCIRATOR's tail, sun and its
+      strike (`VolleySun`), the Infecto-Bomb's V5 looks, and the explosions' dome (class
+      0x70) in every small blast (now partial). Each gun's row in `effects.md` says what is
+      left.
+    - Partial: Splitter Rifle, Tempest, Rift Ripper, Ultrashield, Qwack-O-Blitzer,
+      Megaturret, Tesla Barrier, and the five above.
+    - Close: N90 Hurricane, Nitro Eruptor, Decimator, Multi-Disc, Quantum Whip, Plasma
+      Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon.
+    - The agents looked side-on and near the camera in the kit's take. Logged, the
+      simulation and the drawn rig put them on the game's slots facing his way, as
+      `uyantsc-veldin-agents-v5-hover.p2s` shows the game's; the take's camera lagged his
+      turn by 40°. Their size on screen isn't yet compared at a matching camera.
+    - `--no-tonemapping` blew the default floor out to white; `--plain-colours` uses
+      Reinhard luminance and a sandy floor instead.
+    - Not checked: V1, V2, V4 and V6-V8 on screen; the sounds by ear (those not played are
+      in `effects.md`, "In the kit and the app"). The Shield Charger hangs the game on Veldin
+      at V3 and V5, so its V5 is judged from one frozen frame. Behaviour placeholders are in
+      `weapons.md`, "In the kit".
+    - Not done: the Tempest's violet domes, the Splitter Rifle's ring and trail, the Rift
+      Ripper's lens, the Ultrashield's bubble, the Qwack-O-Blitzer's beam and lit floor, the
+      Tesla Barrier's rim, the N90's one-flame tracer, the Eruptor's rocks; the Shock
+      Cannon's charged lance and screen warp, the Liquid Nitrogen Gun's arc onto the lock-on
+      target, the agents' spawn lightning (their jets are dimmer than the game's); then the
+      sounds not played and the simplified behaviours (`effects.md`, "In the kit and the
+      app"; `weapons.md`, "In the kit").
+    - Next: read the Tempest's V5 draws (the Spitting Hydra's update); its domes are very
+      likely `fx_dome` (0x409A50), which `Swell`'s `Rings` shape already draws (P3.18).
   - Done 2026-10-31: the game's footage of all six (`uyantsc-veldin-fxref.sh` takes
     7–12) compared with the kit's takes for all six (`effects.md`, each gun's
     "Compared with the game"). The Qwack-O-Ray's white haze came from its sparks not
@@ -827,7 +862,17 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Every UYA class texture kept in EE memory (the shots', the whip's links') came out
     scrambled: UYA stores those pixels in rows, only DL in the GS's order. Fixed
     (`Core::gs_ordered`; `disc-layout.md`, "Level textures").
-  - In progress (2026-11-01): the owner's reviews. Done: the Rift Inducer's pull
+  - The Quantum Whip's looks are the game's (`effects.md`, "The Quantum Whip's cutting wave"):
+    its blade is class 0x1CB8 from the disc, rigid and half see-through, with its ribbon,
+    strands and smoke (`rac_demo` `fx/blade.rs`), and V5's rope sparkles and shock wave smoke
+    are read. Without a disc the kit still draws its own blade of light. Compared with the
+    game's takes 14 and 15. Not done: V5's hit sparks (0x357B20 not re-read for V5).
+    - Particles drew a step early: the game steps one before its first draw and frees it
+      on its last step, so a life-2 sparkle shows once at half size. Every gun's particles
+      now do (`Fx::stepped_first`).
+    - The rope's strands sorted by chance, so V5's black band hid its blue strand; they now
+      draw in recipe order under the particles (`strand_material`).
+  - Done 2026-11-01: the Rift Inducer's pull
     silent and its swallow sounded, the Agents of Doom's throw silent, their comet drawn
     without the kit's ball, the whip's crouch throw flying whole (the handle at the
     thrown end lying flat, the links trailing) and spinning at the game's 0.40724 rad a
@@ -1286,7 +1331,9 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Evaluate ReRAC's ISC format crates for reuse with attribution (this was P0.8).
   - Add the R&C1 and GC variants of the formats.
 - [ ] **P3.17** The **remaster** render path (G5), which is the default:
-  - HDR with tonemapping and bloom, dynamic sun shadows and ambient occlusion.
+  - HDR with tonemapping and bloom, dynamic sun shadows and ambient occlusion. The
+    tonemapper is the closest match to the game, chosen against footage, not Bevy's default
+    (§5, 2026-11-01).
   - Longer LOD and draw distances.
   - Anisotropic filtering and MSAA/TAA.
   - Field of view and culling that are correct in widescreen.

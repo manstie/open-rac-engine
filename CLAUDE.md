@@ -149,6 +149,7 @@ Development is native, with no container.
 | `cargo run -- --demo --moves dl` | Chooses the game the hero moves like: `uya` (the default), `dl`, or a profile's RON file. The menus' Moves button does the same and saves the choice. |
 | `cargo run -- --demo --guns dl` | Gives the hero Deadlocked's guns read so far (`docs/research/weapons.md`, "Deadlocked's guns") instead of UYA's. |
 | `cargo run -- --demo --camera lock-strafe` | Chooses the camera: `third-person`, `lock-strafe` or `first-person`; without it, the game's own (UYA third person, DL lock-strafe). The menus' Camera button does the same and saves the choice. |
+| `cargo run -- --demo --gun-level 5` | Gives the hero's guns that level (1–8) at the start; `--plain-colours` adds a sandy floor and a tone mapping that keeps effects' colours, for comparing them with the game's. |
 | `cargo run -- --demo --record-input x.orin`, then `--replay-input x.orin` | Records every tick's input, then replays it. `--settings <file>` keeps test runs out of the real settings file. |
 | `cargo fmt --all` | Formats the code. |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings as errors. |

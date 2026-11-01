@@ -12,7 +12,9 @@
 //!   frame, and are drawn between ticks. Their randomness is their own, never the level's:
 //!   they don't touch the simulation.
 
+mod blade;
 mod charge;
+mod curls;
 mod fan;
 mod funnel;
 mod light;
@@ -27,6 +29,9 @@ mod rope;
 mod shake;
 mod shell;
 mod sweep;
+mod swell;
+mod tail;
+mod vortex;
 
 use std::collections::BTreeMap;
 
@@ -43,7 +48,9 @@ use rac_hero::{CollisionScene, CollisionWorld, Hero};
 use rac_sim::SimTransform;
 use serde::Deserialize;
 
+pub use blade::Blade;
 pub use charge::{Charge, Crackle, Reach};
+pub use curls::Curls;
 pub use fan::Fan;
 pub use funnel::{Funnel, SpiralStrip, Spirals};
 pub use light::ShotLight;
@@ -58,6 +65,9 @@ pub use rope::{AlongRope, Strand};
 pub use shake::{CameraShake, Shaking};
 pub use shell::{Arcs, Dome, Rim, Shell, Trails};
 pub use sweep::Sweep;
+pub use swell::{Swell, SwellAxis, SwellShape, Track};
+pub use tail::Tail;
+pub use vortex::Vortex;
 
 use crate::DemoEntity;
 
@@ -161,6 +171,10 @@ pub enum Emit {
         delay: u32,
         #[serde(default)]
         nearer: f32,
+        /// Drawn 1 u from the camera on its way to the point, in front of everything, as the
+        /// Shock Cannon's flash on the lens (0x387BF0).
+        #[serde(default)]
+        lens: bool,
         #[serde(default)]
         flash: bool,
         #[serde(default)]
@@ -260,6 +274,10 @@ pub enum Emit {
         end_alpha: f32,
         #[serde(default)]
         blend: Blend,
+        /// Growing and fading as the explosions' dome does, over `ticks`, instead of by
+        /// `grow` and `end_alpha`, turned any way at first.
+        #[serde(default)]
+        dome: bool,
     },
     /// A point light of `colour` reaching `radius`, `ahead` along the shot's way and
     /// `above`, for `ticks`: climbing from nothing by `rise` a tick to its colour if
@@ -294,6 +312,10 @@ pub enum Emit {
         #[serde(default)]
         beyond: Option<f32>,
     },
+    /// A mesh of revolution growing and fading on tracks ([`Swell`]).
+    Swell(Swell),
+    /// Rays curling round a point ([`Curls`]).
+    Curls(Curls),
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
 }
@@ -315,6 +337,8 @@ impl Emit {
             Emit::Flash { texture, .. }
             | Emit::Glow { texture, .. }
             | Emit::Burst { texture, .. } => Some(*texture),
+            Emit::Swell(swell) => Some(swell.texture),
+            Emit::Curls(curls) => Some(curls.texture),
             Emit::Screen { .. }
             | Emit::Model { .. }
             | Emit::Light { .. }
@@ -490,6 +514,12 @@ pub struct Trail {
     pub flash: bool,
     #[serde(default)]
     pub blend: Blend,
+    /// Laid this far above the shot's place.
+    #[serde(default)]
+    pub above: f32,
+    /// Laid only while an agent hovers on its jets (0x3C1D38).
+    #[serde(default)]
+    pub hovering: bool,
 }
 
 impl Trail {
@@ -558,12 +588,18 @@ pub struct GunFx {
     /// The funnel a gun's rays are drawn as, as the Qwack-O-Ray's.
     #[serde(default)]
     pub funnel: Option<Funnel>,
+    /// The vortex shown while a gun sucks, as the Suck Cannon's.
+    #[serde(default)]
+    pub vortex: Option<Vortex>,
     /// The mark where a thrown shot would land.
     #[serde(default)]
     pub marker: Option<Marker>,
     /// Flat ribbons through where each shot has been, as the Disc Blade's.
     #[serde(default)]
     pub sweep: Option<Vec<Sweep>>,
+    /// A tail each shot drags behind it, as the RY3NO's missiles'.
+    #[serde(default)]
+    pub tail: Option<Vec<Tail>>,
     /// Strands from a shot of the kind to each of its ends, as the Spitting Hydra's spit.
     #[serde(default)]
     pub fan: Option<Fan>,
@@ -576,6 +612,9 @@ pub struct GunFx {
     /// Particles laid along the Plasma Whip's rope each tick.
     #[serde(default)]
     pub along_rope: Option<Vec<AlongRope>>,
+    /// What shows on a shot's blade, as the Quantum Whip's cutting wave.
+    #[serde(default)]
+    pub blade: Option<blade::Blade>,
     #[serde(default)]
     pub impact: Option<Vec<Emit>>,
     /// What a shot leaves on the world where it ends there, as the Lava Gun's pools.
@@ -771,8 +810,17 @@ impl FxRecipes {
         self.own(key, level, None, |fx| fx.funnel.as_ref())
     }
 
+    pub fn vortex(&self, key: &str, level: u8) -> Option<&Vortex> {
+        self.own(key, level, None, |fx| fx.vortex.as_ref())
+    }
+
     pub fn marker(&self, key: &str, level: u8) -> Option<&Marker> {
         self.own(key, level, None, |fx| fx.marker.as_ref())
+    }
+
+    pub fn tail(&self, key: &str, level: u8, shot: Option<&str>) -> &[Tail] {
+        self.own(key, level, shot, |fx| fx.tail.as_deref())
+            .unwrap_or(&[])
     }
 
     pub fn sweep(&self, key: &str, level: u8, shot: Option<&str>) -> &[Sweep] {
@@ -802,6 +850,13 @@ impl FxRecipes {
             .unwrap_or(&[])
     }
 
+    /// A shot's blade, only ever from its own kind's entry: the gun's own would give every
+    /// shot it fires one.
+    pub fn blade(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&blade::Blade> {
+        let fx = self.guns.get(key)?.shots.get(shot?)?;
+        fx.at(level, |fx| fx.blade.as_ref())
+    }
+
     /// `emits` with each [`Emit::Set`] in it replaced by its set's emits (sets don't nest).
     pub fn expand<'a>(&'a self, emits: &'a [Emit]) -> impl Iterator<Item = &'a Emit> {
         emits.iter().flat_map(move |emit| match emit {
@@ -819,6 +874,7 @@ impl FxRecipes {
             textures.extend(fx.streak.as_ref().map(|streak| streak.texture));
             textures.extend(fx.ribbon.iter().flatten().map(|ribbon| ribbon.texture));
             textures.extend(fx.sweep.iter().flatten().map(|sweep| sweep.texture));
+            textures.extend(fx.tail.iter().flatten().map(|tail| tail.texture));
             let fans = fx.fan.iter().flat_map(|fan| &fan.strands);
             let charges = fx.charge.iter();
             let crackles = charges.clone().flat_map(|charge| &charge.crackles);
@@ -836,6 +892,11 @@ impl FxRecipes {
             textures.extend(fx.glare.iter().chain(glares).map(|glare| glare.texture));
             let along = fx.along_rope.iter().flatten();
             textures.extend(along.filter_map(|along| along.emit.texture()));
+            if let Some(blade) = &fx.blade {
+                textures.extend(blade.strands.iter().map(|strand| strand.texture));
+                let along = blade.along.iter();
+                textures.extend(along.filter_map(|along| along.emit.texture()));
+            }
             textures.extend(fx.mark.iter().flat_map(Mark::textures));
             let shells = fx.shell.iter();
             for shell in shells {
@@ -855,6 +916,9 @@ impl FxRecipes {
             let open_trails = open.flat_map(|open| &open.trail);
             let trails = fx.trail.iter().flatten().chain(open_trails);
             textures.extend(trails.flat_map(|trail| trail.textures.iter().copied()));
+            if let Some(vortex) = &fx.vortex {
+                textures.extend(vortex.textures());
+            }
             if let Some(funnel) = &fx.funnel {
                 textures.extend(funnel.textures());
                 textures.extend(funnel.emits().filter_map(Emit::texture));
@@ -880,10 +944,13 @@ impl FxRecipes {
         textures
     }
 
-    /// Every texture the recipes scroll, whose images must repeat: a funnel's and an open
-    /// shot's rays'.
+    /// Every texture the recipes scroll, whose images must repeat: a funnel's, a vortex's and
+    /// an open shot's rays'.
     pub fn scrolled(&self) -> Vec<Tex> {
         fn gun(fx: &GunFx, textures: &mut Vec<Tex>) {
+            if let Some(vortex) = &fx.vortex {
+                textures.push(vortex.tube);
+            }
             if let Some(funnel) = &fx.funnel {
                 textures.extend(funnel.textures());
             }
@@ -975,6 +1042,17 @@ impl Fx {
             let t = self.ticks_left as f32 / (self.total - 6) as f32;
             (self.end.lerp(half, t), self.alpha * 0.5 * t)
         }
+    }
+
+    /// A particle of the game's pool starts a step on: its update runs after the mobys that
+    /// make them and before they are drawn (0x4B5368), and frees one on the step that
+    /// takes its life to nothing (0x40BAC0), so one of life L shows for L − 1 frames, none
+    /// of them at its start size.
+    fn stepped_first(mut self, texture: Tex) -> Self {
+        if matches!(texture, Tex::Particle(..)) {
+            self.ticks_left -= 1;
+        }
+        self
     }
 
     /// One that stays where it is put.
@@ -1092,6 +1170,7 @@ impl Plugin for FxPlugin {
             .init_resource::<TrailFrom>()
             .init_resource::<ribbon::Ribbons>()
             .init_resource::<sweep::Sweeps>()
+            .init_resource::<tail::Tails>()
             .init_resource::<rope::Strands>()
             .init_resource::<fan::Fans>()
             .init_resource::<charge::Charges>()
@@ -1102,6 +1181,8 @@ impl Plugin for FxPlugin {
             .init_resource::<light::ShotLights>()
             .init_resource::<shell::Shells>()
             .init_resource::<funnel::Funnels>()
+            .init_resource::<vortex::Vortices>()
+            .init_resource::<blade::BladeStrands>()
             .init_resource::<open::ShownRays>()
             .init_resource::<marker::Markers>()
             .add_systems(Startup, paint_placeholders)
@@ -1110,14 +1191,18 @@ impl Plugin for FxPlugin {
                 (
                     emit_gun_fx,
                     funnel::draw_funnels,
+                    vortex::draw_vortices,
                     open::step_open_rays,
                     marker::draw_markers,
                     emit_crate_blasts,
                     emit_trails,
                     rope::emit_along_ropes,
+                    blade::emit_along_blades,
                     charge::emit_charges,
                     step_fx,
                     model::step_models,
+                    swell::step_swells,
+                    curls::step_curls,
                     mark::step_marks,
                     light::step_lights,
                     light::ride_shots,
@@ -1133,6 +1218,8 @@ impl Plugin for FxPlugin {
                 (
                     ribbon::draw_ribbons,
                     sweep::draw_sweeps,
+                    tail::draw_tails,
+                    blade::draw_blades,
                     panel::draw_panels,
                     fan::draw_fans,
                     charge::draw_charges,
@@ -1336,7 +1423,7 @@ impl Spawner<'_, '_, '_> {
                 self.material(texture, colour, trail.blend),
             )
         };
-        self.spawn(at, billboard, fx, "trail");
+        self.spawn(at, billboard, fx.stepped_first(texture), "trail");
     }
 
     /// One of `glare`'s rays round `at`, the sprite laid along it from its head out.
@@ -1428,6 +1515,7 @@ impl Spawner<'_, '_, '_> {
                 ahead,
                 delay,
                 nearer,
+                lens,
                 flash,
                 blend,
             } => {
@@ -1436,7 +1524,11 @@ impl Spawner<'_, '_, '_> {
                     axis: None,
                     roll: rng.roll(roll),
                 };
-                let at = at + (eye - at).normalize_or_zero() * nearer;
+                let at = if lens {
+                    eye + (at - eye).normalize_or_zero()
+                } else {
+                    at + (eye - at).normalize_or_zero() * nearer
+                };
                 let across = texture.across();
                 let fx = Fx {
                     velocity: way.map_or(Vec3::ZERO, Vec3::normalize_or_zero) * ahead,
@@ -1452,7 +1544,7 @@ impl Spawner<'_, '_, '_> {
                         material,
                     )
                 };
-                self.spawn(at, billboard, fx, "glow");
+                self.spawn(at, billboard, fx.stepped_first(texture), "glow");
             }
             Emit::Burst {
                 texture,
@@ -1556,7 +1648,7 @@ impl Spawner<'_, '_, '_> {
                             self.material(texture, colour, blend),
                         )
                     };
-                    self.spawn(from, billboard, fx, "particle");
+                    self.spawn(from, billboard, fx.stepped_first(texture), "particle");
                 }
             }
             Emit::Screen {
@@ -1595,16 +1687,27 @@ impl Spawner<'_, '_, '_> {
                 colour,
                 end_alpha,
                 blend,
+                dome,
             } => {
                 let parts = self.models.0.get(&class).map_or_else(
                     || vec![(self.crown.clone(), None)],
                     |model| model.parts.clone(),
                 );
+                let size = rng.between(scale);
+                let total = ticks.max(1);
+                let (dome, ticks_left, turned, size_now) = if dome {
+                    let mut turn = || rng.between((-180.0, 180.0)).to_radians();
+                    let turned = Quat::from_euler(EulerRot::XYZ, turn(), turn(), turn());
+                    let left = model::dome_start(total);
+                    let now = size * model::dome_share(total, left);
+                    (Some(model::Dome { scale: size }), left, turned, now)
+                } else {
+                    let turned = Quat::from_rotation_y(rng.between((0.0, 360.0)).to_radians());
+                    (None, total, turned, size)
+                };
                 let place = Transform::from_translation(at)
-                    .with_rotation(Quat::from_rotation_y(
-                        rng.between((0.0, 360.0)).to_radians(),
-                    ))
-                    .with_scale(Vec3::splat(rng.between(scale)));
+                    .with_rotation(turned)
+                    .with_scale(Vec3::splat(size_now));
                 for (mesh, image) in parts {
                     let [r, g, b, a] = colour;
                     let material = self.materials.add(StandardMaterial {
@@ -1624,15 +1727,43 @@ impl Spawner<'_, '_, '_> {
                         NotShadowCaster,
                         place,
                         model::Grows {
-                            ticks_left: ticks.max(1),
-                            total: ticks.max(1),
+                            ticks_left,
+                            total,
                             grow,
                             alpha: a,
                             end_alpha,
                             material,
+                            dome,
                         },
                     ));
                 }
+            }
+            Emit::Curls(ref curling) => {
+                let image = self.images.0.get(&curling.texture).cloned();
+                curls::spawn(
+                    &mut self.commands,
+                    self.meshes,
+                    self.materials,
+                    image,
+                    curling,
+                    at,
+                    way,
+                    eye,
+                    rng,
+                );
+            }
+            Emit::Swell(ref shape) => {
+                let image = self.images.0.get(&shape.texture).cloned();
+                swell::spawn(
+                    &mut self.commands,
+                    self.meshes,
+                    self.materials,
+                    image,
+                    shape,
+                    at,
+                    way,
+                    eye,
+                );
             }
             Emit::Light {
                 radius,
@@ -1803,6 +1934,7 @@ fn emit_gun_fx(
                     spawner.emit(emit, at, None, eye, &mut rng);
                 }
             }
+            GunEventKind::Sucking { .. } => {}
             GunEventKind::Ray { from, to } => {
                 spawner.beams(recipes.ray(key, level, shot), from, to, &mut rng);
                 for emit in recipes.expand(recipes.ray_end(key, level, shot)) {
@@ -1869,12 +2001,15 @@ fn emit_trails(
             spawner.beams(wake, last, shot.position, &mut rng);
             let path = shot.position - last;
             for trail in trails {
-                if trail.until.is_some_and(|until| shot.ticks >= until) {
+                if trail.until.is_some_and(|until| shot.ticks >= until)
+                    || (trail.hovering && !crate::guns::hovering(&shot.kind))
+                {
                     continue;
                 }
                 let count = trail.count(path.length(), rng.unit());
                 for index in 0..count {
-                    let at = last + path * (index + 1) as f32 / count as f32;
+                    let at =
+                        last + path * (index + 1) as f32 / count as f32 + Vec3::Y * trail.above;
                     spawner.trail(trail, at, path, 1.0, &mut rng);
                 }
             }
@@ -1898,8 +2033,8 @@ fn step_fx(
 ) {
     const TICK: f32 = 1.0 / 60.0;
     for (entity, mut fx, mut billboard, mut place, mut transform) in &mut fx {
-        // Drawn first as it is at its age, as the game draws a particle the frame it is
-        // made: one of `ticks` ticks shows for that many.
+        // Drawn first as it is at its age: one of `ticks` ticks shows for that many, but for
+        // the game's particles ([`Fx::stepped_first`]).
         if fx.wait > 0 {
             fx.wait -= 1;
             continue;
@@ -1997,6 +2132,24 @@ mod tests {
         fx.flashes = false;
         fx.ticks_left = 67;
         assert!(fx.look().1 > 0.9);
+    }
+
+    #[test]
+    fn the_games_particles_show_a_step_on_from_their_start_and_a_tick_fewer() {
+        let fx = |ticks, texture| {
+            let material = Handle::default();
+            Fx::still(ticks, Vec2::ONE, Vec2::ZERO, 1.0, material).stepped_first(texture)
+        };
+        // Life 2: once, at half. Life 1 is never drawn.
+        let particle = fx(2, Tex::Particle(0x35, 0));
+        assert_eq!(
+            (particle.ticks_left, particle.look().0),
+            (1, Vec2::splat(0.5))
+        );
+        assert_eq!(fx(1, Tex::Particle(0x35, 0)).ticks_left, 0);
+        // What the game draws itself, in an effect's texture, shows whole for its ticks.
+        let sprite = fx(1, Tex::Effect(49));
+        assert_eq!((sprite.ticks_left, sprite.look().0), (1, Vec2::ONE));
     }
 
     #[test]
@@ -2334,6 +2487,30 @@ mod tests {
         };
         assert_eq!(rings(recipes.impact("infector", 0, Some("blob"))), 1);
         assert_eq!(rings(recipes.impact("whip", 3, Some("wave"))), 1);
+        // V5's ring is violet, and it throws up black and violet smoke as well.
+        let colour = |level| {
+            recipes
+                .impact("whip", level, Some("wave"))
+                .iter()
+                .find_map(|emit| match emit {
+                    Emit::Model { colour, .. } => Some(*colour),
+                    _ => None,
+                })
+        };
+        assert_eq!(colour(3), Some([0.125, 0.125, 1.992, 1.0]));
+        assert_eq!(colour(4), Some([0.5, 0.125, 1.992, 1.0]));
+        let smokes = |level| {
+            recipes
+                .expand(recipes.impact("whip", level, Some("wave")))
+                .filter(|emit| {
+                    matches!(
+                        emit,
+                        Emit::Burst { texture: Tex::Particle(0x35, 0), gravity, .. } if *gravity == 15.6
+                    )
+                })
+                .count()
+        };
+        assert_eq!((smokes(3), smokes(4)), (0, 2));
         // The rope's own hit is its sparks, not the wave's blast.
         let whip = recipes.impact("whip", 3, None);
         assert_eq!(rings(whip), 0);

@@ -22,14 +22,21 @@ use rac_sim::SimTransform;
 use crate::DemoEntity;
 use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes, FxRng, ShotLayer, ShotStreak};
 
-/// The level the demo gives every gun: V3, where most have lock-on.
-const DEMO_LEVEL: u8 = 2;
+/// The level the demo gives every gun, by default V3, where most have lock-on.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DemoGunLevel(pub u8);
 
-/// Every gun of the armory at V3, with the first one brought out by the fire button.
-pub fn demo_arsenal(armory: &Armory) -> Arsenal {
+impl Default for DemoGunLevel {
+    fn default() -> Self {
+        Self(2)
+    }
+}
+
+/// Every gun of the armory at `level`, with the first one brought out by the fire button.
+pub fn demo_arsenal(armory: &Armory, level: DemoGunLevel) -> Arsenal {
     let mut arsenal = Arsenal::default();
     for index in 0..armory.weapons.len() {
-        arsenal.give_at(rac_combat::WeaponId(index), DEMO_LEVEL, armory);
+        arsenal.give_at(rac_combat::WeaponId(index), level.0, armory);
     }
     arsenal
 }
@@ -192,7 +199,12 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
             ..ball(0.0, &looks.charge)
         },
         ShotKind::Comet { .. } => ball(0.2, &looks.charge),
-        ShotKind::Wave => ball(0.5, &looks.arc),
+        // Class 0x1890 has no model: the game shows only what it leaves on the ground. The
+        // RYNOCIRATOR's sun is drawn by its gun's effects.
+        ShotKind::Wave | ShotKind::Sun { .. } => Look {
+            scale: Vec3::ZERO,
+            ..ball(0.0, &looks.arc)
+        },
         ShotKind::Pulse { .. } => ball(0.2, &looks.holo),
         ShotKind::Duck(_) => ball(0.35, &looks.duck),
         ShotKind::Egg { .. } => ball(0.12, &looks.egg),
@@ -252,6 +264,11 @@ pub(crate) struct Facing {
     /// It tumbles by this much a tick instead of facing a way (a Bouncer's canister and
     /// its bomblets, 0x31D0B0, 0x31E488).
     tumble: Option<Quat>,
+}
+
+/// An agent hovering on its jets.
+pub(crate) fn hovering(kind: &ShotKind) -> bool {
+    matches!(kind, ShotKind::Agent(state) if state.hover.is_some())
 }
 
 /// The way a shot of a game's model faces, if it has one now.
@@ -398,6 +415,7 @@ pub(crate) fn show_shots(
                     let mut part = commands.spawn((
                         Mesh3d(mesh.clone()),
                         MeshMaterial3d(material.clone()),
+                        NotShadowCaster,
                         Transform::default(),
                     ));
                     match &skin {
