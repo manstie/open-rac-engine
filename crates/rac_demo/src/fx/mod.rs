@@ -565,8 +565,9 @@ pub struct GunFx {
     pub fire: Option<Vec<Emit>>,
     #[serde(default)]
     pub shot: Option<Vec<ShotSprite>>,
+    /// At most one, so a level can leave it out with none.
     #[serde(default)]
-    pub streak: Option<Streak>,
+    pub streak: Option<Vec<Streak>>,
     #[serde(default)]
     pub trail: Option<Vec<Trail>>,
     /// Rays round each shot of the kind each tick, as the Spitting Hydra's spit's glare.
@@ -629,6 +630,9 @@ pub struct GunFx {
     /// What shows where a shot glances off something and flies on.
     #[serde(default)]
     pub bounce: Option<Vec<Emit>>,
+    /// What shows besides at a bullet's first glance, as the N90's explosion (0x384338).
+    #[serde(default)]
+    pub first_bounce: Option<Vec<Emit>>,
     #[serde(default)]
     pub ray: Option<Vec<Beam>>,
     /// What shows where each of a hitscan's rays stops.
@@ -747,6 +751,11 @@ impl FxRecipes {
             .unwrap_or(&[])
     }
 
+    pub fn first_bounce(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
+        self.part(key, level, shot, |fx| fx.first_bounce.as_deref())
+            .unwrap_or(&[])
+    }
+
     pub fn arc(&self, key: &str, level: u8, shot: Option<&str>) -> &[Beam] {
         self.part(key, level, shot, |fx| fx.arc.as_deref())
             .unwrap_or(&[])
@@ -774,7 +783,8 @@ impl FxRecipes {
     }
 
     pub fn streak(&self, key: &str, level: u8, shot: Option<&str>) -> Option<&Streak> {
-        self.own(key, level, shot, |fx| fx.streak.as_ref())
+        self.own(key, level, shot, |fx| fx.streak.as_deref())
+            .and_then(<[Streak]>::first)
     }
 
     pub fn trail(&self, key: &str, level: u8, shot: Option<&str>) -> &[Trail] {
@@ -871,7 +881,7 @@ impl FxRecipes {
             let beams = fx.ray.iter().chain(&fx.wake).chain(&fx.arc).flatten();
             textures.extend(beams.map(|beam| beam.texture));
             textures.extend(fx.shot.iter().flatten().map(|shot| shot.texture));
-            textures.extend(fx.streak.as_ref().map(|streak| streak.texture));
+            textures.extend(fx.streak.iter().flatten().map(|streak| streak.texture));
             textures.extend(fx.ribbon.iter().flatten().map(|ribbon| ribbon.texture));
             textures.extend(fx.sweep.iter().flatten().map(|sweep| sweep.texture));
             textures.extend(fx.tail.iter().flatten().map(|tail| tail.texture));
@@ -925,7 +935,8 @@ impl FxRecipes {
             }
             textures.extend(fx.marker.iter().flat_map(|marker| marker.layers));
             let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
-            for emits in emits.chain(&fx.ray_end).chain(&fx.arc_end) {
+            let emits = emits.chain(&fx.first_bounce).chain(&fx.ray_end);
+            for emits in emits.chain(&fx.arc_end) {
                 textures.extend(emits.iter().filter_map(Emit::texture));
             }
             for fx in fx.from_level.values().chain(fx.shots.values()) {
@@ -1929,8 +1940,14 @@ fn emit_gun_fx(
                     spawner.mark(mark, key, at, normal, &mut rng);
                 }
             }
-            GunEventKind::Bounce { at } => {
-                for emit in recipes.expand(recipes.bounce(key, level, shot)) {
+            GunEventKind::Bounce { at, first } => {
+                let more = if first {
+                    recipes.first_bounce(key, level, shot)
+                } else {
+                    &[]
+                };
+                let emits = recipes.expand(recipes.bounce(key, level, shot));
+                for emit in emits.chain(recipes.expand(more)) {
                     spawner.emit(emit, at, None, eye, &mut rng);
                 }
             }
@@ -2340,6 +2357,12 @@ mod tests {
             recipes.bounce("disc", 2, disc)
         );
         assert!(recipes.bounce("n60", 0, None).is_empty());
+        // From V2 its bullets glance off walls in embers and end on a target unseen; the
+        // N90's first glance adds its explosion.
+        assert!(!recipes.bounce("n60", 1, None).is_empty());
+        assert!(recipes.impact("n60", 1, None).is_empty());
+        assert!(recipes.first_bounce("n60", 3, None).is_empty());
+        assert!(!recipes.first_bounce("n60", 4, None).is_empty());
         for (name, emits) in &recipes.sets {
             assert!(
                 !emits.iter().any(|emit| matches!(emit, Emit::Set(_))),
@@ -2348,7 +2371,7 @@ mod tests {
         }
         fn named(fx: &GunFx, recipes: &FxRecipes) {
             let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
-            let emits = emits.chain(&fx.ray_end);
+            let emits = emits.chain(&fx.first_bounce).chain(&fx.ray_end);
             let along = fx.along_rope.iter().flatten().map(|along| &along.emit);
             for emit in emits.chain(&fx.arc_end).flatten().chain(along) {
                 if let Emit::Set(name) = emit {

@@ -1222,6 +1222,13 @@ pub struct Hydra {
     pub spit_range: f32,
     pub spit_push: f32,
     pub spit_blast: ByLevel<f32>,
+    /// As it spits, a bolt (lasting `bolt_ticks`, the bolt's share of the damage as it
+    /// strikes) at the best target `spit_bolt` finds round his aim, the lock-on target
+    /// first; with none, at a point `spit_bolt_ahead` along his aim and `spit_bolt_up` above
+    /// his feet, striking nothing.
+    pub spit_bolt: AimAssist,
+    pub spit_bolt_ahead: f32,
+    pub spit_bolt_up: f32,
 }
 
 /// The Rift Inducer (0x372990, rift 0x373990).

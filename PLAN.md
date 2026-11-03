@@ -82,7 +82,8 @@ session is working on the task now; notes on problems met stay with their task (
 
 **Next actions, in order:**
 1. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Tempest's domes).
+   next gun to fix (the Qwack-O-Blitzer's beam and lit floor; the Rift Ripper's lens and
+   the Ultrashield's bubble wait on a refraction pass).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -831,12 +832,27 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       Shock Cannon and the Vortex Cannon (now close); the Liquid Nitrogen Gun's stream and
       nozzle, the Dread blast and the agents' jets, the RYNOCIRATOR's tail, sun and its
       strike (`VolleySun`), the Infecto-Bomb's V5 looks, and the explosions' dome (class
-      0x70) in every small blast (now partial). Each gun's row in `effects.md` says what is
-      left.
-    - Partial: Splitter Rifle, Tempest, Rift Ripper, Ultrashield, Qwack-O-Blitzer,
+      0x70) in every small blast (now partial); the Tempest (now close: its "domes" were
+      the spit's rings of 61, already drawn, and its gold ground bolt the charge's crackles
+      added on sand; the rings now show on a spit alone, and each spit throws its bolt);
+      the Splitter Rifle (now close: V4's looks but for its trail's dark puffs, texture 9,
+      and its landing's explosion at S 0.5, with the pieces' domes from V4, 0x447D00);
+      the N90 Hurricane (close: V5's own bullet, its tracer one long flame through its
+      last 20 places, 0x384F58, and its landings' bursts, glares, sparkle and explosion,
+      0x385220, the first glance's told by the kit's `Bounce` event; the N60's embers
+      from V2 now show on a glance, not on a target hit). Each gun's row in `effects.md`
+      says what is left.
+    - Partial: Rift Ripper, Ultrashield, Qwack-O-Blitzer,
       Megaturret, Tesla Barrier, and the five above.
     - Close: N90 Hurricane, Nitro Eruptor, Decimator, Multi-Disc, Quantum Whip, Plasma
-      Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon.
+      Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon, Tempest, Splitter Rifle.
+    - The kit adds effects' colours in linear light, the GS in gamma: a layer at alpha a
+      is about 1/a^1.2 too bright over black (6.7× for the Hydra's glows) and too pale over
+      a bright floor. Open, for the owner: matching it means adding effects in gamma space
+      (`effects.md`, "Importing them", "Colours").
+    - At V5 the game's bolt code misses the Tempest's class (0x1B4F), so its bolts strike
+      with the Shield Charger's damage (`weapons.md`, "At V5 the class test misses"). The
+      kit keeps half the gun's; whether to copy the quirk is open.
     - The agents looked side-on and near the camera in the kit's take. Logged, the
       simulation and the drawn rig put them on the game's slots facing his way, as
       `uyantsc-veldin-agents-v5-hover.p2s` shows the game's; the take's camera lagged his
@@ -847,15 +863,20 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       in `effects.md`, "In the kit and the app"). The Shield Charger hangs the game on Veldin
       at V3 and V5, so its V5 is judged from one frozen frame. Behaviour placeholders are in
       `weapons.md`, "In the kit".
-    - Not done: the Tempest's violet domes, the Splitter Rifle's ring and trail, the Rift
-      Ripper's lens, the Ultrashield's bubble, the Qwack-O-Blitzer's beam and lit floor, the
-      Tesla Barrier's rim, the N90's one-flame tracer, the Eruptor's rocks; the Shock
-      Cannon's charged lance and screen warp, the Liquid Nitrogen Gun's arc onto the lock-on
-      target, the agents' spawn lightning (their jets are dimmer than the game's); then the
-      sounds not played and the simplified behaviours (`effects.md`, "In the kit and the
-      app"; `weapons.md`, "In the kit").
-    - Next: read the Tempest's V5 draws (the Spitting Hydra's update); its domes are very
-      likely `fx_dome` (0x409A50), which `Swell`'s `Rings` shape already draws (P3.18).
+    - Not done: the Rift Ripper's lens, the Ultrashield's bubble, the Qwack-O-Blitzer's
+      beam and lit floor, the Tesla Barrier's rim, the Eruptor's rocks; the Shock Cannon's
+      charged lance and screen warp, the Liquid Nitrogen Gun's arc onto the lock-on target,
+      the agents' spawn lightning (their jets are dimmer than the game's); then the sounds
+      not played and the simplified behaviours (`effects.md`, "In the kit and the app";
+      `weapons.md`, "In the kit").
+    - The Rift Ripper's lens is read (`effects.md`, "The lens"): it copies the frame,
+      magnified about the rift as it fills, into an ellipse. The kit has no copy of the
+      frame to draw from, and how full the rift is (+0x80) isn't read. Next: read what
+      fills +0x80, then a refraction pass (Bevy's screen-space transmission, say), which
+      the Ultrashield's bubble wants too.
+    - The N90's bullet model (0x1881, at 18 times its class's scale) drew as a solid
+      yellow ball 1.5 u across that the game's take doesn't show; it's left out until
+      its blend is read (`shot_models.rs`).
   - Done 2026-10-31: the game's footage of all six (`uyantsc-veldin-fxref.sh` takes
     7–12) compared with the kit's takes for all six (`effects.md`, each gun's
     "Compared with the game"). The Qwack-O-Ray's white haze came from its sparks not

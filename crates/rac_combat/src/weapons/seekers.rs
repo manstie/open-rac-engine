@@ -3,6 +3,7 @@
 
 use bevy::math::ops;
 use bevy::prelude::*;
+use rac_hero::CameraSetting;
 use rac_input::Action;
 use rac_sim::SimRng;
 use std::f32::consts::TAU;
@@ -437,7 +438,8 @@ fn disc_tick(
         let push = shot.velocity * TICK * fire.push;
         out.hits.push(shot.hit(entity, shot.damage, push));
         if through {
-            out.shot_event(shot, GunEventKind::Bounce { at: shot.position });
+            let at = shot.position;
+            out.shot_event(shot, GunEventKind::Bounce { at, first: false });
             last = Some(entity);
             target = None;
             if let Some(split) = split
@@ -492,7 +494,8 @@ fn disc_tick(
         Some(hit) => {
             shot.position += motion * hit.fraction + hit.normal * BOUNCE_GAP;
             shot.velocity = shot.velocity.reflect(hit.normal);
-            out.shot_event(shot, GunEventKind::Bounce { at: shot.position });
+            let at = shot.position;
+            out.shot_event(shot, GunEventKind::Bounce { at, first: false });
             if retargets {
                 send_on(shot, &mut target, fire, flight, book, speed, last);
             }
@@ -842,7 +845,8 @@ pub(super) fn hydra(
                     gun.muzzle,
                     Vec3::ZERO,
                     ShotKind::Bolt {
-                        target: struck.entity,
+                        target: Some(struck.entity),
+                        to: struck.centre,
                         left: fire.bolt_ticks,
                         push: fire.push,
                     },
@@ -851,7 +855,7 @@ pub(super) fn hydra(
         }
         return;
     }
-    if !take_shot(arsenal, armory, gun, out) {
+    if !arsenal.use_ammo(gun.weapon, 1, armory) {
         return;
     }
     arsenal.trigger.cooldown = busy;
@@ -868,7 +872,7 @@ pub(super) fn hydra(
         })
         .collect();
     let serial = arsenal.next_serial();
-    arsenal.shots.push(gun.shot(
+    let shot = gun.shot(
         serial,
         gun.muzzle,
         Vec3::ZERO,
@@ -876,7 +880,54 @@ pub(super) fn hydra(
             life: fire.spit_ticks.at(gun.level).unwrap_or(0),
             ends,
         },
-    ));
+    );
+    // Fired as the spit, whose rings a release at marks doesn't show (0x321E98).
+    arsenal.fire_ticks = gun.def.fire_ticks;
+    out.shot_event(
+        &shot,
+        GunEventKind::Fired {
+            at: gun.muzzle,
+            direction: gun.facing,
+        },
+    );
+    arsenal.shots.push(shot);
+
+    // And its bolt (0x34DAA0 at `gun_assist`'s pick, 0x44D930): no pick in the
+    // lock-strafe camera without a lock.
+    let lock_strafe = gun_input
+        .view
+        .is_some_and(|view| view.setting == CameraSetting::LockStrafe);
+    let target = gun.lock.map(|(entity, _)| entity).or_else(|| {
+        if lock_strafe {
+            return None;
+        }
+        let picked = assist_targets(
+            gun_input.targets,
+            gun.muzzle,
+            aim,
+            &fire.spit_bolt,
+            gun_input.world,
+            |target| target.enemy,
+            1,
+        );
+        picked.first().map(|&index| gun_input.targets[index].entity)
+    });
+    let to = gun_input.hero.position + aim * fire.spit_bolt_ahead + Vec3::Y * fire.spit_bolt_up;
+    let serial = arsenal.next_serial();
+    arsenal.shots.push(Shot {
+        damage: gun.damage * fire.bolt_share,
+        ..gun.shot(
+            serial,
+            gun.muzzle,
+            Vec3::ZERO,
+            ShotKind::Bolt {
+                target,
+                to,
+                left: fire.bolt_ticks,
+                push: fire.push,
+            },
+        )
+    });
 }
 
 /// The Hydra's spit (0x321210, 0x321580): its arcs reach from the gun for their ends while

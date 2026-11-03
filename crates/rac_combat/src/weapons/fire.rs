@@ -1148,10 +1148,12 @@ fn projectile(
         Some(hurricane) => ShotKind::Bullet {
             lifetime: (hurricane.reach / (speed * TICK)) as u32 + hurricane.extra_ticks,
             bounces: hurricane.bounces,
+            glanced: 0,
         },
         None => ShotKind::Bullet {
             lifetime: fire.lifetime.at(gun.level).unwrap_or(0),
             bounces: if bounces { u32::MAX } else { 0 },
+            glanced: 0,
         },
     };
     let serial = arsenal.next_serial();

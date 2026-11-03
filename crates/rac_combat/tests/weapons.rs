@@ -346,6 +346,17 @@ fn from_v2_the_n60s_bullets_bounce_off_walls() {
         yard.hold(&[Action::Fire], 1);
         yard.idle(45);
         assert_eq!(yard.hitpoints(target) < 10.0, bounced, "level {level}");
+        // Each glance is shown, the first told from the rest.
+        let glances: Vec<bool> = yard
+            .events
+            .iter()
+            .filter_map(|event| match event.kind {
+                GunEventKind::Bounce { first, .. } => Some(first),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(glances.first(), bounced.then_some(&true), "level {level}");
+        assert!(glances.iter().skip(1).all(|first| !first), "{glances:?}");
     }
 }
 
@@ -1387,6 +1398,42 @@ fn the_hydras_spit_strikes_what_its_arcs_meet_three_ticks_in() {
 }
 
 #[test]
+fn the_hydras_spit_throws_a_bolt_at_an_enemy_near_its_aim_or_ten_units_ahead() {
+    let bolt = |yard: &Yard| {
+        yard.events.iter().find_map(|event| match event.kind {
+            GunEventKind::Impact { at, .. } if event.shot == Some("bolt") => Some(at),
+            _ => None,
+        })
+    };
+    // With nothing near, it strikes nothing 10 u ahead of his feet and 1.5 up, 6 ticks in.
+    let mut empty = Yard::new(&[(HYDRA, 0)]);
+    empty.hold(&[Action::Fire], 25);
+    empty.idle(1);
+    assert_eq!(
+        empty.count_shots(|kind| matches!(kind, ShotKind::Bolt { target: None, .. })),
+        1
+    );
+    empty.idle(4);
+    assert_eq!(bolt(&empty), None);
+    empty.idle(1);
+    let at = bolt(&empty).unwrap();
+    assert!(at.distance(Vec3::new(0.0, 1.5, -10.0)) < 0.01, "{at}");
+    // 2 u from the muzzle and 28° off his aim, too far round to be marked but in the
+    // bolt's wider cone (33° there), an enemy takes half the damage.
+    let mut yard = Yard::new(&[(HYDRA, 0)]);
+    yard.app
+        .world_mut()
+        .resource_mut::<CombatTuning>()
+        .gun_recovery_ticks = 0;
+    let enemy = yard.enemy(Vec3::new(1.24, 0.9, -2.62), 1000.0);
+    yard.hold(&[Action::Fire], 25);
+    yard.idle(1);
+    assert_eq!(yard.hitpoints(enemy), 1000.0);
+    yard.idle(5);
+    assert_eq!(yard.hitpoints(enemy), 995.0);
+}
+
+#[test]
 fn a_rift_swallows_an_enemy_no_stronger_than_the_guns_damage_and_leaves_a_strong_one() {
     let mut yard = Yard::new(&[(RIFT, 0)]);
     let strong = yard.enemy(Vec3::new(1.5, 1.0, -10.0), 200.0);
@@ -2346,7 +2393,9 @@ fn the_n90_hurricane_fires_every_10_ticks_and_its_bullets_bounce_seven_times() {
         .shots
         .iter()
         .filter_map(|shot| match shot.kind {
-            ShotKind::Bullet { lifetime, bounces } => Some((lifetime, bounces)),
+            ShotKind::Bullet {
+                lifetime, bounces, ..
+            } => Some((lifetime, bounces)),
             _ => None,
         })
         .collect();
@@ -2447,13 +2496,17 @@ fn from_v10_a_dual_raptors_bullet_lives_longer_and_goes_on_from_the_world_four_t
     let mut yard = Yard::with_armory(armory.clone(), &[(vipers, 8)]);
     yard.hold(&[Action::Fire], 1);
     match yard.arsenal().shots[0].kind {
-        ShotKind::Bullet { lifetime, bounces } => assert_eq!((lifetime, bounces), (35, 0)),
+        ShotKind::Bullet {
+            lifetime, bounces, ..
+        } => assert_eq!((lifetime, bounces), (35, 0)),
         ref other => panic!("{other:?}"),
     }
     let mut yard = Yard::with_armory(armory.clone(), &[(vipers, 9)]);
     yard.hold(&[Action::Fire], 1);
     match yard.arsenal().shots[0].kind {
-        ShotKind::Bullet { lifetime, bounces } => {
+        ShotKind::Bullet {
+            lifetime, bounces, ..
+        } => {
             assert!((104..=105).contains(&lifetime), "{lifetime}");
             assert_eq!(bounces, 4);
         }

@@ -65,7 +65,10 @@ const fn showing(row: ShotClass, bangles: u16) -> ShotClass {
 /// `weapons.md`, "How they play") [code]. The Plasma Coil's ball (0xA9B, untextured), the
 /// rift (0x186B, 0.05 units across) and the comet (0x1893, at 0.05) are drawn by their
 /// code; those keep their effects, as do the V5 shots of the Shock Blaster's and Nitro
-/// Launcher's kind, whose classes aren't read yet.
+/// Launcher's kind, whose classes aren't read yet, and the N90 Hurricane's bullet (0x1881,
+/// at 18 times its class's scale: 0x384068, 0x1DDDD8): drawn solid it is a yellow ball a
+/// unit and a half across that the game's take doesn't show, so its blend wants reading
+/// first.
 pub const UYA_SHOT_CLASSES: &[ShotClass] = &[
     shot(0x77, "charge", 0, 0x185A, 1.0),
     shot(0x3F, "missile", 0, 0x1894, 1.0),

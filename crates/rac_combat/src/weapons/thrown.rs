@@ -1009,7 +1009,8 @@ fn barrier_tick(
                     velocity: Vec3::ZERO,
                     ticks: 0,
                     kind: ShotKind::Bolt {
-                        target: struck.entity,
+                        target: Some(struck.entity),
+                        to: struck.centre,
                         left: fire.bolt_ticks,
                         push: fire.bolt_push,
                     },

@@ -46,8 +46,13 @@ pub struct Shot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShotKind {
-    /// Flies straight for `lifetime` ticks, bouncing off the world `bounces` more times.
-    Bullet { lifetime: u32, bounces: u32 },
+    /// Flies straight for `lifetime` ticks, bouncing off the world `bounces` more times;
+    /// it has `glanced` off it so far.
+    Bullet {
+        lifetime: u32,
+        bounces: u32,
+        glanced: u32,
+    },
     /// The Flux Rifle's scoped beam, until it `hit` something.
     Beam { hit: bool },
     /// Thrown in an arc; `fuse` counts down once it has bounced.
@@ -91,9 +96,10 @@ pub enum ShotKind {
     /// ticks.
     Spit { life: u32, ends: Vec<Vec3> },
     /// A lightning bolt (0x34DAA0) on `target` for `left` ticks more, striking it
-    /// [`BOLT_STRIKE_TICKS`] in, pushed `push` along it.
+    /// [`BOLT_STRIKE_TICKS`] in, pushed `push` along it; with none, at the point `to`.
     Bolt {
-        target: Entity,
+        target: Option<Entity>,
+        to: Vec3,
         left: u32,
         push: f32,
     },
@@ -726,7 +732,12 @@ fn bullet(
     targets: &[GunTarget],
     out: &mut Outcome,
 ) -> bool {
-    let ShotKind::Bullet { lifetime, bounces } = &mut shot.kind else {
+    let ShotKind::Bullet {
+        lifetime,
+        bounces,
+        glanced,
+    } = &mut shot.kind
+    else {
         return false;
     };
     let lifetime = *lifetime;
@@ -747,8 +758,12 @@ fn bullet(
         }
         Meets::World(t, normal) if *bounces > 0 => {
             *bounces -= 1;
+            *glanced += 1;
+            let first = *glanced == 1;
             shot.position += motion * t + normal * BOUNCE_GAP;
             shot.velocity = shot.velocity.reflect(normal);
+            let at = shot.position;
+            out.shot_event(shot, GunEventKind::Bounce { at, first });
             shot.ticks < lifetime
         }
         Meets::World(t, normal) => {
@@ -1334,22 +1349,30 @@ pub const BOLT_STRIKE_TICKS: u32 = 6;
 
 /// A lightning bolt (0x34DD38, its strike 0x34DFD0): it holds on its target, which, if it
 /// still lives, takes the bolt's damage [`BOLT_STRIKE_TICKS`] in, pushed along it; the
-/// bolt goes on to the end of its life.
+/// bolt goes on to the end of its life. One at a point strikes nothing there, but sparkles
+/// as one on a target does.
 fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
-    let ShotKind::Bolt { target, .. } = shot.kind else {
+    let ShotKind::Bolt { target, to, .. } = shot.kind else {
         return false;
     };
-    let Some(struck) = targets
-        .iter()
-        .find(|candidate| candidate.entity == target && candidate.alive)
-    else {
-        return false;
+    let struck = match target {
+        Some(target) => {
+            let Some(struck) = targets
+                .iter()
+                .find(|candidate| candidate.entity == target && candidate.alive)
+            else {
+                return false;
+            };
+            Some(struck)
+        }
+        None => None,
     };
+    let to = struck.map_or(to, |struck| struck.centre);
     out.shot_event(
         shot,
         GunEventKind::Arc {
             from: shot.position,
-            to: struck.centre,
+            to,
         },
     );
     let ShotKind::Bolt { left, push, .. } = &mut shot.kind else {
@@ -1359,12 +1382,14 @@ fn bolt(shot: &mut Shot, targets: &[GunTarget], out: &mut Outcome) -> bool {
     let (more, push) = (*left > 0, *push);
     // A bolt too short to reach its strike strikes as it goes.
     if shot.ticks == BOLT_STRIKE_TICKS || (!more && shot.ticks < BOLT_STRIKE_TICKS) {
-        let push = (struck.centre - shot.position).normalize_or_zero() * push;
-        out.hits.push(shot.hit(struck.entity, shot.damage, push));
+        if let Some(struck) = struck {
+            let push = (to - shot.position).normalize_or_zero() * push;
+            out.hits.push(shot.hit(struck.entity, shot.damage, push));
+        }
         out.shot_event(
             shot,
             GunEventKind::Impact {
-                at: struck.centre,
+                at: to,
                 surface: None,
             },
         );

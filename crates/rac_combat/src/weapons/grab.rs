@@ -112,7 +112,8 @@ fn rip(
             ticks: 0,
             damage: shot.damage * ripper.share,
             kind: ShotKind::Bolt {
-                target: near.entity,
+                target: Some(near.entity),
+                to: near.centre,
                 left: ripper.bolt_ticks,
                 push: ripper.push,
             },

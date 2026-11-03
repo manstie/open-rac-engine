@@ -2095,6 +2095,19 @@ There is no shared limit on how long a thrown thing may fall; each has its own r
   (flags 0x410000, pushed 0.5 along it). The same bolt serves the Holo Shield (the shield's
   row damage), the Rift Ripper (a tenth of the rift's) and the Tesla Barrier (the Shield
   Charger's), by its source's class.
+  - **At V5 the class test misses** [code, data, 2026-11-03]: the strike (0x34DFD0) and
+    the bolt's start (0x34DD38) know the Hydra by its V1–V4 class, 0x184E, but rows 0x4B
+    and up spawn 0x1B4F (read from EE memory). So the Tempest's bolts start at his feet
+    0.75 up, as the Tesla Barrier's do, and strike with the Tesla Barrier's damage: the
+    Shield Charger's current row's (+0x6C of the row its byte at 0x1425D6 names, 3 at V1),
+    flags 0x1010000, unpushed. Not seen in play. The kit keeps half the gun's damage at
+    every level.
+- **Each spit's bolt** [code, 2026-11-03]: as it spits the gun also makes a bolt at the
+  target `gun_assist` (0x44D930) picks from the muzzle along the aim: the lock-on target,
+  none in the lock-strafe camera, else the best enemy within 10 u, far 20° by 55°, near
+  45° by 35°. With none it goes to a point 10 u along his facing (the camera's in the views
+  that aim) and 1.5 above his feet, striking nothing but sparkling there. It strikes as
+  the marks' bolts do, so half the damage up to V4.
 - **The spit** isn't bolts that fly: it is the level's number of lightning arcs
   (0x321108 sets their ends, 0x321210 redraws them). Each reaches from the gun to a point
   32 u along the aim, jittered up to 0.2 u on each axis, bowing out round the aim on the

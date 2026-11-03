@@ -300,7 +300,7 @@ fn tesla_bolts(
         .iter()
         .filter(|shot| shot.weapon == up.weapon)
         .filter_map(|shot| match shot.kind {
-            ShotKind::Bolt { target, .. } => Some(target),
+            ShotKind::Bolt { target, .. } => target,
             _ => None,
         })
         .collect();
@@ -322,7 +322,8 @@ fn tesla_bolts(
             splash: 0.0,
             mods: Mods::default(),
             kind: ShotKind::Bolt {
-                target: target.entity,
+                target: Some(target.entity),
+                to: target.centre,
                 left: low + rng.below(high.saturating_sub(low) + 1),
                 push: tesla.push,
             },

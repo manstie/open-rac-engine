@@ -1,7 +1,9 @@
 //! A tail each shot drags behind it, as the RY3NO's missiles' from V2 (0x3DB4D0 keeps the
 //! points, 0x3DC8D0 draws them): each of its points goes a share of the way to the one
 //! before it a tick, the first being where the shot was, and a strip facing the camera
-//! runs through them, narrowing.
+//! runs through them, narrowing; or, following wholly, through where the shot was each tick,
+//! its colour going along it, as the N90 Hurricane's bullets' (0x384CF0, drawn by
+//! 0x384F58).
 
 use std::collections::BTreeMap;
 
@@ -19,7 +21,8 @@ use crate::DemoEntity;
 
 /// A shot's tail: `points` points following at `follow` of the way a tick; `width` across at
 /// the shot, `narrow` times as wide at each point after; the texture `step` further along
-/// at each; shown once the shot is `after` ticks old.
+/// at each; shown once the shot is `after` ticks old. With `end_colour`, its colour goes
+/// from `colour` at the shot to that at its last point, and `head` is its nearest edge's.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Tail {
     pub texture: Tex,
@@ -34,6 +37,10 @@ pub struct Tail {
     pub colour: [f32; 4],
     #[serde(default)]
     pub blend: Blend,
+    #[serde(default)]
+    pub end_colour: Option<[f32; 4]>,
+    #[serde(default)]
+    pub head: Option<[f32; 4]>,
 }
 
 /// The tails drawn now, by player, shot and the tail's place in its recipe.
@@ -68,6 +75,8 @@ fn strip(at: Vec3, points: &[Vec3], tail: &Tail, eye: Vec3) -> Mesh {
     way.extend_from_slice(points);
     let mut positions = Vec::with_capacity(way.len() * 2);
     let mut uvs = Vec::with_capacity(way.len() * 2);
+    let mut colours = Vec::with_capacity(way.len() * 2);
+    let last = way.len().saturating_sub(1).max(1) as f32;
     let mut indices = Vec::with_capacity(way.len() * 6);
     let mut half = tail.width / 2.0;
     for (index, &point) in way.iter().enumerate() {
@@ -82,6 +91,13 @@ fn strip(at: Vec3, points: &[Vec3], tail: &Tail, eye: Vec3) -> Mesh {
         positions.push((point - at - side).to_array());
         let u = index as f32 * tail.step;
         uvs.extend([[u, 0.0], [u, 1.0]]);
+        if let Some(end) = tail.end_colour {
+            let colour = match tail.head {
+                Some(head) if index == 0 => head,
+                _ => lerp(tail.colour, end, index as f32 / last),
+            };
+            colours.extend([linear(colour); 2]);
+        }
         half *= tail.narrow;
         if index > 0 {
             let first = (index as u32 - 1) * 2;
@@ -89,14 +105,29 @@ fn strip(at: Vec3, points: &[Vec3], tail: &Tail, eye: Vec3) -> Mesh {
         }
     }
     let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
-    Mesh::new(
+    let mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-    .with_inserted_indices(Indices::U32(indices))
+    .with_inserted_indices(Indices::U32(indices));
+    if colours.is_empty() {
+        mesh
+    } else {
+        mesh.with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
+    }
+}
+
+fn lerp(from: [f32; 4], to: [f32; 4], share: f32) -> [f32; 4] {
+    std::array::from_fn(|channel| from[channel] + (to[channel] - from[channel]) * share)
+}
+
+/// A colour as the game's bytes over 0x80 (the effects' sRGB), in linear light.
+fn linear([r, g, b, a]: [f32; 4]) -> [f32; 4] {
+    let colour = Color::srgba(r, g, b, a).to_linear();
+    [colour.red, colour.green, colour.blue, colour.alpha]
 }
 
 /// Steps and lays each shot's tails, making those that start and dropping those whose
@@ -126,13 +157,14 @@ pub(crate) fn draw_tails(
                 let id = (hero.player, shot.serial, index);
                 let dragged = tails.0.entry(id).or_insert_with(|| {
                     let mesh = meshes.add(strip(shot.position, &[], tail, eye));
-                    let material = fx_material(
-                        &mut materials,
-                        &images,
-                        tail.texture,
-                        tail.colour,
-                        tail.blend,
-                    );
+                    // Coloured along it, its points carry the colour.
+                    let colour = if tail.end_colour.is_some() {
+                        opaque()
+                    } else {
+                        tail.colour
+                    };
+                    let material =
+                        fx_material(&mut materials, &images, tail.texture, colour, tail.blend);
                     // Its bounds change each frame.
                     let entity = commands
                         .spawn((
@@ -184,6 +216,41 @@ pub(crate) fn draw_tails(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tail_coloured_along_it_goes_from_its_head_to_its_end_colour() {
+        let tail = Tail {
+            texture: Tex::Effect(14),
+            points: 2,
+            follow: 1.0,
+            width: 0.4,
+            narrow: 1.0,
+            step: 1.0,
+            after: 0,
+            colour: [0.25, 0.25, 0.25, 0.5],
+            blend: Blend::Add,
+            end_colour: Some([1.0, 0.25, 0.25, 0.0]),
+            head: Some([0.875, 0.875, 0.875, 0.5]),
+        };
+        let points = [Vec3::Z, Vec3::Z * 2.0];
+        let mesh = strip(Vec3::ZERO, &points, &tail, Vec3::X * 10.0);
+        let Some(bevy::mesh::VertexAttributeValues::Float32x4(colours)) =
+            mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("no colours");
+        };
+        assert_eq!(colours.len(), 6);
+        assert_eq!(colours[0], linear([0.875, 0.875, 0.875, 0.5]));
+        assert_eq!(colours[2], linear([0.625, 0.25, 0.25, 0.25]));
+        assert_eq!(colours[5], linear([1.0, 0.25, 0.25, 0.0]));
+        // A tail of one colour leaves it to its material.
+        let plain = Tail {
+            end_colour: None,
+            ..tail
+        };
+        let mesh = strip(Vec3::ZERO, &points, &plain, Vec3::X * 10.0);
+        assert!(mesh.attribute(Mesh::ATTRIBUTE_COLOR).is_none());
+    }
 
     #[test]
     fn a_tails_points_each_go_a_share_of_the_way_to_the_one_before() {

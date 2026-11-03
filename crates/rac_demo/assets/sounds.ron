@@ -66,7 +66,7 @@
     // Each gun's, by its key (`effects` in rac_combat's `uya_weapons.ron`).
     guns: {
         "shock_blaster": { Fire: "zap", Impact: "", Charge: "hum" },
-        "n60": { Fire: "rattle", Impact: "" },
+        "n60": { Fire: "rattle", Impact: "", Bounce: "" },
         "nitro": { Fire: "launch", Impact: "boom" },
         // The stream is heard as its loop, and where it lands.
         "lava": { Fire: "", Flow: "hiss", Impact: "sizzle" },

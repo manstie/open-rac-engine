@@ -75,7 +75,7 @@ impl Cue {
             GunEventKind::Fired { at, .. } => Some((Cue::Fire, Some(at))),
             GunEventKind::Empty { at } => Some((Cue::Empty, Some(at))),
             GunEventKind::Impact { at, .. } => Some((Cue::Impact, Some(at))),
-            GunEventKind::Bounce { at } => Some((Cue::Bounce, Some(at))),
+            GunEventKind::Bounce { at, .. } => Some((Cue::Bounce, Some(at))),
             GunEventKind::Arc { to, .. } => Some((Cue::Arc, Some(to))),
             GunEventKind::LevelUp { .. } => Some((Cue::LevelUp, None)),
             GunEventKind::Marked { at } => Some((Cue::Mark, Some(at))),

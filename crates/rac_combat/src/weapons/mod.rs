@@ -74,8 +74,9 @@ pub enum GunEventKind {
     /// bullets and streams give it so far.
     Impact { at: Vec3, surface: Option<Vec3> },
     /// A shot glanced off something and flew on, as the Disc Blade's off walls and, from
-    /// V3, off enemies.
-    Bounce { at: Vec3 },
+    /// V3, off enemies, and the N60's bullets off walls; `first` at a bullet's first
+    /// glance (a disc doesn't count them).
+    Bounce { at: Vec3, first: bool },
     /// The shock mod's arc from the target hit to another.
     Arc { from: Vec3, to: Vec3 },
     /// The gun reached a new level.
