@@ -29,7 +29,8 @@ session is working on the task now; notes on problems met stay with their task (
 
 ## 0. Status
 
-- **Phase 0** is done apart from CI's first run (P0.7).
+- **Phase 0** is done; CI passes on Windows and Linux (P0.7). `release.yml` packages the
+  game for both, not yet run (P7.1, P7.2).
 - **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
@@ -328,6 +329,7 @@ None at the moment.
 | 2026-10-31 | **A gun's muzzle comes from numbers, not from the rig's pose.** The game follows the posed hand, but the kit's rig runs per frame (`Update`), differs with or without a disc, and isn't part of the deterministic simulation that lockstep and rollback need (§4.2), so the simulation doesn't read it. The weapons file carries where the hand is by what he is doing (`Hands`, measured from the game) and each gun's point, within about 0.1 u of the game's standing and 0.3 u walking (`weapons.md`, "The muzzle"). |
 | 2026-10-31 | **DL's guns are chosen on their own, by `--guns dl`, while only some are in.** `--moves dl` keeps UYA's twenty, so a movement test doesn't lose them; once all ten are in and have looks, the guns should follow the game the hero moves like, in the menus too. |
 | 2026-11-01 | **The demo kit keeps Bevy's default tonemapper; playing the original games remastered uses the closest match to the game.** The PS2 has no tone curve and clamps each channel, while Bevy's default pales saturated colours (V5's violet ring shows periwinkle). The match is chosen when real levels run (P3.17), against footage of the game. Tried on the demo level only: `None` is the game's colours but blows out its floor, as the kit's lights aren't calibrated for it; `ReinhardLuminance` keeps the violet and the floor (`effects.md`, "The Quantum Whip's cutting wave"). |
+| 2026-11-03 | **Release packages are built on GitHub from a `v*` tag into a draft release**, which the owner checks and publishes (`release.yml`, P7.1). Windows links the C runtime in and, in release builds, opens no console window; Linux builds on the oldest supported Ubuntu runner, for the oldest glibc. **CI caches with `Swatinem/rust-cache`, not `cargo-chef`**, which only helps Docker builds. |
 
 ## 6. Roadmap
 
@@ -344,11 +346,14 @@ every phase. Every task follows CLAUDE.md's definition of done.
 - [x] **P0.4** First inspection of the discs → `docs/research/disc-layout.md`.
 - [x] **P0.5** Prior art and emulators → `prior-art.md`, `engine-notes.md`.
 - [x] **P0.6** Work around the NVIDIA parallel pipeline compilation crash (section 5).
-- [~] **P0.7** CI with GitHub Actions on `ubuntu-latest` and `windows-latest`
+- [x] **P0.7** CI with GitHub Actions on `ubuntu-latest` and `windows-latest`
   (`.github/workflows/ci.yml`): fmt, clippy, tests and a build, cached with
-  `Swatinem/rust-cache`. Every step passes locally on Linux.
-  - To do: its first run on GitHub, especially Windows; optionally a Linux smoke run under
-    `xvfb-run` with lavapipe (`openrac --exit-after-frames 60`).
+  `Swatinem/rust-cache`. It passes on GitHub on both.
+  - Uncached, a run takes 21 minutes on Linux and 36 on Windows, nearly all of it
+    compiling the test binaries; the tests themselves take under a minute. The cache
+    (0.8–0.9 GB per OS) holds the dependencies only.
+  - Optional, not done: a Linux smoke run under `xvfb-run` with lavapipe (`openrac
+    --exit-after-frames 60`).
 - [-] **P0.8** Evaluate ReRAC. Moved to P3.16: it only matters for R&C1.
 - [x] **P0.9** Decisions D1–D5 (section 5).
 - [x] **P0.10** All eight whole-image SHA-1s match redump.org (`disc-layout.md`).
@@ -1601,9 +1606,23 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
 
 ### Phase 7: Release
 
-- [ ] **P7.1** Windows package: MSVC build, zip or installer. It uses the default backend
+- [~] **P7.1** Windows package: MSVC build, zip or installer. It uses the default backend
   chosen in P1.14 and offers the other as an option.
-- [ ] **P7.2** Linux package: tarball and AppImage or Flatpak, using Vulkan.
+  - Done: `.github/workflows/release.yml` builds the game in release and zips
+    `openrac.exe` with `LICENSE` and `README.md`, the C runtime linked in (`+crt-static`;
+    blake3 is the only C code, built through `cc`, which follows it). A `v*` tag makes a
+    draft GitHub release of both platforms' packages; a run by hand keeps them as
+    artifacts. Release builds open no console window (`windows_subsystem`) and attach to
+    the terminal they were started from (`attach_parent_console` in `openrac`'s `main`),
+    so a crash when started from Explorer shows nothing until P7.4's crash logs.
+  - Not done: it has never run. The packages lack the dependencies' licence notices,
+    which MIT and Apache-2.0 require with binaries (for example `cargo about`); add them
+    before publishing a release. The backend default waits on P1.14.
+  - Next step: push the workflow and run it by hand from the Actions tab, then try both
+    packages.
+- [~] **P7.2** Linux package: tarball and AppImage or Flatpak, using Vulkan.
+  - Done: `release.yml` (P7.1) makes a tarball, built on `ubuntu-22.04` so the binary
+    needs only glibc 2.35. Not done: AppImage or Flatpak.
 - [ ] **P7.3** First-run flow:
   - Choose the ISOs (either `./source` or a file picker).
   - Identify them.
@@ -1624,7 +1643,8 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
   PCSX2 (Phase 4 onward); visual comparisons, run locally only.
 - **CI** (P0.7, P0.12): fmt, clippy with `-D warnings`, tests, Windows and Linux builds,
   the data-hygiene guard, and later the ISO-free kit check (P1.16) and cross-OS
-  determinism hashes. Disc tests never run in CI.
+  determinism hashes. Disc tests never run in CI. Release packages come from
+  `release.yml` (P7.1, P7.2).
 - **Determinism** is a requirement because of co-op: a fixed 60 Hz simulation, a seeded
   RNG per level, `libm` maths, stable ordering, input record and replay, and state
   checksums.

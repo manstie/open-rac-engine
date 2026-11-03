@@ -1,0 +1,110 @@
+# Release builds of the game for Windows and Linux (PLAN.md P7.1, P7.2). Pushing a tag
+# `v*` makes a draft GitHub release with both packages, for the owner to check and
+# publish. Running the workflow by hand (Actions, Release, Run workflow) only keeps the
+# packages as the run's artifacts. Nothing from the games is packaged: the app reads the
+# player's own discs at run time.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+            # Links the C runtime into the exe, so players don't need the Visual C++
+            # redistributable.
+            rustflags: -C target-feature=+crt-static
+          # A Linux build needs at least the glibc it was built against, so build on the
+          # oldest supported runner (glibc 2.35) to reach the most distributions.
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            rustflags: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      # A tag's run can restore main's caches but not another tag's, so only runs on main
+      # save one.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --release --locked -p openrac
+      - name: Package
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+          fi
+          name="openrac-$version-${{ matrix.platform }}"
+          mkdir -p "dist/$name"
+          cp LICENSE README.md "dist/$name/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp target/release/openrac.exe "dist/$name/"
+            (cd dist && 7z a -tzip "$name.zip" "$name")
+            echo "PACKAGE=dist/$name.zip" >> "$GITHUB_ENV"
+          else
+            cp target/release/openrac "dist/$name/"
+            # A tarball keeps the executable bit, which an artifact's zip would lose.
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+            echo "PACKAGE=dist/$name.tar.gz" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.PACKAGE }}
+          # Upload the package as it is rather than zipped again; the artifact takes its
+          # file name.
+          archive: false
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach the packages to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t packages < <(find dist -type f)
+          printf '%s\n' "${packages[@]}"
+          if [ "${#packages[@]}" -ne 2 ]; then
+            echo "expected 2 packages, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          # A re-run replaces the packages on the release the first run made.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${packages[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+              --verify-tag --title "$GITHUB_REF_NAME" --generate-notes "${packages[@]}"
+          fi

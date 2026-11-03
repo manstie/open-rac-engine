@@ -5,6 +5,11 @@
 //! own model can be chosen in the menus, as can the game he moves like. The roadmap lives in `PLAN.md` at the
 //! repository root.
 
+// Release builds are a Windows GUI program, so starting the game opens no console window
+// beside it (`attach_parent_console` brings the log back in a terminal). Debug builds keep
+// the console. Other platforms ignore it.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod camera;
 mod discs;
 mod flow;
@@ -109,6 +114,8 @@ const _: () = assert!(
 );
 
 fn main() -> Result<AppExit> {
+    #[cfg(windows)]
+    attach_parent_console();
     let args = Args::parse();
     let paths = Paths::resolve(args.settings.clone())?;
     let settings = settings::load_or_create(&paths.settings_file);
@@ -252,6 +259,19 @@ fn main() -> Result<AppExit> {
     }
 
     Ok(app.run())
+}
+
+/// Sends the log, `--help` and errors to the terminal the game was started from: a Windows
+/// GUI program has no console of its own. Started from Explorer there is none, and debug
+/// builds already have one, so it does nothing; it is built in them anyway so CI lints it.
+#[cfg(windows)]
+fn attach_parent_console() {
+    use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+    // SAFETY: it takes no pointers, and failing (no parent console, or one already
+    // attached) leaves the process as it was.
+    unsafe {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
 }
 
 /// What the user's discs give the hero.

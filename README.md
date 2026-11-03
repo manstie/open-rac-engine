@@ -67,6 +67,18 @@ file name. The details are in [docs/research/disc-layout.md](docs/research/disc-
 Nothing from the games is stored in or distributed by this repository. The full strategy,
 and the reasons behind it, are in [PLAN.md](PLAN.md#4-strategy).
 
+## Running a release build
+
+Builds for Windows and Linux (x86-64) are attached to the
+[releases](https://github.com/manstie/open-rac-engine/releases). Unpack one and run
+`openrac.exe` or `openrac` from its folder.
+
+- Your disc images go in a `source` folder in the folder you start it from;
+  `--discs <folder>` points it elsewhere. Without discs it plays its own placeholder hero.
+- `--help` lists the other options. The game prints its log to the terminal it was started
+  from, if any; on Windows it opens no console window of its own.
+- Linux needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12 and later) and a Vulkan driver.
+
 ## Building from source
 
 There is little to see yet: the app opens a window with a placeholder scene.

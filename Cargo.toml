@@ -46,6 +46,8 @@ serde_json = "1"
 sha1_smol = "1"
 thiserror = "2"
 toml = "1"
+# Windows only: release builds of `openrac` open no console and attach to their parent's.
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [workspace.lints.clippy]
 # Bevy systems routinely take many parameters and complex query types.

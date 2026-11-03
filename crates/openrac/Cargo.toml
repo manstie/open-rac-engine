@@ -26,6 +26,9 @@ rac_sim.workspace = true
 serde.workspace = true
 toml.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [features]
 # Faster incremental builds while developing: `cargo run --features dev`.
 # Never ship a build with this enabled.

@@ -160,6 +160,10 @@ Development is native, with no container.
 
 The first full build takes about 7 minutes; incremental rebuilds of the app take seconds.
 
+**Release packages** come from `.github/workflows/release.yml`: a pushed `v*` tag makes a
+draft GitHub release, and running it by hand from the Actions tab keeps the packages as
+the run's artifacts.
+
 **Keep builds from starving the desktop.** The workspace links about 20 test binaries that
 each contain Bevy, and an unrestricted clippy-plus-tests run once froze the owner's machine
 (8 cores, 31 GB). So:
