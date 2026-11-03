@@ -15,6 +15,7 @@
 mod blade;
 mod charge;
 mod curls;
+mod debris;
 mod fan;
 mod funnel;
 mod light;
@@ -51,6 +52,7 @@ use serde::Deserialize;
 pub use blade::Blade;
 pub use charge::{Charge, Crackle, Reach};
 pub use curls::Curls;
+pub use debris::Debris;
 pub use fan::Fan;
 pub use funnel::{Funnel, SpiralStrip, Spirals};
 pub use light::ShotLight;
@@ -63,7 +65,7 @@ pub use panel::{Panel, Panels};
 pub use ribbon::Ribbon;
 pub use rope::{AlongRope, Strand};
 pub use shake::{CameraShake, Shaking};
-pub use shell::{Arcs, Dome, Rim, Shell, Trails};
+pub use shell::{Arcs, Dome, Glow, Rim, Shell, Trails};
 pub use sweep::Sweep;
 pub use swell::{Swell, SwellAxis, SwellShape, Track};
 pub use tail::Tail;
@@ -129,6 +131,9 @@ pub enum Toward {
     Camera,
     /// Level, any way round, as a ring along the ground.
     Level,
+    /// Level, within `cone` degrees either way of the way to the camera, as the Nitro
+    /// Eruptor's rocks are thrown (0x38A7B8).
+    CameraLevel,
 }
 
 /// One thing an event shows. Sizes are in world units, times in 60 Hz ticks, colours sRGB
@@ -316,6 +321,8 @@ pub enum Emit {
     Swell(Swell),
     /// Rays curling round a point ([`Curls`]).
     Curls(Curls),
+    /// Pieces of a model thrown out, tumbling and bouncing ([`Debris`]).
+    Debris(Debris),
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
 }
@@ -332,18 +339,19 @@ fn up() -> Vec<Shaking> {
 }
 
 impl Emit {
-    fn texture(&self) -> Option<Tex> {
+    fn textures(&self) -> Vec<Tex> {
         match self {
             Emit::Flash { texture, .. }
             | Emit::Glow { texture, .. }
-            | Emit::Burst { texture, .. } => Some(*texture),
-            Emit::Swell(swell) => Some(swell.texture),
-            Emit::Curls(curls) => Some(curls.texture),
+            | Emit::Burst { texture, .. } => vec![*texture],
+            Emit::Swell(swell) => vec![swell.texture],
+            Emit::Curls(curls) => vec![curls.texture],
+            Emit::Debris(debris) => debris.textures(),
             Emit::Screen { .. }
             | Emit::Model { .. }
             | Emit::Light { .. }
             | Emit::Shake { .. }
-            | Emit::Set(_) => None,
+            | Emit::Set(_) => Vec::new(),
         }
     }
 }
@@ -901,11 +909,11 @@ impl FxRecipes {
             let glares = charges.filter_map(|charge| charge.glare.as_ref());
             textures.extend(fx.glare.iter().chain(glares).map(|glare| glare.texture));
             let along = fx.along_rope.iter().flatten();
-            textures.extend(along.filter_map(|along| along.emit.texture()));
+            textures.extend(along.flat_map(|along| along.emit.textures()));
             if let Some(blade) = &fx.blade {
                 textures.extend(blade.strands.iter().map(|strand| strand.texture));
                 let along = blade.along.iter();
-                textures.extend(along.filter_map(|along| along.emit.texture()));
+                textures.extend(along.flat_map(|along| along.emit.textures()));
             }
             textures.extend(fx.mark.iter().flat_map(Mark::textures));
             let shells = fx.shell.iter();
@@ -913,6 +921,7 @@ impl FxRecipes {
                 textures.extend([shell.dome.texture, shell.rim.texture]);
                 textures.extend(shell.arcs.iter().flat_map(|arcs| [arcs.core, arcs.glow]));
                 textures.extend(shell.trails.iter().map(|trails| trails.texture));
+                textures.extend(shell.glow.iter().map(|glow| glow.texture));
             }
             let panels = fx.panels.iter().flat_map(|panels| &panels.layers);
             textures.extend(panels.map(|panel| panel.texture));
@@ -931,13 +940,13 @@ impl FxRecipes {
             }
             if let Some(funnel) = &fx.funnel {
                 textures.extend(funnel.textures());
-                textures.extend(funnel.emits().filter_map(Emit::texture));
+                textures.extend(funnel.emits().flat_map(Emit::textures));
             }
             textures.extend(fx.marker.iter().flat_map(|marker| marker.layers));
             let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
             let emits = emits.chain(&fx.first_bounce).chain(&fx.ray_end);
             for emits in emits.chain(&fx.arc_end) {
-                textures.extend(emits.iter().filter_map(Emit::texture));
+                textures.extend(emits.iter().flat_map(Emit::textures));
             }
             for fx in fx.from_level.values().chain(fx.shots.values()) {
                 gun(fx, textures);
@@ -948,7 +957,7 @@ impl FxRecipes {
             gun(fx, &mut textures);
         }
         for emits in self.sets.values() {
-            textures.extend(emits.iter().filter_map(Emit::texture));
+            textures.extend(emits.iter().flat_map(Emit::textures));
         }
         textures.sort();
         textures.dedup();
@@ -1159,6 +1168,12 @@ impl FxRng {
         range.map_or(0.0, |range| self.between(range).to_radians())
     }
 
+    /// A level direction within `turn` degrees either way of `towards`'s.
+    fn level_within(&mut self, towards: Vec3, turn: f32) -> Vec3 {
+        let ahead = towards.with_y(0.0).normalize_or(Vec3::X);
+        Quat::from_rotation_y(self.between((-turn, turn)).to_radians()) * ahead
+    }
+
     /// A direction round `around` within `cone` degrees, or any direction.
     fn direction(&mut self, around: Option<(Vec3, f32)>) -> Vec3 {
         let (axis, cone) = around.unwrap_or((Vec3::Y, 180.0));
@@ -1212,6 +1227,7 @@ impl Plugin for FxPlugin {
                     charge::emit_charges,
                     step_fx,
                     model::step_models,
+                    debris::step_debris,
                     swell::step_swells,
                     curls::step_curls,
                     mark::step_marks,
@@ -1239,6 +1255,9 @@ impl Plugin for FxPlugin {
                 )
                     .run_if(resource_exists::<FxImages>),
             );
+        if app.is_plugin_added::<bevy::pbr::PbrPlugin>() {
+            light::draw_lights(app);
+        }
     }
 }
 
@@ -1269,6 +1288,7 @@ fn paint_placeholders(
     commands.insert_resource(FxImages(handles));
     commands.insert_resource(FxQuad(meshes.add(Rectangle::new(1.0, 1.0))));
     commands.insert_resource(model::Crown(meshes.add(model::crown())));
+    commands.insert_resource(debris::Rock(meshes.add(debris::rock())));
 }
 
 /// An unlit material of `texture` in `colour`, seen from both sides.
@@ -1299,6 +1319,7 @@ struct Spawner<'w, 's, 'a> {
     quad: Handle<Mesh>,
     models: &'a FxModels,
     crown: Handle<Mesh>,
+    rock: Handle<Mesh>,
     /// The world, to lay things on the floor.
     world: Option<&'a dyn CollisionWorld>,
     shake: &'a mut CameraShake,
@@ -1318,6 +1339,7 @@ struct Making<'w, 's> {
     quad: Res<'w, FxQuad>,
     models: Res<'w, FxModels>,
     crown: Res<'w, model::Crown>,
+    rock: Res<'w, debris::Rock>,
     scene: Option<Res<'w, CollisionScene>>,
     shake: ResMut<'w, CameraShake>,
     lights: Query<'w, 's, (), Or<(With<light::Lit>, With<light::Riding>)>>,
@@ -1334,6 +1356,7 @@ impl<'w> Making<'w, '_> {
             quad: self.quad.0.clone(),
             models: &self.models,
             crown: self.crown.0.clone(),
+            rock: self.rock.0.clone(),
             world: self
                 .scene
                 .as_deref()
@@ -1588,14 +1611,17 @@ impl Spawner<'_, '_, '_> {
                 // Each fades on its own life, so each has its own material.
                 let heading = match toward {
                     Toward::Way => way,
-                    Toward::Camera => Some(eye - at),
+                    Toward::Camera | Toward::CameraLevel => Some(eye - at),
                     Toward::Level => None,
                 };
                 let back = way.map_or(Vec3::ZERO, |way| -way.normalize_or_zero());
                 for index in 0..count {
                     let around = heading.zip(cone);
                     let speed = rng.between((speed_from.unwrap_or(0.4 * speed), speed));
-                    let mut velocity = rng.direction(around);
+                    let mut velocity = match toward {
+                        Toward::CameraLevel => rng.level_within(eye - at, cone.unwrap_or(180.0)),
+                        _ => rng.direction(around),
+                    };
                     if toward == Toward::Level {
                         velocity = Vec3::new(velocity.x, 0.0, velocity.z).normalize_or(Vec3::X);
                     }
@@ -1749,6 +1775,7 @@ impl Spawner<'_, '_, '_> {
                     ));
                 }
             }
+            Emit::Debris(ref debris) => self.debris(debris, at, eye, rng),
             Emit::Curls(ref curling) => {
                 let image = self.images.0.get(&curling.texture).cloned();
                 curls::spawn(
@@ -1796,7 +1823,10 @@ impl Spawner<'_, '_, '_> {
                 self.commands.spawn((
                     Name::new("light"),
                     DemoEntity,
-                    light::point_light(radius, lit.colour),
+                    light::GameLight {
+                        radius,
+                        colour: lit.colour,
+                    },
                     Transform::from_translation(at + Vec3::Y * above),
                     lit,
                 ));
@@ -2510,6 +2540,23 @@ mod tests {
         };
         assert_eq!(rings(recipes.impact("infector", 0, Some("blob"))), 1);
         assert_eq!(rings(recipes.impact("whip", 3, Some("wave"))), 1);
+        // Only V5's Eruptor throws chunks (0x38A7B8), five, two kinds in three smoking.
+        let chunks = |level| {
+            recipes
+                .expand(recipes.impact("nitro", level, None))
+                .find_map(|emit| match emit {
+                    Emit::Debris(debris) if debris.class == 0x1A50 => Some(debris.clone()),
+                    _ => None,
+                })
+        };
+        assert!(chunks(3).is_none());
+        let chunks = chunks(4).expect("V5's chunks");
+        assert_eq!((chunks.count, chunks.bounce), (5, Some(0.8)));
+        assert_eq!(
+            chunks.smokes.iter().filter(|&&smokes| smokes > 0.0).count(),
+            2
+        );
+        assert_eq!(chunks.textures(), [Tex::Particle(0x04, 0)]);
         // V5's ring is violet, and it throws up black and violet smoke as well.
         let colour = |level| {
             recipes

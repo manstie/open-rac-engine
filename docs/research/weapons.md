@@ -1835,7 +1835,9 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   at 0x142E38).
 - **Its look** (`shield_draw`, 0x341C10, a draw callback the update registers each
   frame; only in game mode 0): the class's own mesh is never drawn (its moby keeps mode
-  bit 0x01, medium confidence), and nothing grows it in or fades it out. It draws, round
+  bit 0x01, medium confidence; the meshes are ellipsoids, 0xA5C's 0.70 × 0.56 × 0.58 u and
+  0x1192's 0.84 × 0.66 × 0.66 u [disc, 2026-11-03], and the game's footage shows neither),
+  and nothing grows it in or fades it out. It draws, round
   hero point 10 (joint 2), all from the level's effect textures (`effects.md`):
   - five crackling arcs, loops out from the centre and back, each laid at random and
     living 3–45 frames, keeping its shape (corrected 2026-10-29: not jittered each
@@ -1848,8 +1850,11 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   - four trails of 20 points orbiting 0.9–1.1 u out, turning 6° a frame (10° at V5),
     each head throwing two sparkles, a core 0.04 wide in a glow 0.14 wide of texture 0x2C
     (V1–V2), 0x0F (V3–V4) or 0x30 (V5), fading in from the tail;
-  - from V3 a camera-facing glow in texture 0x17 at alpha 0x1F whose texture scrolls 0.1
-    a frame;
+  - from V3 a ball 1 u round its centre (0x409A50, corrected 2026-11-03: not
+    camera-facing), in ten bands of 18° and ten pieces of 36° in a frame of his facing,
+    sideways and up, texture 0x17 once down each band and once across each piece, scrolling
+    0.1 a frame, in the shield's colour at alpha 0x1F at its top fading band by band to
+    nothing at its bottom, added;
   - and from the update, eight sparkles on the 1 u sphere (texture 0x3E) and 8 pairs of
     zap sparks at each enemy it zaps (0x342DB8). Sound 1 plays as it rises, 3 loops while
     it is up and 2 as it goes; it is removed at once.

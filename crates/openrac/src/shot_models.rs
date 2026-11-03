@@ -218,9 +218,10 @@ fn lay_across(surface: &mut Surface, stretch: f32) {
 
 /// The classes the guns' effects spawn as models, at their classes' scale: the ring the
 /// Infector's burst and the Plasma Whip's wave leave (0x3013B0; `effects.md`, "Rings"), a
-/// crown of sixteen walls in a streaked white texture, tinted by its caller; and the explosions'
-/// dome (0x2F95A0; `effects.md`, "The explosions' dome").
-pub const UYA_EFFECT_CLASSES: &[u32] = &[0x307, 0x70];
+/// crown of sixteen walls in a streaked white texture, tinted by its caller; the explosions'
+/// dome (0x2F95A0; `effects.md`, "The explosions' dome"); and the chunk of debris blasts
+/// throw (0x329470; `effects.md`, "Nitro Eruptor's burst").
+pub const UYA_EFFECT_CLASSES: &[u32] = &[0x307, 0x70, 0x1A50];
 
 /// An effect's model read from the disc, waiting for its images.
 #[derive(Debug, Clone, PartialEq)]
@@ -546,6 +547,38 @@ mod disc_tests {
             "{low} {high}"
         );
         assert!((wide - 0.23).abs() < 0.01, "{wide}");
+    }
+
+    #[test]
+    #[ignore = "needs game discs"]
+    fn the_chunk_is_a_small_textured_rock() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) = crate::discs::find(
+            std::path::Path::new(&folder),
+            crate::discs::Release::UyaNtsc,
+        )
+        .expect("a UYA NTSC-U disc");
+        let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+        let chunk = import_effects(&core).remove(2).unwrap();
+        assert_eq!(chunk.class, 0x1A50);
+        assert!(chunk.paints.iter().all(|paint| paint.texture.is_some()));
+        let points: Vec<Vec3> = chunk
+            .surfaces
+            .iter()
+            .flat_map(|surface| surface.positions.iter().copied())
+            .collect();
+        assert_eq!((chunk.surfaces.len(), points.len()), (1, 53));
+        // About 0.17 by 0.17 by 0.14 at its class's scale, so half a unit at the Nitro
+        // Eruptor's 3.
+        let low = points.iter().copied().fold(Vec3::MAX, Vec3::min);
+        let high = points.iter().copied().fold(Vec3::MIN, Vec3::max);
+        let size = high - low;
+        assert!(
+            (size.x - 0.172).abs() < 0.01
+                && (size.y - 0.166).abs() < 0.01
+                && (size.z - 0.141).abs() < 0.01,
+            "{size}"
+        );
     }
 
     #[test]

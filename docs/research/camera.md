@@ -1242,6 +1242,13 @@ Each frame, `hero_camera_type_update` (0x68BBA0) runs, in this order:
   down the level while the hero runs sideways; UYA's third person doesn't turn while he
   strafes, and swings round behind him when he runs.
 
+- **Field of view in 16:9** [code, memory images, UYA NTSC, 2026-11-03]: 0x3FFAC8 sets
+  the view's half-angles' tangents: across 0.62 (0x1E76B0, so 63.6° across, the
+  profiles' 1.11), and up 0.62 × 0.775 (0x1E76B4), divided by 4/3 when the 16:9 option's
+  byte 0x1439FD is set or in split screen: 0.3604 up (39.6°) in 16:9, 0.4805 (51.3°) in
+  4:3. Every UYA Veldin memory image has the byte set, so footage from PCSX2 at 4:3 shows
+  the game squeezed across to 0.75 (`re-setup.md`, "Gotchas").
+
 ## Partly seen
 
 - **Field of view [measured, meaning unclear]:** on R&C3 PAL the FOV block holds 1.11

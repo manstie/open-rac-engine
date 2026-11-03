@@ -5,7 +5,7 @@
 //! colour whenever the shield's points change and fades back (`weapons.md`, "Its
 //! colour"). Round it, arcs crackling out from its middle and back (0x341DA0) and trails
 //! orbiting it (0x342478), strips rebuilt each frame facing the camera ("Arcs and
-//! trails").
+//! trails"), and from V3 a ball round it fading down from its top (0x409A50).
 
 use std::collections::BTreeMap;
 
@@ -38,6 +38,8 @@ pub struct Shell {
     pub arcs: Option<Arcs>,
     #[serde(default)]
     pub trails: Option<Trails>,
+    #[serde(default)]
+    pub glow: Option<Glow>,
 }
 
 /// Arcs crackling out from the shell's middle and back (0x3410E8, 0x341DA0): `count`
@@ -113,6 +115,21 @@ pub struct Rim {
     pub alpha: f32,
 }
 
+/// A ball round the shell's middle (0x409A50, from V3): `radius` round in ten bands of 18°
+/// and ten pieces of 36° round, turning with his facing, `texture` once down each band and
+/// once across each piece, in the shell's colour at `alpha` at its top fading to nothing
+/// at its bottom, added; the texture scrolls `scroll` a tick.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct Glow {
+    pub texture: Tex,
+    pub radius: f32,
+    pub alpha: f32,
+    pub scroll: f32,
+}
+
+/// How finely the ball is cut: ten bands, ten pieces round.
+const BALL: u32 = 10;
+
 /// How finely the dome and ring are cut: the game's 22.5° of longitude and 11.25° of
 /// latitude, and its ring's 32 quads.
 const AROUND: u32 = 32;
@@ -163,6 +180,35 @@ pub(crate) fn rim_mesh(outer: f32) -> Mesh {
         indices.extend([at, at + 2, at + 1, at + 1, at + 2, at + 3]);
     }
     mesh(positions, uvs, indices)
+}
+
+/// A ball of radius 1 from its top (+y) down, its texture `scroll` down and once down each
+/// band, across each piece one way and the next back, and its colour fading from whole at
+/// the top to nothing at the bottom (0x409A50).
+pub(crate) fn glow_mesh(scroll: f32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut uvs = Vec::new();
+    let mut colours = Vec::new();
+    let mut indices = Vec::new();
+    for band in 0..=BALL {
+        let down = band as f32 / BALL as f32 * std::f32::consts::PI;
+        let (across, up) = (ops::sin(down), ops::cos(down));
+        let shade = 1.0 - band as f32 / BALL as f32;
+        for step in 0..=BALL {
+            let turn = step as f32 / BALL as f32 * std::f32::consts::TAU;
+            positions.push([ops::sin(turn) * across, up, -ops::cos(turn) * across]);
+            uvs.push([(step % 2) as f32, scroll.fract() - band as f32]);
+            colours.push([shade, shade, shade, 1.0]);
+        }
+    }
+    let row = BALL + 1;
+    for band in 0..BALL {
+        for step in 0..BALL {
+            let at = band * row + step;
+            indices.extend([at, at + 1, at + row, at + 1, at + row + 1, at + row]);
+        }
+    }
+    mesh(positions, uvs, indices).with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
 }
 
 fn mesh(positions: Vec<[f32; 3]>, uvs: Vec<[f32; 2]>, indices: Vec<u32>) -> Mesh {
@@ -425,6 +471,9 @@ pub(crate) struct Shown {
     trail_strips: Option<Strips>,
     /// The part of a tick since its arcs and trails last stepped.
     due: f32,
+    /// Its ball, its mesh and look, and how far its texture has scrolled.
+    glow: Option<(Entity, Handle<Mesh>, Handle<StandardMaterial>)>,
+    scroll: f32,
 }
 
 /// The shells shown, by player.
@@ -500,7 +549,8 @@ pub(crate) fn draw_shells(
             let mut part = |mesh: Handle<Mesh>,
                             material: &Handle<StandardMaterial>,
                             scale: f32,
-                            facing: bool| {
+                            facing: bool|
+             -> Entity {
                 let mut entity = commands.spawn((
                     Name::new("shield shell"),
                     DemoEntity,
@@ -517,11 +567,17 @@ pub(crate) fn draw_shells(
                     entity.insert(NoFrustumCulling);
                 }
                 parts.push(entity.id());
+                entity.id()
             };
             let radius = shell.dome.radius;
             part(meshes.add(dome_mesh()), &dome, radius, true);
             let rim_mesh = meshes.add(rim_mesh(shell.rim.outer / radius));
             part(rim_mesh, &rim, radius, true);
+            let glow = shell.glow.map(|glow| {
+                let mesh = meshes.add(glow_mesh(0.0));
+                let look = material(glow.texture, [1.0; 4], Blend::Add);
+                (part(mesh.clone(), &look, glow.radius, false), mesh, look)
+            });
             let mut strips = |looks: Option<[Handle<StandardMaterial>; 2]>| {
                 let [core, glow] = looks?;
                 let handles = [(); 2].map(|_| meshes.add(Quads::default().mesh()));
@@ -544,6 +600,8 @@ pub(crate) fn draw_shells(
                 arc_strips,
                 trail_strips,
                 due: 0.0,
+                glow,
+                scroll: 0.0,
             }
         });
         if shield.points != shown.points {
@@ -577,6 +635,20 @@ pub(crate) fn draw_shells(
                 for orbit in &mut shown.orbits {
                     orbit.step(trails, &mut rng);
                 }
+            }
+            if let Some(glow) = &shell.glow {
+                shown.scroll += glow.scroll;
+            }
+        }
+        if let (Some(glow), Some((part, mesh, look))) = (&shell.glow, &shown.glow) {
+            if let Some(mut old) = meshes.get_mut(mesh) {
+                *old = glow_mesh(shown.scroll);
+            }
+            if let Some(mut material) = materials.get_mut(look) {
+                material.base_color = Color::srgba(r, g, b, glow.alpha);
+            }
+            if let Ok(mut place) = places.get_mut(*part) {
+                place.rotation = placed.rotation;
             }
         }
         if let (Some(arcs), Some(strips)) = (&shell.arcs, &shown.arc_strips) {
@@ -657,6 +729,27 @@ mod tests {
             let inner = (point.length() - 1.0).abs() < 1e-5;
             assert!(inner || (point.length() - 1.316 / 0.9).abs() < 1e-4);
             assert_eq!(uv[1], if inner { 0.5 } else { 1.0 });
+        }
+    }
+
+    #[test]
+    fn the_ball_fades_from_its_top_to_nothing_at_its_bottom_its_texture_once_a_band() {
+        let mesh = glow_mesh(2.25);
+        let Some(VertexAttributeValues::Float32x4(colours)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("colours");
+        };
+        let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+        else {
+            panic!("uvs");
+        };
+        for ((point, colour), uv) in points(&mesh).iter().zip(colours).zip(uvs) {
+            assert!((point.length() - 1.0).abs() < 1e-5);
+            // Whole at the top (y 1), nothing at the bottom, by band.
+            let band = (ops::acos(point.y.clamp(-1.0, 1.0)) / std::f32::consts::PI * 10.0).round();
+            assert!((colour[0] - (1.0 - band / 10.0)).abs() < 1e-4, "{point}");
+            assert!((uv[1] - (0.25 - band)).abs() < 1e-4);
+            assert!(uv[0] == 0.0 || uv[0] == 1.0);
         }
     }
 
@@ -821,6 +914,7 @@ mod tests {
             flash: 30,
             arcs: None,
             trails: None,
+            glow: None,
         };
         assert_eq!(colour(&shell, 1.0), shell.hit);
         assert_eq!(colour(&shell, 0.0), shell.rest);

@@ -172,6 +172,11 @@ ghidra-headless cache/ghidra/proj <name> -process <name>.ee.bin -noanalysis -rea
   - Compare the two R&C3 PAL images (or a PAL and an NTSC image) to separate code from
     data.
 - **Gotchas:**
+  - **UYA's savestates are in 16:9** (the option's byte 0x1439FD is 1 in
+    `uyantsc-veldin-play.p2s` and those made from it; checked 2026-11-03): the game draws
+    a view 0.62 across by 0.3604 up (the half-angles' tangents, 0x3FFAC8) into the 4:3
+    frame, and PCSX2's 4:3 output shows everything at 0.75 of its width. Measure widths
+    in its footage × 4/3 (`camera.md`, "Field of view").
   - Code addresses are per level. Each level overlay holds its own build of the game
     program, so an address found on Veldin is wrong anywhere else. The title screen's
     image has no hero code at all.

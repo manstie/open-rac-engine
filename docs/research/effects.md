@@ -173,7 +173,20 @@ two quads flat on that surface, half width 1.0, turning opposite ways, a turn in
   slot each frame: the Flux's (0x3444B0) is made red but each frame set to (t/30,
   0.7 t/30, 0) as its timer t runs down from 30, 1.5 u ahead of the gun, so it shows
   orange. 0x4221E0 lists per light the world's pieces in its reach (0x4B4578, 0x4A4330,
-  0x4AF350) and 0x4A3D80 adds the lights to their vertices on VU0 (the falloff not read).
+  0x4AF350) and 0x4A3D80 adds the lights to their vertices on VU0.
+- **How the lights fall off** [code for mobys; footage for the floor, 2026-11-03]: 0x4A3D80
+  gives each moby, from each light in its mask, the light's colour × (1 − d / r), d its
+  distance from the light and r the light's radius (the slot's +0x1C), summed into a
+  colour and a direction. The floor falls off the same way, with no turn for its angle to
+  the light: in the game's take of the Qwack-O-Blitzer (review take 0x93; its light at
+  radius 7.5 in (1.0, 0.5, 0.25)), Veldin's sand is 1.54, 1.32 and 1.18 times as bright
+  beside his feet while he fires as before, about 1.33 times 4 u away and 1.06 times 7 u
+  away, which fits brightening by 1 + 0.65 × colour × (1 − d / r) in the GS's values.
+  Not read: how the world's pieces are lit (0x4221E0's lists, VU1), which the footage
+  stands in for, nor whether a vertex colour clamps. The kit draws each light so
+  (`rac_demo`'s `fx/light.rs` and `light.wesl`): a sphere that multiplies what the depth
+  prepass shows inside it by that factor, raised to the power 2.2 for its linear light,
+  at most 2, before the effects.
 - **The light moby** (class 0x27F, spawned by 0x300650 from a template, updated by
   0x300820): each frame a light at the template's radius × 0.8, at an offset from where
   it was spawned, whose channels each climb from a start by a rise to a top and then
@@ -641,6 +654,57 @@ No muzzle effect; the charge (0x185A) is its model only. Its blast (class 0x1858
   of texture 43 growing out to about 14 units; from V2 acid spray bands. Its fire-ring
   strip (0x35F3E0) is drawn at alpha 0 (its pvar is never written).
 - The landing marker while aiming: two 2-unit quads of 88 and 87 (0x4C3500).
+
+#### Nitro Eruptor's burst (class 0x1888, update 0x38A7B8, V5) [code, 2026-11-03]
+
+Read for its rocks; the rest only listed. Its first frame bursting:
+- 49 sparks (0x470F00) out at 18–27 u/s level within a random turn of up to 130° of the
+  way to the camera (0x440918(0, 2.27)) and 0–14 u/s up, life 25–35, in (0xFF, 0x80,
+  0x80); four growing sparkles (0x467DA8) to 21, 15, 10.5 and 7.5 in (0x80, 0x40, 0x20)
+  and (0xA0, 0x40, 0x20) at 0xBF and white at 0xC0 and 0xB0; three 0x5C (0x46D570) in
+  grey 0x78 at 0x46, 0x46 and 0x2D; 0x38D5E0 (not read); the shake (above).
+- **The rocks:** five pieces of debris (0x329470(3.0, 14.6, …, life 100–130, kind 3,
+  bouncing)), each thrown at 8–15 u/s at a random turn of up to 80° from the way to the
+  camera (0x440918(0, 1.396)) and 5°–30° up; and five 0x61 particles in its rock textures
+  (entries 10–12, blended 0x44) from within 0.2 u of the burst at 7–10 u/s level the same
+  way and 0–12 u/s up, gravity 14.6 u/s² (0.00405 a frame²), life 90–150, size 0.15–0.2
+  throughout, ±2–6 spin steps a frame, in (0x38, 0x35, 0x27) at 0x7F throughout. The
+  way to the camera is level (0x40C490 of the camera's x and y less the burst's), and
+  0x440918(a, b) is a random a to b of either sign.
+- **The rest of the burst** (not read): 0x38D5E0; the draws 0x38B8B0, 0x38BDB0,
+  0x38BA40, 0x38BD80, 0x38CB78 and 0x38C238 by state (state 0 counts its timer down to 90
+  and bursts, state 1 holds 3 frames); and fifteen of 0x35D8E8 (10.0, …) at 20–30 u/s, one at
+  each of up to ten mobys within 13 u (0x3FB1D0) and the rest any way round, −20° to 15°
+  up: probably the fireballs and the fires the game's take shows. The kit's V5 shows
+  V4's blast with the rocks in their place.
+- **A piece of debris** (0x329470, a moby of class 0x1A50, the chunk; update 0x329678):
+  - Its model: Veldin's core has the chunk, one surface of 53 points about 0.17 × 0.17 ×
+    0.14 u in a 128² texture of dark grey (mean texel 47) [data, the disc test
+    `the_chunk_is_a_small_textured_rock`]. Drawn at its class's scale × the first
+    argument (3 for the Eruptor, so about half a unit), its colour set to 0x7F grey
+    (0x438908, libuya's `primaryColor`) and +0x78 to the caller's word (libuya's
+    `glow_rgba`; the Eruptor's 0x80204080, brown). The game's chunks show maroon, as the
+    texture × (1, 0.5, 0.25) would be [footage, reported]; how +0x78 is drawn isn't read.
+  - Its flight: it turns 0.105–0.21 rad (6°–12°) a frame about its x and y each; moves
+    by its speed; when told to bounce, a line test (0x3F8448) from where it was finds the
+    world and it leaves turned off the surface (0x40C260) at 0.8 of its speed (0x40C0F0
+    sets a vector's length); then falls at the second argument (14.6 u/s²).
+  - Its end: it shrinks over the last quarter of its life (rounded down) to nothing, and
+    goes then or once it leaves the level's bounds.
+  - Its smoke: its kind, one of three at random when 3 is asked: none, a puff in half the
+    frames (a coin each frame), or three puffs a frame, each where it now is. A puff
+    (0x460318) is particle type 4 in its type's first texture, life 45, drifting at 1 u/s
+    any way (a cube's direction set to that length) and keeping 0.98 of it a frame,
+    turning a spin step a frame; its size grows evenly from 50 × 1000 to (50 + 120) ×
+    1000 (0.24 to 0.81 u) through its life, 50 and 120 being the spawner's stack
+    arguments (the Eruptor's, sp+0 and sp+8 at 0x38ADB8), and it fades from its colour
+    to nothing (type 4's update, 0x460418). Its colour is one of four greys at alpha 0x2F, (0xFF, 0x80,
+    0xC0, 0x40), unless the call gives others; added (0x48) when the last argument is
+    set, as the Eruptor's is, else blended (0x44).
+  - Its other users: the explosion's debris count (`explosion_spawn`'s t3) and the
+    RY3NO's sun (0x391648: seven at 1.6, life 60–90).
+  - In the kit: `Emit::Debris` (`fx/debris.rs`), the chunk imported with the effects'
+    models; tinted by the colour above.
 
 #### Lava Gun (0x303F88, V1–V4)
 
@@ -1132,8 +1196,9 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
 - **On screen** (2026-10-31): the first wall alone (take 10 at 5.6 and 6.2 s), measured
   across its dark rim, is about 305 by 220 px (1.39), and the stacked walls at 11 s are
   the same. Stacking doesn't explain it, and seen from above a 1.67 oval looks flatter,
-  not rounder. A turn of about 34° between the wall's plane and the view would. Next:
-  read the shield's yaw (+0xF0) and the camera's during take 10 with `pine-probe`.
+  not rounder. Mostly explained (2026-11-03): the takes show the game's 16:9 view at
+  4:3, squeezed across to 0.75 (`re-setup.md`, "Gotchas"), so the wall is really about
+  1.85 wide to 1 high on screen, near the code's 1.67; perspective may make up the rest.
 
 #### The lightning bolt (0x34DAA0, class 0x1195) [code, 2026-10-28]
 
@@ -1304,8 +1369,8 @@ its 2 and 3.
 #### Shield Charger (0x3410E8, V1–V4) [code, 2026-10-29]
 
 Its shield's look (`shield_draw` 0x341C10: arcs, shell, rim, orbiting trails, glow) is in
-`weapons.md`, "Shield Charger"; the kit draws its shell, arcs and trails
-(`rac_demo::fx::shell`).
+`weapons.md`, "Shield Charger"; the kit draws its shell, arcs, trails and, from V3, its
+ball (`rac_demo::fx::shell`).
 - **The shell** (0x342098) [code, data from the Veldin image, 2026-10-29]: its centre
   (the shield's +0x30), a frame turned so +x points at the camera (0x1E2A40), z up, each
   axis 3.0 long (0x1DD288). In it:
@@ -1546,7 +1611,14 @@ Qwack-O-Blitzer) is the row's level byte above 3.
     looks whiter on the demo's pale floor, where added layers saturate sooner. The kit
     gives the flowing sparks one blue of the five.
 - **Lights:** radius 7.5 at the gun while it fires (0x37DEB0; (0x20, 0x40, 0x80), V5 (0x80,
-  0x40, 0x20)), radius 5.5 (0x4080FF) on the V5 duck.
+  0x40, 0x20)), 0.5 u down the gun's barrel from its origin, kept 20 frames after it stops
+  (0x1E1E48); radius 5.5 (0x4080FF) on the V5 duck.
+- **Which way the beam goes** [code, savestate, 2026-11-03]: the rope's steps follow the
+  gun's barrel, the held gun moby's −y (its +0xD0 row negated; the muzzle is (0.21, −0.6,
+  0) in the gun's frame, 0x1DDBE0), not the aim; the aim (0x1A52A0's yaw and pitch, or a
+  target's) only casts the ray that sets its length. In `uyantsc-veldin-qwack-beam.p2s`
+  (V3) the rope runs 11 u along his facing, rising 2.5° and 2.6° to his right. The takes'
+  beam looks to rise past his head only from the camera's height behind him.
 - **The ducks** (classes 0x1BC3 to V3, 0x189B at V4 tinted (0x40, 0x10, 0x10), 0x1D3E
   from V5): a duck's end to V3 (0x3D2870) is a 0x16 puff (half 0.714, grey 0x7F at 0x4F
   to 0x20) and a 0x79 (0x7E's textures 52 and 61); the V4 and V5 ducks going up (0x39E8A0,
@@ -1649,14 +1721,15 @@ same firing pattern (`uyantsc-veldin-fxreview-all.sh`, `kitdemo-arena-review-all
 `docs/re-setup.md`). The kit was filmed as built and again on a darker floor with no tone
 mapping, a temporary build, so that colours could be judged. The place, camera and enemies
 differ, so sizes and distances are rough, and lavapipe holds frames, so timing isn't judged
-here. **Not filmed:** V1, V2, V4 and V6–V8. The Shield Charger hangs the game on Veldin at
+here. The game's takes show its 16:9 view at 4:3, everything 0.75 as wide as it is
+(found 2026-11-03; `re-setup.md`, "Gotchas"). **Not filmed:** V1, V2, V4 and V6–V8. The Shield Charger hangs the game on Veldin at
 V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V3 not at all.
 
 | Gun (V5) | V5 against the game | What's behind it |
 |---|---|---|
 | Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's | The charged lance (held 79 frames) and the screen warp (0x388490) aren't drawn |
 | N60 Storm (N90 Hurricane) | Close (2026-11-03). The tracer is one long flame now, V5's own tail and flames ("N90 Hurricane"), redder than the game's | Its landing not seen in the kit's take; the bullet's model (0x1881) not drawn, its blend not read; the tail's scroll and fade; the colours add in linear light |
-| Nitro Launcher (Eruptor) | Close, but for the game's rocks | Rocks not drawn |
+| Nitro Launcher (Eruptor) | Close to V4; V5's rocks drawn (2026-11-03): the chunks fly, tumble, bounce and shrink as the game's and are maroon, the 0x61 rocks too | The chunks' smoke barely shows on the kit's bright floor where the game's trails are white; V5's own burst (sparkles, fireballs, fires) not read, V4's shown |
 | Lava Gun (Liquid Nitrogen Gun) | Partial. Its stream, nozzle and pools are V5's blue from code (2026-11-01); the kit's stream fires level, so from behind it's a stub where the game's arcs onto an enemy by lock-on | Its arc onto the lock-on target |
 | Annihilator (Decimator) | Close as far as the takes show; they land at different distances | |
 | Flux Rifle (Splitter Rifle) | Close (2026-11-03). The game's red trail has dark puffs, V5's texture 9, and its orange ring is the pieces' domes where it lands (above, "V5, the Splitter Rifle"), now both in the kit; its red ribbons come out pinker | The domes not seen on screen (the kit's arena shot lands out of view); the colours add in linear light |
@@ -1668,12 +1741,12 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white bubble warping what's behind it; the kit's a violet dome with dark bands | No V5 recipe |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
 | Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |
-| Qwack-O-Ray (Qwack-O-Blitzer) | Partial. The game's a big yellow beam, red curls and a lit floor; the kit's a shorter whitish beam and star sprites | Read at V5; the colours add in linear light in the kit (below, "Importing them"), and the floor isn't lit |
+| Qwack-O-Ray (Qwack-O-Blitzer) | Close (2026-11-03). The floor round him is lit warm, as the game's: every gun's light is now drawn with the game's falloff (above, "How the lights fall off"), weaker on the kit's pale floor (1.25 times as bright beside him, the game's sand 1.54 times) under its tonemapper. The beam's colours are its code's; the game's looks yellower and its curls redder, and it looks to rise past his head only from the game's camera, higher behind him ("Which way the beam goes") | The colours add in linear light (below, "Importing them"); the light isn't kept 20 frames after the beam stops; the kit's beam starts along his aim, not the gun's barrel |
 | RY3NO (Rynocirator) | Partial. The tail and the sun (rays and white screen) are from code (2026-11-01); the game's curling ribbons are thicker | The sun's strike on everything in view within 60 u isn't in the simulation |
 | Plasma Coil (Plasma Storm) | Close, at V3 too; the kit's glow is bigger | V5's arcs (0x30A3D0) not read |
 | Bouncer (Heavy Bouncer) | Close | |
 | Miniturret Glove (Megaturret Glove) | Partial. The olive dome is the explosions' dome (class 0x70), now drawn with every small blast; the kit's take shows no missile bursting in view | Not filmed against an enemy |
-| Shield Charger (Tesla Barrier) | Partial. The game's a tall oval with a crisp white rim; the kit's rounder with a soft violet halo | Not worked out |
+| Shield Charger (Tesla Barrier) | Close (2026-11-03). The game's "tall oval" is the shell's circle facing the camera, shown 0.75 as wide (the takes' 16:9 at 4:3, above); the kit's squeezed so is the same shape. From V3 a ball round it fading down from its top, missing until now, is drawn (0x409A50; `weapons.md`, "Its look"). The game's rim and fill come out white where the kit's are lavender: the game adds the lavender onto bright sand in its own values, which saturates | The colours add in linear light ("Importing them"); the sparkles at the trails' heads |
 
 **The numbers** match at all eight levels of all twenty: damage, ammo, XP, round price, price,
 upgrade price, pickup, hold and animations, by script against the table at 0x2C5640 in EE
@@ -2218,9 +2291,9 @@ What it takes to show the guns' effects as the game does, from the user's disc:
    - Done (2026-10-29) for lights and shake. `Emit::Light` is a point light with the
      light moby's envelope (climbing by a rise to its colour, falling by a fall) and a
      shot's recipe can carry one (`light`, only while it flies if `flying`), within the
-     game's eight slots; Bevy's point lights reach the game's radius at 8,000 lm per unit
-     of colour per square unit of radius, the kit's choice, since the game's falloff
-     isn't read. `Emit::Shake` sets the three channels with the game's motion, weakened
+     game's eight slots; each is drawn with the game's falloff ("How the lights fall
+     off", 2026-11-03), where Bevy's point lights, at 8,000 lm per unit of colour per
+     square unit of radius, had lit a small spot at the gun. `Emit::Shake` sets the three channels with the game's motion, weakened
      by the distance from the camera and cut off beyond a reach as the game's calls are.
      Recipes: the Annihilator's, RY3NO's, Flux's and Bouncer's muzzles, the Holo Shield
      and Rift in flight and the Hydra's spit (its colour the middle of the game's
@@ -2269,8 +2342,8 @@ What it takes to show the guns' effects as the game does, from the user's disc:
 - 0x4C4A18 and 0x4C4AD8, which every projectile runs (gated by the camera mode and
   0x1A4F48, 0x1D6740, 0x1D673C; perhaps shots placed for the first-person view).
 - What the rumble patterns' bytes mean; the light argument at each `explosion_spawn`
-  call (class 0x27F, read above); how 0x4A3D80 fades a light over its radius; what the dome (0x70), debris (0x7A) and chunk (0x1A50)
-  classes look like; 0x447D00's types 0x0B and 0x08.
+  call (class 0x27F, read above); how 0x4A3D80 fades a light over its radius; what the dome (0x70) and debris (0x7A)
+  classes look like (the chunk 0x1A50's flight is read, "Nitro Eruptor's burst"); 0x447D00's types 0x0B and 0x08.
 - Which way the Shock Blaster's charged rings face (built by VU0 microcode at 0xC80),
   and the screen warp's 0x4A04B0.
 - The Nitro's acid arcs (0x39AA18, 0x39ACB0, 0x39B080), the V5 guns' draws (0x38B8B0,

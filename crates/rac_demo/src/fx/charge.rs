@@ -14,7 +14,7 @@ use rac_sim::SimTick;
 use serde::Deserialize;
 
 use super::fan::cubic;
-use super::light::{self, ShotLight, point_light};
+use super::light::{self, GameLight, ShotLight};
 use super::rope::{Slots, Strand, drop_undrawn, lay_strands, put_mesh};
 use super::{FxImages, FxRecipes, FxRng, Glare, Making, Trail, eye, fx_material};
 use crate::DemoEntity;
@@ -348,7 +348,7 @@ pub(crate) fn emit_charges(
         ),
     >,
     mut lit: ResMut<ChargeLights>,
-    mut lights: Query<(&mut Transform, &mut PointLight), With<ChargeLit>>,
+    mut lights: Query<(&mut Transform, &mut GameLight), With<ChargeLit>>,
     mut rng: ResMut<FxRng>,
     mut making: Making,
 ) {
@@ -374,7 +374,10 @@ pub(crate) fn emit_charges(
             continue;
         };
         let at = gun.muzzle + Vec3::Y * recipe.above;
-        let looks = point_light(recipe.radius * share, recipe.colour);
+        let looks = GameLight {
+            radius: recipe.radius * share,
+            colour: recipe.colour,
+        };
         let entity = match lit.0.remove(&hero.player) {
             Some(entity) => {
                 if let Ok((mut transform, mut light)) = lights.get_mut(entity) {

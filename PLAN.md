@@ -83,8 +83,8 @@ session is working on the task now; notes on problems met stay with their task (
 
 **Next actions, in order:**
 1. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Qwack-O-Blitzer's beam and lit floor; the Rift Ripper's lens and
-   the Ultrashield's bubble wait on a refraction pass).
+   next gun to fix (the Shock Cannon's charged lance and warp; the Rift Ripper's lens
+   and the Ultrashield's bubble wait on a refraction pass).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -336,6 +336,7 @@ None at the moment.
 | 2026-11-03 | **Rebinding swaps.** A binding put in a slot is taken from any other control read in the same place (play or menus; Space can jump and choose), which gets the slot's old binding instead, or loses it if the slot was empty. Pause and the menu actions keep a binding on each kind of device, and each movement key its key, so the player can't lock themselves out; such a change is refused. Esc always calls off listening, so it can't be bound once taken off Pause and Back (Reset gives it back). |
 | 2026-11-03 | **The display settings:** one size for the HUD and the menus (Bevy's `UiScale`; the sights keep to the view, as the game sizes them by the screen); a graphics API chosen in the menus is used from the next start only if the machine has a GPU for it (a software adapter doesn't count), or else wgpu chooses, so a wrong choice can't stop the game starting; key names are learned from what the keys type and saved. |
 | 2026-11-03 | **Release packages are built on GitHub from a `v*` tag into a draft release**, which the owner checks and publishes (`release.yml`, P7.1). Windows links the C runtime in and, in release builds, opens no console window; Linux builds on the oldest supported Ubuntu runner, for the oldest glibc. **CI caches with `Swatinem/rust-cache`, not `cargo-chef`**, which only helps Docker builds. |
+| 2026-11-03 | **The effects' lights are drawn as the game's, not with Bevy's lights.** Each is a sphere that multiplies what the depth prepass shows within its radius by 1 + colour × (1 − distance / radius), as the game's code (0x4A3D80) and footage show, so the demo's 3D cameras get a depth prepass. Bevy's point lights fall off as 1/d² and lit only a spot by the gun (`effects.md`, "How the lights fall off"). |
 
 ## 6. Roadmap
 
@@ -831,6 +832,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
     double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - The game's footage (`uyantsc-veldin-fxref.sh`, `-fxreview.sh`) shows its 16:9 view
+    at 4:3, everything 0.75 as wide as it is: UYA's savestates have the 16:9 option on
+    (byte 0x1439FD). Widths measured in it are × 4/3 (`re-setup.md`, "Gotchas").
   - Reviewed 2026-11-01: all twenty UYA guns against the game, by gun in `effects.md`
     ("The twenty guns against the game at V5 and V3"). The numbers match at all eight
     levels of all twenty (by script against EE memory). Not complete, on the looks at V5:
@@ -846,12 +850,17 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       the N90 Hurricane (close: V5's own bullet, its tracer one long flame through its
       last 20 places, 0x384F58, and its landings' bursts, glares, sparkle and explosion,
       0x385220, the first glance's told by the kit's `Bounce` event; the N60's embers
-      from V2 now show on a glance, not on a target hit). Each gun's row in `effects.md`
-      says what is left.
-    - Partial: Rift Ripper, Ultrashield, Qwack-O-Blitzer,
-      Megaturret, Tesla Barrier, and the five above.
+      from V2 now show on a glance, not on a target hit); the Qwack-O-Blitzer (now close:
+      its light, as every gun's, is drawn with the game's falloff, 1 − d / r, and lights
+      the floor round him; its beam's colours were already its code's, and it looks to
+      rise in the game's take only from the camera behind him); the Tesla Barrier (now
+      close: the game's tall oval is its round shell squeezed by the takes' 16:9, and its
+      V3+ ball fading down from its top, 0x409A50, is drawn). Each gun's row in
+      `effects.md` says what is left.
+    - Partial: Rift Ripper, Ultrashield, Megaturret, and the five above.
     - Close: N90 Hurricane, Nitro Eruptor, Decimator, Multi-Disc, Quantum Whip, Plasma
-      Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon, Tempest, Splitter Rifle.
+      Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon, Tempest, Splitter Rifle,
+      Qwack-O-Blitzer, Tesla Barrier.
     - The kit adds effects' colours in linear light, the GS in gamma: a layer at alpha a
       is about 1/a^1.2 too bright over black (6.7× for the Hydra's glows) and too pale over
       a bright floor. Open, for the owner: matching it means adding effects in gamma space
@@ -869,12 +878,22 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       in `effects.md`, "In the kit and the app"). The Shield Charger hangs the game on Veldin
       at V3 and V5, so its V5 is judged from one frozen frame. Behaviour placeholders are in
       `weapons.md`, "In the kit".
-    - Not done: the Rift Ripper's lens, the Ultrashield's bubble, the Qwack-O-Blitzer's
-      beam and lit floor, the Tesla Barrier's rim, the Eruptor's rocks; the Shock Cannon's
-      charged lance and screen warp, the Liquid Nitrogen Gun's arc onto the lock-on target,
-      the agents' spawn lightning (their jets are dimmer than the game's); then the sounds
-      not played and the simplified behaviours (`effects.md`, "In the kit and the app";
-      `weapons.md`, "In the kit").
+    - The Eruptor's V5 rocks are drawn (`effects.md`, "Nitro Eruptor's burst"): five
+      chunks of class 0x1A50, imported with the effects' models, thrown by
+      `Emit::Debris` (`fx/debris.rs`: they fly, tumble, bounce, shrink and two kinds in
+      three trail smoke), and five 0x61 rocks. The rest of V5's burst (0x38A7B8's
+      sparkles and draws, and fifteen fireballs at nearby enemies, 0x35D8E8) isn't read,
+      so the kit's V5 shows V4's blast round the rocks; the chunks' smoke barely shows on
+      the kit's bright floor (with the linear-light note above).
+    - Not done: the Rift Ripper's lens, the Ultrashield's bubble, the rest of the
+      Eruptor's V5 burst;
+      the Shock Cannon's charged lance and screen warp, the Liquid Nitrogen Gun's arc onto
+      the lock-on target, the agents' spawn lightning (their jets are dimmer than the
+      game's); then the sounds not played and the simplified behaviours (`effects.md`,
+      "In the kit and the app"; `weapons.md`, "In the kit").
+    - The lights' pools show weaker than the game's on the demo's pale floor (1.25 times
+      as bright beside him where the game's sand is 1.54 times), as the kit's tonemapper
+      squashes brightening; open with the tonemapper (§5, 2026-11-01).
     - The Rift Ripper's lens is read (`effects.md`, "The lens"): it copies the frame,
       magnified about the rift as it fills, into an ellipse. The kit has no copy of the
       frame to draw from, and how full the rift is (+0x80) isn't read. Next: read what
@@ -897,10 +916,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     kit's `Streak` neither tapers nor fades. Recordings on lavapipe hold frames and skip
     ticks, so judge effects with `--every-tick`.
     The Holo Shield's wall is 4 by 2.4 in the hero's facing plane by its code, as the
-    kit draws it. The game's still looks rounder on screen (1.39 for one wall) for a
-    reason not found (`effects.md`, "Its shape, checked").
-    Next: read the shield's and the camera's yaw during take 10 with `pine-probe`; then
-    a tapering, fading `Streak` for the Miniturret's tracers.
+    kit draws it. The game's looked rounder on screen (1.39 for one wall) because the
+    takes show its 16:9 view at 4:3 (above; `effects.md`, "Its shape, checked").
+    Next: a tapering, fading `Streak` for the Miniturret's tracers.
   - Every UYA class texture kept in EE memory (the shots', the whip's links') came out
     scrambled: UYA stores those pixels in rows, only DL in the GS's order. Fixed
     (`Core::gs_ordered`; `disc-layout.md`, "Level textures").
