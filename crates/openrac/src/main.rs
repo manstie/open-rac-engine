@@ -20,6 +20,7 @@ mod hero_anims;
 mod hero_model;
 mod menu;
 mod moves;
+mod options;
 mod settings;
 mod shot_models;
 
@@ -40,6 +41,7 @@ use std::path::PathBuf;
 use crate::{
     flow::{FlowOptions, FlowPlugin},
     menu::MenuPlugin,
+    options::OptionsPlugin,
     settings::Paths,
 };
 
@@ -150,6 +152,8 @@ fn main() -> Result<AppExit> {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Open Ratchet & Clank Engine".into(),
+                    mode: settings.display.window.mode(),
+                    present_mode: settings.display.present_mode(),
                     ..default()
                 }),
                 ..default()
@@ -163,14 +167,17 @@ fn main() -> Result<AppExit> {
                 ..default()
             }),
     )
-    // Saved settings go in before the input plugin, which would otherwise use defaults.
+    // Saved settings go in before the plugins, which would otherwise use defaults.
     .insert_resource(settings.input)
+    .insert_resource(settings.display)
+    .insert_resource(settings.sound)
     .add_plugins((
         rac_sim::SimPlugin,
         PlayerInputPlugin,
         rac_demo::DemoPlugin,
         FlowPlugin,
         MenuPlugin,
+        OptionsPlugin,
     ))
     .insert_resource(rac_demo::DemoSettings {
         spectator: args.spectator,

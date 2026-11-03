@@ -34,14 +34,11 @@ fn title(setting: CameraSetting) -> &'static str {
     }
 }
 
-/// The Camera button's label for `choice`, with `profile` giving the game's own.
+/// What the Camera button shows for `choice`, with `profile` giving the game's own.
 pub fn label(choice: Option<CameraSetting>, profile: &HeroProfile) -> String {
     match choice {
-        Some(setting) => format!("Camera: {}", title(setting)),
-        None => format!(
-            "Camera: {} (the game's)",
-            title(profile.camera.default_setting)
-        ),
+        Some(setting) => title(setting).to_owned(),
+        None => format!("{} (the game's)", title(profile.camera.default_setting)),
     }
 }
 
@@ -89,9 +86,6 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(step(None, false), Some(CameraSetting::FirstPerson));
-        assert_eq!(
-            label(None, &HeroProfile::dl()),
-            "Camera: Lock-strafe (the game's)"
-        );
+        assert_eq!(label(None, &HeroProfile::dl()), "Lock-strafe (the game's)");
     }
 }

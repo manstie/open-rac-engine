@@ -6,6 +6,8 @@
 //!   [`PlayerInput`] per player, in `rac_sim::SimSet::Input`. That is all the simulation
 //!   reads, and all that replays record and the netcode sends.
 //! - Menus read [`ActionState`] instead, once a frame.
+//! - A controls screen changes bindings by [`Slot`] ([`InputSettings::assign`], which
+//!   settles clashes), and catches the button to bind with a [`BindingCapture`].
 //! - [`InputSource`] switches the simulation between the local devices and a replay of an
 //!   [`InputRecording`]; an [`InputRecorder`] captures one.
 //!
@@ -13,6 +15,7 @@
 
 mod action;
 mod player_input;
+mod rebind;
 mod recording;
 mod sampling;
 mod settings;
@@ -22,9 +25,12 @@ use rac_sim::SimSet;
 
 pub use action::{Action, Buttons};
 pub use player_input::{ANGLE_UNITS_PER_TURN, LocalPlayer, MAX_PLAYERS, PlayerInput, PlayerInputs};
+pub use rebind::{BindingCapture, Caught, Change, Control, RebindError, SLOTS, Slot};
 pub use recording::{InputRecorder, InputRecording, InputSource, RecordingError};
 pub use sampling::{ActionState, LocalSampler, reset_inputs};
-pub use settings::{Binding, InputSettings, MoveKeys, WheelDirection, apply_dead_zone};
+pub use settings::{
+    Binding, Device, InputSettings, MoveKey, MoveKeys, WheelDirection, apply_dead_zone,
+};
 
 /// Samples the local devices each frame and latches [`PlayerInputs`] each tick.
 ///
@@ -40,6 +46,7 @@ impl Plugin for PlayerInputPlugin {
             .init_resource::<PlayerInputs>()
             .init_resource::<LocalPlayer>()
             .init_resource::<InputSource>()
+            .init_resource::<BindingCapture>()
             .add_systems(PreUpdate, sampling::sample_devices.after(InputSystems))
             .add_systems(
                 FixedUpdate,
@@ -226,6 +233,26 @@ mod tests {
             .press(MouseButton::Middle);
         app.update();
         assert!(!local_input(&app).held(Action::LockOn));
+    }
+
+    #[test]
+    fn a_button_caught_for_binding_presses_nothing() {
+        let mut app = app();
+        app.world_mut()
+            .resource_mut::<BindingCapture>()
+            .listen(Device::KeyboardMouse);
+        press(&mut app, KeyCode::Space);
+        app.update();
+        assert!(!local_input(&app).pressed(Action::Jump));
+        assert!(
+            !app.world()
+                .resource::<ActionState>()
+                .just_pressed(Action::UiAccept)
+        );
+        assert_eq!(
+            app.world_mut().resource_mut::<BindingCapture>().take(),
+            Some(Caught::Binding(Binding::Key(KeyCode::Space)))
+        );
     }
 
     #[test]

@@ -13,8 +13,8 @@ use bevy::{
 use std::f32::consts::TAU;
 
 use crate::{
-    ANGLE_UNITS_PER_TURN, Action, Binding, Buttons, InputRecorder, InputSettings, InputSource,
-    LocalPlayer, PlayerInput, PlayerInputs, WheelDirection, apply_dead_zone,
+    ANGLE_UNITS_PER_TURN, Action, Binding, BindingCapture, Buttons, InputRecorder, InputSettings,
+    InputSource, LocalPlayer, PlayerInput, PlayerInputs, WheelDirection, apply_dead_zone,
 };
 
 /// Every action's state this frame, for menus and other local screens. Gameplay reads
@@ -118,22 +118,33 @@ impl Devices<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sample_devices(
     settings: Res<InputSettings>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
-    gamepads: Query<&Gamepad>,
+    gamepads: Query<(Entity, &Gamepad)>,
     time: Res<Time<Virtual>>,
+    mut capture: ResMut<BindingCapture>,
     mut actions: ResMut<ActionState>,
     mut sampler: ResMut<LocalSampler>,
 ) {
+    // A button caught for binding presses nothing, on the frame it is caught too.
+    if capture.is_listening() {
+        let pads: Vec<_> = gamepads.iter().collect();
+        capture.watch(&keys, &mouse, mouse_scroll.delta.y, &pads);
+        *actions = ActionState::default();
+        sampler.pressed = Buttons::NONE;
+        sampler.look = Vec2::ZERO;
+        return;
+    }
     let devices = Devices {
         keys: &keys,
         mouse: &mouse,
         wheel: mouse_scroll.delta.y,
-        pads: gamepads.iter().collect(),
+        pads: gamepads.iter().map(|(_, pad)| pad).collect(),
     };
     let (pad_move, pad_look) = devices.sticks(settings.swap_sticks);
     let pad_move = apply_dead_zone(pad_move, settings.move_dead_zone, false);

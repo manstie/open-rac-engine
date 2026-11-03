@@ -67,7 +67,7 @@ impl Plugin for FlowPlugin {
             .add_systems(
                 Update,
                 (
-                    toggle_pause.run_if(in_state(AppState::InGame)),
+                    pause_game.run_if(in_state(AppState::InGame)),
                     (grab_cursor, report_replay_end).run_if(in_state(Pause::Running)),
                 ),
             )
@@ -126,19 +126,15 @@ fn release_cursor(mut cursors: Query<&mut CursorOptions, With<PrimaryWindow>>) {
     }
 }
 
-fn toggle_pause(
+/// Opens the pause menu; the menu closes it (`crate::menu`), as Back from its own pages
+/// only goes up a page.
+fn pause_game(
     actions: Res<ActionState>,
     pause: Res<State<Pause>>,
     mut next: ResMut<NextState<Pause>>,
 ) {
-    match pause.get() {
-        Pause::Running if actions.just_pressed(Action::Pause) => next.set(Pause::Paused),
-        Pause::Paused
-            if actions.just_pressed(Action::Pause) || actions.just_pressed(Action::UiBack) =>
-        {
-            next.set(Pause::Running);
-        }
-        _ => {}
+    if *pause.get() == Pause::Running && actions.just_pressed(Action::Pause) {
+        next.set(Pause::Paused);
     }
 }
 

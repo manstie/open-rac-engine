@@ -23,6 +23,21 @@ impl Binding {
     pub fn is_gamepad(self) -> bool {
         matches!(self, Binding::Pad(_) | Binding::PadBoth(..))
     }
+
+    pub fn device(self) -> Device {
+        if self.is_gamepad() {
+            Device::Gamepad
+        } else {
+            Device::KeyboardMouse
+        }
+    }
+}
+
+/// The two kinds of device a binding can be on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Device {
+    KeyboardMouse,
+    Gamepad,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -39,6 +54,45 @@ pub struct MoveKeys {
     pub back: KeyCode,
     pub left: KeyCode,
     pub right: KeyCode,
+}
+
+/// One of the four [`MoveKeys`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MoveKey {
+    Forward,
+    Back,
+    Left,
+    Right,
+}
+
+impl MoveKey {
+    pub const ALL: [MoveKey; 4] = [
+        MoveKey::Forward,
+        MoveKey::Back,
+        MoveKey::Left,
+        MoveKey::Right,
+    ];
+}
+
+impl MoveKeys {
+    pub fn get(&self, key: MoveKey) -> KeyCode {
+        match key {
+            MoveKey::Forward => self.forward,
+            MoveKey::Back => self.back,
+            MoveKey::Left => self.left,
+            MoveKey::Right => self.right,
+        }
+    }
+
+    pub fn set(&mut self, key: MoveKey, code: KeyCode) {
+        let slot = match key {
+            MoveKey::Forward => &mut self.forward,
+            MoveKey::Back => &mut self.back,
+            MoveKey::Left => &mut self.left,
+            MoveKey::Right => &mut self.right,
+        };
+        *slot = code;
+    }
 }
 
 impl Default for MoveKeys {
@@ -191,6 +245,10 @@ impl Default for InputSettings {
                     Key(KeyCode::Escape),
                     Key(KeyCode::Backspace),
                 ],
+            ),
+            (
+                Action::UiClear,
+                vec![Pad(GamepadButton::West), Key(KeyCode::Delete)],
             ),
         ];
         Self {

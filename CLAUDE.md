@@ -141,7 +141,7 @@ Development is native, with no container.
 
 | Command | What it does |
 |---|---|
-| `cargo run` | Runs the game: a main menu, then the hero kit's demo level. The default workspace member is `crates/openrac`. |
+| `cargo run` | Runs the game: a main menu, then the hero kit's demo level. Options (in both the main and pause menus) has the bindings, mouse and sticks, display and sound, saved in `settings.toml`. The default workspace member is `crates/openrac`. |
 | `cargo run --features dev` | Bevy's dynamic linking for faster rebuilds. Never for release builds. |
 | `cargo run -- --exit-after-frames 120` | Smoke test: exits with code 0 after 120 frames. Add `--demo` to start in the level, `--spectator` for a free camera. |
 | `cargo run -- --demo` with the UYA NTSC-U disc image in `source/` | The hero plays Ratchet's real animations, read from the disc at start-up (`--discs DIR` to look elsewhere). Without it his animation is procedural. |

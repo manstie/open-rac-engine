@@ -1,4 +1,4 @@
-//! The player's settings file and the app's directories (PLAN.md P1.1).
+//! The player's settings file and the app's directories (PLAN.md P1.1, P1.12).
 
 use anyhow::{Context, Result};
 // Named imports: the Bevy prelude's `ContextExt` would clash with anyhow's `Context`.
@@ -8,12 +8,16 @@ use rac_input::InputSettings;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::options::{DisplaySettings, SoundSettings};
+
 /// Everything saved in `settings.toml`. Missing fields take their defaults, so files
 /// written by older builds keep loading.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub input: InputSettings,
+    pub display: DisplaySettings,
+    pub sound: SoundSettings,
     /// The hero's model, by name (`rac_rig::RigModels`); the open model if unset.
     pub hero_model: Option<String>,
     /// Which game the hero moves like (`crate::moves`); UYA if unset.
@@ -91,6 +95,13 @@ pub fn load_or_create(path: &Path) -> Settings {
     }
 }
 
+/// Changes the saved settings with `change`, keeping the rest of what the file holds.
+pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> Result<()> {
+    let mut saved = load_or_create(path);
+    change(&mut saved);
+    save(path, &saved)
+}
+
 pub fn save(path: &Path, settings: &Settings) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -134,7 +145,39 @@ mod tests {
         settings.hero_model = Some("uya".into());
         settings.hero_moves = Some("dl".into());
         settings.hero_camera = Some("lock-strafe".into());
+        settings.display.window = crate::options::WindowChoice::Borderless;
+        settings.display.field_of_view = 70.0;
+        settings.sound.volume = 0.5;
         save(&path, &settings).unwrap();
         assert_eq!(load_or_create(&path), settings);
+    }
+
+    #[test]
+    fn files_from_before_the_options_keep_their_settings() {
+        let path = temp_file("old.toml");
+        std::fs::write(
+            &path,
+            "hero_model = \"uya\"\n[input]\ninvert_look_y = true\n",
+        )
+        .unwrap();
+        let settings = load_or_create(&path);
+        assert_eq!(settings.hero_model.as_deref(), Some("uya"));
+        assert!(settings.input.invert_look_y);
+        assert_eq!(settings.display, DisplaySettings::default());
+        assert_eq!(settings.sound, SoundSettings::default());
+    }
+
+    #[test]
+    fn an_update_keeps_the_rest() {
+        let path = temp_file("update.toml");
+        let settings = Settings {
+            hero_moves: Some("dl".into()),
+            ..Settings::default()
+        };
+        save(&path, &settings).unwrap();
+        update(&path, |saved| saved.sound.volume = 0.25).unwrap();
+        let saved = load_or_create(&path);
+        assert_eq!(saved.hero_moves.as_deref(), Some("dl"));
+        assert_eq!(saved.sound.volume, 0.25);
     }
 }

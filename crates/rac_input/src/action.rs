@@ -33,10 +33,12 @@ pub enum Action {
     UiRight,
     UiAccept,
     UiBack,
+    /// Clears the focused binding on a controls screen.
+    UiClear,
 }
 
 impl Action {
-    pub const ALL: [Action; 18] = [
+    pub const ALL: [Action; 19] = [
         Action::Jump,
         Action::Crouch,
         Action::Melee,
@@ -55,6 +57,7 @@ impl Action {
         Action::UiRight,
         Action::UiAccept,
         Action::UiBack,
+        Action::UiClear,
     ];
 
     /// The bit this action has in [`Buttons`], if it is a gameplay action.
@@ -83,6 +86,27 @@ impl Action {
     /// Whether only gamepad bindings can trigger this action.
     pub fn is_gamepad_only(self) -> bool {
         self == Action::LockOn
+    }
+
+    /// Whether menus read this action, rather than play. A key can do one thing in play and
+    /// another in menus, as Space jumps and chooses.
+    pub fn is_menu(self) -> bool {
+        matches!(
+            self,
+            Action::UiUp
+                | Action::UiDown
+                | Action::UiLeft
+                | Action::UiRight
+                | Action::UiAccept
+                | Action::UiBack
+                | Action::UiClear
+        )
+    }
+
+    /// Whether this action must keep a binding on each kind of device, so the player can
+    /// always open and work the menus with whatever they hold.
+    pub fn must_stay_bound(self) -> bool {
+        self == Action::Pause || (self.is_menu() && self != Action::UiClear)
     }
 }
 
