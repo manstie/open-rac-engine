@@ -46,6 +46,9 @@ serde_json = "1"
 sha1_smol = "1"
 thiserror = "2"
 toml = "1"
+# Bevy's graphics library, at its version, for `openrac` to check at start-up that the
+# backend the player chose has a GPU (PLAN.md P1.12). Bevy turns on the backends.
+wgpu = { version = "30", default-features = false }
 # Windows only: release builds of `openrac` open no console and attach to their parent's.
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 

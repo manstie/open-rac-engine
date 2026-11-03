@@ -146,13 +146,15 @@ fn main() -> Result<AppExit> {
         }
     };
 
+    let (wgpu_settings, started_backend) = options::renderer_settings(settings.display.backend);
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Open Ratchet & Clank Engine".into(),
-                    mode: settings.display.window.mode(),
+                    mode: settings.display.window_mode(),
+                    resolution: settings.display.window_resolution(),
                     present_mode: settings.display.present_mode(),
                     ..default()
                 }),
@@ -163,6 +165,7 @@ fn main() -> Result<AppExit> {
             // fail ("NVVM compilation failed: 3"), losing the device and segfaulting
             // within a second of startup. Revisit when the driver or wgpu changes.
             .set(RenderPlugin {
+                render_creation: wgpu_settings.into(),
                 synchronous_pipeline_compilation: true,
                 ..default()
             }),
@@ -170,6 +173,8 @@ fn main() -> Result<AppExit> {
     // Saved settings go in before the plugins, which would otherwise use defaults.
     .insert_resource(settings.input)
     .insert_resource(settings.display)
+    .insert_resource(started_backend)
+    .insert_resource(menu::KeyNames::from_saved(&settings.key_names))
     .insert_resource(settings.sound)
     .add_plugins((
         rac_sim::SimPlugin,

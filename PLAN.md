@@ -45,8 +45,9 @@ session is working on the task now; notes on problems met stay with their task (
   help message on the HUD), UYA's vendor menu and bolt bank (P1.10), and a HUD on UYA's timings with the guns'
   crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
   the disc's textures for them, P3.18), and an Options menu with every control
-  rebindable on keyboard and mouse and gamepad, the mouse and sticks, display and sound
-  (P1.3, P1.12). The guns sound and show their flames, shots,
+  rebindable on keyboard and mouse and gamepad (keys named as the layout has them), the
+  mouse and sticks, display (window, resolution, frame-rate cap, HUD size, graphics API)
+  and sound (P1.3, P1.12). The guns sound and show their flames, shots,
   rays and blasts with placeholders made in code, and with a UYA disc the game's own
   sounds for 18 guns, effect and particle textures, and the shots' models, skinned and animated by level; the six first
   guns' effects and the other guns' as far as the effects layer goes (the Spitting
@@ -333,6 +334,7 @@ None at the moment.
 | 2026-10-31 | **DL's guns are chosen on their own, by `--guns dl`, while only some are in.** `--moves dl` keeps UYA's twenty, so a movement test doesn't lose them; once all ten are in and have looks, the guns should follow the game the hero moves like, in the menus too. |
 | 2026-11-01 | **The demo kit keeps Bevy's default tonemapper; playing the original games remastered uses the closest match to the game.** The PS2 has no tone curve and clamps each channel, while Bevy's default pales saturated colours (V5's violet ring shows periwinkle). The match is chosen when real levels run (P3.17), against footage of the game. Tried on the demo level only: `None` is the game's colours but blows out its floor, as the kit's lights aren't calibrated for it; `ReinhardLuminance` keeps the violet and the floor (`effects.md`, "The Quantum Whip's cutting wave"). |
 | 2026-11-03 | **Rebinding swaps.** A binding put in a slot is taken from any other control read in the same place (play or menus; Space can jump and choose), which gets the slot's old binding instead, or loses it if the slot was empty. Pause and the menu actions keep a binding on each kind of device, and each movement key its key, so the player can't lock themselves out; such a change is refused. Esc always calls off listening, so it can't be bound once taken off Pause and Back (Reset gives it back). |
+| 2026-11-03 | **The display settings:** one size for the HUD and the menus (Bevy's `UiScale`; the sights keep to the view, as the game sizes them by the screen); a graphics API chosen in the menus is used from the next start only if the machine has a GPU for it (a software adapter doesn't count), or else wgpu chooses, so a wrong choice can't stop the game starting; key names are learned from what the keys type and saved. |
 | 2026-11-03 | **Release packages are built on GitHub from a `v*` tag into a draft release**, which the owner checks and publishes (`release.yml`, P7.1). Windows links the C runtime in and, in release builds, opens no console window; Linux builds on the oldest supported Ubuntu runner, for the oldest glibc. **CI caches with `Swatinem/rust-cache`, not `cargo-chef`**, which only helps Docker builds. |
 
 ## 6. Roadmap
@@ -693,9 +695,13 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     catches the next key, mouse button, wheel notch, pad button or two-button chord while
     no action fires. A `UiClear` action (Delete, Square) clears a slot. The controls page
     is P1.12's.
+  - Done 2026-11-03: keys named as the layout has them (`openrac/src/menu/names.rs`,
+    `KeyNames`): each letter and sign key's name is learned from what it types when
+    pressed without modifiers and saved as `key_names`, as no platform-neutral API asks
+    the layout. Seen on Xvfb with `setxkbmap fr`: Z, Q and M learned, kept after a restart.
   - Not done: checking the full stick curve, since Bevy's own axis processing runs before
-    ours; catching a real gamepad's press (only tested on synthetic pads); key names follow
-    the physical key (`KeyCode`), so an AZERTY player sees W for their Z.
+    ours; catching a real gamepad's press (only tested on synthetic pads); a key's name
+    before its first press on a new layout (the US name).
 - [x] **P1.4** Greybox level (`rac_demo`), as data tagged by purpose (`Surface`): ramps,
   stairs, ledge blocks, a wall-jump shaft to a high platform, a gap course, a moving
   platform, a grind rail, a zip line, a pool, a melee yard, a hazard pad and checkpoints.
@@ -1126,17 +1132,26 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     in `settings.toml`), and the controls page, every control's bindings on the keyboard
     and mouse and the gamepad, changed by choosing a slot and pressing (P1.3). Pages
     scroll and follow the focus; held directions repeat; right-click steps back or clears;
-    Back goes up a page. The in-game hint is made from the bindings. Seen running on Xvfb:
-    every page, rebinding by key and mouse, a swap, a refusal, reset, the field of view,
-    and the settings file.
+    Back goes up a page. The in-game controls hint is gone: the bindings are in Options.
+    Seen running on Xvfb: every page, rebinding by key and mouse, a swap, a refusal,
+    reset, the field of view, and the settings file.
+  - Done 2026-11-03, the rest of the display settings (`options.rs`, section 5): the
+    resolution (the window's size, from the common sizes that fit its monitor, or the
+    monitor's video modes in exclusive fullscreen), a frame-rate cap (`cap_frame_rate`,
+    sleeping in `Last`), the HUD and menu size (`UiScale`; the sights divide it out, so
+    they keep to the view) and the graphics API (P1.14). The window takes only the
+    setting that changed, so a size set by hand survives. Seen running on Xvfb: the
+    window resized, the cap (29.6 fps at 30), the sizes with the crosshair's pixels
+    unmoved, Vulkan falling back from lavapipe (a CPU adapter), every value saved.
+  - `warn!` before `App::new` is lost, as Bevy's log isn't up yet: the backend's warning
+    moved to a start-up system; `settings::load_or_create`'s (a broken settings file) and
+    the movement profile's fallback in `main` are still lost.
   - Not done: L3's show-all (no binding); the scope drawn through the frame's alpha as the
-    game does (with P3.18's blends); in the settings, resolution, a frame-rate cap, HUD
-    scale (Bevy's `UiScale` would scale the HUD but not where the sights put themselves,
-    which is in window pixels), the preferred backend (a backend the machine lacks stops
-    the game starting, so it needs a check first; with P1.14), and a music volume (no
-    music yet). Not seen: borderless and fullscreen (Xvfb has no window manager to obey
-    them), the volume heard.
-  - Next step: try the window modes and a gamepad's rebinding on the owner's desktop.
+    game does (with P3.18's blends); a music volume (no music yet). Not seen: borderless,
+    fullscreen and its video modes (Xvfb has no window manager and one mode), the volume
+    heard.
+  - Next step: try the window modes, fullscreen resolutions and a gamepad's rebinding on
+    the owner's desktop.
   - xdotool's keys didn't reach the app under Xvfb (no window manager, so no focus);
     `xdotool windowfocus --sync` on the window first fixes it (CLAUDE.md, "Running the
     app off-screen").
@@ -1167,8 +1182,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     yet: the run was off screen.
 - [ ] **P1.14** Platform checks:
   - Windows: pick the default backend. Today wgpu prefers Vulkan over DX12 whenever both
-    exist. Test both, then set `WgpuSettings::backends` accordingly and offer the other in
-    settings.
+    exist. Test both, then set the default accordingly. The Options menu's Graphics API
+    already chooses (P1.12): the chosen backend if it has a GPU, or else wgpu's.
   - Linux: Vulkan.
   - Gamepad hotplug on both.
   - Performance: at least 60 fps at 1080p on a mid-range GPU.

@@ -1,15 +1,23 @@
 //! The menus' choices, which left and right step through: the hero's model, the game he
 //! moves like and his camera, and the options. Each step is saved in the settings file.
 
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::*,
+    render::renderer::RenderAdapterInfo,
+    window::{Monitor, PrimaryMonitor, PrimaryWindow},
+};
 use rac_demo::DemoSettings;
 use rac_hero::HeroTuning;
 use rac_input::InputSettings;
 use rac_rig::RigModels;
 
+use super::names::KeyNames;
 use crate::camera;
 use crate::moves::{self, ChosenMoves};
-use crate::options::{DisplaySettings, SoundSettings, WindowChoice};
+use crate::options::{
+    self, BackendChoice, BackendStart, DisplaySettings, SoundSettings, StartedBackend, WindowChoice,
+};
 use crate::settings::{self, Paths, Settings};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,8 +32,12 @@ pub enum Choice {
     MoveDeadZone,
     LookDeadZone,
     Window,
+    Resolution,
     Vsync,
+    FrameCap,
     FieldOfView,
+    InterfaceSize,
+    Backend,
     Volume,
 }
 
@@ -42,8 +54,12 @@ impl Choice {
             Choice::MoveDeadZone => "Movement stick dead zone",
             Choice::LookDeadZone => "Look stick dead zone",
             Choice::Window => "Window",
+            Choice::Resolution => "Resolution",
             Choice::Vsync => "Vsync",
+            Choice::FrameCap => "Frame-rate cap",
             Choice::FieldOfView => "Field of view",
+            Choice::InterfaceSize => "HUD and menu size",
+            Choice::Backend => "Graphics API",
             Choice::Volume => "Volume",
         }
     }
@@ -56,6 +72,7 @@ impl Choice {
                 | Choice::MoveDeadZone
                 | Choice::LookDeadZone
                 | Choice::FieldOfView
+                | Choice::InterfaceSize
                 | Choice::Volume
         )
     }
@@ -87,6 +104,12 @@ const FIELD_OF_VIEW: Steps = Steps {
     max: 110,
     step: 5,
 };
+/// The HUD's and menus' size, as a percentage (`options::INTERFACE_SIZES`).
+const INTERFACE_SIZE: Steps = Steps {
+    min: 50,
+    max: 200,
+    step: 10,
+};
 /// The volume, as a percentage.
 const VOLUME: Steps = Steps {
     min: 0,
@@ -116,9 +139,31 @@ fn on_off(on: bool) -> String {
     if on { "On" } else { "Off" }.into()
 }
 
+fn size_text(size: UVec2) -> String {
+    format!("{} x {}", size.x, size.y)
+}
+
+/// The backend `saved`, as the renderer `started` with it, `running` the one in use.
+fn backend_text(
+    saved: BackendChoice,
+    started: Option<StartedBackend>,
+    running: Option<&str>,
+) -> String {
+    let running = running.unwrap_or("none");
+    let Some(started) = started.filter(|started| started.chosen == saved) else {
+        return format!("{} (on restart)", saved.name());
+    };
+    match (started.how, saved) {
+        (BackendStart::Environment, _) => format!("{running} (WGPU_BACKEND)"),
+        (BackendStart::Missing, _) => format!("{} (no GPU)", saved.name()),
+        (BackendStart::Chosen, BackendChoice::Auto) => format!("Auto ({running})"),
+        (BackendStart::Chosen, _) => saved.name().into(),
+    }
+}
+
 /// Everything the choices show and change.
 #[derive(SystemParam)]
-pub struct Choices<'w> {
+pub struct Choices<'w, 's> {
     models: ResMut<'w, RigModels>,
     tuning: ResMut<'w, HeroTuning>,
     chosen_moves: ResMut<'w, ChosenMoves>,
@@ -127,9 +172,14 @@ pub struct Choices<'w> {
     display: ResMut<'w, DisplaySettings>,
     sound: ResMut<'w, SoundSettings>,
     paths: Option<Res<'w, Paths>>,
+    windows: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    monitors: Query<'w, 's, (&'static Monitor, Has<PrimaryMonitor>)>,
+    keys: Res<'w, KeyNames>,
+    started: Option<Res<'w, StartedBackend>>,
+    adapter: Option<Res<'w, RenderAdapterInfo>>,
 }
 
-impl Choices<'_> {
+impl Choices<'_, '_> {
     /// What `choice` is set to, as the menus show it.
     pub fn value(&self, choice: Choice) -> String {
         match choice {
@@ -155,8 +205,24 @@ impl Choices<'_> {
                 WindowChoice::Fullscreen => "Fullscreen",
             }
             .into(),
+            Choice::Resolution => self.windows.single().map_or_else(
+                |_| "-".into(),
+                |window| size_text(window.resolution.physical_size()),
+            ),
             Choice::Vsync => on_off(self.display.vsync),
+            Choice::FrameCap => self
+                .display
+                .frame_cap
+                .map_or_else(|| "Off".into(), |cap| format!("{cap} fps")),
             Choice::FieldOfView => format!("{:.0} degrees", self.display.field_of_view),
+            Choice::InterfaceSize => format!("{:.0}%", self.display.interface_size * 100.0),
+            Choice::Backend => backend_text(
+                self.display.backend,
+                self.started.as_deref().copied(),
+                self.adapter
+                    .as_deref()
+                    .map(|adapter| options::backend_name(adapter.backend)),
+            ),
             Choice::Volume => format!("{:.0}%", self.sound.volume * 100.0),
         }
     }
@@ -244,13 +310,47 @@ impl Choices<'_> {
                 self.display.window = all[next];
                 self.save_display();
             }
+            Choice::Resolution => {
+                if !self.step_resolution(forward) {
+                    return;
+                }
+                self.save_display();
+            }
             Choice::Vsync => {
                 self.display.vsync = !self.display.vsync;
+                self.save_display();
+            }
+            Choice::FrameCap => {
+                self.display.frame_cap = options::step_through(
+                    &options::FRAME_CAPS,
+                    self.display.frame_cap,
+                    forward,
+                    options::frame_cap_order,
+                );
                 self.save_display();
             }
             Choice::FieldOfView => {
                 self.display.field_of_view =
                     FIELD_OF_VIEW.step(self.display.field_of_view, forward);
+                self.save_display();
+            }
+            Choice::InterfaceSize => {
+                self.display.interface_size =
+                    INTERFACE_SIZE.step(self.display.interface_size * 100.0, forward) / 100.0;
+                self.save_display();
+            }
+            Choice::Backend => {
+                let offered = BackendChoice::OFFERED;
+                let index = offered
+                    .iter()
+                    .position(|choice| *choice == self.display.backend)
+                    .unwrap_or(0);
+                let next = if forward {
+                    (index + 1) % offered.len()
+                } else {
+                    (index + offered.len() - 1) % offered.len()
+                };
+                self.display.backend = offered[next];
                 self.save_display();
             }
             Choice::Volume => {
@@ -259,6 +359,53 @@ impl Choices<'_> {
                 self.save(|saved| saved.sound = sound);
             }
         }
+    }
+
+    /// Steps the window's size, or the video mode's in exclusive fullscreen, through those
+    /// its monitor offers; borderless has the monitor's own. Whether anything changed.
+    fn step_resolution(&mut self, forward: bool) -> bool {
+        let Ok(window) = self.windows.single() else {
+            return false;
+        };
+        let monitor = options::window_monitor(window, self.monitors.iter());
+        let monitor_size =
+            monitor.map(|monitor| UVec2::new(monitor.physical_width, monitor.physical_height));
+        match self.display.window {
+            WindowChoice::Windowed => {
+                let current = window.resolution.physical_size();
+                let sizes = options::window_sizes(monitor_size, current);
+                let next = options::step_through(&sizes, current, forward, options::size_order);
+                self.display.window_size = Some(next);
+                next != current
+            }
+            WindowChoice::Borderless => false,
+            WindowChoice::Fullscreen => {
+                let (Some(monitor), Some(monitor_size)) = (monitor, monitor_size) else {
+                    return false;
+                };
+                let current = self
+                    .display
+                    .fullscreen_mode
+                    .map_or(monitor_size, |mode| mode.physical_size);
+                let sizes = options::fullscreen_sizes(&monitor.video_modes);
+                let next = options::step_through(&sizes, current, forward, options::size_order);
+                // The monitor's own size is its current mode, as the desktop has it.
+                self.display.fullscreen_mode = if next == monitor_size {
+                    None
+                } else {
+                    options::fullscreen_mode(
+                        &monitor.video_modes,
+                        next,
+                        monitor.refresh_rate_millihertz,
+                    )
+                };
+                next != current
+            }
+        }
+    }
+
+    pub fn keys(&self) -> &KeyNames {
+        &self.keys
     }
 
     pub fn input(&self) -> &InputSettings {
@@ -304,5 +451,41 @@ mod tests {
         assert_eq!(MOUSE_SPEED.step(124.0, false), 120.0);
         assert_eq!(FIELD_OF_VIEW.step(45.0, true), 50.0);
         assert_eq!(DEAD_ZONE.step(10.0, false), 5.0);
+        assert_eq!(INTERFACE_SIZE.step(100.0, true), 110.0);
+    }
+
+    #[test]
+    fn the_backend_says_what_runs_and_what_waits_for_a_restart() {
+        let started = |chosen, how| Some(StartedBackend { chosen, how });
+        let auto = started(BackendChoice::Auto, BackendStart::Chosen);
+        assert_eq!(
+            backend_text(BackendChoice::Auto, auto, Some("Vulkan")),
+            "Auto (Vulkan)"
+        );
+        assert_eq!(
+            backend_text(BackendChoice::Dx12, auto, Some("Vulkan")),
+            "DirectX 12 (on restart)"
+        );
+        let dx12 = BackendChoice::Dx12;
+        assert_eq!(
+            backend_text(
+                dx12,
+                started(dx12, BackendStart::Chosen),
+                Some("DirectX 12")
+            ),
+            "DirectX 12"
+        );
+        assert_eq!(
+            backend_text(dx12, started(dx12, BackendStart::Missing), Some("Vulkan")),
+            "DirectX 12 (no GPU)"
+        );
+        assert_eq!(
+            backend_text(
+                dx12,
+                started(dx12, BackendStart::Environment),
+                Some("Vulkan")
+            ),
+            "Vulkan (WGPU_BACKEND)"
+        );
     }
 }

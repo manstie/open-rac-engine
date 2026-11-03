@@ -6,6 +6,7 @@ use bevy::prelude::{Resource, warn};
 use directories::ProjectDirs;
 use rac_input::InputSettings;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::options::{DisplaySettings, SoundSettings};
@@ -24,6 +25,9 @@ pub struct Settings {
     pub hero_moves: Option<String>,
     /// The hero camera's setting (`crate::camera`); the game's own if unset.
     pub hero_camera: Option<String>,
+    /// What the keyboard's layout calls the keys it names otherwise than a US keyboard,
+    /// by `KeyCode` (`crate::menu::KeyNames`).
+    pub key_names: BTreeMap<String, String>,
 }
 
 /// Where the app keeps its files.

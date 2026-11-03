@@ -25,6 +25,7 @@ rac_rig.workspace = true
 rac_sim.workspace = true
 serde.workspace = true
 toml.workspace = true
+wgpu.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

@@ -653,6 +653,7 @@ pub(super) fn draw_sights(
     targets: Query<(&GlobalTransform, Option<&Hurtbox>, Option<&Hitpoints>)>,
     mut huds: Query<(&PlayerHud, &mut SightsClock, &SightSprites)>,
     mut nodes: Query<SpriteNode>,
+    ui_scale: Res<UiScale>,
 ) {
     let frames = time.delta_secs() * FRAME_RATE;
     let no_sights = Sights::default();
@@ -722,11 +723,13 @@ pub(super) fn draw_sights(
                 continue;
             };
             visibility.set_if_neq(Visibility::Inherited);
-            let corner = sprite.centre - sprite.size / 2.0;
+            // The sights are placed in the window's pixels, which `UiScale` would scale.
+            let corner = (sprite.centre - sprite.size / 2.0) / ui_scale.0;
+            let size = sprite.size / ui_scale.0;
             node.left = px(corner.x);
             node.top = px(corner.y);
-            node.width = px(sprite.size.x);
-            node.height = px(sprite.size.y);
+            node.width = px(size.x);
+            node.height = px(size.y);
             let handle = images.get(sprite.texture);
             if image.image != handle {
                 image.image = handle;

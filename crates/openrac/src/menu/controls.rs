@@ -309,7 +309,7 @@ pub(super) fn clear(slot: Slot, choices: &mut Choices, notice: &mut Notice) {
                 notice.0 = format!(
                     "{} no longer has {}.",
                     names::control(slot.control),
-                    names::binding(binding)
+                    names::binding(binding, choices.keys())
                 );
                 choices.save_input();
             }
@@ -358,7 +358,7 @@ pub(super) fn catch(
     match caught {
         Some(Caught::Binding(binding)) => match choices.input_mut().assign(slot, binding) {
             Ok(changes) => {
-                notice.0 = assigned(slot, binding, &changes);
+                notice.0 = assigned(slot, binding, &changes, choices.keys());
                 choices.save_input();
             }
             Err(error) => notice.0 = refusal(slot, error),
@@ -368,18 +368,23 @@ pub(super) fn catch(
 }
 
 /// What the page says after putting `binding` in `slot`.
-fn assigned(slot: Slot, binding: rac_input::Binding, changes: &[Change]) -> String {
+fn assigned(
+    slot: Slot,
+    binding: rac_input::Binding,
+    changes: &[Change],
+    keys: &names::KeyNames,
+) -> String {
     let mut text = format!(
         "{}: {}.",
         names::control(slot.control),
-        names::binding(binding)
+        names::binding(binding, keys)
     );
     for change in changes {
         text += &match *change {
             Change::Swapped { control, took } => format!(
                 " {} takes {} instead.",
                 names::control(control),
-                names::binding(took)
+                names::binding(took, keys)
             ),
             Change::Removed { control } => {
                 format!(" {} no longer has it.", names::control(control))
@@ -414,6 +419,7 @@ fn device_name(device: Device) -> &'static str {
 
 pub(super) fn label_slots(
     input: Res<InputSettings>,
+    keys: Res<names::KeyNames>,
     rebinding: Res<Rebinding>,
     mut texts: Query<(&SlotText, &mut Text)>,
 ) {
@@ -423,7 +429,7 @@ pub(super) fn label_slots(
         } else {
             input.binding_in(slot.0).map_or_else(
                 || "-".to_owned(),
-                |b| names::capitalised(&names::binding(b)),
+                |b| names::capitalised(&names::binding(b, &keys)),
             )
         };
         if text.0 != wanted {
@@ -435,6 +441,7 @@ pub(super) fn label_slots(
 pub(super) fn show_notice(
     time: Res<Time<Real>>,
     input: Res<InputSettings>,
+    keys: Res<names::KeyNames>,
     rebinding: Res<Rebinding>,
     notice: Res<Notice>,
     mut texts: Query<&mut Text, With<NoticeText>>,
@@ -456,8 +463,8 @@ pub(super) fn show_notice(
         None if !notice.0.is_empty() => notice.0.clone(),
         None => format!(
             "{}: change a binding. {} or right-click: clear one.",
-            names::bindings_of(&input, Control::Action(Action::UiAccept)),
-            names::bindings_of(&input, Control::Action(Action::UiClear)),
+            names::bindings_of(&input, &keys, Control::Action(Action::UiAccept)),
+            names::bindings_of(&input, &keys, Control::Action(Action::UiClear)),
         ),
     };
     for mut text in &mut texts {
@@ -533,6 +540,7 @@ mod tests {
                 control: Control::Action(Action::Melee),
                 took: rac_input::Binding::Key(KeyCode::Space),
             }],
+            &names::KeyNames::default(),
         );
         assert_eq!(text, "Jump: F. Wrench takes Space instead.");
     }

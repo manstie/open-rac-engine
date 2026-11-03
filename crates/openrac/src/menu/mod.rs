@@ -1,5 +1,5 @@
 //! The menus (PLAN.md P1.1, P1.12): the main menu, the pause menu, the options and the
-//! controls, and the in-game controls hint.
+//! controls.
 //!
 //! A page is a grid of items with one focused: buttons, choices that left and right step
 //! through (the hero's model, moves and camera, and the options), and on the controls page
@@ -14,19 +14,22 @@ mod controls;
 mod names;
 
 use bevy::{
-    input::mouse::{AccumulatedMouseScroll, MouseScrollUnit},
+    input::{
+        InputSystems,
+        mouse::{AccumulatedMouseScroll, MouseScrollUnit},
+    },
     picking::{events::PointerClick, hover::Hovered, pointer::PointerButton},
     prelude::*,
     ui::UiGlobalTransform,
     ui_widgets::{Button, observe},
 };
-use rac_demo::DemoSettings;
-use rac_input::{Action, ActionState, BindingCapture, Control, InputSettings, Slot};
+use rac_input::{Action, ActionState, BindingCapture, Slot};
 use std::collections::BTreeSet;
 
 use crate::flow::{AppState, Pause};
 use crate::moves::ChosenMoves;
 use choices::{Choice, Choices};
+pub use names::KeyNames;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -119,10 +122,6 @@ struct ChoiceText {
     named: bool,
 }
 
-/// The in-game controls hint.
-#[derive(Component, Debug)]
-struct ControlsHint;
-
 const TEXT: Color = Color::srgb(0.92, 0.92, 0.92);
 const BUTTON: Color = Color::srgb(0.16, 0.17, 0.2);
 const BUTTON_FOCUSED: Color = Color::srgb(0.85, 0.45, 0.1);
@@ -145,11 +144,12 @@ impl Plugin for MenuPlugin {
             .init_resource::<ChosenMoves>()
             .init_resource::<controls::Rebinding>()
             .init_resource::<controls::Notice>()
+            .init_resource::<KeyNames>()
             .add_systems(OnEnter(AppState::MainMenu), open_main_menu)
             .add_systems(OnEnter(Pause::Paused), open_pause_menu)
             .add_systems(OnExit(AppState::MainMenu), close_pages)
             .add_systems(OnExit(Pause::Paused), close_pages)
-            .add_systems(OnEnter(AppState::InGame), spawn_controls_hint)
+            .add_systems(PreUpdate, names::learn_key_names.after(InputSystems))
             .add_systems(
                 Update,
                 (
@@ -167,8 +167,6 @@ impl Plugin for MenuPlugin {
                     controls::label_slots,
                     controls::show_notice,
                     scroll,
-                    label_controls_hint.run_if(resource_changed::<InputSettings>),
-                    hide_controls_hint.run_if(resource_changed::<Pages>),
                 )
                     .chain(),
             );
@@ -268,7 +266,7 @@ enum OptionLine {
     Controls,
 }
 
-const OPTIONS: [OptionLine; 15] = [
+const OPTIONS: [OptionLine; 19] = [
     OptionLine::Heading("Controls"),
     OptionLine::Controls,
     OptionLine::Choice(Choice::MouseSpeed),
@@ -279,8 +277,12 @@ const OPTIONS: [OptionLine; 15] = [
     OptionLine::Choice(Choice::LookDeadZone),
     OptionLine::Heading("Display"),
     OptionLine::Choice(Choice::Window),
+    OptionLine::Choice(Choice::Resolution),
     OptionLine::Choice(Choice::Vsync),
+    OptionLine::Choice(Choice::FrameCap),
     OptionLine::Choice(Choice::FieldOfView),
+    OptionLine::Choice(Choice::InterfaceSize),
+    OptionLine::Choice(Choice::Backend),
     OptionLine::Heading("Sound"),
     OptionLine::Choice(Choice::Volume),
     OptionLine::Heading(""),
@@ -309,7 +311,7 @@ fn spawn_options(commands: &mut Commands) {
                 ScrollPosition::default(),
                 Node {
                     width: percent(100),
-                    max_width: px(760),
+                    max_width: px(800),
                     // Whatever room the title and footer leave, however long the list.
                     flex_grow: 1.0,
                     flex_basis: px(0),
@@ -413,7 +415,7 @@ fn option_row(row: usize, choice: Choice) -> impl Bundle {
             (
                 // Arrows at fixed places, whatever the value's length.
                 Node {
-                    width: px(280),
+                    width: px(360),
                     flex_shrink: 0.0,
                     justify_content: JustifyContent::SpaceBetween,
                     ..default()
@@ -433,103 +435,6 @@ fn option_row(row: usize, choice: Choice) -> impl Bundle {
             ),
         ],
     )
-}
-
-const HERO_CONTROLS: &str = "Move: {move} / {move_stick}. Look: mouse / {look_stick}. Pause: {pause}.\n\
-    Jump: {jump}. Again in the air: double jump; keep holding: glide.\n\
-    Crouch: {crouch}. Then jump: heli jump, or a long jump while running.\n\
-    Crouch, then push sideways or back as you jump: flip.\n\
-    Strafe: {strafe}. Then jump sideways or back: flip.\n\
-    Look round: {look} (first person in lock-strafe). Camera setting: in the menus.\n\
-    Wrench: {melee}, again in time for the combo. Crouch first: throw it.\n\
-    Gun: {fire} brings it out and fires.\n\
-    Switch guns: {previous}, and {next}.\n\
-    Tap {quick} for the last guns; hold it and point the stick for the ring (switch:\n\
-    step round it; crouch: the other ring). Lock on (gamepad, not in lock-strafe, with\n\
-    the gun's lock-on mod): {lock_on}.";
-
-const SPECTATOR_CONTROLS: &str = "Spectator camera. Move: {move} / {move_stick}. Look: mouse / {look_stick}.\n\
-    Up: {jump}. Down: {crouch}. Faster: {strafe}.\n\
-    Pause: {pause}.";
-
-/// The controls hint with the player's bindings filled in.
-fn controls_hint(input: &InputSettings, spectator: bool) -> String {
-    let template = if spectator {
-        SPECTATOR_CONTROLS
-    } else {
-        HERO_CONTROLS
-    };
-    let (move_stick, look_stick) = if input.swap_sticks {
-        ("right stick", "left stick")
-    } else {
-        ("left stick", "right stick")
-    };
-    let of = |action| names::bindings_of(input, Control::Action(action));
-    [
-        ("{move}", names::move_keys(input)),
-        ("{move_stick}", move_stick.to_owned()),
-        ("{look_stick}", look_stick.to_owned()),
-        ("{pause}", of(Action::Pause)),
-        ("{jump}", of(Action::Jump)),
-        ("{crouch}", of(Action::Crouch)),
-        ("{strafe}", of(Action::Strafe)),
-        ("{look}", of(Action::FirstPerson)),
-        ("{melee}", of(Action::Melee)),
-        ("{fire}", of(Action::Fire)),
-        ("{previous}", of(Action::PrevWeapon)),
-        ("{next}", of(Action::NextWeapon)),
-        ("{quick}", of(Action::QuickSelect)),
-        ("{lock_on}", of(Action::LockOn)),
-    ]
-    .into_iter()
-    .fold(template.to_owned(), |text, (key, value)| {
-        text.replace(key, &value)
-    })
-}
-
-fn spawn_controls_hint(mut commands: Commands, demo: Res<DemoSettings>, input: Res<InputSettings>) {
-    commands.spawn((
-        DespawnOnExit(AppState::InGame),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(12),
-            bottom: px(12),
-            ..default()
-        },
-        children![(
-            ControlsHint,
-            Text::new(controls_hint(&input, demo.spectator)),
-            TextFont {
-                font_size: FontSize::Px(16.0),
-                ..default()
-            },
-            TextColor(TEXT),
-        )],
-    ));
-}
-
-fn label_controls_hint(
-    demo: Res<DemoSettings>,
-    input: Res<InputSettings>,
-    mut hints: Query<&mut Text, With<ControlsHint>>,
-) {
-    for mut text in &mut hints {
-        text.0 = controls_hint(&input, demo.spectator);
-    }
-}
-
-/// Hides the hint behind the pause menu's pages, which it would show through.
-fn hide_controls_hint(pages: Res<Pages>, mut hints: Query<&mut Visibility, With<ControlsHint>>) {
-    let wanted = if pages.0.is_empty() {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
-    for mut visibility in &mut hints {
-        if *visibility != wanted {
-            *visibility = wanted;
-        }
-    }
 }
 
 fn menu_root(background: Color) -> impl Bundle {
@@ -950,7 +855,8 @@ fn scroll(
     focus: Res<Focus>,
     wheel: Res<AccumulatedMouseScroll>,
     rebinding: Res<controls::Rebinding>,
-    mut followed: Local<Option<Focus>>,
+    // The focus followed, and at what scale: a new size for the menus moves it.
+    mut followed: Local<Option<(Focus, f32)>>,
     items: Query<(&MenuItem, &ComputedNode, &UiGlobalTransform), With<Scrolled>>,
     mut lists: Query<(&mut ScrollPosition, &ComputedNode, &UiGlobalTransform), With<MenuScroll>>,
 ) {
@@ -964,7 +870,7 @@ fn scroll(
             };
             y -= wheel.delta.y * lines;
         }
-        if *followed != Some(*focus)
+        if *followed != Some((*focus, scale))
             && let Some((_, node, item)) = items.iter().find(|(item, ..)| item.at() == *focus)
             && node.size().y > 0.0
         {
@@ -978,7 +884,7 @@ fn scroll(
             } else if item_bottom > bottom {
                 y += (item_bottom - bottom) * scale;
             }
-            *followed = Some(*focus);
+            *followed = Some((*focus, scale));
         }
         let most = ((list.content_size().y - list.size().y) * scale).max(0.0);
         let y = y.clamp(0.0, most);
@@ -1072,26 +978,5 @@ mod tests {
             Some((Action::UiDown, true))
         );
         assert_eq!(repeat.fire(none, none, 1.0), None);
-    }
-
-    #[test]
-    fn the_hint_names_the_bindings() {
-        let mut input = InputSettings::default();
-        let hint = controls_hint(&input, false);
-        assert!(hint.starts_with(
-            "Move: WASD / left stick. Look: mouse / right stick. Pause: Esc / Start."
-        ));
-        assert!(hint.contains("Jump: Space / Cross."));
-        assert!(hint.contains("Strafe: right mouse / L2 or R2."));
-        assert!(hint.contains("lock-on mod): L2 + R2."));
-        assert!(!hint.contains('{'), "{hint}");
-        input.swap_sticks = true;
-        input.move_keys.forward = KeyCode::ArrowUp;
-        let hint = controls_hint(&input, true);
-        assert!(
-            hint.starts_with("Spectator camera. Move: Up, A, S, D / right stick."),
-            "{hint}"
-        );
-        assert!(!hint.contains('{'), "{hint}");
     }
 }
