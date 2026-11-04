@@ -1802,7 +1802,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's. The charged lance drawn (2026-11-04, compared on `review-shock-charged`): the pale violet oval round him round a blue column along the aim, swept as he turns; its domes and the uncharged lance's now open from the gun, as the game's | The charging sprites and glare at the gun aren't drawn. The screen warp (0x388508) is drawn (2026-11-04), though its ghosts show crisper on the greybox than on the game's scenery. The game's column is white at its core where the kit's is pale blue, adding in linear light |
 | N60 Storm (N90 Hurricane) | Close (2026-11-03). The tracer is one long flame now, V5's own tail and flames ("N90 Hurricane"), redder than the game's | Its landing not seen in the kit's take; the bullet's model (0x1881) not drawn, its blend not read; the tail's scroll and fade; the colours add in linear light |
 | Nitro Launcher (Eruptor) | Close to V4; V5's rocks drawn (2026-11-03): the chunks fly, tumble, bounce and shrink as the game's and are maroon, the 0x61 rocks too | The chunks' smoke barely shows on the kit's bright floor where the game's trails are white; V5's own burst (sparkles, fireballs, fires) not read, V4's shown |
-| Lava Gun (Liquid Nitrogen Gun) | Partial. Its stream, nozzle and pools are V5's blue from code (2026-11-01); the kit's stream fires level, so from behind it's a stub where the game's arcs onto an enemy by lock-on | Its arc onto the lock-on target |
+| Lava Gun (Liquid Nitrogen Gun) | Partial. Its stream, nozzle and pools are V5's blue from code (2026-11-01). The game's arcs high because it leaves along the barrel, 12° up, not by a lock-on; the kit's does too since 2026-11-04 (`weapons.md`, "The barrel") | The hold's sway and the waist's pitch aren't followed |
 | Annihilator (Decimator) | Close as far as the takes show; they land at different distances | |
 | Flux Rifle (Splitter Rifle) | Close (2026-11-03). The game's red trail has dark puffs, V5's texture 9, and its orange ring is the pieces' domes where it lands (above, "V5, the Splitter Rifle"), now both in the kit; its red ribbons come out pinker | The domes not seen on screen (the kit's arena shot lands out of view); the colours add in linear light |
 | Infector (Infecto-Bomb) | Partial. V5's blob, its smoke, globs and bubbles, gas and rings are from code (2026-11-01); the game's yellow-green spatter lands on enemies, the kit's blob bursts in the air off to the side | V3's wash is its gas clouds (0x34) on a grey floor |
@@ -2270,11 +2270,11 @@ What it takes to show the guns' effects as the game does, from the user's disc:
      Lava Gun's stream,
      which the game draws as one thin bright ribbon and the kit as sprites on its points,
      and the smoke's rising once dark. In the kit the stream fires level and its points
-     reach about 10 u before they meet the floor (measured in `rac_combat`'s test yard,
-     as the game's code has it), so seen from behind the hero its smoke stacks into one
-     cloud; in the video the game's arcs high, most likely onto an enemy by its V3
-     lock-on (`weapons.md`, "Lava Gun"), so a fair comparison needs a take with no enemy
-     in reach. The video runs at about a fifth of real speed, so timings and how much
+     reach about 10 u before they meet the floor (measured in `rac_combat`'s test yard),
+     so seen from behind the hero its smoke stacks into one cloud; in the video the
+     game's arcs high. Not a lock-on, as first thought: the stream leaves along the gun's
+     barrel, 12° above his facing (`weapons.md`, "Lava Gun", "The barrel"), which the
+     kit follows since 2026-11-04. The video runs at about a fifth of real speed, so timings and how much
      smoke builds up can't be compared from it.
    - **Colours** (open, 2026-11-03, worked out from the Tempest's footage against the
      kit's). The GS adds a layer's colour × alpha into the frame buffer's gamma-encoded

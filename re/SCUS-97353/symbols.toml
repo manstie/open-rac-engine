@@ -2642,7 +2642,7 @@ name = "lava_gun_update"
 address = 0x00303F88
 kind = "function"
 confidence = "medium"
-note = "The Lava Gun's moby update: the stream strength springs to 10 while Circle is held, a round every 10 frames, a 0.5 u damage ball at the nozzle, and a stream point each frame."
+note = "The Lava Gun's moby update: the stream strength springs to 10 while Circle is held, a round every 10 frames, a 0.5 u damage ball at the nozzle, and a stream point each frame along the gun's own -y (its barrel, through the moby's matrix at +0xC0), or at the lock-on target (aim_at_target)."
 
 [[symbol]]
 name = "lava_stream_add"

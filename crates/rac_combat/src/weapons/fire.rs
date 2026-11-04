@@ -1403,12 +1403,19 @@ fn stream(
     }
 
     let mut direction = gun.aim(gun.muzzle, armory);
+    // Along his facing it leaves along the barrel, which points up a little as he holds
+    // the gun; at a lock-on target, or where the view centres, straight there.
+    let tilt = |direction: Vec3, degrees: f32| {
+        let right = Vec3::new(-direction.z, 0.0, direction.x).normalize_or(Vec3::X);
+        Quat::from_axis_angle(right, degrees.to_radians()) * direction
+    };
+    if gun.lock.is_none() && gun.view_point.is_none() {
+        direction = tilt(direction, fire.barrel_degrees);
+    }
     direction.y += fire.raise;
     direction = direction.normalize_or(gun.facing);
     if hero.velocity.length_squared() > 1e-6 {
-        let right = Vec3::new(-direction.z, 0.0, direction.x).normalize_or(Vec3::X);
-        direction =
-            Quat::from_axis_angle(right, -fire.moving_tilt_degrees.to_radians()) * direction;
+        direction = tilt(direction, -fire.moving_tilt_degrees);
     }
     let speed = trigger.strength * fire.speed_per_strength;
     let points = arsenal

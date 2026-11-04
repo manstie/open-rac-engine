@@ -505,6 +505,27 @@ fn the_liquid_nitrogen_gun_freezes_an_enemy_it_would_kill_past_the_damage_queue(
 }
 
 #[test]
+fn the_lava_guns_stream_leaves_along_the_raised_barrel_and_arcs_far() {
+    let mut yard = Yard::new(&[(LAVA, 0)]);
+    // At full strength, 30 u/s 12° up: it rises over the muzzle and lands 15 u or more
+    // out, where level it landed within about 10.
+    yard.hold(&[Action::Fire], 600);
+    let points: Vec<Vec3> = yard
+        .arsenal()
+        .shots
+        .iter()
+        .filter(|shot| shot.kind == ShotKind::Stream)
+        .map(|shot| shot.position)
+        .collect();
+    // The newest has just left the nozzle.
+    let muzzle = points.last().expect("the stream").y;
+    let highest = points.iter().map(|point| point.y).fold(f32::MIN, f32::max);
+    let farthest = points.iter().map(|point| -point.z).fold(f32::MIN, f32::max);
+    assert!(highest > muzzle, "{highest} over {muzzle}");
+    assert!(farthest > 15.0, "{farthest}");
+}
+
+#[test]
 fn the_lava_guns_stream_says_which_way_the_floor_it_lands_on_faces() {
     let mut yard = Yard::new(&[(LAVA, 0)]);
     yard.hold(&[Action::Fire], 60);

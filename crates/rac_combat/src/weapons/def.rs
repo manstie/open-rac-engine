@@ -823,10 +823,13 @@ pub struct Stream {
     /// Points alive at once; a new one replaces the oldest.
     pub points: usize,
     /// A point leaves at `strength × speed_per_strength` u/s along the aim raised by
-    /// `raise`, or tilted `moving_tilt_degrees` down while he moves.
+    /// `raise`, or tilted `moving_tilt_degrees` down while he moves. With no lock-on target
+    /// the aim is the gun's barrel as he holds it (0x303F88 takes the gun's −y), which
+    /// points `barrel_degrees` above his facing.
     pub speed_per_strength: f32,
     pub raise: f32,
     pub moving_tilt_degrees: f32,
+    pub barrel_degrees: f32,
     pub lifetime: u32,
     pub gravity: f32,
     /// A point that hits a target also does the splash damage to everything within this.

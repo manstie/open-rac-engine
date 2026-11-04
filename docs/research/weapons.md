@@ -1353,8 +1353,20 @@ The gun moby's update reads its row through item 0x27.
   to 0 (0.06, 0.01). One round goes every 10 frames held (6 a second).
 - **The stream** is a ring of 35 points (0x305540): while the strength is above 0, each
   frame adds one at the nozzle, moving at strength × 0.05 u a frame (up to 30 u/s) along
-  the gun's aim raised by 0.02, and living 40 frames. A lock-on target turns the aim onto
-  it (0x454298); while the hero moves, the aim tilts 5.6° down.
+  the gun's barrel raised by 0.02, and living 40 frames. A lock-on target turns the aim
+  onto it (0x454298); while the hero moves, the aim tilts 5.6° down.
+  - **The barrel** [code, traced, 2026-11-04]: the direction is (0, −1, 0) through the
+    gun moby's own matrix (+0xC0), so it follows the gun as his hand holds it, not
+    `hero_fire_dir`. Standing as a gun fires with sequence 49 (the Lava Gun's, and the
+    Rift Inducer's and Nitro Launcher's in `uyantsc-veldin-fire-6` and `-7`), attachment
+    matrix 0's −y points 12° above his facing (8.7–21.5°, medians 12.0° and 12.1°) and
+    within 2° of it across; held but not yet fired, 46° below. At 30 u/s the stream so
+    rises about a unit and comes back to the nozzle's height about 18 u out, which is
+    the high arc in the game's footage (`review-lava-0xB0`, fired with Circle alone, no
+    lock-on).
+  - **In the kit:** `barrel_degrees` (12) raises his facing when nothing is locked on and
+    the view doesn't aim (the third-person camera); the hold's own sway and the waist's
+    pitch aren't followed.
 - **Each point** (0x304A18) falls at 21.6 u/s² and tests the line of its step:
   - on the world it stops and splashes, and one time in 11 leaves burning lava there
     (0x3063C8);
