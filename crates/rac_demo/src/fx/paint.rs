@@ -37,6 +37,9 @@ pub enum Shape {
     /// Full but for a soft hollow at its (1, 1) corner: a quarter of a screen warp's ring,
     /// that corner at the screen's centre.
     Edge,
+    /// Full but for its top eighth, fading in from its top row: a lens's mask, its rim at
+    /// the top.
+    Rim,
 }
 
 /// A placeholder: its shape and colour (sRGB).
@@ -114,6 +117,7 @@ fn coverage(shape: Shape, p: Vec2) -> (f32, f32) {
             let off = (Vec2::ONE - p).length() / 2.0;
             (((off - 0.1) / 0.7).clamp(0.0, 1.0), 0.0)
         }
+        Shape::Rim => (((p.y + 1.0) * 4.0).clamp(0.0, 1.0), 0.0),
     }
 }
 
@@ -191,5 +195,19 @@ mod tests {
         assert_eq!(alpha(SIDE - 1, 0), 255);
         assert_eq!(alpha(SIDE - 1, SIDE - 1), 0);
         assert!(alpha(SIDE / 2, SIDE / 2) > 128 && alpha(SIDE / 2, SIDE / 2) < 255);
+    }
+
+    #[test]
+    fn a_lenss_mask_fades_in_down_its_top_eighth() {
+        let image = image(Paint {
+            shape: Shape::Rim,
+            colour: [1.0, 1.0, 1.0],
+        });
+        let data = image.data.unwrap();
+        let alpha = |y: u32| data[((y * SIDE + SIDE / 2) * 4 + 3) as usize];
+        assert!(alpha(0) < 20);
+        assert!(alpha(SIDE / 16) > 100 && alpha(SIDE / 16) < 160);
+        assert_eq!(alpha(SIDE / 8), 255);
+        assert_eq!(alpha(SIDE - 1), 255);
     }
 }

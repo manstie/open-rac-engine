@@ -83,8 +83,8 @@ session is working on the task now; notes on problems met stay with their task (
 
 **Next actions, in order:**
 1. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Rift Ripper's lens and the Ultrashield's bubble, which need the
-   frame behind them; or the Liquid Nitrogen Gun's arc onto the lock-on target).
+   next gun to fix (the Ultrashield's bubble: read its V5 draw, then draw it with
+   `fx/refract.rs`'s material; or the Liquid Nitrogen Gun's arc onto the lock-on target).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -897,9 +897,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       `fx/warp.rs` as a pass after the 3D ones mixing in the frame magnified 1.062 by
       texture 66's alpha (its own pass: Bevy's `FullscreenMaterial` binds no texture but
       the frame). Not done: its charging sprites and glare.
-    - Not done: the Rift Ripper's lens and the Ultrashield's bubble, which need the frame
-      behind them (as a mesh, Bevy's view transmission texture read by a material, say;
-      it holds only what is opaque); the rest of the Eruptor's V5 burst;
+    - Not done: the Ultrashield's bubble, which warps the frame behind it (its V5 draw
+      isn't read; `fx/refract.rs`'s material can draw it); the rest of the Eruptor's V5
+      burst;
       the Liquid Nitrogen Gun's arc onto
       the lock-on target, the agents' spawn lightning (their jets are dimmer than the
       game's); then the sounds not played and the simplified behaviours (`effects.md`,
@@ -907,11 +907,13 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     - The lights' pools show weaker than the game's on the demo's pale floor (1.25 times
       as bright beside him where the game's sand is 1.54 times), as the kit's tonemapper
       squashes brightening; open with the tonemapper (§5, 2026-11-01).
-    - The Rift Ripper's lens is read (`effects.md`, "The lens"): it copies the frame,
-      magnified about the rift as it fills, into an ellipse. The kit has no copy of the
-      frame to draw from, and how full the rift is (+0x80) isn't read. Next: read what
-      fills +0x80, then a refraction pass (Bevy's screen-space transmission, say), which
-      the Ultrashield's bubble wants too.
+    - The Rift Ripper's lens and rings of 54 are drawn (`effects.md`, "The lens", "The
+      rings"): `fx/refract.rs`'s material, in Bevy's transmissive pass, reads the view
+      transmission texture (the camera gets `ScreenSpaceTransmission` from the start, as
+      adding it respecialises every mesh's pipeline), each point taking the frame from
+      where the game's does; compared on the game's `review-rift-0x63` take. It copies
+      only what is opaque, where the game's texture −1 is the frame as drawn so far; and
+      the rings go at once as the rift closes, where the game's shrink away (0x375C70).
     - The N90's bullet model (0x1881, at 18 times its class's scale) drew as a solid
       yellow ball 1.5 u across that the game's take doesn't show; it's left out until
       its blend is read (`shot_models.rs`).

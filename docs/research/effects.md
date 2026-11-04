@@ -36,9 +36,13 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   opaque: the same as the armor's images [data: decoded cleanly; the swizzled reading
   doesn't].
 - **Use:** `fx_tex0` (0x401CD0) gives a texture's GS registers by its number, uploading it
-  on its first use in a frame (reset by 0x401978). Negative numbers are built-ins: −1 to
-  −4 two small images in the boot program (0x141AD0, 0x141DC0), −5 to −7 the frame
-  buffers (so −7 is a copy of the frame), −8 another GS buffer.
+  on its first use in a frame (reset by 0x401978). Negative numbers are built-ins: −5 to
+  −7 the frame buffers (so −7 is a copy of the frame), −8 another GS buffer; −1 and −2 a
+  copy of the frame as drawn so far, made on their first use in a frame by the boot
+  program's packet at 0x141AD0, which draws the frame in 16 strips of sprites, bilinear,
+  into a new 256 × 256 16-bit buffer (the 512 × 416 frame shrunk to half its width and
+  0.62 of its height); −3 and −4 a smaller copy the same way (0x141DC0, a buffer 64
+  wide) [code, 2026-11-04: 0x401CD0, and the packet's GIF tags read from EE memory].
 - **Global and per level** [data]: textures 0–99 are byte-identical on Veldin, Florana,
   the Phoenix and level 28, and every level has at least 100 (levels 11, 39, 44 and 54
   exactly 100; up to 117), so 0–99 are the engine's own set and 100 on are the level's.
@@ -233,6 +237,10 @@ two quads flat on that surface, half width 1.0, turning opposite ways, a turn in
 - **Screen warps:** 0x36CBC0 (and copies in the Nitro, Flux scope and RY3NO code)
   redraws the frame (texture −7) in four mirrored quarters through texture 66. The kit's
   `Warp` emit draws one ("The Shock Cannon at V5", "The screen warp").
+- **Refractions:** the Rift Inducer's lens and rings (0x3753F8, 0x3750E0) write a mask's
+  alpha into the frame's, then draw the copy of the frame (texture −1) over themselves
+  mixed in by it, each point taking the copy from elsewhere. The kit's `refract.rs` draws
+  them from Bevy's view transmission texture ("Rift Inducer", "The lens").
 
 ### The shared explosion and the lightning bolt [code]
 
@@ -1490,24 +1498,51 @@ row's flag 0x1DDA84.
   spin ±2–5), and where the ground is within 5 u below, five more on a ring 2 s–3 s round
   that point drawn in at 4 s u/s (one blended) with brown rocks (0x61's entries 10–12) half
   of the time, and five on a ring in the view's plane.
-- **The lens** (0x3753F8) [code, 2026-11-03]: 33 points on an ellipse round the rift in
-  the view's plane, its axes the view's side and up times (fullness + 0.5) and (fullness +
-  1), pushed 0.05 toward the camera, its phase turning 0.0116 rad a frame; between each two
-  points and the middle, a wedge drawn twice. First in texture 77 (white, its alpha a
-  ramp across its first rows) with GS state 0x31001, which writes the mask; then the
-  frame itself (texture −1) with the same quad's screen positions as its texture
-  coordinates, the two outer ones pulled toward the middle's by (1 − cos(fullness × π)) ×
-  0.3, with state 0x53001, then 0x5360B restores it. So the frame inside the lens shows
-  magnified about the rift, more as it fills (none when empty, 0.6 full), faded at its rim by
-  the mask. The
-  state words' bits (what 0x4C1FE8 writes to GS register 0x47) aren't read, so how the
-  copy blends isn't known. The four rings (0x3750E0) are drawn the same way.
-- **In the kit** (`rac_demo`'s `fx/open.rs`; the `open` of its recipe) [seen, 2026-10-31]:
-  s is 0.5, from its spawn's first argument (0x373738, called from 0x372990). The rays' alpha
-  is 0 at their middle (0x2020FF has no alpha byte), so they show only toward their blue
-  ends. The rings of 54 are a mask and a refraction of the frame in the game (0x3750E0),
-  shown faintly added here, and the lens isn't drawn. The rays stop at once as it closes,
-  where the game's shorten for 20 frames.
+- **The lens** (0x3753F8) [code, 2026-11-03; re-read in the disassembly 2026-11-04]: how
+  full the rift is (+0x80, kept within 0 to 1) grows 0.005 a frame from opening to 0.75
+  (0x373FE8). With f that, 33 points on an ellipse across the line from the camera to
+  the rift: its axes the side (the game's down, 0x1A4EC0 = (0, 0, −1), crossed with that
+  line) times f + 1 and the view's up (the line crossed with the side) times f + 0.5, so
+  wider than tall; its middle and rim both f + 0.5 beyond the rift along the line (the
+  code works out a push of 0.05 toward the camera, then adds the line's vector instead)
+  and 0.05 to a side; its phase turning 0.0116 rad a frame. For each two points and the
+  middle, a wedge drawn twice:
+  - first texture 77 (white, its alpha 0 at its top row rising to full by its fifth),
+    v 0 at the rim and 1 at the middle, with blend 0x4A ((0 − 0)·As + Cd: the colour
+    kept) and TEST 0x31001 (alpha test NEVER failing to FB_ONLY, Z test ALWAYS), so its
+    alpha alone goes into the frame's;
+  - then the copy of the frame (texture −1, above: the frame as drawn so far, 256 × 256),
+    its texture coordinates the points' places on the screen (0x401BB0), but the
+    middle's pulled toward the middle of the wedge's rim by k = (1 − cos(f × π)) × 0.3,
+    with blend 0x54 ((Cs − Cd)·Ad + Cd, mixed in by that alpha) and TEST 0x53001 (alpha
+    test NEVER failing to RGB_ONLY, Z test GEQUAL, so behind what is nearer and leaving
+    the alpha); then 0x5360B, the usual test, back.
+  So each point takes the frame from k of the way out to the rim along its line from the
+  middle: what lies round the rift is drawn in toward its middle, and what is behind its
+  middle within k of the rim's distance doesn't show. k is 0 empty, 0.51 as full as it
+  gets. The mask fades it out over the outer eighth.
+- **The rings** (0x3750E0) [code, 2026-11-04]: a quad facing the line from the camera
+  (the unit square's corners (0, ±1, ±1), 0x1D7C50, times the radius, rolled), 0.5 nearer
+  the camera; texture 54 (a ragged ring) into the frame's alpha as the lens's mask, then
+  the copy of the frame with each corner's coordinates those of its place 0.8 of the way
+  out from the middle, so magnified 1.25 within the ring, by 0x54 and 0x53001 as above.
+  Two of radius +0x70 and +0x74, shrinking 0.04 and 0.025 a frame and starting over at
+  2.25 s at 0.1, rolled +0x78 (turning 0.0436 rad a frame) and +0x78 + 0.0727; two of
+  2.27 s rolled −(+0x78) and +0x78.
+- **In the kit** (`rac_demo`'s `fx/open.rs`, `fx/refract.rs`; the `open` of its recipe)
+  [seen, 2026-11-04]: s is 0.5, from its spawn's first argument (0x373738, called from
+  0x372990). The rays' alpha is 0 at their middle (0x2020FF has no alpha byte), so they
+  show only toward their blue ends. The lens and rings are drawn in Bevy's transmissive
+  pass by a material reading its view transmission texture (the frame as the opaque
+  passes left it, so without the effects drawn before them in the game's copy), blurred
+  by about a texel of the game's 256 × 256 copy, depth-tested, each point taking the
+  copy from where the game's does (`refract.wesl`; the lens's mask by its distance from
+  the middle, so without its 32 wedges or their phase). On `--gun-level 5` takes
+  (`rift-lens2`) it draws the sky in toward the rift's middle and an enemy being
+  swallowed out into a streak toward it, and the rings bow the horizon up round it; the
+  game's take (`review-rift-0x63`) shows the cliff behind smeared in the same way. The
+  rays stop at once as it closes, where the game's shorten for 20 frames, and the rings
+  go with it, where the game's shrink away (0x375C70).
 - **Its smoke** [code, 2026-10-31] (0x373990): every 0x61 it draws in has its texture byte
   set to 0x17's first (0x221174), and keeps 0x61's own blend, added (0x48; the spawner
   0x46DCB8 sets +3 = 0x48, +9 = 0x44), fading in from alpha 0 to 0x7F: the four from the
@@ -1522,7 +1557,8 @@ row's flag 0x1DDA84.
   long rays, dust stirring; the kit drew grey lumps, as it blended all its smoke at half
   alpha. With the smoke added as the game's, the kit shows a bright centre in faint
   rings with dark bits and rocks on the ground. Not drawn still: the lens, which
-  darkens the game's, and the view's-plane ring.
+  darkens the game's (drawn since, 2026-11-04: "In the kit" above), and the view's-plane
+  ring.
 - **Closing** (states 3 and 4, 20 frames, 0x375C70): the rings shrink away, the rays
   shorten 0.125 a frame, and the stars of 57 (half 0.25 and 0.27) and glows of 11 (0.3
   and 0.35) stay at new rolls; sound 1 at its end.
@@ -1739,7 +1775,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Spitting Hydra (Tempest) | Close, the same at V3 (2026-11-03). The game's "violet domes" are the spit's two rings of 61, camera-facing up to 10.5 and 21 u across with the floor hiding their lower halves, and the kit draws them so; its "gold ground bolt" is the charge's crackles to the floor, grey and blue added on sand. Each spit's bolt 10 u ahead is now drawn too. The kit's violet and glows come out bluer and stronger | The kit adds colours in linear light ("Importing them", "Colours"); arcs aren't cut short at walls |
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
 | Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. No spawn burst of violet and gold lightning | Their size on screen not compared at a matching camera |
-| Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it | The lens isn't drawn, so the placeholder ball shows |
+| Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's | The placeholder ball still shows |
 | Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white bubble warping what's behind it; the kit's a violet dome with dark bands | No V5 recipe |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
 | Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |

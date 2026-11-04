@@ -23,6 +23,7 @@
         Effect(50): (shape: Glow, colour: (1.0, 0.9, 0.7)),
         Effect(69): (shape: Streak, colour: (0.8, 0.9, 1.0)),
         Effect(66): (shape: Edge, colour: (0.5, 0.5, 0.5)),
+        Effect(77): (shape: Rim, colour: (1.0, 1.0, 1.0)),
         Effect(8): (shape: Ring, colour: (0.6, 0.75, 1.0)),
         Effect(9): (shape: Smoke, colour: (0.02, 0.02, 0.02)),
         Effect(10): (shape: Streak, colour: (1.0, 1.0, 1.0)),
@@ -1627,8 +1628,10 @@
         // (0x3753F8), its size s being 0.5: stars of 57 and glows of 11 at new rolls, 24
         // turning rays of 18, and smoke drawn into it (0x373990: 0x61s in 0x17's texture,
         // added but for one in five on the ground, which is blended, with rocks).
-        // Its rings of 54 are refractions in the game, shown here faintly; not drawn: its
-        // lens, the smoke on a ring in the view's plane, the 0x13 spray as it fires, its
+        // Its lens (0x3753F8), an ellipse beyond it across the view filling 0.005 a tick
+        // to 0.75 (+0x80), draws the frame round it in toward its middle through the
+        // alpha of 77; its rings of 54 (0x3750E0) magnify the frame 1.25 (refract.rs). Not
+        // drawn: the smoke on a ring in the view's plane, the 0x13 spray as it fires, its
         // three spirals of 71 (0x4086B8) and orbiting sparks.
         "rift": (
             fire: Some([
@@ -1660,10 +1663,6 @@
             ]),
             open: Some((
                 sprites: [
-                    (texture: Effect(54), size: 2.25, colour: (0.5, 0.5, 0.6, 0.15), spin: 2.5, shrink: 0.08),
-                    (texture: Effect(54), size: 2.25, colour: (0.5, 0.5, 0.6, 0.15), spin: 2.5, shrink: 0.05),
-                    (texture: Effect(54), size: 2.27, colour: (0.5, 0.5, 0.6, 0.15), spin: -2.5),
-                    (texture: Effect(54), size: 2.27, colour: (0.5, 0.5, 0.6, 0.15), spin: 2.5),
                     (texture: Effect(57), size: 0.325, colour: (1.99, 1.99, 1.99, 0.62), flickers: true),
                     (texture: Effect(11), size: 0.39, colour: (0.5, 0.25, 1.99, 0.49), flickers: true),
                     (texture: Effect(57), size: 0.351, colour: (1.99, 1.99, 1.99, 0.62), flickers: true),
@@ -1679,6 +1678,21 @@
                     end: (0.25, 0.25, 1.99, 0.37),
                     scroll: (0.025, 0.035),
                     turn: 1.0,
+                )),
+                lens: Some((
+                    texture: Effect(77),
+                    fill: 0.005,
+                    full: 0.75,
+                    wide: 1.0,
+                    tall: 0.5,
+                    behind: 0.5,
+                    pull: 0.3,
+                    rings: [
+                        (texture: Effect(54), size: 2.25, shrink: 0.08, spin: 2.5, nearer: 0.5, from: 0.8),
+                        (texture: Effect(54), size: 2.25, shrink: 0.05, roll: 4.17, spin: 2.5, nearer: 0.5, from: 0.8),
+                        (texture: Effect(54), size: 2.27, spin: -2.5, nearer: 0.5, from: 0.8),
+                        (texture: Effect(54), size: 2.27, spin: 2.5, nearer: 0.5, from: 0.8),
+                    ],
                 )),
                 trail: [
                     (per_tick: 4.0, shell: Some((0.5, 1.1)), drawn_in: (1.0, 1.35), textures: [Particle(0x17, 0)], colours: [(0.5, 0.5, 1.0, 0.0)], size: 0.8, end_size: 0.4, end_alpha: 0.99, ticks: 20, ticks_to: 25, spin: 5.0),

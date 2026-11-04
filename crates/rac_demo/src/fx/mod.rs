@@ -26,6 +26,7 @@ mod model;
 mod open;
 mod paint;
 mod panel;
+mod refract;
 mod ribbon;
 mod rope;
 mod shake;
@@ -65,6 +66,7 @@ pub use model::{FxModel, FxModels};
 pub use open::{Open, OpenRays};
 pub use paint::{Paint, Shape};
 pub use panel::{Panel, Panels};
+pub use refract::{LensRing, OpenLens};
 pub use ribbon::Ribbon;
 pub use rope::{AlongRope, Strand};
 pub use shake::{CameraShake, Shaking};
@@ -961,6 +963,8 @@ impl FxRecipes {
                     .map(|s| s.texture),
             );
             textures.extend(open.clone().flat_map(|open| &open.rays).map(|r| r.texture));
+            let lenses = open.clone().flat_map(|open| &open.lens);
+            textures.extend(lenses.flat_map(OpenLens::textures));
             let open_trails = open.flat_map(|open| &open.trail);
             let trails = fx.trail.iter().flatten().chain(open_trails);
             textures.extend(trails.flat_map(|trail| trail.textures.iter().copied()));
@@ -1244,6 +1248,7 @@ impl Plugin for FxPlugin {
             .init_resource::<vortex::Vortices>()
             .init_resource::<blade::BladeStrands>()
             .init_resource::<open::ShownRays>()
+            .init_resource::<refract::ShownLenses>()
             .init_resource::<marker::Markers>()
             .add_systems(Startup, paint_placeholders)
             .add_systems(
@@ -1252,7 +1257,7 @@ impl Plugin for FxPlugin {
                     emit_gun_fx,
                     funnel::draw_funnels,
                     vortex::draw_vortices,
-                    open::step_open_rays,
+                    (open::step_open_rays, refract::step_lenses),
                     marker::draw_markers,
                     emit_crate_blasts,
                     emit_trails,
@@ -1294,6 +1299,7 @@ impl Plugin for FxPlugin {
             light::draw_lights(app);
             lance::draw_beams(app);
             warp::draw_warps(app);
+            refract::draw_lenses(app);
         }
     }
 }

@@ -1,8 +1,8 @@
 //! What a rift shows once it stands open (`effects.md`, "Rift Inducer"; 0x3753F8): its
-//! sprites are [`crate::guns`]'s and its smoke [`super::emit_trails`]'s; here, the rays
-//! turning round it, each from its middle out, growing, in a colour going from its middle
-//! to its end, their texture scrolling. Not drawn: its lens, which warps the frame behind
-//! it (32 quads through texture 77), for which its rings of 54 stand in faintly.
+//! sprites are [`crate::guns`]'s, its smoke [`super::emit_trails`]'s and its lens and rings,
+//! which warp the frame behind it, [`super::refract`]'s; here, the rays turning round it,
+//! each from its middle out, growing, in a colour going from its middle to its end, their
+//! texture scrolling.
 
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
@@ -17,6 +17,7 @@ use rac_hero::Hero;
 use rac_sim::SimTransform;
 use serde::Deserialize;
 
+use super::refract::OpenLens;
 use super::{
     Billboard, Blend, FxImages, FxRecipes, FxRng, ShotSprite, Tex, Trail, eye, fx_material, opaque,
 };
@@ -32,6 +33,8 @@ pub struct Open {
     pub rays: Option<OpenRays>,
     #[serde(default)]
     pub trail: Vec<Trail>,
+    #[serde(default)]
+    pub lens: Option<OpenLens>,
 }
 
 /// `count` rays from a shot's middle out, each laid a random way across the view as it
