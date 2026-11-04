@@ -29,8 +29,9 @@ use rac_hero::{
     CameraSetting, Checkpoint, Collider, FollowCamera, Hero, HeroBody, HeroPlugin, HeroTuning,
     hero_bundle,
 };
+use rac_input::{LocalPlayer, MAX_PLAYERS};
 use rac_rig::{RigLook, RigPlugin};
-use rac_sim::{SimSet, SimTick, SimTransform};
+use rac_sim::{SimMessageReader, SimSet, SimTick, SimTransform, not_resimulating};
 
 pub use drops::PickupLooks;
 pub use enemy::def::{Bestiary, EnemyKind};
@@ -71,17 +72,36 @@ const SPARK_TICKS: u32 = 10;
 pub struct DemoPlugin;
 
 /// How the demo is set up when it spawns.
-#[derive(Resource, Debug, Default, Clone, Copy)]
+#[derive(Resource, Debug, Clone, Copy)]
 pub struct DemoSettings {
     /// Fly a free camera instead of playing the hero.
     pub spectator: bool,
-    /// The hero camera's setting; `None` takes the movement profile's default (third
+    /// The local hero's camera setting; `None` takes the movement profile's default (third
     /// person for UYA, lock-strafe for Deadlocked). Changing it changes the camera.
     pub camera: Option<CameraSetting>,
+    /// How many heroes the level has: 2 in co-op (P1.18). The one in `rac_input`'s
+    /// `LocalPlayer` slot is this machine's, whose camera shows and whose HUD is drawn.
+    pub players: usize,
+    /// The other heroes' camera setting in co-op, as their player chose it.
+    pub others_camera: Option<CameraSetting>,
+}
+
+impl Default for DemoSettings {
+    fn default() -> Self {
+        Self {
+            spectator: false,
+            camera: None,
+            players: 1,
+            others_camera: None,
+        }
+    }
 }
 
 /// Where the hero starts, on the floor facing down the level.
 const HERO_SPAWN: Vec3 = Vec3::new(0.0, 0.0, 0.0);
+/// How far apart co-op heroes start, side by side [placeholder: DL places player 2 at a
+/// spawn point of its own, `coop.md`].
+const PLAYER_SPACING: Vec3 = Vec3::new(1.5, 0.0, 0.0);
 /// The level's kill height: falling under it, the hero falls out of the level and comes
 /// back at the start (`FallOutProfile`).
 const RESPAWN_BELOW: f32 = -20.0;
@@ -102,13 +122,17 @@ impl Plugin for DemoPlugin {
         }
         app.add_plugins((EnemyPlugin, HudPlugin, fx::FxPlugin, sfx::SfxPlugin))
             .init_resource::<DemoSettings>()
+            .init_resource::<LocalPlayer>()
             .init_resource::<ShotModels>()
             .init_resource::<DemoGunLevel>()
             .init_resource::<DemoGround>()
             .add_systems(FixedUpdate, move_platforms.in_set(SimSet::World))
+            .add_systems(FixedUpdate, revive_dummies.in_set(SimSet::Particles))
             .add_systems(
                 FixedUpdate,
-                (revive_dummies, show_clanks).in_set(SimSet::Particles),
+                show_clanks
+                    .in_set(SimSet::Particles)
+                    .run_if(not_resimulating),
             )
             .add_systems(
                 FixedUpdate,
@@ -120,7 +144,8 @@ impl Plugin for DemoPlugin {
                     .chain()
                     .in_set(SimSet::Particles)
                     .run_if(resource_exists::<guns::GunLooks>)
-                    .run_if(resource_exists::<fx::FxImages>),
+                    .run_if(resource_exists::<fx::FxImages>)
+                    .run_if(not_resimulating),
             )
             .add_systems(FixedUpdate, spectator::fly.in_set(SimSet::Camera))
             .add_systems(
@@ -159,6 +184,7 @@ impl Default for DemoGround {
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_demo(
     settings: Res<DemoSettings>,
+    local_player: Res<LocalPlayer>,
     tuning: Res<HeroTuning>,
     armory: Res<Armory>,
     gun_level: Res<DemoGunLevel>,
@@ -450,28 +476,44 @@ pub fn spawn_demo(
     }
 
     commands.insert_resource(guns::GunLooks::new(&mut meshes, &mut materials));
-    commands.spawn((
-        Name::new("hero"),
-        DemoEntity,
-        hero_bundle(0, HERO_SPAWN, 0.0, RESPAWN_BELOW, &tuning.0),
-        demo_arsenal(&armory, *gun_level),
-        Bolts::default(),
-        // The rig dresses him in the chosen model.
-        RigLook::for_player(0),
-        Visibility::default(),
-    ));
-    spawn_hud(&mut commands, 0, &hud);
-    let mut camera = FollowCamera::for_player(0, 0.0);
-    camera.setting = settings.camera;
-    let (translation, rotation) = camera.placement(HERO_SPAWN, &tuning.0.camera);
-    commands.spawn((
-        Name::new("hero camera"),
-        DemoEntity,
-        Camera3d::default(),
-        surroundings,
-        camera,
-        SimTransform::from_translation(translation).with_rotation(rotation),
-    ));
+    // Every peer spawns every hero and camera, in player order, so the simulation starts
+    // the same everywhere; only the local player's camera shows.
+    for player in 0..settings.players.clamp(1, MAX_PLAYERS) {
+        let local = player == local_player.0;
+        let spawn = HERO_SPAWN + PLAYER_SPACING * player as f32;
+        commands.spawn((
+            Name::new(format!("hero {}", player + 1)),
+            DemoEntity,
+            hero_bundle(player, spawn, 0.0, RESPAWN_BELOW, &tuning.0),
+            demo_arsenal(&armory, *gun_level),
+            Bolts::default(),
+            // The rig dresses him in the chosen model, in his player's colours.
+            RigLook::for_player(player),
+            Visibility::default(),
+        ));
+        if local {
+            spawn_hud(&mut commands, player, &hud);
+        }
+        let mut camera = FollowCamera::for_player(player, 0.0);
+        camera.setting = if local {
+            settings.camera
+        } else {
+            settings.others_camera
+        };
+        let (translation, rotation) = camera.placement(spawn, &tuning.0.camera);
+        commands.spawn((
+            Name::new(format!("hero {} camera", player + 1)),
+            DemoEntity,
+            Camera3d::default(),
+            Camera {
+                is_active: local,
+                ..default()
+            },
+            surroundings.clone(),
+            camera,
+            SimTransform::from_translation(translation).with_rotation(rotation),
+        ));
+    }
 }
 
 /// Removes everything [`spawn_demo`] created, and the pickups left about.
@@ -494,7 +536,7 @@ pub fn despawn_demo(
 
 /// A dummy knocked out gets up again. (A crate breaks in `rac_combat`.)
 fn revive_dummies(
-    mut destroyed: MessageReader<Destroyed>,
+    mut destroyed: SimMessageReader<Destroyed>,
     mut targets: Query<(&TargetKind, &mut Hitpoints)>,
 ) {
     for event in destroyed.read() {
@@ -568,10 +610,14 @@ fn flash_targets(
     }
 }
 
-/// Gives the hero's camera the chosen setting.
-fn choose_camera(settings: Res<DemoSettings>, mut cameras: Query<&mut FollowCamera>) {
+/// Gives the local hero's camera the chosen setting.
+fn choose_camera(
+    settings: Res<DemoSettings>,
+    local: Res<LocalPlayer>,
+    mut cameras: Query<&mut FollowCamera>,
+) {
     for mut camera in &mut cameras {
-        if camera.setting != settings.camera {
+        if camera.player == local.0 && camera.setting != settings.camera {
             camera.setting = settings.camera;
         }
     }

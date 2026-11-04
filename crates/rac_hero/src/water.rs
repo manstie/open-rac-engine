@@ -9,6 +9,7 @@ use bevy::prelude::*;
 /// A body of water: a box centred on the entity's translation, unrotated, whose top face
 /// is the surface.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[require(rac_sim::SimId)]
 pub struct Water {
     pub half_extents: Vec3,
 }

@@ -151,6 +151,7 @@ Development is native, with no container.
 | `cargo run -- --demo --camera lock-strafe` | Chooses the camera: `third-person`, `lock-strafe` or `first-person`; without it, the game's own (UYA third person, DL lock-strafe). The menus' Camera button does the same and saves the choice. |
 | `cargo run -- --demo --gun-level 5` | Gives the hero's guns that level (1–8) at the start; `--plain-colours` adds a sandy floor and a tone mapping that keeps effects' colours, for comparing them with the game's. |
 | `cargo run -- --demo --record-input x.orin`, then `--replay-input x.orin` | Records every tick's input, then replays it. `--settings <file>` keeps test runs out of the real settings file. |
+| `cargo run -- --host` on one machine, `cargo run -- --join HOST[:PORT]` on the other | Direct-IP co-op (UDP port 26450 unless given): the host is player 1, the guest player 2. `--input-delay N` sets the ticks of input delay (2). `--sync-test` plays both heroes on one machine, rolling every tick back 7 ticks and checking it comes out the same. How rollback works, and the rules simulation code follows for it: `docs/netcode.md`. |
 | `cargo fmt --all` | Formats the code. |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Lints, with warnings as errors. |
 | `cargo test --workspace` | Runs the tests. |
@@ -203,6 +204,11 @@ add `--every-tick`, which runs one tick per frame drawn (slowed down, with every
   - Draw randomness only from the level's seeded RNG.
   - Never read the wall clock or frame delta time inside `FixedUpdate`.
   - All gameplay input arrives as per-tick `PlayerInput` values.
+  - For rollback co-op (`docs/netcode.md`): register every component and resource a tick
+    changes (`RollbackApp`); give simulated things a `SimId` and sort by it, never by
+    `Entity`; remove them with `retire()`; read messages with `SimMessageReader`; and
+    gate presentation that runs on the tick with `not_resimulating`. The sync test
+    (`--sync-test`, `rac_net`'s tests) finds what was missed.
   - Never turn on glam's `scalar-math` (for example through parry3d's
     `enhanced-determinism`): it breaks Bevy's GPU mesh buffers (PLAN §5, 2026-10-13).
     Determinism relies on building x86-64 without FMA instead.

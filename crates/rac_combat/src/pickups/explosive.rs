@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 use rac_hero::{Collider, Hero, HeroBody, HeroState, HeroTuning, HurtHero};
-use rac_sim::{SimTick, SimTransform};
+use rac_sim::{RetireExt, SimId, SimTick, SimTransform};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -64,7 +64,7 @@ impl Fuse {
 /// An explosive crate's blast growing round `at`, set off by `player`; the targets and
 /// heroes it has hurt, each once.
 #[derive(Component, Debug, Clone, PartialEq)]
-#[require(SimTransform)]
+#[require(SimTransform, SimId)]
 pub struct Blast {
     pub at: Vec3,
     pub player: usize,
@@ -158,6 +158,7 @@ pub(crate) fn burn_fuses(
     mut debris: ResMut<CrateDebris>,
     mut fuses: Query<(
         Entity,
+        &SimId,
         &mut Fuse,
         Option<&Hurtbox>,
         Option<&Transform>,
@@ -168,8 +169,8 @@ pub(crate) fn burn_fuses(
     mut commands: Commands,
 ) {
     let mut fuses: Vec<_> = fuses.iter_mut().collect();
-    fuses.sort_by_key(|(entity, ..)| *entity);
-    for (entity, fuse, hurtbox, transform, simulated) in &mut fuses {
+    fuses.sort_by_key(|(_, id, ..)| **id);
+    for (entity, _, fuse, hurtbox, transform, simulated) in &mut fuses {
         let Some(at) = position(*transform, *simulated) else {
             continue;
         };
@@ -186,7 +187,7 @@ pub(crate) fn burn_fuses(
             PickupSoundKind::CrateBroke(CrateKind::Explosive),
             at,
         ));
-        commands.entity(*entity).despawn();
+        commands.entity(*entity).retire();
         commands.spawn((
             Name::new("crate blast"),
             Blast {
@@ -207,6 +208,7 @@ pub(crate) fn burn_fuses(
 
 type BlastTarget<'a> = (
     Entity,
+    &'a SimId,
     &'a Hurtbox,
     Option<&'a Transform>,
     Option<&'a SimTransform>,
@@ -223,7 +225,7 @@ pub(crate) fn grow_blasts(
     tuning: Res<PickupTuning>,
     hero_tuning: Res<HeroTuning>,
     heroes: Query<(&Hero, &HeroBody)>,
-    mut blasts: Query<(Entity, &mut Blast)>,
+    mut blasts: Query<(Entity, &SimId, &mut Blast)>,
     mut targets: Query<BlastTarget, Without<Blast>>,
     mut struck: MessageWriter<Struck>,
     mut destroyed: MessageWriter<Destroyed>,
@@ -236,12 +238,13 @@ pub(crate) fn grow_blasts(
     let mut heroes: Vec<_> = heroes.iter().collect();
     heroes.sort_by_key(|(hero, _)| hero.player);
     let mut blasts: Vec<_> = blasts.iter_mut().collect();
-    blasts.sort_by_key(|(entity, _)| *entity);
+    blasts.sort_by_key(|(_, id, _)| **id);
     let mut targets: Vec<_> = targets.iter_mut().collect();
-    targets.sort_by_key(|(entity, ..)| *entity);
-    for (entity, blast) in &mut blasts {
+    targets.sort_by_key(|(_, id, ..)| **id);
+    for (entity, _, blast) in &mut blasts {
         let grown = blast.tick as f32 / tuning.blast_ticks.max(1) as f32;
-        for (target, hurtbox, transform, simulated, hitpoints, reaction, kind, fuse) in &mut targets
+        for (target, _, hurtbox, transform, simulated, hitpoints, reaction, kind, fuse) in
+            &mut targets
         {
             if blast.hit.contains(target) {
                 continue;
@@ -304,7 +307,7 @@ pub(crate) fn grow_blasts(
         }
         blast.tick += 1;
         if blast.tick > tuning.blast_ticks {
-            commands.entity(*entity).despawn();
+            commands.entity(*entity).retire();
         }
     }
 }

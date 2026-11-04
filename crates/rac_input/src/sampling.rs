@@ -45,8 +45,9 @@ impl ActionState {
     }
 }
 
-/// What the local devices have produced since the last tick. Internal to the plugin; it
-/// is public only so [`reset_inputs`] can name it.
+/// What the local devices have produced since the last tick. The plugin turns it into the
+/// local player's input each tick, or a co-op session does
+/// ([`take_tick_input`](Self::take_tick_input)).
 #[derive(Resource, Debug, Default)]
 pub struct LocalSampler {
     held: Buttons,
@@ -56,6 +57,25 @@ pub struct LocalSampler {
     /// Mouse turning not yet sent, in radians. Only whole angle units are sent each tick,
     /// and the remainder carries over, so slow mouse movement isn't rounded away.
     look: Vec2,
+}
+
+impl LocalSampler {
+    /// This tick's input from the local devices. Presses and the mouse's turning are used
+    /// up, so the next tick gets only what comes after.
+    pub fn take_tick_input(&mut self) -> PlayerInput {
+        let (look_x, rest_x) = to_angle_units(self.look.x);
+        let (look_y, rest_y) = to_angle_units(self.look.y);
+        self.look = Vec2::new(rest_x, rest_y);
+        let input = PlayerInput {
+            move_stick: self.move_stick,
+            look: [look_x, look_y],
+            look_stick: self.look_stick,
+            held: self.held,
+            pressed: self.pressed,
+        };
+        self.pressed = Buttons::NONE;
+        input
+    }
 }
 
 /// How far the movement stick must tilt to count as a menu direction.
@@ -266,23 +286,17 @@ pub(crate) fn latch_tick_inputs(
     mut source: ResMut<InputSource>,
     mut inputs: ResMut<PlayerInputs>,
     recorder: Option<ResMut<InputRecorder>>,
+    tick: Option<Res<rac_sim::SimTick>>,
 ) {
     match &mut *source {
         InputSource::Local => {
-            let (look_x, rest_x) = to_angle_units(sampler.look.x);
-            let (look_y, rest_y) = to_angle_units(sampler.look.y);
-            sampler.look = Vec2::new(rest_x, rest_y);
+            let input = sampler.take_tick_input();
             if let Some(slot) = inputs.0.get_mut(local.0) {
-                *slot = PlayerInput {
-                    move_stick: sampler.move_stick,
-                    look: [look_x, look_y],
-                    look_stick: sampler.look_stick,
-                    held: sampler.held,
-                    pressed: sampler.pressed,
-                };
+                *slot = input;
             }
-            sampler.pressed = Buttons::NONE;
         }
+        // The session has filled every slot already.
+        InputSource::Session => {}
         InputSource::Replay {
             recording,
             next_tick,
@@ -297,6 +311,13 @@ pub(crate) fn latch_tick_inputs(
         }
     }
     if let Some(mut recorder) = recorder {
+        // A tick simulated again after a rollback replaces what was recorded from it on.
+        if let Some(tick) = tick
+            && let Ok(tick) = usize::try_from(tick.0)
+            && recorder.0.ticks() > tick
+        {
+            recorder.0.truncate(tick);
+        }
         recorder.0.push_tick(&inputs.0);
     }
 }

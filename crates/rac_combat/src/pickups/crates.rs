@@ -21,7 +21,7 @@
 
 use bevy::prelude::*;
 use rac_hero::Hero;
-use rac_sim::{SimRng, SimTick, SimTransform};
+use rac_sim::{RetireExt, SimId, SimMessageReader, SimRng, SimTick, SimTransform};
 use serde::{Deserialize, Serialize};
 
 use super::explosive::Fuse;
@@ -35,6 +35,7 @@ use crate::{Destroyed, Hurtbox, position};
 
 /// A crate, and what kind it is.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[require(SimId)]
 pub struct Crate(pub CrateKind);
 
 #[derive(
@@ -265,7 +266,7 @@ pub(crate) fn break_crates(
     mut bank: ResMut<BoltBank>,
     mut debris: ResMut<CrateDebris>,
     mut given: ResMut<HelpGiven>,
-    mut destroyed: MessageReader<Destroyed>,
+    mut destroyed: SimMessageReader<Destroyed>,
     mut sounds: MessageWriter<PickupSound>,
     mut help: MessageWriter<HelpAsked>,
     mut crates: Query<(
@@ -340,7 +341,7 @@ pub(crate) fn break_crates(
         );
         spawn(&mut commands, scatter(middle, kinds, &tuning, &mut rng));
         sounds.write(PickupSound::at(PickupSoundKind::CrateBroke(kind.0), middle));
-        commands.entity(event.target).despawn();
+        commands.entity(event.target).retire();
     }
 }
 

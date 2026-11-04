@@ -10,7 +10,7 @@
 use bevy::math::ops;
 use bevy::prelude::*;
 use rac_hero::{Health, HelpMeasure, Hero, HeroBody, HeroState, HeroTuning};
-use rac_sim::{SimRng, SimTransform};
+use rac_sim::{RetireExt, SimId, SimRng, SimTransform};
 use serde::{Deserialize, Serialize};
 
 use super::{PickupSound, PickupSoundKind, PickupTuning, between};
@@ -134,7 +134,7 @@ impl OrbCluster {
 
 /// A broken nanotech crate's orbs in the world.
 #[derive(Component, Debug, Clone, PartialEq)]
-#[require(SimTransform)]
+#[require(SimTransform, SimId)]
 pub struct NanotechOrbs(pub OrbCluster);
 
 /// A hero as the orbs see him.
@@ -241,7 +241,7 @@ pub(crate) fn move_orbs(
     help: Res<HelpMeasure>,
     mut rng: ResMut<SimRng>,
     mut heroes: Query<(&Hero, &HeroBody, &mut Health)>,
-    mut clusters: Query<(Entity, &mut NanotechOrbs, &mut SimTransform)>,
+    mut clusters: Query<(Entity, &SimId, &mut NanotechOrbs, &mut SimTransform)>,
     mut sounds: MessageWriter<PickupSound>,
     mut commands: Commands,
 ) {
@@ -251,7 +251,7 @@ pub(crate) fn move_orbs(
         amount(most, measure, tuning)
     };
     let mut clusters: Vec<_> = clusters.iter_mut().collect();
-    clusters.sort_by_key(|(entity, ..)| *entity);
+    clusters.sort_by_key(|(_, id, ..)| **id);
     // What orbs already let out to each player carry, which counts against his room.
     let mut carried: Vec<(usize, u32)> = Vec::new();
     let carrying = |carried: &[(usize, u32)], player| {
@@ -261,7 +261,7 @@ pub(crate) fn move_orbs(
             .map(|(_, amount)| amount)
             .sum::<u32>()
     };
-    for (_, orbs, _) in &clusters {
+    for (_, _, orbs, _) in &clusters {
         if let Some(released) = orbs.0.released.filter(|released| !released.healed)
             && let Some((_, _, health)) = heroes
                 .iter()
@@ -270,7 +270,7 @@ pub(crate) fn move_orbs(
             carried.push((released.player, heal(released.player, health.max)));
         }
     }
-    for (entity, orbs, transform) in &mut clusters {
+    for (entity, _, orbs, transform) in &mut clusters {
         let mut healees: Vec<Healee> = heroes
             .iter()
             .map(|(hero, body, health)| Healee {
@@ -310,7 +310,7 @@ pub(crate) fn move_orbs(
                     health.current = health.current.saturating_add(gain).min(health.max);
                 }
             }
-            Some(OrbEvent::Gone) => commands.entity(*entity).despawn(),
+            Some(OrbEvent::Gone) => commands.entity(*entity).retire(),
         }
     }
 }

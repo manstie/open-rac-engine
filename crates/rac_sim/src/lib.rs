@@ -8,17 +8,25 @@
 //! - [`SimPlugin`]: the 60 Hz clock, the [`SimSet`] order and the [`SimTick`] counter;
 //! - [`SimTransform`]: where a simulated entity really is, which the plugin interpolates
 //!   into its `Transform` for rendering;
-//! - [`SimRng`]: the per-level random number generator.
+//! - [`SimRng`]: the per-level random number generator;
+//! - [`rollback`]: snapshots of the simulation for rollback co-op, with the [`SimId`]s
+//!   simulation code orders entities by and [`RetireExt::retire`] to remove them;
+//! - [`SimMessageReader`]: reading messages in a way rollback keeps right.
 //!
 //! Simulation code uses `bevy::math::ops` for trigonometry (this crate turns on Bevy's
-//! `libm` feature), never reads the wall clock, and never depends on hash-map order.
+//! `libm` feature), never reads the wall clock, and never depends on hash-map order. The
+//! rules co-op adds are in `docs/netcode.md`.
 
+mod messages;
 mod rng;
+pub mod rollback;
 mod transform;
 
-use bevy::prelude::*;
+use bevy::{ecs::schedule::SingleThreadedExecutor, prelude::*};
 
+pub use messages::{SimInbox, SimMessageApp, SimMessageReader};
 pub use rng::SimRng;
+pub use rollback::{RetireExt, RollbackApp, RollbackWindow, SimId, SimIds, Snapshot, StateHasher};
 pub use transform::{PreviousSimTransform, SimTransform};
 
 /// Simulation ticks per second. UYA and Deadlocked NTSC-U are tuned for 60 Hz, and the kit
@@ -47,6 +55,17 @@ pub enum SimSet {
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SimTick(pub u64);
 
+/// Whether the tick running is being simulated again after a rollback. Presentation that
+/// runs on the tick, such as effects, skips those ticks with [`not_resimulating`]: what it
+/// shows was shown once already.
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Resimulating(pub bool);
+
+/// A run condition for presentation on the tick (see [`Resimulating`]).
+pub fn not_resimulating(resimulating: Option<Res<Resimulating>>) -> bool {
+    !resimulating.is_some_and(|resimulating| resimulating.0)
+}
+
 /// Sets up the fixed clock, the [`SimSet`] order, the tick counter and interpolation.
 pub struct SimPlugin;
 
@@ -55,6 +74,12 @@ impl Plugin for SimPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(TICK_HZ))
             .init_resource::<SimTick>()
             .init_resource::<SimRng>()
+            .init_resource::<Resimulating>()
+            // Systems with no order between them would run in either order on several
+            // threads, and peers would then disagree (`docs/netcode.md`).
+            .edit_schedule(FixedUpdate, |schedule| {
+                schedule.set_executor(SingleThreadedExecutor::new());
+            })
             .configure_sets(
                 FixedUpdate,
                 (
@@ -72,6 +97,7 @@ impl Plugin for SimPlugin {
                 RunFixedMainLoop,
                 transform::interpolate.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
             );
+        rollback::register(app);
     }
 }
 

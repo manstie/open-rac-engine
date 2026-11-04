@@ -100,8 +100,12 @@ fn start_game_clock(mut time: ResMut<Time<Virtual>>) {
     time.unpause();
 }
 
-fn stop_game_clock(mut time: ResMut<Time<Virtual>>) {
-    time.pause();
+/// Pauses the game behind the menus, unless a co-op session runs: the other player plays
+/// on (`crate::coop`).
+fn stop_game_clock(mut time: ResMut<Time<Virtual>>, session: Option<Res<rac_net::Session>>) {
+    if session.is_none() {
+        time.pause();
+    }
 }
 
 /// Hides and holds the cursor for mouse look while the window has focus. It waits for

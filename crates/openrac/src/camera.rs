@@ -42,6 +42,19 @@ pub fn label(choice: Option<CameraSetting>, profile: &HeroProfile) -> String {
     }
 }
 
+/// `choice` as one byte, for telling the other co-op player.
+pub fn code(choice: Option<CameraSetting>) -> u8 {
+    CHOICES
+        .iter()
+        .position(|known| *known == choice)
+        .unwrap_or(0) as u8
+}
+
+/// The choice [`code`] gave `code`, if it is one.
+pub fn from_code(code: u8) -> Option<Option<CameraSetting>> {
+    CHOICES.get(usize::from(code)).copied()
+}
+
 /// The choice after `current`, or before it, wrapping round.
 pub fn step(current: Option<CameraSetting>, forward: bool) -> Option<CameraSetting> {
     let count = CHOICES.len();

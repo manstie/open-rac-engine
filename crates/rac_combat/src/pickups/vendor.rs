@@ -39,6 +39,7 @@ use crate::weapons::{Armory, Arsenal, WeaponId};
 /// A hero whose feet come into this box opens his vendor menu; it is centred on the
 /// entity's `Transform`, as a `rac_hero::Checkpoint` is.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[require(rac_sim::SimId)]
 pub struct Vendor {
     pub half_extents: Vec3,
 }

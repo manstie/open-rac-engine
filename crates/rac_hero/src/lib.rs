@@ -36,7 +36,9 @@ pub mod water;
 
 use bevy::prelude::*;
 use rac_input::PlayerInputs;
-use rac_sim::{PreviousSimTransform, SimSet, SimTransform};
+use rac_sim::{
+    PreviousSimTransform, RollbackApp, SimId, SimMessageApp, SimMessageReader, SimSet, SimTransform,
+};
 
 pub use camera::{CameraSetting, CameraVolume, FollowCamera, UnzoomedFov};
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
@@ -53,7 +55,7 @@ pub use water::Water;
 
 /// A player-controlled hero.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-#[require(SimTransform, LockOn)]
+#[require(SimTransform, LockOn, SimId)]
 pub struct Hero {
     /// The `PlayerInputs` slot that steers him.
     pub player: usize,
@@ -69,6 +71,7 @@ pub struct Hero {
 /// Something the hero's attacks turn to, `height` above the entity's position (its
 /// `SimTransform` if it moves in the simulation, otherwise its `Transform`).
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[require(SimId)]
 pub struct AimTarget {
     pub height: f32,
 }
@@ -93,6 +96,7 @@ impl Health {
 /// Reaching this box makes its position the hero's spawn point. The box is centred on the
 /// entity's `Transform`, and the hero comes back standing at that point.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[require(SimId)]
 pub struct Checkpoint {
     pub half_extents: Vec3,
     pub spawn_yaw: f32,
@@ -126,8 +130,9 @@ impl Default for HeroTuning {
     }
 }
 
-/// Every [`Collider`] in the world, as the controller sees it this tick.
-#[derive(Resource, Debug, Default)]
+/// Every [`Collider`] in the world, as the controller sees it this tick. The guns read it
+/// before the heroes rebuild it, so it carries from one tick to the next and is rolled back.
+#[derive(Resource, Debug, Default, Clone)]
 pub struct CollisionScene(pub ParryWorld);
 
 /// What a new hero needs: spawn it, then add a model.
@@ -158,8 +163,19 @@ impl Plugin for HeroPlugin {
         app.init_resource::<HeroTuning>()
             .init_resource::<CollisionScene>()
             .init_resource::<HelpMeasure>()
-            .add_message::<HurtHero>()
+            .add_sim_message::<HurtHero>()
             .add_message::<HeroRespawned>()
+            .roll_back_component::<Hero>()
+            .roll_back_component::<HeroBody>()
+            .roll_back_component_hashed::<Health>(|health, hasher| {
+                std::hash::Hash::hash(&(health.current, health.max), hasher);
+            })
+            .roll_back_component::<LockOn>()
+            .roll_back_component::<FollowCamera>()
+            // Taken off an enemy while it is down.
+            .roll_back_component::<AimTarget>()
+            .roll_back_resource::<HelpMeasure>()
+            .roll_back_resource::<CollisionScene>()
             .add_systems(
                 FixedUpdate,
                 (
@@ -180,63 +196,48 @@ impl Plugin for HeroPlugin {
 /// Rebuilds the [`CollisionScene`] from every [`Collider`], [`GrindRail`] (rails in world
 /// space), [`Water`] (placed by its `Transform`) and [`AimTarget`]. Colliders with a
 /// `SimTransform` may move, and the hero rides them; others are placed by their
-/// `Transform`. They are ordered by entity so every peer builds the same list.
+/// `Transform`. They are ordered by `SimId` so every peer builds the same list.
 fn gather_colliders(
     colliders: Query<(
-        Entity,
+        &SimId,
         &Collider,
         &Transform,
         Option<&Material>,
         Option<(&SimTransform, &PreviousSimTransform)>,
     )>,
-    rails: Query<(Entity, &GrindRail)>,
-    water: Query<(Entity, &Water, &Transform)>,
-    targets: Query<(
-        Entity,
-        &AimTarget,
-        Option<&Transform>,
-        Option<&SimTransform>,
-    )>,
+    rails: Query<(&SimId, &GrindRail)>,
+    water: Query<(&SimId, &Water, &Transform)>,
+    targets: Query<TargetItem>,
     mut scene: ResMut<CollisionScene>,
 ) {
-    let mut target_list: Vec<(Entity, Vec3)> = targets
+    scene.0.set_targets(
+        aim_targets(&targets)
+            .into_iter()
+            .map(|(_, at)| at)
+            .collect(),
+    );
+    let mut water_list: Vec<(SimId, water::WaterVolume)> = water
         .iter()
-        .filter_map(|(entity, target, transform, simulated)| {
-            let at = match simulated {
-                Some(simulated) => simulated.translation,
-                None => transform?.translation,
-            };
-            Some((entity, at + Vec3::Y * target.height))
-        })
-        .collect();
-    target_list.sort_by_key(|(entity, _)| *entity);
-    scene
-        .0
-        .set_targets(target_list.into_iter().map(|(_, at)| at).collect());
-    let mut water_list: Vec<(Entity, water::WaterVolume)> = water
-        .iter()
-        .map(|(entity, water, transform)| {
+        .map(|(id, water, transform)| {
             (
-                entity,
+                *id,
                 water::WaterVolume::new(transform.translation, water.half_extents),
             )
         })
         .collect();
-    water_list.sort_by_key(|(entity, _)| *entity);
+    water_list.sort_by_key(|(id, _)| *id);
     scene
         .0
         .set_water(water_list.into_iter().map(|(_, volume)| volume).collect());
-    let mut rail_list: Vec<(Entity, GrindRail)> = rails
-        .iter()
-        .map(|(entity, rail)| (entity, rail.clone()))
-        .collect();
-    rail_list.sort_by_key(|(entity, _)| *entity);
+    let mut rail_list: Vec<(SimId, GrindRail)> =
+        rails.iter().map(|(id, rail)| (*id, rail.clone())).collect();
+    rail_list.sort_by_key(|(id, _)| *id);
     scene
         .0
         .set_rails(rail_list.into_iter().map(|(_, rail)| rail).collect());
-    let mut bodies: Vec<(Entity, BodyPlacement)> = colliders
+    let mut bodies: Vec<(SimId, BodyPlacement)> = colliders
         .iter()
-        .map(|(entity, collider, transform, material, simulated)| {
+        .map(|(id, collider, transform, material, simulated)| {
             let material = material.copied().unwrap_or_default();
             let placement = match simulated {
                 Some((current, previous)) => BodyPlacement {
@@ -251,10 +252,10 @@ fn gather_colliders(
                     ..BodyPlacement::fixed(*collider, transform.translation, transform.rotation)
                 },
             };
-            (entity, placement)
+            (*id, placement)
         })
         .collect();
-    bodies.sort_by_key(|(entity, _)| *entity);
+    bodies.sort_by_key(|(id, _)| *id);
     let placements: Vec<BodyPlacement> = bodies.into_iter().map(|(_, body)| body).collect();
     scene.0.set_bodies(&placements);
 }
@@ -265,7 +266,7 @@ fn move_heroes(
     scene: Res<CollisionScene>,
     cameras: Query<&FollowCamera>,
     mut help: ResMut<HelpMeasure>,
-    mut hurts: MessageReader<HurtHero>,
+    mut hurts: SimMessageReader<HurtHero>,
     mut respawned: MessageWriter<HeroRespawned>,
     mut heroes: Query<(
         &Hero,
@@ -343,27 +344,30 @@ fn move_heroes(
 /// An [`AimTarget`] and where its entity is.
 pub(crate) type TargetItem = (
     Entity,
+    &'static SimId,
     &'static AimTarget,
     Option<&'static Transform>,
     Option<&'static SimTransform>,
 );
 
-/// Every [`AimTarget`]'s middle, in entity order so every peer sees them alike.
+/// Every [`AimTarget`]'s middle, in `SimId` order so every peer sees them alike.
 pub(crate) fn aim_targets<F: bevy::ecs::query::QueryFilter>(
     targets: &Query<TargetItem, F>,
 ) -> Vec<(Entity, Vec3)> {
-    let mut list: Vec<(Entity, Vec3)> = targets
+    let mut list: Vec<(SimId, Entity, Vec3)> = targets
         .iter()
-        .filter_map(|(entity, target, transform, simulated)| {
+        .filter_map(|(entity, id, target, transform, simulated)| {
             let at = match simulated {
                 Some(simulated) => simulated.translation,
                 None => transform?.translation,
             };
-            Some((entity, at + Vec3::Y * target.height))
+            Some((*id, entity, at + Vec3::Y * target.height))
         })
         .collect();
-    list.sort_by_key(|(entity, _)| *entity);
-    list
+    list.sort_by_key(|(id, ..)| *id);
+    list.into_iter()
+        .map(|(_, entity, at)| (entity, at))
+        .collect()
 }
 
 /// Picks, keeps and drops each hero's [`LockOn`] target among the [`AimTarget`]s.
@@ -442,12 +446,16 @@ fn count_level_ticks(heroes: Query<(), With<Hero>>, mut help: ResMut<HelpMeasure
 /// he stands in.
 fn reach_checkpoints(
     tuning: Res<HeroTuning>,
-    checkpoints: Query<(Entity, &Checkpoint, &Transform)>,
+    checkpoints: Query<(Entity, &SimId, &Checkpoint, &Transform)>,
     mut help: ResMut<HelpMeasure>,
     mut heroes: Query<(&mut Hero, &HeroBody)>,
 ) {
     let mut checkpoints: Vec<_> = checkpoints.iter().collect();
-    checkpoints.sort_by_key(|(entity, ..)| *entity);
+    checkpoints.sort_by_key(|(_, id, ..)| **id);
+    let checkpoints: Vec<_> = checkpoints
+        .into_iter()
+        .map(|(entity, _, checkpoint, transform)| (entity, checkpoint, transform))
+        .collect();
     for (mut hero, body) in &mut heroes {
         if matches!(body.0.state, HeroState::Dead | HeroState::FallOut) {
             continue;

@@ -59,6 +59,9 @@ session is working on the task now; notes on problems met stay with their task (
   with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed. The demo has an arena of enemies, a melee charger and a ranged shooter,
   that drop bolts and nanotech and, infected, fight each other (P1.11).
+  Two players can play the demo together by IP (`--host`, `--join`), with rollback
+  through `ggrs` and the simulation's snapshots (P1.18, `docs/netcode.md`); join codes,
+  port mapping and hole punching aren't in yet.
 - **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
   against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
   collision rule the kit needs is read and traced in both games; RE.8 is answered
@@ -82,12 +85,14 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
+1. P1.18's next step: a headless sync test of the whole demo, then co-op over a LAN, then
+   join codes, port mapping and hole punching.
+2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
    next gun to fix (the Ultrashield's bubble: read its V5 draw, then draw it with
    `fx/refract.rs`'s material; or the Liquid Nitrogen Gun's arc onto the lock-on target).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
-2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
+3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
    moves read in code but untraced (lock-on first; RE.3's notes).
 
 ---
@@ -336,6 +341,8 @@ None at the moment.
 | 2026-11-03 | **Rebinding swaps.** A binding put in a slot is taken from any other control read in the same place (play or menus; Space can jump and choose), which gets the slot's old binding instead, or loses it if the slot was empty. Pause and the menu actions keep a binding on each kind of device, and each movement key its key, so the player can't lock themselves out; such a change is refused. Esc always calls off listening, so it can't be bound once taken off Pause and Back (Reset gives it back). |
 | 2026-11-03 | **The display settings:** one size for the HUD and the menus (Bevy's `UiScale`; the sights keep to the view, as the game sizes them by the screen); a graphics API chosen in the menus is used from the next start only if the machine has a GPU for it (a software adapter doesn't count), or else wgpu chooses, so a wrong choice can't stop the game starting; key names are learned from what the keys type and saved. |
 | 2026-11-03 | **Release packages are built on GitHub from a `v*` tag into a draft release**, which the owner checks and publishes (`release.yml`, P7.1). Windows links the C runtime in and, in release builds, opens no console window; Linux builds on the oldest supported Ubuntu runner, for the oldest glibc. **CI caches with `Swatinem/rust-cache`, not `cargo-chef`**, which only helps Docker builds. |
+| 2026-11-04 | **Rollback is the kit's own, over `ggrs` without `bevy_ggrs`** (which lags Bevy). A session swaps Bevy's `FixedMainScheduleOrder` for a driver that runs the usual tick schedules when `ggrs` asks, so no system moves. Snapshots clone the components and resources each kit plugin registers, for entities with a `SimId`, numbered in spawn order so it is the same on every peer; simulation code sorts by `SimId`, never `Entity`. The simulation removes entities with `retire()`, which in a session disables them so a rollback brings them back under the same `Entity`. Simulation messages are read with `SimMessageReader`, whose unread messages are part of the snapshot. The tick runs on the single-threaded executor, so systems with no order between them run in the same order on every peer. Presentation on the tick (effects, shot models) skips resimulated ticks and stays out of snapshots (`docs/netcode.md`). |
+| 2026-11-04 | **Co-op in the demo:** the host is player 1, the guest player 2; they must run the same build with the same movement profile, guns and gun level (a digest in the handshake), and each keeps their own camera setting, sent in the handshake. During a session the pause menu doesn't stop the game and sends neutral input, and Moves and Camera can't change. A peer that leaves is dropped and the other plays on alone. UDP port 26450 by default. |
 | 2026-11-03 | **The effects' lights are drawn as the game's, not with Bevy's lights.** Each is a sphere that multiplies what the depth prepass shows within its radius by 1 + colour × (1 − distance / radius), as the game's code (0x4A3D80) and footage show, so the demo's 3D cameras get a depth prepass. Bevy's point lights fall off as 1/d² and lit only a spot by the gun (`effects.md`, "How the lights fall off"). |
 
 ## 6. Roadmap
@@ -1279,17 +1286,37 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     hips and chest could take the same way round. It is now one angle eased beside the pose
     (`pose::Animator::ease`); UYA's own two twist springs (`hero-controller.md`,
     "Strafing") aren't used yet.
-- [ ] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
-  - Host and join by `IP:port`, or by swapping join codes, over UDP.
-  - Port mapping (UPnP IGD, NAT-PMP, PCP) and hole punching (D8).
-  - A handshake checking the build and settings.
-  - A `ggrs` session with rollback and configurable input delay.
-  - Snapshot and restore of the demo's simulation.
-  - Desync detection with checksums every tick.
-  - A second hero in player-2 colours.
-  - Disconnect handling.
-  - Tests with simulated latency and packet loss, then real runs over LAN and over the
-    internet, including behind NATs.
+- [~] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
+  - Done: rollback of the kit's simulation (`rac_sim::rollback`: snapshots, `SimId`,
+    `retire`; `SimMessageReader`), every kit crate's state registered; `rac_net`'s
+    `ggrs` driver, UDP link and handshake (build and rules digest, a slot each, the
+    other player's camera setting); `--host [PORT]`, `--join HOST[:PORT]`,
+    `--input-delay`, `--sync-test` and a status line in `openrac` (`coop.rs`); both
+    heroes, player 2 in silver; a peer that leaves is dropped and the game plays on;
+    the pause menu doesn't stop a session, and Moves and Camera can't change in one.
+    How it works and the rules for simulation code: `docs/netcode.md`.
+  - Verified: `rac_net`'s tests (a sync test, two peers over a memory network with 3 steps
+    of latency and 5% loss matching a plain run's checksum, a refused handshake, a
+    dropped peer); the app's `--sync-test` played 1500 ticks off-screen with no mismatch;
+    a host and a guest on one machine played together, each seeing the other's hero.
+  - Not done:
+    - Join codes, port mapping (UPnP IGD, NAT-PMP, PCP), STUN and hole punching (D8); the
+      link binds IPv4 unless joining an IPv6 address.
+    - A headless test of the whole demo under the sync test (the app's `--sync-test` is
+      the check for now), with guns, crates and enemies scripted.
+    - Effects and sounds of resimulated ticks play again (`docs/netcode.md`, "Known
+      gaps"); hosting and joining from the menus; runs over a LAN and the internet.
+  - Next step: script a headless sync test of the demo (greybox level, enemies, crates,
+    every gun) as a `rac_demo` integration test, then a LAN run on two machines.
+  - `bevy_ggrs` lags Bevy (0.22 is for Bevy 0.19), so `rac_net` drives `ggrs` itself by
+    swapping Bevy's `FixedMainScheduleOrder`.
+  - The code ordered entities by `Entity` for determinism, which differs between peers;
+    systems in one set ran in either order on several threads; messages written after
+    their reader crossed ticks out of a snapshot's reach. Fixed by `SimId`, a
+    single-threaded tick and `SimMessageReader` (`docs/netcode.md`, "Hazards").
+  - The level must wait at tick 0 while peers shake hands, but the pause menu's state
+    change unpauses the game clock before `Update`; the tick's schedules are taken out of
+    Bevy's fixed loop instead (`coop.rs`, `HeldTicks`).
 - [ ] **P1.19** Determinism tests:
   - Replaying recorded inputs twice must give identical state hashes.
   - CI runs the same replays on Linux and on Windows and compares the hashes across the two

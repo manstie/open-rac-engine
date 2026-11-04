@@ -9,6 +9,7 @@ use bevy::prelude::*;
 /// overrides end on the first tick he is outside, and the camera springs back, at the
 /// volume's gain.
 #[derive(Component, Debug, Clone, PartialEq)]
+#[require(rac_sim::SimId)]
 pub struct CameraVolume {
     pub half_extents: Vec3,
     /// Among the volumes he is in, the highest priority wins, and on a tie the one he

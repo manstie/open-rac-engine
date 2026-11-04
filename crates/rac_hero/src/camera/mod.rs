@@ -46,6 +46,7 @@ pub const DEFAULT_SPEED: f32 = 50.0;
 
 /// Follows the hero of the same player slot.
 #[derive(Component, Debug, Clone, PartialEq)]
+#[require(rac_sim::SimId)]
 pub struct FollowCamera {
     pub player: usize,
     /// The direction the camera faces, radians about +y; 0 looks down −z. The hero reads the
@@ -631,13 +632,17 @@ pub(crate) fn follow(
     heroes: Query<(&Hero, &HeroBody, Option<&LockOn>)>,
     // Disjoint from the cameras, whose `SimTransform`s this system writes.
     targets: Query<crate::TargetItem, Without<FollowCamera>>,
-    volumes: Query<(Entity, &CameraVolume, &Transform)>,
+    volumes: Query<(Entity, &rac_sim::SimId, &CameraVolume, &Transform)>,
     mut cameras: Query<(&mut FollowCamera, &mut SimTransform)>,
 ) {
     let profile = &tuning.0;
     let targets = crate::aim_targets(&targets);
     let mut volumes: Vec<_> = volumes.iter().collect();
-    volumes.sort_by_key(|(entity, ..)| *entity);
+    volumes.sort_by_key(|(_, id, ..)| **id);
+    let volumes: Vec<_> = volumes
+        .into_iter()
+        .map(|(entity, _, volume, transform)| (entity, volume, transform))
+        .collect();
     for (mut camera, mut transform) in &mut cameras {
         let Some((_, body, lock)) = heroes
             .iter()

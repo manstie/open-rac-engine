@@ -8,6 +8,7 @@ use bevy::{math::ops, prelude::*};
 /// A rail to grind along, or a zip line's cable. The points run along its top, or along
 /// the cable, in the direction of travel.
 #[derive(Component, Debug, Clone, PartialEq)]
+#[require(rac_sim::SimId)]
 pub struct GrindRail {
     pub points: Vec<Vec3>,
     pub kind: RailKind,

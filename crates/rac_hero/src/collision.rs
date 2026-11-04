@@ -12,6 +12,8 @@ use parry3d::{
     query::{Ray, ShapeCastOptions, cast_shapes, contact},
     shape::{Ball, Capsule, Cuboid, Shape},
 };
+use rac_sim::SimId;
+use std::sync::Arc;
 
 /// Identifies a body in a [`CollisionWorld`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -90,6 +92,7 @@ pub trait CollisionWorld: Send + Sync {
 
 /// The shapes [`ParryWorld`] supports.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[require(SimId)]
 pub enum Collider {
     Cuboid { half_extents: Vec3 },
     Ball { radius: f32 },
@@ -119,9 +122,11 @@ impl BodyPlacement {
     }
 }
 
+/// Shapes are shared, so a snapshot of the scene for rollback (`docs/netcode.md`) is cheap.
+#[derive(Clone)]
 struct Body {
     pose: Pose,
-    shape: Box<dyn Shape>,
+    shape: Arc<dyn Shape>,
     motion: Vec3,
     material: Material,
 }
@@ -129,7 +134,7 @@ struct Body {
 /// Brute force over a small list of bodies, which suits test levels of a few hundred
 /// pieces. Bodies are checked in order and ties go to the first, so results don't
 /// depend on anything but the list.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ParryWorld {
     bodies: Vec<Body>,
     rails: Vec<GrindRail>,
@@ -190,9 +195,9 @@ impl ParryWorld {
         self.bodies = bodies
             .iter()
             .map(|body| {
-                let shape: Box<dyn Shape> = match body.collider {
-                    Collider::Cuboid { half_extents } => Box::new(Cuboid::new(half_extents)),
-                    Collider::Ball { radius } => Box::new(Ball::new(radius)),
+                let shape: Arc<dyn Shape> = match body.collider {
+                    Collider::Cuboid { half_extents } => Arc::new(Cuboid::new(half_extents)),
+                    Collider::Ball { radius } => Arc::new(Ball::new(radius)),
                 };
                 Body {
                     pose: Pose::from_parts(body.translation, body.rotation),

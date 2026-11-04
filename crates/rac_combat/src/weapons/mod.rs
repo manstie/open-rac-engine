@@ -24,10 +24,10 @@ mod seekers;
 pub mod shots;
 mod thrown;
 
-use bevy::prelude::*;
+use bevy::{ecs::entity::EntityHashMap, prelude::*};
 use rac_hero::{CollisionScene, FollowCamera, Health, Hero, HeroBody, HeroTuning, LockOn};
 use rac_input::PlayerInputs;
-use rac_sim::{SimRng, SimTransform};
+use rac_sim::{SimId, SimRng, SimTransform};
 
 use crate::{CombatTuning, Destroyed, HitReaction, Hitpoints, Hostile, Hurtbox, Struck, position};
 
@@ -199,6 +199,7 @@ fn queue(pending: &mut Vec<(Entity, Queued)>, player: usize, hit: Hit) {
 
 type TargetItem<'a> = (
     Entity,
+    &'a SimId,
     &'a Hurtbox,
     Option<&'a Transform>,
     Option<&'a SimTransform>,
@@ -236,24 +237,33 @@ pub(crate) fn fire_guns(
     mut destroyed: MessageWriter<Destroyed>,
     mut afflicted: MessageWriter<Afflicted>,
 ) {
-    let mut list: Vec<GunTarget> = targets
+    let mut list: Vec<(SimId, GunTarget)> = targets
         .iter()
         .filter_map(
-            |(entity, hurtbox, transform, simulated, hitpoints, _, _, hostile)| {
+            |(entity, id, hurtbox, transform, simulated, hitpoints, _, _, hostile)| {
                 let at = position(transform, simulated)?;
-                Some(GunTarget {
-                    entity,
-                    centre: at + Vec3::Y * hurtbox.height,
-                    radius: hurtbox.radius,
-                    height: hurtbox.height,
-                    alive: hitpoints.is_none_or(|hitpoints| hitpoints.current > 0.0),
-                    health: hitpoints.map(|hitpoints| (hitpoints.current, hitpoints.max)),
-                    enemy: hostile,
-                })
+                Some((
+                    *id,
+                    GunTarget {
+                        entity,
+                        centre: at + Vec3::Y * hurtbox.height,
+                        radius: hurtbox.radius,
+                        height: hurtbox.height,
+                        alive: hitpoints.is_none_or(|hitpoints| hitpoints.current > 0.0),
+                        health: hitpoints.map(|hitpoints| (hitpoints.current, hitpoints.max)),
+                        enemy: hostile,
+                    },
+                ))
             },
         )
         .collect();
-    list.sort_by_key(|target| target.entity);
+    list.sort_by_key(|(id, _)| *id);
+    // The damage queue goes in the same order.
+    let ids: EntityHashMap<SimId> = list
+        .iter()
+        .map(|(id, target)| (target.entity, *id))
+        .collect();
+    let list: Vec<GunTarget> = list.into_iter().map(|(_, target)| target).collect();
 
     let mut order: Vec<_> = heroes.iter_mut().collect();
     order.sort_by_key(|(hero, ..)| hero.player);
@@ -383,7 +393,7 @@ pub(crate) fn fire_guns(
             ticks_left: shock.reach_ticks,
         });
     }
-    pending.sort_by_key(|(entity, _)| *entity);
+    pending.sort_by_key(|(entity, _)| ids.get(entity).copied());
 
     let mut kills: Vec<(usize, WeaponId, u32)> = Vec::new();
     // Swallowed, sucked in or made a duck, a target dies past the damage queue (a duck's
@@ -396,7 +406,7 @@ pub(crate) fn fire_guns(
             weapon,
             affliction,
         } = afflict;
-        let Ok((_, _, _, _, hitpoints, _, xp, _)) = targets.get_mut(target) else {
+        let Ok((_, _, _, _, _, hitpoints, _, xp, _)) = targets.get_mut(target) else {
             continue;
         };
         let Some(mut hitpoints) = hitpoints.filter(|hitpoints| hitpoints.current > 0.0) else {
@@ -425,7 +435,7 @@ pub(crate) fn fire_guns(
         }
     }
     for (entity, Queued { player, hit }) in pending {
-        let Ok((_, _, _, _, hitpoints, mut reaction, xp, _)) = targets.get_mut(entity) else {
+        let Ok((_, _, _, _, _, hitpoints, mut reaction, xp, _)) = targets.get_mut(entity) else {
             continue;
         };
         if reaction.gun_recovery > 0 {
@@ -484,7 +494,8 @@ pub(crate) fn fire_guns(
 
     // Acid burns past the damage queue; the burn that kills credits the gun.
     burns.0.retain_mut(|burn| {
-        let Ok((_, _, _, _, Some(mut hitpoints), _, xp, _)) = targets.get_mut(burn.target) else {
+        let Ok((_, _, _, _, _, Some(mut hitpoints), _, xp, _)) = targets.get_mut(burn.target)
+        else {
             return false;
         };
         if hitpoints.current <= 0.0 || burn.ticks_left == 0 {

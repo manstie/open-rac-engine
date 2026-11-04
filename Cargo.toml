@@ -15,10 +15,15 @@ repository = "https://github.com/manstie/open-rac-engine"
 
 [workspace.dependencies]
 anyhow = "1"
+# The handshake's packets, in the encoding `ggrs` already uses for its own (PLAN.md P1.18).
+bincode = "1.3"
 # Default features are off so the hero kit's crates can ask for only what they use and
 # stay reusable in other Bevy apps; `openrac` turns the defaults back on.
 bevy = { version = "0.20", default-features = false }
 directories = "6"
+# Rollback sessions (PLAN.md section 4.2). Its `sync-send` feature lets a session live in a
+# Bevy resource.
+ggrs = { version = "0.13", features = ["sync-send"] }
 # Collision queries for the hero kit. `alloc` enables casting between convex shapes. Never
 # enable `enhanced-determinism`: it turns on glam's `scalar-math` for the whole build,
 # which shrinks `Vec4` to 4-byte alignment and breaks Bevy's GPU mesh buffers (PLAN.md
@@ -34,6 +39,7 @@ rac_formats = { path = "crates/rac_formats" }
 rac_hero = { path = "crates/rac_hero" }
 rac_input = { path = "crates/rac_input" }
 rac_iso = { path = "crates/rac_iso" }
+rac_net = { path = "crates/rac_net" }
 rac_rig = { path = "crates/rac_rig" }
 rac_sim = { path = "crates/rac_sim" }
 clap = { version = "4", features = ["derive"] }

@@ -18,14 +18,17 @@ pub mod def;
 mod looks;
 pub mod shot;
 
-use bevy::prelude::*;
+use bevy::{ecs::entity::EntityHashMap, prelude::*};
 use rac_combat::pickups::{self, BoltBank, BoltMultiplier, PickupTuning};
 use rac_combat::{
     Afflicted, Affliction, Armory, Arsenal, Destroyed, Hitpoints, Hostile, Hurtbox, KillXp, Struck,
     target_bundle, weapons::block_shot,
 };
 use rac_hero::{AimTarget, CollisionScene, Hero, HeroBody, HeroState, HeroTuning, HurtHero};
-use rac_sim::{PreviousSimTransform, SimRng, SimSet, SimTransform};
+use rac_sim::{
+    PreviousSimTransform, RetireExt, RollbackApp, SimId, SimMessageReader, SimRng, SimSet,
+    SimTransform,
+};
 
 use crate::DemoEntity;
 use crate::drops;
@@ -37,7 +40,7 @@ pub use looks::EnemyLooks;
 
 /// An enemy of a kind; what it is doing is in its [`EnemyBody`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[require(SimTransform)]
+#[require(SimTransform, SimId)]
 pub struct Enemy {
     pub kind: EnemyKind,
 }
@@ -47,12 +50,12 @@ pub struct EnemyBody(pub EnemyMotion);
 
 /// A shot an enemy fired.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-#[require(SimTransform)]
+#[require(SimTransform, SimId)]
 pub struct EnemyShot(pub ShotMotion);
 
 /// Where a shot ended, for the few ticks it shows.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-#[require(SimTransform)]
+#[require(SimTransform, SimId)]
 pub struct ShotBurst {
     pub ticks_left: u32,
 }
@@ -73,6 +76,10 @@ impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Bestiary>()
             .init_resource::<FoeHits>()
+            .roll_back_component::<EnemyBody>()
+            .roll_back_component::<EnemyShot>()
+            .roll_back_component::<ShotBurst>()
+            .roll_back_resource::<FoeHits>()
             .add_systems(
                 FixedUpdate,
                 (run_enemies, fly_shots)
@@ -126,21 +133,27 @@ fn hero_views(heroes: &Query<(&Hero, &HeroBody)>) -> Vec<HeroView> {
     views
 }
 
-/// Every enemy, in entity order.
+/// Every enemy, in `SimId` order.
 fn enemy_views(
     bestiary: &Bestiary,
-    enemies: &Query<(Entity, &Enemy, &EnemyBody)>,
+    enemies: &Query<(Entity, &SimId, &Enemy, &EnemyBody)>,
 ) -> Vec<EnemyView> {
-    let mut views: Vec<EnemyView> = enemies
+    let mut views: Vec<(SimId, EnemyView)> = enemies
         .iter()
-        .map(|(entity, enemy, body)| EnemyView::of(entity, &body.0, bestiary.get(enemy.kind)))
+        .map(|(entity, id, enemy, body)| {
+            (
+                *id,
+                EnemyView::of(entity, &body.0, bestiary.get(enemy.kind)),
+            )
+        })
         .collect();
-    views.sort_by_key(|view| view.entity);
-    views
+    views.sort_by_key(|(id, _)| *id);
+    views.into_iter().map(|(_, view)| view).collect()
 }
 
 type EnemyItem<'a> = (
     Entity,
+    &'a SimId,
     &'a Enemy,
     &'a mut EnemyBody,
     &'a mut Hitpoints,
@@ -149,7 +162,7 @@ type EnemyItem<'a> = (
 );
 
 /// Takes this tick's hits and kills, the enemies' on each other from the last tick among
-/// them, then steps every enemy in entity order, so every peer draws the same random
+/// them, then steps every enemy in `SimId` order, so every peer draws the same random
 /// numbers.
 #[allow(clippy::too_many_arguments)]
 fn run_enemies(
@@ -160,9 +173,9 @@ fn run_enemies(
     mut rng: ResMut<SimRng>,
     mut bank: ResMut<BoltBank>,
     mut foe_hits: ResMut<FoeHits>,
-    mut struck: MessageReader<Struck>,
-    mut destroyed: MessageReader<Destroyed>,
-    mut afflicted: MessageReader<Afflicted>,
+    mut struck: SimMessageReader<Struck>,
+    mut destroyed: SimMessageReader<Destroyed>,
+    mut afflicted: SimMessageReader<Afflicted>,
     heroes: Query<(&Hero, &HeroBody)>,
     doublers: Query<(&Hero, &BoltMultiplier)>,
     mut enemies: Query<EnemyItem>,
@@ -172,21 +185,25 @@ fn run_enemies(
     let views = hero_views(&heroes);
     let shape = HeroShape::from_profile(&hero_tuning.0.body);
     let mut enemies: Vec<_> = enemies.iter_mut().collect();
-    enemies.sort_by_key(|(entity, ..)| *entity);
-    let order: Vec<Entity> = enemies.iter().map(|(entity, ..)| *entity).collect();
+    enemies.sort_by_key(|(_, id, ..)| **id);
+    let order: EntityHashMap<usize> = enemies
+        .iter()
+        .enumerate()
+        .map(|(i, (entity, ..))| (*entity, i))
+        .collect();
 
     for hit in struck.read() {
-        if let Ok(i) = order.binary_search(&hit.target) {
-            brain::struck(&mut enemies[i].2.0, hit.player, hit.push);
+        if let Some(&i) = order.get(&hit.target) {
+            brain::struck(&mut enemies[i].3.0, hit.player, hit.push);
         }
     }
     // Killed by another enemy, or by a hero below.
     let mut fallen = Vec::new();
     for hit in std::mem::take(&mut foe_hits.0) {
-        let Ok(i) = order.binary_search(&hit.target) else {
+        let Some(&i) = order.get(&hit.target) else {
             continue;
         };
-        let (_, _, body, hitpoints, ..) = &mut enemies[i];
+        let (_, _, _, body, hitpoints, ..) = &mut enemies[i];
         if !body.0.is_alive() || hitpoints.current <= 0.0 {
             continue;
         }
@@ -199,10 +216,10 @@ fn run_enemies(
     // Frozen, it pays its XP to the gun and no bolts (0x304A18).
     let mut frozen = Vec::new();
     for afflict in afflicted.read() {
-        let Ok(i) = order.binary_search(&afflict.target) else {
+        let Some(&i) = order.get(&afflict.target) else {
             continue;
         };
-        brain::afflict(&mut enemies[i].2.0, afflict.affliction);
+        brain::afflict(&mut enemies[i].3.0, afflict.affliction);
         if afflict.affliction == Affliction::Frozen {
             frozen.push(i);
         }
@@ -212,11 +229,11 @@ fn run_enemies(
         }
     }
     fallen.extend(destroyed.read().filter_map(|kill| {
-        let i = order.binary_search(&kill.target).ok()?;
+        let i = *order.get(&kill.target)?;
         Some((i, Some(kill.player)))
     }));
     for (i, killer) in fallen {
-        let (entity, enemy, body, ..) = &mut enemies[i];
+        let (entity, _, enemy, body, ..) = &mut enemies[i];
         if !brain::killed(&mut body.0) {
             continue;
         }
@@ -242,9 +259,11 @@ fn run_enemies(
 
     let others: Vec<EnemyView> = enemies
         .iter()
-        .map(|(entity, enemy, body, ..)| EnemyView::of(*entity, &body.0, bestiary.get(enemy.kind)))
+        .map(|(entity, _, enemy, body, ..)| {
+            EnemyView::of(*entity, &body.0, bestiary.get(enemy.kind))
+        })
         .collect();
-    for (entity, enemy, body, hitpoints, transform, previous) in &mut enemies {
+    for (entity, _, enemy, body, hitpoints, transform, previous) in &mut enemies {
         let def = bestiary.get(enemy.kind);
         let around = Surroundings {
             heroes: &views,
@@ -292,9 +311,9 @@ fn fly_shots(
     armory: Res<Armory>,
     scene: Res<CollisionScene>,
     heroes: Query<(&Hero, &HeroBody)>,
-    enemies: Query<(Entity, &Enemy, &EnemyBody)>,
+    enemies: Query<(Entity, &SimId, &Enemy, &EnemyBody)>,
     mut arsenals: Query<(&Hero, &mut Arsenal)>,
-    mut shots: Query<(Entity, &mut EnemyShot, &mut SimTransform)>,
+    mut shots: Query<(Entity, &SimId, &mut EnemyShot, &mut SimTransform)>,
     mut hurt: MessageWriter<HurtHero>,
     mut foe_hits: ResMut<FoeHits>,
     mut commands: Commands,
@@ -303,10 +322,10 @@ fn fly_shots(
     let others = enemy_views(&bestiary, &enemies);
     let shape = HeroShape::from_profile(&hero_tuning.0.body);
     let mut shots: Vec<_> = shots.iter_mut().collect();
-    shots.sort_by_key(|(entity, ..)| *entity);
+    shots.sort_by_key(|(_, id, ..)| **id);
     let mut arsenals: Vec<_> = arsenals.iter_mut().collect();
     arsenals.sort_by_key(|(hero, _)| hero.player);
-    for (entity, shot, transform) in &mut shots {
+    for (entity, _, shot, transform) in &mut shots {
         let motion = shot.0.velocity * brain::TICK;
         let blocked = arsenals
             .iter_mut()
@@ -322,7 +341,7 @@ fn fly_shots(
         let Some(end) = end else {
             continue;
         };
-        commands.entity(*entity).despawn();
+        commands.entity(*entity).retire();
         match end {
             ShotEnd::Hero(strike) => {
                 hurt.write(HurtHero {
@@ -351,7 +370,7 @@ fn fade_bursts(mut bursts: Query<(Entity, &mut ShotBurst)>, mut commands: Comman
     for (entity, mut burst) in &mut bursts {
         burst.ticks_left = burst.ticks_left.saturating_sub(1);
         if burst.ticks_left == 0 {
-            commands.entity(entity).despawn();
+            commands.entity(entity).retire();
         }
     }
 }

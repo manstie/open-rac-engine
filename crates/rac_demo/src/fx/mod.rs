@@ -1277,7 +1277,9 @@ impl Plugin for FxPlugin {
                 )
                     .chain()
                     .in_set(rac_sim::SimSet::Particles)
-                    .run_if(resource_exists::<FxQuad>),
+                    .run_if(resource_exists::<FxQuad>)
+                    // Effects are shown, not simulated (`docs/netcode.md`).
+                    .run_if(rac_sim::not_resimulating),
             )
             .add_systems(Update, (face_camera, shake::shake_cameras))
             .add_systems(

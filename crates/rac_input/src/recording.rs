@@ -61,6 +61,12 @@ impl InputRecording {
         }
     }
 
+    /// Drops every tick from `ticks` on, as when a co-op session simulates them again
+    /// after a rollback and records them anew.
+    pub fn truncate(&mut self, ticks: usize) {
+        self.inputs.truncate(ticks.saturating_mul(self.players));
+    }
+
     /// Every player's input at `tick`.
     pub fn tick(&self, tick: usize) -> Option<&[PlayerInput]> {
         let start = tick.checked_mul(self.players)?;
@@ -132,6 +138,9 @@ pub enum InputSource {
         recording: InputRecording,
         next_tick: usize,
     },
+    /// A co-op session fills every slot before each tick: this machine's devices for its
+    /// own player, the network for the others.
+    Session,
 }
 
 impl InputSource {
@@ -145,7 +154,7 @@ impl InputSource {
     /// Whether a replay has played every recorded tick.
     pub fn is_finished(&self) -> bool {
         match self {
-            InputSource::Local => false,
+            InputSource::Local | InputSource::Session => false,
             InputSource::Replay {
                 recording,
                 next_tick,
@@ -188,6 +197,18 @@ mod tests {
                 ..default()
             },
         ]
+    }
+
+    #[test]
+    fn truncating_drops_whole_ticks() {
+        let mut recording = InputRecording::new(2);
+        for _ in 0..5 {
+            recording.push_tick(&[PlayerInput::default(); 2]);
+        }
+        recording.truncate(3);
+        assert_eq!(recording.ticks(), 3);
+        recording.truncate(10);
+        assert_eq!(recording.ticks(), 3);
     }
 
     #[test]

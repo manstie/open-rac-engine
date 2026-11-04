@@ -34,7 +34,7 @@ use std::collections::BTreeSet;
 
 use bevy::prelude::*;
 use rac_hero::{CollisionScene, CollisionWorld, Health, Hero, HeroBody, HeroState, HeroTuning};
-use rac_sim::{SimRng, SimTransform};
+use rac_sim::{RetireExt, SimId, SimRng, SimTransform};
 use serde::{Deserialize, Serialize};
 
 use crate::TICK;
@@ -182,7 +182,7 @@ impl PickupMotion {
 
 /// A bolt, nanotech orb or ammo lying about or flying to a hero.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-#[require(SimTransform)]
+#[require(SimTransform, SimId)]
 pub struct Pickup(pub PickupMotion);
 
 /// The bolts a hero has collected, which he spends at vendors.
@@ -685,7 +685,7 @@ pub fn move_pickups(
     mut bank: ResMut<BoltBank>,
     mut sounds: MessageWriter<PickupSound>,
     mut heroes: Query<HeroItem>,
-    mut pickups: Query<(Entity, &mut Pickup, &mut SimTransform)>,
+    mut pickups: Query<(Entity, &SimId, &mut Pickup, &mut SimTransform)>,
     mut commands: Commands,
 ) {
     let body = &hero_tuning.0.body;
@@ -707,8 +707,8 @@ pub fn move_pickups(
         .collect();
     collectors.sort_by_key(|collector| collector.player);
     let mut pickups: Vec<_> = pickups.iter_mut().collect();
-    pickups.sort_by_key(|(entity, ..)| *entity);
-    for (entity, pickup, transform) in &mut pickups {
+    pickups.sort_by_key(|(_, id, ..)| **id);
+    for (entity, _, pickup, transform) in &mut pickups {
         let event = step(&mut pickup.0, &collectors, &tuning, &scene.0);
         transform.translation = pickup.0.position;
         let player = match event {
@@ -717,7 +717,7 @@ pub fn move_pickups(
                 if let PickupKind::Bolts(value) = pickup.0.kind {
                     bank.0 = bank.0.saturating_add(value);
                 }
-                commands.entity(*entity).despawn();
+                commands.entity(*entity).retire();
                 continue;
             }
             Some(PickupEvent::Collected(player)) => {
@@ -731,7 +731,7 @@ pub fn move_pickups(
                     at: Some(pickup.0.position),
                     bolts,
                 });
-                commands.entity(*entity).despawn();
+                commands.entity(*entity).retire();
                 player
             }
             Some(PickupEvent::Taken(player)) => {

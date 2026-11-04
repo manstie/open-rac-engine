@@ -24,7 +24,7 @@ pub mod weapons;
 
 use bevy::prelude::*;
 use rac_hero::{AimTarget, Hero, HeroBody};
-use rac_sim::{SimSet, SimTransform};
+use rac_sim::{RollbackApp, SimId, SimMessageApp, SimSet, SimTransform, StateHasher};
 
 pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor, VendorMenu};
 pub use weapons::{
@@ -41,7 +41,7 @@ const REMEMBERED: usize = 8;
 /// A ball the hero's attacks can hit, `height` above the entity's position. The hero's
 /// attacks also turn to its centre, as an [`AimTarget`].
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-#[require(HitReaction)]
+#[require(HitReaction, SimId)]
 pub struct Hurtbox {
     pub radius: f32,
     pub height: f32,
@@ -147,10 +147,10 @@ impl Plugin for CombatPlugin {
             .init_resource::<pickups::BoltBank>()
             .init_resource::<pickups::CrateDebris>()
             .init_resource::<pickups::HelpGiven>()
-            .add_message::<Struck>()
-            .add_message::<Destroyed>()
+            .add_sim_message::<Struck>()
+            .add_sim_message::<Destroyed>()
             .add_message::<GunEvent>()
-            .add_message::<Afflicted>()
+            .add_sim_message::<Afflicted>()
             .add_message::<pickups::CrateBlast>()
             .add_message::<pickups::PickupSound>()
             .add_message::<pickups::HelpAsked>()
@@ -177,7 +177,34 @@ impl Plugin for CombatPlugin {
                     .chain()
                     .in_set(SimSet::Particles),
             );
+        register_rollback(app);
     }
+}
+
+/// What the combat code's ticks change (`docs/netcode.md`).
+fn register_rollback(app: &mut App) {
+    app.roll_back_component::<Hurtbox>()
+        .roll_back_component_hashed::<Hitpoints>(|hitpoints, hasher| {
+            hasher.f32(hitpoints.current);
+            hasher.f32(hitpoints.max);
+        })
+        .roll_back_component::<HitReaction>()
+        .roll_back_component::<Hostile>()
+        .roll_back_component::<Arsenal>()
+        .roll_back_component_hashed::<Bolts>(|bolts, hasher: &mut StateHasher| {
+            std::hash::Hash::hash(&bolts.0, hasher);
+        })
+        .roll_back_component::<pickups::BoltMultiplier>()
+        .roll_back_component::<VendorMenu>()
+        .roll_back_component::<Pickup>()
+        .roll_back_component::<pickups::NanotechOrbs>()
+        .roll_back_component::<pickups::Fuse>()
+        .roll_back_component::<pickups::Blast>()
+        .roll_back_resource::<Burns>()
+        .roll_back_resource::<weapons::Arcs>()
+        .roll_back_resource::<pickups::BoltBank>()
+        .roll_back_resource::<pickups::CrateDebris>()
+        .roll_back_resource::<pickups::HelpGiven>();
 }
 
 /// What a new target needs: a hurtbox the hero can hit and aim at, and its hit points.
@@ -212,6 +239,7 @@ fn strike_targets(
     )>,
     mut targets: Query<(
         Entity,
+        &SimId,
         &Hurtbox,
         Option<&Transform>,
         Option<&SimTransform>,
@@ -226,7 +254,7 @@ fn strike_targets(
     let mut heroes: Vec<_> = heroes.iter_mut().collect();
     heroes.sort_by_key(|(hero, ..)| hero.player);
     let mut targets: Vec<_> = targets.iter_mut().collect();
-    targets.sort_by_key(|(entity, ..)| *entity);
+    targets.sort_by_key(|(_, id, ..)| **id);
 
     for (hero, body, arsenal, doubled) in &mut heroes {
         // The Plasma Whip's rope is the gun in his hand: its kills give that gun XP.
@@ -234,7 +262,8 @@ fn strike_targets(
         let mut kills = Vec::new();
         for strike in &body.0.strikes {
             let weapon = if strike.gun { gun } else { None };
-            for (entity, hurtbox, transform, simulated, hitpoints, reaction, xp) in &mut targets {
+            for (entity, _, hurtbox, transform, simulated, hitpoints, reaction, xp) in &mut targets
+            {
                 let Some(at) = position(*transform, *simulated) else {
                     continue;
                 };

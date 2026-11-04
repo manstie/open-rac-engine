@@ -11,6 +11,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod camera;
+mod coop;
 mod discs;
 mod flow;
 mod fx_textures;
@@ -99,6 +100,23 @@ struct Args {
     /// off-screen recording on a slow renderer shows every tick, slowed down.
     #[arg(long)]
     every_tick: bool,
+    /// Host a co-op game: wait for player 2 on this UDP port (26450 if none is given).
+    /// Implies --demo.
+    #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "26450",
+          conflicts_with_all = ["join", "sync_test", "replay_input", "spectator"])]
+    host: Option<u16>,
+    /// Join a co-op game as player 2 at HOST[:PORT]. Implies --demo.
+    #[arg(long, value_name = "HOST[:PORT]", value_parser = coop::parse_address,
+          conflicts_with_all = ["sync_test", "replay_input", "spectator"])]
+    join: Option<std::net::SocketAddr>,
+    /// Play both co-op heroes here, rolling every tick back and simulating it again to
+    /// check that rollback restores the game exactly. Implies --demo.
+    #[arg(long, conflicts_with_all = ["replay_input", "spectator"])]
+    sync_test: bool,
+    /// In co-op, the ticks each player's input waits before it applies (default 2): more
+    /// hides more of the connection's delay, but makes the controls feel later.
+    #[arg(long, value_name = "TICKS")]
+    input_delay: Option<usize>,
 }
 
 fn parse_camera(name: &str) -> Result<rac_hero::CameraSetting, String> {
@@ -194,6 +212,7 @@ fn main() -> Result<AppExit> {
             }
             setting
         }),
+        ..Default::default()
     })
     .insert_resource(
         args.gun_level
@@ -209,9 +228,26 @@ fn main() -> Result<AppExit> {
     .insert_resource(rac_hero::HeroTuning(moves.1))
     .insert_resource(moves::ChosenMoves(moves.0))
     .insert_resource(FlowOptions {
-        skip_menu: args.demo || replay.is_some(),
+        skip_menu: args.demo
+            || replay.is_some()
+            || args.host.is_some()
+            || args.join.is_some()
+            || args.sync_test,
         record_to: args.record_input,
+    })
+    .add_plugins(coop::CoopPlugin)
+    .insert_resource(match (args.host, args.join, args.sync_test) {
+        (Some(port), ..) => coop::CoopChoice::Host(port),
+        (_, Some(host), _) => coop::CoopChoice::Join(host),
+        (.., true) => coop::CoopChoice::SyncTest,
+        _ => coop::CoopChoice::Alone,
     });
+    if let Some(delay) = args.input_delay {
+        app.insert_resource(coop::CoopSettings(rac_net::SessionSettings {
+            input_delay: delay,
+            ..rac_net::SessionSettings::default()
+        }));
+    }
     if let Some(recording) = replay {
         app.insert_resource(InputSource::replay(recording));
     }

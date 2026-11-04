@@ -177,6 +177,7 @@ pub struct Choices<'w, 's> {
     keys: Res<'w, KeyNames>,
     started: Option<Res<'w, StartedBackend>>,
     adapter: Option<Res<'w, RenderAdapterInfo>>,
+    session: Option<Res<'w, rac_net::Session>>,
 }
 
 impl Choices<'_, '_> {
@@ -229,6 +230,12 @@ impl Choices<'_, '_> {
 
     /// Steps `choice` forwards or back, and saves it.
     pub fn step(&mut self, choice: Choice, forward: bool) {
+        // Both co-op players agreed on how the heroes move and see before the session
+        // started (`crate::coop`).
+        if self.session.is_some() && matches!(choice, Choice::Moves | Choice::Camera) {
+            info!("the movement and camera can't change during a co-op game");
+            return;
+        }
         match choice {
             Choice::Model => {
                 let model = if forward {
