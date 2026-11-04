@@ -105,10 +105,11 @@ struct Args {
     #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "26450",
           conflicts_with_all = ["join", "sync_test", "replay_input", "spectator"])]
     host: Option<u16>,
-    /// Join a co-op game as player 2 at HOST[:PORT]. Implies --demo.
-    #[arg(long, value_name = "HOST[:PORT]", value_parser = coop::parse_address,
+    /// Join a co-op game as player 2, by the host's join code or at HOST[:PORT]. Implies
+    /// --demo.
+    #[arg(long, value_name = "CODE|HOST[:PORT]", value_parser = coop::parse_join,
           conflicts_with_all = ["sync_test", "replay_input", "spectator"])]
-    join: Option<std::net::SocketAddr>,
+    join: Option<coop::HostAddresses>,
     /// Play both co-op heroes here, rolling every tick back and simulating it again to
     /// check that rollback restores the game exactly. Implies --demo.
     #[arg(long, conflicts_with_all = ["replay_input", "spectator"])]
@@ -117,6 +118,10 @@ struct Args {
     /// hides more of the connection's delay, but makes the controls feel later.
     #[arg(long, value_name = "TICKS")]
     input_delay: Option<usize>,
+    /// Host without asking the router to forward the port (UPnP): player 2 then reaches
+    /// this machine by its code's other addresses, or a port forwarded by hand.
+    #[arg(long, requires = "host")]
+    no_port_mapping: bool,
 }
 
 fn parse_camera(name: &str) -> Result<rac_hero::CameraSetting, String> {
@@ -238,10 +243,13 @@ fn main() -> Result<AppExit> {
     .add_plugins(coop::CoopPlugin)
     .insert_resource(match (args.host, args.join, args.sync_test) {
         (Some(port), ..) => coop::CoopChoice::Host(port),
-        (_, Some(host), _) => coop::CoopChoice::Join(host),
+        (_, Some(host), _) => coop::CoopChoice::Join(host.0),
         (.., true) => coop::CoopChoice::SyncTest,
         _ => coop::CoopChoice::Alone,
     });
+    if args.no_port_mapping {
+        app.insert_resource(coop::NoPortMapping);
+    }
     if let Some(delay) = args.input_delay {
         app.insert_resource(coop::CoopSettings(rac_net::SessionSettings {
             input_delay: delay,

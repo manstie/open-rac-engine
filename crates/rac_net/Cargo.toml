@@ -11,6 +11,7 @@ publish = false
 bevy = { workspace = true, features = ["std", "bevy_log"] }
 bincode.workspace = true
 ggrs.workspace = true
+igd-next.workspace = true
 rac_input.workspace = true
 rac_sim.workspace = true
 serde.workspace = true

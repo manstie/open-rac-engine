@@ -10,7 +10,8 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 # The workspace turns Bevy's default features off for the kit's crates; the app wants them.
-bevy = { workspace = true, features = ["default", "serialize", "libm"] }
+# The system clipboard, for swapping co-op join codes.
+bevy = { workspace = true, features = ["default", "serialize", "libm", "system_clipboard"] }
 clap.workspace = true
 directories.workspace = true
 rac_audio.workspace = true

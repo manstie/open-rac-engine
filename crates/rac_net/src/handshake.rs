@@ -4,10 +4,16 @@
 //!
 //! Both sides keep answering: the joiner says hello every [`RESEND`] until it is welcomed,
 //! and the host welcomes it again whenever it does, so lost packets only cost time.
+//!
+//! Through NATs (D8) the joiner says hello at every address in the host's join code at
+//! once, and a host given the joiner's code sends it punches as often: each NAT lets the
+//! other's packets in once its own side has sent to them.
 
 use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::hash_map::RandomState,
+    hash::BuildHasher,
     net::SocketAddr,
     time::{Duration, Instant},
 };
@@ -15,7 +21,7 @@ use std::{
 use crate::link::Link;
 
 /// The handshake's own version; peers with another can't play together.
-pub const PROTOCOL: u16 = 1;
+pub const PROTOCOL: u16 = 2;
 /// How often the joiner says hello until it is answered.
 pub const RESEND: Duration = Duration::from_millis(250);
 /// The most a handshake packet may be, so a stray one can't make us allocate much.
@@ -51,6 +57,9 @@ enum Packet {
         terms: Terms,
         /// The joiner's own choices for its player, which the app reads (its camera).
         setup: Vec<u8>,
+        /// Chosen at random by the joiner, so its hellos reaching the host by two paths
+        /// (its network's and its NAT's) are known as one joiner's.
+        joiner: u64,
     },
     Welcome {
         slot: u8,
@@ -58,6 +67,8 @@ enum Packet {
         setup: Vec<u8>,
     },
     Refused(Refusal),
+    /// Nothing to answer: it opens the sender's NAT to the receiver.
+    Punch,
 }
 
 fn options() -> impl Options {
@@ -93,7 +104,11 @@ pub struct Host {
     link: Link,
     terms: Terms,
     setup: Vec<u8>,
-    guest: Option<(SocketAddr, Vec<u8>)>,
+    /// The guest's address, as its first hello came, and its id.
+    guest: Option<(SocketAddr, u64)>,
+    /// The addresses in the joiner's code, punched until it arrives.
+    punch: Vec<SocketAddr>,
+    last_punch: Option<Instant>,
 }
 
 impl Host {
@@ -103,21 +118,48 @@ impl Host {
             terms,
             setup,
             guest: None,
+            punch: Vec::new(),
+            last_punch: None,
         }
     }
 
-    /// Answers whatever has arrived; returns the guest once one is welcomed. Keep calling
-    /// it after that, so a guest whose welcome was lost is welcomed again.
+    /// Punches through this machine's NAT to the joiner at `addresses`, the ones in its
+    /// join code, until it arrives.
+    pub fn punch_to(&mut self, addresses: Vec<SocketAddr>) {
+        self.punch = addresses;
+        self.last_punch = None;
+    }
+
+    /// Answers whatever has arrived, and punches if it is time to; returns the guest once
+    /// one is welcomed. Keep calling it after that, so a guest whose welcome was lost is
+    /// welcomed again.
     pub fn poll(&mut self) -> Option<Agreed> {
+        let now = Instant::now();
+        if self.guest.is_none()
+            && self
+                .last_punch
+                .is_none_or(|last| now.duration_since(last) >= RESEND)
+        {
+            self.last_punch = Some(now);
+            for &address in &self.punch {
+                send(&self.link, address, &Packet::Punch);
+            }
+        }
         let mut welcomed = None;
         for (from, packet) in received(&self.link) {
             let Packet::Hello {
                 protocol,
                 terms,
                 setup,
+                joiner,
             } = packet
             else {
                 continue;
+            };
+            // The guest by another path: answered where it was first heard.
+            let from = match self.guest {
+                Some((guest, id)) if id == joiner => guest,
+                _ => from,
             };
             let refusal = if protocol != PROTOCOL {
                 Some(Refusal::Protocol {
@@ -141,7 +183,7 @@ impl Host {
                 continue;
             }
             let first = self.guest.is_none();
-            self.guest = Some((from, setup.clone()));
+            self.guest = Some((from, joiner));
             send(
                 &self.link,
                 from,
@@ -174,19 +216,28 @@ pub enum Answer {
 /// The joiner's side: says hello to the host until it answers.
 pub struct Joiner {
     link: Link,
-    host: SocketAddr,
+    /// Every address the host may be reached at.
+    hosts: Vec<SocketAddr>,
     terms: Terms,
     setup: Vec<u8>,
+    id: u64,
     last_hello: Option<Instant>,
 }
 
 impl Joiner {
     pub fn new(link: Link, host: SocketAddr, terms: Terms, setup: Vec<u8>) -> Self {
+        Self::to_any(link, vec![host], terms, setup)
+    }
+
+    /// A joiner saying hello at each of `hosts`, the addresses in the host's join code,
+    /// which takes the answer from whichever the host is reached at.
+    pub fn to_any(link: Link, hosts: Vec<SocketAddr>, terms: Terms, setup: Vec<u8>) -> Self {
         Self {
             link,
-            host,
+            hosts,
             terms,
             setup,
+            id: RandomState::new().hash_one(Instant::now()),
             last_hello: None,
         }
     }
@@ -194,7 +245,9 @@ impl Joiner {
     /// Says hello if it is time to, and returns the host's answer once there is one.
     pub fn poll(&mut self, now: Instant) -> Option<Answer> {
         for (from, packet) in received(&self.link) {
-            if from != self.host {
+            // A NAT may show the host on another port than its code says, so its address
+            // is known by its IP.
+            if !self.hosts.iter().any(|host| host.ip() == from.ip()) {
                 continue;
             }
             match packet {
@@ -211,7 +264,7 @@ impl Joiner {
                     }));
                 }
                 Packet::Refused(refusal) => return Some(Answer::Refused(refusal)),
-                Packet::Hello { .. } => {}
+                Packet::Hello { .. } | Packet::Punch => {}
             }
         }
         if self
@@ -219,15 +272,15 @@ impl Joiner {
             .is_none_or(|last| now.duration_since(last) >= RESEND)
         {
             self.last_hello = Some(now);
-            send(
-                &self.link,
-                self.host,
-                &Packet::Hello {
-                    protocol: PROTOCOL,
-                    terms: self.terms.clone(),
-                    setup: self.setup.clone(),
-                },
-            );
+            let hello = Packet::Hello {
+                protocol: PROTOCOL,
+                terms: self.terms.clone(),
+                setup: self.setup.clone(),
+                joiner: self.id,
+            };
+            for &host in &self.hosts {
+                send(&self.link, host, &hello);
+            }
         }
         None
     }

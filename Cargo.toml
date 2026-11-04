@@ -24,6 +24,8 @@ directories = "6"
 # Rollback sessions (PLAN.md section 4.2). Its `sync-send` feature lets a session live in a
 # Bevy resource.
 ggrs = { version = "0.13", features = ["sync-send"] }
+# The co-op host's port mapping on its router, UPnP IGD's (PLAN.md D8). Its blocking client.
+igd-next = { version = "0.18", default-features = false, features = ["io_sync"] }
 # Collision queries for the hero kit. `alloc` enables casting between convex shapes. Never
 # enable `enhanced-determinism`: it turns on glam's `scalar-math` for the whole build,
 # which shrinks `Vec4` to 4-byte alignment and breaks Bevy's GPU mesh buffers (PLAN.md

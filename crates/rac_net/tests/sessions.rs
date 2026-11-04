@@ -6,8 +6,11 @@
 use bevy::{app::FixedMain, prelude::*};
 use rac_input::{Action, Buttons, PlayerInput, PlayerInputs};
 use rac_net::{
-    Answer, Host, Joiner, Link, MemoryNet, NetPlugin, Refusal, Session, SessionSettings,
-    SessionStatus, Terms, end_session, start_session,
+    Answer, Host, Joiner, Link, MemoryLink, MemoryNet, NetPlugin, Refusal, Session,
+    SessionSettings, SessionStatus, Terms, Transport,
+    code::JoinCode,
+    end_session, handshake, start_session,
+    stun::{self, StunQuery},
 };
 use rac_sim::{
     RetireExt, RollbackApp, SimId, SimMessageApp, SimMessageReader, SimPlugin, SimRng, SimSet,
@@ -316,4 +319,155 @@ fn a_silent_peer_is_dropped_and_the_game_goes_on() {
         host.world_mut().run_schedule(FixedMain);
     }
     assert!(host.world().resource::<SimTick>().0 > tick);
+}
+
+/// A STUN server on `net`: answers each Binding request with where it came from.
+fn serve_stun(server: &mut MemoryLink) {
+    for (from, request) in server.receive() {
+        if stun::is_stun(&request) && request[0..2] == [0, 1] {
+            let transaction: stun::Transaction = request[8..20].try_into().unwrap();
+            server.send(from, &stun::answer(&transaction, from));
+        }
+    }
+}
+
+/// The public address `link` is seen at, asked of the STUN server at `server`.
+fn learn_public(
+    net: &MemoryNet,
+    link: &Link,
+    server: &mut MemoryLink,
+    at: SocketAddr,
+) -> SocketAddr {
+    let mut query = StunQuery::new(vec![at]);
+    let mut now = Instant::now();
+    for _ in 0..50 {
+        now += stun::RESEND / 4;
+        if let Some(public) = query.poll(link, now) {
+            return public;
+        }
+        serve_stun(server);
+        net.advance();
+    }
+    panic!("no STUN answer");
+}
+
+const STUN_SERVER: SocketAddr = SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(198, 51, 100, 1)),
+    3478,
+);
+
+/// A host and a guest, each behind its own NAT, with their links and their join codes:
+/// the public address STUN saw, then the address on their own network.
+fn behind_nats(net: &MemoryNet) -> ((Link, JoinCode), (Link, JoinCode)) {
+    let mut server = net.endpoint(STUN_SERVER);
+    let mut peer = |private: SocketAddr, public: SocketAddr| {
+        net.behind_nat(private, public);
+        let link = Link::new(net.endpoint(private));
+        let seen = learn_public(net, &link, &mut server, STUN_SERVER);
+        assert_eq!(seen, public);
+        let code = JoinCode::decode(&JoinCode(vec![seen, private]).encode()).unwrap();
+        (link, code)
+    };
+    let host = peer(
+        SocketAddr::from(([10, 0, 0, 2], 26450)),
+        SocketAddr::from(([203, 0, 113, 10], 41_000)),
+    );
+    let guest = peer(
+        SocketAddr::from(([192, 168, 1, 20], 51_234)),
+        SocketAddr::from(([198, 51, 100, 77], 62_001)),
+    );
+    (host, guest)
+}
+
+#[test]
+fn peers_behind_nats_meet_by_swapping_join_codes_and_play() {
+    let net = MemoryNet::new(2, 0.02, 5);
+    let ((host_link, host_code), (guest_link, guest_code)) = behind_nats(&net);
+    let mut host = Host::new(host_link.clone(), terms(1), Vec::new());
+    host.punch_to(guest_code.0.clone());
+    let mut joiner = Joiner::to_any(
+        guest_link.clone(),
+        host_code.0.clone(),
+        terms(1),
+        Vec::new(),
+    );
+    let (mut hosted, mut joined) = (None, None);
+    let start = Instant::now();
+    while hosted.is_none() || joined.is_none() {
+        assert!(start.elapsed() < Duration::from_secs(10), "no handshake");
+        if joined.is_none()
+            && let Some(Answer::Welcomed(agreed)) = joiner.poll(Instant::now())
+        {
+            joined = Some(agreed);
+        }
+        if let Some(agreed) = host.poll() {
+            hosted = Some(agreed);
+        }
+        net.advance();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let (hosted, joined) = (hosted.unwrap(), joined.unwrap());
+    // Each knows the other by its NAT's address.
+    assert_eq!(hosted.peer, guest_code.0[0]);
+    assert_eq!(joined.peer, host_code.0[0]);
+
+    let settings = SessionSettings::default();
+    let mut host_app = app();
+    let mut guest_app = app();
+    let host_session = Session::p2p(host_link, &hosted, Some(host), settings)
+        .unwrap()
+        .with_local_input(scripted);
+    let guest_session = Session::p2p(guest_link, &joined, None, settings)
+        .unwrap()
+        .with_local_input(scripted);
+    start_session(host_app.world_mut(), host_session);
+    start_session(guest_app.world_mut(), guest_session);
+    let target = 120;
+    let start = Instant::now();
+    loop {
+        assert!(start.elapsed() < Duration::from_secs(60), "too slow");
+        host_app.world_mut().run_schedule(FixedMain);
+        guest_app.world_mut().run_schedule(FixedMain);
+        net.advance();
+        let confirmed = |app: &App| session(app).confirmed_tick().unwrap_or(0);
+        if confirmed(&host_app) >= target && confirmed(&guest_app) >= target {
+            break;
+        }
+        std::thread::sleep(Duration::from_micros(200));
+    }
+    let expected = reference(target, settings.input_delay as u64);
+    assert_eq!(
+        session(&host_app).confirmed_checksum(target),
+        Some(expected)
+    );
+    assert_eq!(
+        session(&guest_app).confirmed_checksum(target),
+        Some(expected)
+    );
+}
+
+#[test]
+fn a_host_behind_a_nat_hears_no_one_until_it_punches_to_them() {
+    let net = MemoryNet::new(1, 0.0, 9);
+    let ((host_link, host_code), (guest_link, guest_code)) = behind_nats(&net);
+    let mut host = Host::new(host_link, terms(1), Vec::new());
+    let mut joiner = Joiner::to_any(guest_link, host_code.0, terms(1), Vec::new());
+    let mut now = Instant::now();
+    let mut poll = |host: &mut Host, joiner: &mut Joiner, steps: u32| {
+        for _ in 0..steps {
+            now += handshake::RESEND;
+            if let Some(answer) = joiner.poll(now) {
+                return Some(answer);
+            }
+            host.poll();
+            net.advance();
+        }
+        None
+    };
+    assert_eq!(poll(&mut host, &mut joiner, 20), None);
+    host.punch_to(guest_code.0);
+    assert!(matches!(
+        poll(&mut host, &mut joiner, 20),
+        Some(Answer::Welcomed(_))
+    ));
 }

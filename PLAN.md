@@ -59,9 +59,11 @@ session is working on the task now; notes on problems met stay with their task (
   with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
   and replayed. The demo has an arena of enemies, a melee charger and a ranged shooter,
   that drop bolts and nanotech and, infected, fight each other (P1.11).
-  Two players can play the demo together by IP (`--host`, `--join`), with rollback
-  through `ggrs` and the simulation's snapshots (P1.18, `docs/netcode.md`); join codes,
-  port mapping and hole punching aren't in yet.
+  Two players can play the demo together by IP or join code (`--host`, `--join`), with
+  rollback through `ggrs` and the simulation's snapshots, checked headless on the whole
+  demo; codes carry STUN's public address and the LAN's, the host's router is asked to
+  forward its port (UPnP), and a host can punch through its NAT to the guest's code
+  (P1.18, `docs/netcode.md`).
 - **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
   against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
   collision rule the kit needs is read and traced in both games; RE.8 is answered
@@ -85,11 +87,11 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. P1.18's next step: a headless sync test of the whole demo, then co-op over a LAN, then
-   join codes, port mapping and hole punching.
+1. P1.18's next step: co-op on two machines (the owner's), over a LAN and then the
+   internet by join code; port mapping (D8).
 2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Ultrashield's bubble: read its V5 draw, then draw it with
-   `fx/refract.rs`'s material; or the Liquid Nitrogen Gun's arc onto the lock-on target).
+   next gun to fix (the Liquid Nitrogen Gun's arc onto the lock-on target; or the
+   Ultrashield's class model, 0x186D).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -904,10 +906,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       `fx/warp.rs` as a pass after the 3D ones mixing in the frame magnified 1.062 by
       texture 66's alpha (its own pass: Bevy's `FullscreenMaterial` binds no texture but
       the frame). Not done: its charging sprites and glare.
-    - Not done: the Ultrashield's bubble, which warps the frame behind it (its V5 draw
-      isn't read; `fx/refract.rs`'s material can draw it); the rest of the Eruptor's V5
-      burst;
-      the Liquid Nitrogen Gun's arc onto
+    - The Ultrashield's "bubble" warps nothing (`effects.md`, "The Ultrashield's
+      bubble"): none of its draws takes the copy of the frame. It is V5's soft disc of
+      texture 5 over V3's layers, now drawn, with the orange rings of 8 a hit shows from V3
+      (0x378FF8; panels `when: Hit` and `grow`, timed by each hit's 30-tick reaction,
+      `BarrierState::react`, now at every level). Seen at V5 on `kitdemo-arena-holo-near`
+      (a pink-orange oval, as the game's but less white, unhit); the hit's rings not yet
+      seen on screen. Not done: the shield class's own model (0x186D, a small disc of 25
+      joints the game draws too) and the two stars of 57 facing the camera.
+    - Not done: the rest of the Eruptor's V5 burst; the Liquid Nitrogen Gun's arc onto
       the lock-on target, the agents' spawn lightning (their jets are dimmer than the
       game's); then the sounds not played and the simplified behaviours (`effects.md`,
       "In the kit and the app"; `weapons.md`, "In the kit").
@@ -919,8 +926,13 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       transmission texture (the camera gets `ScreenSpaceTransmission` from the start, as
       adding it respecialises every mesh's pipeline), each point taking the frame from
       where the game's does; compared on the game's `review-rift-0x63` take. It copies
-      only what is opaque, where the game's texture −1 is the frame as drawn so far; and
-      the rings go at once as the rift closes, where the game's shrink away (0x375C70).
+      only what is opaque, where the game's texture −1 is the frame as drawn so far.
+    - The rift closes as the game's (0x375C70, `effects.md`, "Closing"): it stays a shot
+      for 20 ticks (`RiftState::closing`), taking nothing, while its lens goes, its rays
+      shorten and its rings narrow away; its time runs out only while it holds nothing
+      (`weapons.md`, "Closing", with the kit's simplifications). Seen on screen at V5
+      (`kitdemo-arena-rift-close.orin`); not yet compared with the game's footage of a
+      close.
     - The N90's bullet model (0x1881, at 18 times its class's scale) drew as a solid
       yellow ball 1.5 u across that the game's take doesn't show; it's left out until
       its blend is read (`shot_models.rs`).
@@ -977,7 +989,7 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     as not played under "In the kit and the app". Next: hear them in the app with the
     disc (the arena replays `-agents`, `-rift`, `-whip`, `-qwack`), then the bounces'
     events.
-  - Done 2026-10-31, the Agents of Doom, Rift Inducer, Qwack-O-Ray, Bouncer, Miniturret Glove and Holo Shield Glove against the game: the gloves' throw (state 34), which fixes the Holo Shield's timing, and firing cut short per gun (`weapons.md`, "What cuts it short"); what they send out as their classes' skinned models playing their own sequences, by level, and the ducks' idling, walking and eggs from it (`weapons.md`, "How they play"); the Qwack-O-Ray's funnel, also with nothing to take (`effects.md`), the open rift, the landing marker, the agents' sparkles. Seen on screen at V3, and the duck and turret at V5; the turret's head joint is inferred. Not done: the V4 duck on screen and its bangles; the rift's lens and refraction, spirals of 71, orbiting sparks, 0x13 spray and rays shortening as it closes; the holo shield's class; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's marker, and the marker's conditions (the hero's state, the turrets' limit, the Holo Shield's own "can't" colours); a duck's first random speed and an appearing agent's opacity.
+  - Done 2026-10-31, the Agents of Doom, Rift Inducer, Qwack-O-Ray, Bouncer, Miniturret Glove and Holo Shield Glove against the game: the gloves' throw (state 34), which fixes the Holo Shield's timing, and firing cut short per gun (`weapons.md`, "What cuts it short"); what they send out as their classes' skinned models playing their own sequences, by level, and the ducks' idling, walking and eggs from it (`weapons.md`, "How they play"); the Qwack-O-Ray's funnel, also with nothing to take (`effects.md`), the open rift, the landing marker, the agents' sparkles. Seen on screen at V3, and the duck and turret at V5; the turret's head joint is inferred. Not done: the V4 duck on screen and its bangles; the rift's spirals of 71, orbiting sparks and 0x13 spray; the holo shield's class; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's marker, and the marker's conditions (the hero's state, the turrets' limit, the Holo Shield's own "can't" colours); a duck's first random speed and an appearing agent's opacity.
   - The Miniturret was drawn and fired at its class's scale; its spawn scales it to 0.75, so its muzzle is 0.81 u up, 0.54 u along (`weapons.md`, "Its barrel"). The Megaturret keeps 1.08 (`Mega::barrel_height`).
   - Done 2026-10-31: UYA's guns' open list (`weapons.md`, "In the kit"): the five guns' own muzzle vectors; the Disc Blade Gun's flight, traced (lifted and falling, not turned and curving; through enemies from V3, not off them); the Liquid Nitrogen Gun's freeze; the Eruptor's tilt; the Nitro's L1 aim; the Vortex Cannon's comet; the shields' XP and the Ultrashield's picks; the agents' jet-in to slots.
   - Earlier readers mistook 0x4C46A8 for a sight test (it asks the table of who was sent at what) and read 0x40CCA0's −π/8 about his left axis as 90° to a side. Corrected in `weapons.md`; check other readings of those two functions when a gun looks wrong.
@@ -1290,24 +1302,39 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Done: rollback of the kit's simulation (`rac_sim::rollback`: snapshots, `SimId`,
     `retire`; `SimMessageReader`), every kit crate's state registered; `rac_net`'s
     `ggrs` driver, UDP link and handshake (build and rules digest, a slot each, the
-    other player's camera setting); `--host [PORT]`, `--join HOST[:PORT]`,
+    other player's camera setting, a random id per joiner); STUN on the session's
+    socket, join codes and hole punching (D8: `rac_net::stun`, `code`, `Host::punch_to`,
+    `Joiner::to_any`), and the host's port mapped by UPnP IGD (`rac_net::upnp`,
+    `igd-next`; `--no-port-mapping`); `--host [PORT]`, `--join CODE|HOST[:PORT]`, the
+    join code shown, logged and copied, Ctrl+V to paste the guest's into the host,
     `--input-delay`, `--sync-test` and a status line in `openrac` (`coop.rs`); both
     heroes, player 2 in silver; a peer that leaves is dropped and the game plays on;
     the pause menu doesn't stop a session, and Moves and Camera can't change in one.
     How it works and the rules for simulation code: `docs/netcode.md`.
   - Verified: `rac_net`'s tests (a sync test, two peers over a memory network with 3 steps
     of latency and 5% loss matching a plain run's checksum, a refused handshake, a
-    dropped peer); the app's `--sync-test` played 1500 ticks off-screen with no mismatch;
-    a host and a guest on one machine played together, each seeing the other's hero.
+    dropped peer); `rac_demo`'s `tests/rollback.rs`, the whole demo headless with two
+    scripted heroes (hazard, crates, every gun, the ring, the vendor, the arena; each
+    with his own camera setting) under the sync test with UYA's rules at V5 and with DL's,
+    and as two peers on a slow, lossy memory network, plus a check that state left out of
+    a snapshot is caught; `rac_net`'s NAT tests (two peers behind cone NATs on the memory
+    network learn their addresses by STUN, swap codes and play; a host that doesn't
+    punch hears nobody) (`docs/netcode.md`, "How it was checked"); the app's
+    `--sync-test` played 1500 ticks off-screen with no mismatch; a host and a guest on one
+    machine played together, each seeing the other's hero, the guest joining by the
+    host's code (its public address learned from Google's STUN server).
   - Not done:
-    - Join codes, port mapping (UPnP IGD, NAT-PMP, PCP), STUN and hole punching (D8); the
-      link binds IPv4 unless joining an IPv6 address.
-    - A headless test of the whole demo under the sync test (the app's `--sync-test` is
-      the check for now), with guns, crates and enemies scripted.
+    - UPnP tried on a real router: it changes the router's forwarding, so it waits for
+      the owner's run. NAT-PMP and PCP (D8); codes with both IPv4 and IPv6 addresses (the
+      socket is one or the other).
     - Effects and sounds of resimulated ticks play again (`docs/netcode.md`, "Known
-      gaps"); hosting and joining from the menus; runs over a LAN and the internet.
-  - Next step: script a headless sync test of the demo (greybox level, enemies, crates,
-    every gun) as a `rac_demo` integration test, then a LAN run on two machines.
+      gaps"); hosting and joining from the menus; runs over a LAN and the internet; a
+      test of death and respawn under rollback (the demo level can't kill a hero quickly).
+  - Next step: the owner's runs on two machines, over a LAN and then the internet
+    (`--host` on one, `--join CODE` on the other with the code it shows; if the guest
+    can't reach the host, the guest's code pasted into the host with Ctrl+V), checking
+    the host's log says its router forwards the port; then NAT-PMP and PCP, and hosting
+    and joining from the menus (a field to paste a code into).
   - `bevy_ggrs` lags Bevy (0.22 is for Bevy 0.19), so `rac_net` drives `ggrs` itself by
     swapping Bevy's `FixedMainScheduleOrder`.
   - The code ordered entities by `Entity` for determinism, which differs between peers;

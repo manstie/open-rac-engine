@@ -18,5 +18,9 @@ ron.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+# The rollback tests play the whole demo in `rac_net`'s sessions (PLAN.md P1.18).
+rac_net.workspace = true
+
 [lints]
 workspace = true

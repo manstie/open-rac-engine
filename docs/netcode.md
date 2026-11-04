@@ -75,11 +75,25 @@ input wrong loads the snapshot of that tick and simulates forward again.
 
 1. Both peers spawn the level with both heroes, in player order, so its state is the same.
    The tick's schedules are taken out of Bevy's fixed loop, so it waits at tick 0.
-2. The guest says hello every 250 ms with its build, a digest of the rules (movement
-   profile, guns, gun level) and its camera setting; the host welcomes it into slot 1, or
-   refuses it with the reason (`rac_net::handshake`). Both share one UDP port with
-   `ggrs`, each packet tagged with whose it is (`rac_net::link`).
-3. Each starts a `ggrs` session with the other's address; `ggrs` synchronises, then the
+2. Each side learns where it can be reached and makes its join code (`rac_net::code`):
+   its public address, which public STUN servers report for the session's own socket
+   (`rac_net::stun`, RFC 5389), then its address on its own network. The host first asks
+   its router to forward its UDP port (UPnP IGD, `rac_net::upnp`, a two-hour lease given
+   back on leaving the level or quitting; `--no-port-mapping` skips it), and puts the
+   forwarded address first. The code is shown on the status line, logged, and copied to
+   the clipboard.
+3. The guest says hello every 250 ms, at every address in the host's code at once (or
+   the one address it was given), with its build, a digest of the rules (movement
+   profile, guns, gun level), its camera setting and a random id; the host welcomes it
+   into slot 1, or refuses it with the reason (`rac_net::handshake`). The id makes hellos
+   reaching the host by two paths (the LAN's and the NAT's) one guest's. Every packet
+   shares the one UDP port with `ggrs`, tagged with whose it is, and STUN's untagged,
+   known by its magic cookie (`rac_net::link`).
+4. Through NATs (D8): a host whose NAT drops the guest's hellos is given the guest's code
+   (pasted with Ctrl+V), and sends it punches every 250 ms until it arrives. Each NAT
+   lets the other peer in once its own side has sent to it, which holds for the common
+   cone NATs; two symmetric NATs need a forwarded port.
+5. Each starts a `ggrs` session with the other's address; `ggrs` synchronises, then the
    ticks run. A peer silent for 3 s is dropped, and the other plays on alone.
 
 ## How it was checked
@@ -90,6 +104,26 @@ input wrong loads the snapshot of that tick and simulates forward again.
   sends a message across ticks: a sync test; two peers on a memory network with 3 steps
   of latency and 5% loss whose confirmed checksum matches a plain run's; a refused
   handshake; a dropped peer. Leaving a component unregistered fails the sync test.
+- `rac_demo`'s `tests/rollback.rs`, on the whole demo as the app builds it (HUD, rig and
+  effects included, without a window or a renderer), two heroes with different camera
+  settings scripted round the level: onto the hazard pad, through the yard's crates with
+  the wrench, every gun fired at the dummies, the explosive crates, the quick-select ring,
+  the vendor (a purchase), then the arena's enemies, locked on. Under the sync test it
+  runs about 3800 ticks with UYA's moves and guns at V5, and again with DL's, with no
+  mismatch; the test also checks that each hero fired every gun, crates broke, bolts were
+  picked up, enemies died, both heroes were hurt and opened the ring. Two peers on
+  a memory network 3 steps slow losing 5% of packets, whose `Entity` values differ (each
+  spawns its own HUD), agree on the confirmed checksum. A system that moves a hero by a
+  count kept outside the snapshot is caught within 30 ticks, so the checks have teeth.
+- `rac_net`'s tests of D8: the STUN reader on RFC 5769's sample answer; join codes read
+  back, in either case, with look-alike letters, and catch a mistyped letter; two peers
+  each behind a port-restricted cone NAT on the memory network learn their public
+  addresses from a STUN server there, swap codes, meet and play 120 ticks agreeing with
+  a plain run; a host behind one hears nobody until it punches.
+- The app on one machine (2026-11-04): a host learned its public address from Google's
+  STUN server through the owner's router and showed its code; a guest given the code
+  (`--join CODE`) reached the host on its LAN address and they played with no desync; a
+  code pasted into the host with Ctrl+V set it punching.
 - The app's `--sync-test` on the demo, 1500 ticks off-screen, walking, jumping, swinging
   and firing, with no mismatch; a host and a guest on one machine, each seeing the
   other's hero move.
@@ -99,7 +133,9 @@ input wrong loads the snapshot of that tick and simulates forward again.
 - Messages that presentation reads (`GunEvent`, `PickupSound`, `Destroyed` for the HUD)
   are written again when ticks are resimulated, so a rollback can repeat a sound or an
   effect. A presentation reader that skips resimulated ticks would fix it.
-- No headless test runs the whole demo under the sync test yet; the app's `--sync-test`
-  is the check.
-- Join codes, port mapping and hole punching (D8) aren't in; the link binds IPv4 unless
-  joining an IPv6 address.
+- No test reaches a hero's death and respawn under rollback: the demo level has no pit
+  or deadly floor, and its enemies seldom kill him.
+- Port mapping is UPnP IGD's only, and hasn't been tried on a real router (no test can
+  stand in for one); NAT-PMP and PCP aren't in. A host whose router doesn't forward needs
+  the guest's code, or a port forwarded by hand. Codes carry IPv4 unless the socket is IPv6, which it
+  is only when every address the guest was given is.
