@@ -1241,6 +1241,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     fidgets", "Landings", "The walk's animation"): the walk's bands, rates and stride,
     fidgets, the hurt idle, each jump's air animation timed to its arc, landings and the
     run's skid. Chosen with `--model` or the menus' Model button.
+  - Without a disc the procedural poses hung the wrench straight down along the leg, its
+    grip by the shoulder. They now hold the hand and fist as UYA's idle does
+    (`moby-format.md`, "How the idle holds it"); the left hand stays open.
   - Read, not yet worn: DL's wrench (class 0x23FA, `Core::read_dl`,
     `Core::moby_textures`).
   - Found not needed: the third GS texture slot is the ship's paint job.

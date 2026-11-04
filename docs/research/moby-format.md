@@ -502,6 +502,14 @@ Read in the Veldin image's code and from the disc.
   every model (`rac_rig::model::wrench_points`). Until 2026-10-15 it was (0.87, 0.47,
   0.12), out along the arm, measured on a bake that left out the wrench's rest
   orientation ("Skeleton").
+- **How the idle holds it** [data, UYA NTSC-U, 2026-11-04; Veldin's hero class exported
+  with `openrac-tool hero --glb`, sequence 0 posed]: the idle keeps the right hand still
+  beside the hip, at about (0.31, 0.52, 0.01) m in the hero's Bevy space, turned
+  (0.315, 0.110, −0.678, 0.655) (x, y, z, w). The wrench then points (0.16, 0.12, −0.98):
+  straight ahead, a little out and up. The fingers close round its grip, 17–62° a joint
+  about each joint's −z, and the thumb about 56°. With no disc, the kit's procedural
+  poses (`rac_rig/src/pose.rs`, `IDLE_HAND_R`, `IDLE_FIST_R`) copy them. Until then those
+  poses hung the wrench straight down along the leg.
 - **Clank's back form** (class 0x259, 33 joints): 0 the root, 1 the hips, 4 the head's
   pivot, 5 the top of the head with the antenna chain 6–10, the face (eyes, lids, mouth)
   13–25 under 4, the feet 27 (right) and 28 (left) under 26, and a back plate 29–32. It

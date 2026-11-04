@@ -186,13 +186,38 @@ fn arms_down(b: &mut Builder, swing: f32, spread: f32) {
     );
 }
 
-/// The wrench held down along the right leg, head back.
+/// How UYA's idle (sequence 0, measured on the user's disc) turns the right hand in the
+/// hero's space: the wrench points ahead from the fist at his side, a little out and up,
+/// as it does when a disc's clips drive the rig (`moby-format.md`, "The wrench and Clank
+/// on the hero").
+const IDLE_HAND_R: Quat = Quat::from_xyzw(0.315, 0.110, -0.678, 0.655);
+
+/// The right hand's fingers and thumb closed round the wrench's grip in UYA's idle: each
+/// joint's turn from its parent.
+#[rustfmt::skip]
+const IDLE_FIST_R: [(usize, Quat); 14] = [
+    (joint::INDEX_R[0], Quat::from_xyzw(-0.004, 0.0, -0.423, 0.906)),
+    (joint::INDEX_R[1], Quat::from_xyzw(0.0, 0.0, -0.278, 0.961)),
+    (joint::INDEX_R[2], Quat::from_xyzw(0.0, 0.0, -0.454, 0.891)),
+    (joint::MIDDLE_R[0], Quat::from_xyzw(-0.002, -0.024, -0.383, 0.923)),
+    (joint::MIDDLE_R[1], Quat::from_xyzw(0.0, 0.0, -0.431, 0.903)),
+    (joint::MIDDLE_R[2], Quat::from_xyzw(0.0, 0.0, -0.515, 0.857)),
+    (joint::RING_R[0], Quat::from_xyzw(0.0, -0.025, -0.314, 0.949)),
+    (joint::RING_R[1], Quat::from_xyzw(0.0, 0.0, -0.401, 0.916)),
+    (joint::RING_R[2], Quat::from_xyzw(0.0, 0.0, -0.460, 0.888)),
+    (joint::PINKY_R[0], Quat::from_xyzw(-0.004, -0.024, -0.152, 0.988)),
+    (joint::PINKY_R[1], Quat::from_xyzw(0.0, 0.0, -0.451, 0.893)),
+    (joint::PINKY_R[2], Quat::from_xyzw(0.0, 0.0, -0.337, 0.941)),
+    (joint::THUMB_R, Quat::from_xyzw(-0.412, -0.236, 0.023, 0.880)),
+    (joint::THUMB_R_TIP, Quat::from_xyzw(0.055, -0.402, 0.090, 0.909)),
+];
+
+/// The wrench held as UYA's idle holds it, the fingers closed round its grip.
 fn wrench_at_rest(b: &mut Builder) {
-    let down_back = Vec3::new(0.15, -0.9, 0.35).normalize();
-    b.world(
-        joint::HAND_R,
-        Quat::from_rotation_arc(wrench_points(), down_back),
-    );
+    b.world(joint::HAND_R, IDLE_HAND_R.normalize());
+    for (finger, turn) in IDLE_FIST_R {
+        b.set(finger, turn.normalize());
+    }
 }
 
 fn tail(b: &mut Builder, sway: f32, lift: f32, time: f32) {
@@ -328,7 +353,7 @@ pub fn target(joints: &[JointDef], hero: &HeroMotion, phase: f32, time: f32) -> 
     let state_time = hero.ticks as f32 / 60.0;
     let breathe = (time * 2.0).sin();
 
-    // What every state starts from: standing, arms down, wrench held low.
+    // What every state starts from: standing, arms down, wrench held ahead.
     arms_down(&mut b, 0.0, 0.0);
     wrench_at_rest(&mut b);
     b.set(joint::CHEST, rx(0.02 * breathe));
@@ -574,14 +599,20 @@ mod tests {
     }
 
     #[test]
-    fn standing_still_the_arms_hang_and_the_wrench_points_down() {
+    fn standing_still_the_arms_hang_and_the_wrench_points_ahead_from_the_fist() {
         let model = hero();
+        let joints = &model.joints;
         let motion = HeroMotion::new(Vec3::ZERO, 0.0);
-        let pose = target(&model.joints, &motion, 0.0, 0.0);
-        let arm = world_rotation(&model.joints, &pose, joint::SHOULDER_R) * Vec3::X;
+        let pose = target(joints, &motion, 0.0, 0.0);
+        let arm = world_rotation(joints, &pose, joint::SHOULDER_R) * Vec3::X;
         assert!(arm.y < -0.8, "{arm}");
-        let wrench = world_rotation(&model.joints, &pose, joint::HAND_R) * wrench_points();
-        assert!(wrench.y < -0.8, "{wrench}");
+        // As UYA's idle holds it: (0.16, 0.12, -0.98).
+        let wrench = world_rotation(joints, &pose, joint::HAND_R) * wrench_points();
+        assert!(wrench.z < -0.95 && wrench.y.abs() < 0.2, "{wrench}");
+        // The fingers curl back towards the palm.
+        let hand = world_rotation(joints, &pose, joint::HAND_R) * Vec3::X;
+        let fingertip = world_rotation(joints, &pose, joint::MIDDLE_R[2]) * Vec3::X;
+        assert!(hand.dot(fingertip) < -0.5, "{hand} {fingertip}");
     }
 
     /// Where a joint is in the hero's space, posed.
