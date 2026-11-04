@@ -737,7 +737,7 @@ fn play_cues(
     time: Res<Time<Real>>,
     heroes: Query<(&Hero, &Arsenal)>,
     mut sounds: ResMut<GunSounds>,
-    mut events: MessageReader<GunEvent>,
+    mut events: rac_sim::ShownReader<GunEvent>,
 ) {
     let now = time.elapsed_secs_f64();
     for event in events.read() {
@@ -792,7 +792,7 @@ fn play_pickups(
     listeners: Res<Listeners>,
     time: Res<Time<Real>>,
     mut sounds: ResMut<GunSounds>,
-    mut events: MessageReader<PickupSound>,
+    mut events: rac_sim::ShownReader<PickupSound>,
 ) {
     let now = time.elapsed_secs_f64();
     for event in events.read() {
@@ -975,7 +975,7 @@ fn play_shots(
     listeners: Res<Listeners>,
     time: Res<Time<Real>>,
     heroes: Query<(&Hero, &HeroBody, &Arsenal, &GlobalTransform)>,
-    mut afflicted: MessageReader<Afflicted>,
+    mut afflicted: rac_sim::ShownReader<Afflicted>,
     mut sounds: ResMut<GunSounds>,
 ) {
     let now = time.elapsed_secs_f64();

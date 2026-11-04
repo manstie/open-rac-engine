@@ -342,7 +342,7 @@ fn play_placeholders(
     placeholders: Res<Placeholders>,
     armory: Res<Armory>,
     mixer: Res<KitMixer>,
-    mut events: MessageReader<GunEvent>,
+    mut events: rac_sim::ShownReader<GunEvent>,
 ) {
     let mut mixer = mixer.lock();
     for event in events.read() {
@@ -375,7 +375,7 @@ fn play_pickup_placeholders(
     listeners: Res<Listeners>,
     placeholders: Res<Placeholders>,
     mixer: Res<KitMixer>,
-    mut sounds: MessageReader<PickupSound>,
+    mut sounds: rac_sim::ShownReader<PickupSound>,
 ) {
     let mut mixer = mixer.lock();
     for sound in sounds.read() {
@@ -447,6 +447,7 @@ fn hold_placeholders(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rac_sim::ShownMessageApp;
 
     #[test]
     fn every_gun_and_cue_names_a_placeholder_that_has_a_recipe() {
@@ -514,7 +515,8 @@ mod tests {
         );
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .add_message::<GunEvent>()
+            .init_resource::<rac_sim::SimTick>()
+            .add_shown_message::<GunEvent>()
             .insert_resource(armory)
             .init_resource::<SoundLayout>()
             .init_resource::<SoundClaims>()

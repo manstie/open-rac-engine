@@ -16,7 +16,8 @@ input wrong loads the snapshot of that tick and simulates forward again.
   system moves for co-op.
 - Ticks run again after a load are *resimulated*. Presentation that runs on the tick
   (effects, shot models, sparks) skips them, because what it shows was already shown
-  once and isn't part of the simulation.
+  once and isn't part of the simulation. Presentation that reads the simulation's
+  messages shows each once ("Presentation of resimulated ticks").
 
 ## What a snapshot holds (`rac_sim::rollback`)
 
@@ -31,6 +32,25 @@ input wrong loads the snapshot of that tick and simulates forward again.
 - The checksum covers the parts registered with a hash: the tick, the RNG, every
   simulated entity's `SimTransform`, health and hit points. It leaves out `Entity`
   values, which differ between peers.
+
+## Presentation of resimulated ticks (`rac_sim::shown`)
+
+- Effects, sounds and the HUD read messages the simulation writes: `GunEvent`,
+  `PickupSound`, `CrateBlast`, `Destroyed`, `Afflicted`, `HelpAsked` and
+  `HeroRespawned`. A rollback runs ticks again, and they write them again. Leaving out
+  resimulated ticks' messages won't do: the other player's shot is first known when a
+  rollback runs its tick with their real input.
+- So presentation reads them with `ShownReader`, which shows a message the first time
+  any run of its tick writes it. `add_shown_message` notes in `FixedFirst` where each
+  run's messages begin, so the reader knows a message's tick and run from its id. It
+  matches the message one for one against what earlier runs of the tick showed (two alike
+  in a run are both shown).
+- A resimulated tick that writes what it wrote before shows nothing new. One that writes
+  something else, such as the other player's shot now known, shows it, as late as the
+  rollback reached back. What an earlier run showed and the corrected one didn't write (a
+  shot predicted that never happened) stays shown: the effect has played.
+- Outside a session every tick runs once, and the reader reads every message, as
+  `MessageReader` does. A reader remembers 64 ticks, more than a rollback reaches (8).
 
 ## Rules for simulation code
 
@@ -50,7 +70,9 @@ input wrong loads the snapshot of that tick and simulates forward again.
    state (`GlobalTransform`, cameras' frusta, the rig's pose), no `Local` state, no
    randomness but `SimRng`, and no hash-map order.
 6. **Presentation on the tick** (effects, shot models) goes in systems that don't run
-   while resimulating, and its entities have no `SimId`.
+   while resimulating, and its entities have no `SimId`. Presentation reads the
+   simulation's messages with `ShownReader`, and their types are added with
+   `add_shown_message`.
 7. **Settings that change the simulation** (movement profile, guns, gun level, each
    player's camera setting) are agreed in the handshake and can't change during a
    session.
@@ -82,9 +104,10 @@ input wrong loads the snapshot of that tick and simulates forward again.
    back on leaving the level or quitting; `--no-port-mapping` skips it), and puts the
    forwarded address first. The code is shown on the status line, logged, and copied to
    the clipboard.
-3. The guest says hello every 250 ms, at every address in the host's code at once (or
-   the one address it was given), with its build, a digest of the rules (movement
-   profile, guns, gun level), its camera setting and a random id; the host welcomes it
+3. The guest, given the host's code or address by `--join` or from the clipboard by the
+   main menu's Co-op page, says hello every 250 ms, at every address in the code at once,
+   with its build, a digest of the rules (movement profile, guns, gun level), its camera
+   setting and a random id; the host welcomes it
    into slot 1, or refuses it with the reason (`rac_net::handshake`). The id makes hellos
    reaching the host by two paths (the LAN's and the NAT's) one guest's. Every packet
    shares the one UDP port with `ggrs`, tagged with whose it is, and STUN's untagged,
@@ -99,7 +122,8 @@ input wrong loads the snapshot of that tick and simulates forward again.
 ## How it was checked
 
 - `rac_sim`'s tests: loading undoes changes, spawns and retirements; a message written
-  after its reader survives a rollback once.
+  after its reader survives a rollback once; a shown reader shows what resimulated ticks
+  write again once, two alike in a tick both, and what only the rerun writes.
 - `rac_net`'s tests, on a small simulation that spawns, retires, draws random numbers and
   sends a message across ticks: a sync test; two peers on a memory network with 3 steps
   of latency and 5% loss whose confirmed checksum matches a plain run's; a refused
@@ -111,7 +135,9 @@ input wrong loads the snapshot of that tick and simulates forward again.
   the vendor (a purchase), then the arena's enemies, locked on. Under the sync test it
   runs about 3800 ticks with UYA's moves and guns at V5, and again with DL's, with no
   mismatch; the test also checks that each hero fired every gun, crates broke, bolts were
-  picked up, enemies died, both heroes were hurt and opened the ring. Two peers on
+  picked up, enemies died, both heroes were hurt and opened the ring, and that effects and
+  sounds were given exactly the gun events, pickup sounds and crate blasts a plain run of
+  the script gives them, though the sync test wrote each about eight times. Two peers on
   a memory network 3 steps slow losing 5% of packets, whose `Entity` values differ (each
   spawns its own HUD), agree on the confirmed checksum. A system that moves a hero by a
   count kept outside the snapshot is caught within 30 ticks, so the checks have teeth.
@@ -130,12 +156,12 @@ input wrong loads the snapshot of that tick and simulates forward again.
 
 ## Known gaps
 
-- Messages that presentation reads (`GunEvent`, `PickupSound`, `Destroyed` for the HUD)
-  are written again when ticks are resimulated, so a rollback can repeat a sound or an
-  effect. A presentation reader that skips resimulated ticks would fix it.
+- A shown message naming an entity (`Destroyed` for the HUD, `Afflicted` for the gun
+  sounds) shows again if a rollback reaches back past the entity's spawn, which spawns it
+  again under another `Entity`.
 - No test reaches a hero's death and respawn under rollback: the demo level has no pit
   or deadly floor, and its enemies seldom kill him.
 - Port mapping is UPnP IGD's only, and hasn't been tried on a real router (no test can
   stand in for one); NAT-PMP and PCP aren't in. A host whose router doesn't forward needs
-  the guest's code, or a port forwarded by hand. Codes carry IPv4 unless the socket is IPv6, which it
-  is only when every address the guest was given is.
+  the guest's code, or a port forwarded by hand. Codes carry IPv4 unless the socket is
+  IPv6, which it is only when every address the guest was given is.

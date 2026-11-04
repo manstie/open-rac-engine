@@ -1,5 +1,5 @@
-//! The menus (PLAN.md P1.1, P1.12): the main menu, the pause menu, the options and the
-//! controls.
+//! The menus (PLAN.md P1.1, P1.12): the main menu, the pause menu, the options, the
+//! controls, and co-op (P1.18).
 //!
 //! A page is a grid of items with one focused: buttons, choices that left and right step
 //! through (the hero's model, moves and camera, and the options), and on the controls page
@@ -11,8 +11,10 @@
 
 mod choices;
 mod controls;
+mod coop;
 mod names;
 
+use bevy::clipboard::Clipboard;
 use bevy::{
     input::{
         InputSystems,
@@ -26,6 +28,7 @@ use bevy::{
 use rac_input::{Action, ActionState, BindingCapture, Slot};
 use std::collections::BTreeSet;
 
+use crate::coop::{CoopChoice, DEFAULT_PORT};
 use crate::flow::{AppState, Pause};
 use crate::moves::ChosenMoves;
 use choices::{Choice, Choices};
@@ -37,6 +40,7 @@ enum Page {
     Pause,
     Options,
     Controls,
+    Coop,
 }
 
 /// The pages open, the last on show, each with the focus it had. Empty in play.
@@ -50,6 +54,10 @@ struct PageRoot;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MenuCommand {
     PlayDemo,
+    /// Hosts a co-op game on the default port.
+    Host,
+    /// Joins the co-op game whose code or address is on the clipboard.
+    Join,
     Resume,
     MainMenu,
     Quit,
@@ -144,6 +152,7 @@ impl Plugin for MenuPlugin {
             .init_resource::<ChosenMoves>()
             .init_resource::<controls::Rebinding>()
             .init_resource::<controls::Notice>()
+            .init_resource::<coop::CoopNotice>()
             .init_resource::<KeyNames>()
             .add_systems(OnEnter(AppState::MainMenu), open_main_menu)
             .add_systems(OnEnter(Pause::Paused), open_pause_menu)
@@ -166,6 +175,7 @@ impl Plugin for MenuPlugin {
                     label_choices,
                     controls::label_slots,
                     controls::show_notice,
+                    coop::show_notice,
                     scroll,
                 )
                     .chain(),
@@ -203,6 +213,7 @@ fn show_page(
     roots: Query<Entity, With<PageRoot>>,
     mut focus: ResMut<Focus>,
     mut notice: ResMut<controls::Notice>,
+    mut coop_notice: ResMut<coop::CoopNotice>,
     disc: Option<Res<rac_rig::RigAnimations>>,
 ) {
     for root in &roots {
@@ -217,6 +228,7 @@ fn show_page(
         Page::Pause => spawn_pause_menu(&mut commands),
         Page::Options => spawn_options(&mut commands),
         Page::Controls => controls::spawn(&mut commands, &mut notice),
+        Page::Coop => coop::spawn(&mut commands, &mut coop_notice),
     }
 }
 
@@ -233,11 +245,12 @@ fn spawn_main_menu(commands: &mut Commands, disc: bool) {
             title("Open Ratchet & Clank Engine"),
             subtitle(found),
             button(0, "Play the demo", MenuCommand::PlayDemo),
-            named_choice(1, Choice::Model),
-            named_choice(2, Choice::Moves),
-            named_choice(3, Choice::Camera),
-            button(4, "Options", MenuCommand::Open(Page::Options)),
-            button(5, "Quit", MenuCommand::Quit),
+            button(1, "Co-op", MenuCommand::Open(Page::Coop)),
+            named_choice(2, Choice::Model),
+            named_choice(3, Choice::Moves),
+            named_choice(4, Choice::Camera),
+            button(5, "Options", MenuCommand::Open(Page::Options)),
+            button(6, "Quit", MenuCommand::Quit),
         ],
     ));
 }
@@ -793,6 +806,9 @@ fn run_chosen(
     mut capture: ResMut<BindingCapture>,
     mut rebinding: ResMut<controls::Rebinding>,
     mut notice: ResMut<controls::Notice>,
+    mut coop_choice: ResMut<CoopChoice>,
+    mut coop_notice: ResMut<coop::CoopNotice>,
+    clipboard: Option<ResMut<Clipboard>>,
     time: Res<Time<Real>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -800,7 +816,25 @@ fn run_chosen(
         return;
     };
     match command {
-        MenuCommand::PlayDemo => app_state.set(AppState::InGame),
+        // Alone, though the game started in co-op from the command line.
+        MenuCommand::PlayDemo => {
+            *coop_choice = CoopChoice::Alone;
+            app_state.set(AppState::InGame);
+        }
+        MenuCommand::Host => {
+            *coop_choice = CoopChoice::Host(DEFAULT_PORT);
+            app_state.set(AppState::InGame);
+        }
+        MenuCommand::Join => {
+            let text = clipboard.and_then(|mut clipboard| clipboard.fetch_text().poll_result());
+            match coop::join_from(text.and_then(Result::ok)) {
+                Ok(hosts) => {
+                    *coop_choice = CoopChoice::Join(hosts);
+                    app_state.set(AppState::InGame);
+                }
+                Err(why) => coop_notice.0 = why,
+            }
+        }
         MenuCommand::Resume => pause.set(Pause::Running),
         MenuCommand::MainMenu => app_state.set(AppState::MainMenu),
         MenuCommand::Quit => {

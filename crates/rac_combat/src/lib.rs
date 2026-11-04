@@ -24,7 +24,9 @@ pub mod weapons;
 
 use bevy::prelude::*;
 use rac_hero::{AimTarget, Hero, HeroBody};
-use rac_sim::{RollbackApp, SimId, SimMessageApp, SimSet, SimTransform, StateHasher};
+use rac_sim::{
+    RollbackApp, ShownMessageApp, SimId, SimMessageApp, SimSet, SimTransform, StateHasher,
+};
 
 pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor, VendorMenu};
 pub use weapons::{
@@ -149,11 +151,14 @@ impl Plugin for CombatPlugin {
             .init_resource::<pickups::HelpGiven>()
             .add_sim_message::<Struck>()
             .add_sim_message::<Destroyed>()
-            .add_message::<GunEvent>()
             .add_sim_message::<Afflicted>()
-            .add_message::<pickups::CrateBlast>()
-            .add_message::<pickups::PickupSound>()
-            .add_message::<pickups::HelpAsked>()
+            // What effects, sounds and the HUD read, once a tick however often it runs.
+            .add_shown_message::<Destroyed>()
+            .add_shown_message::<GunEvent>()
+            .add_shown_message::<Afflicted>()
+            .add_shown_message::<pickups::CrateBlast>()
+            .add_shown_message::<pickups::PickupSound>()
+            .add_shown_message::<pickups::HelpAsked>()
             .add_systems(
                 FixedUpdate,
                 (react, weapons::fire_guns).chain().in_set(SimSet::World),

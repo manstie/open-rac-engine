@@ -1,14 +1,15 @@
 //! The whole demo under rollback (PLAN.md P1.18, `docs/netcode.md`): two heroes, each
 //! with his own camera setting, break crates, fire every gun at the dummies, shop and
 //! fight the arena's enemies, under `rac_net`'s sync test, which rolls every tick back and
-//! runs it again, and as two peers on a slow, lossy network. The demo runs as the app has it, HUD, rig and effects included, without
-//! a window or a renderer.
+//! runs it again, and as two peers on a slow, lossy network. Under the sync test, effects
+//! and sounds are given what a plain run gives them, once. The demo runs as the app has
+//! it, HUD, rig and effects included, without a window or a renderer.
 
 use bevy::{
     asset::AssetPlugin, ecs::system::RunSystemOnce, math::ops,
     mesh::skinning::SkinnedMeshInverseBindposes, prelude::*, time::TimeUpdateStrategy,
 };
-use rac_combat::pickups::{PickupSound, PickupSoundKind, VendorSound};
+use rac_combat::pickups::{CrateBlast, PickupSound, PickupSoundKind, VendorSound};
 use rac_combat::{Armory, Arsenal, Crate, Destroyed, GunEvent, GunEventKind};
 use rac_demo::{Bolts, DemoGunLevel, DemoPlugin, DemoSettings, Enemy, spawn_demo};
 use rac_hero::{CameraSetting, FollowCamera, Health, Hero, HeroProfile, HeroTuning};
@@ -17,7 +18,7 @@ use rac_net::{
     Answer, Host, Joiner, Link, MemoryNet, NetPlugin, Session, SessionSettings, SessionStatus,
     Terms, end_session, start_session,
 };
-use rac_sim::{SimPlugin, SimSet, SimTick, SimTransform, TICK_HZ};
+use rac_sim::{ShownReader, SimPlugin, SimSet, SimTick, SimTransform, TICK_HZ};
 use std::{
     collections::BTreeSet,
     net::SocketAddr,
@@ -66,6 +67,17 @@ struct Seen {
     vendor: BTreeSet<VendorSound>,
     /// Players whose quick-select ring opened.
     ring: BTreeSet<usize>,
+    /// Gun events written, as many times as their ticks ran.
+    gun_events_written: usize,
+    /// What effects and sounds were given, read as they read it.
+    shown: Shown,
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct Shown {
+    guns: Vec<GunEvent>,
+    sounds: Vec<PickupSound>,
+    blasts: Vec<CrateBlast>,
 }
 
 fn see(
@@ -77,6 +89,7 @@ fn see(
     mut seen: ResMut<Seen>,
 ) {
     for event in guns.read() {
+        seen.gun_events_written += 1;
         if matches!(
             event.kind,
             GunEventKind::Fired { .. }
@@ -107,6 +120,17 @@ fn see(
     }
 }
 
+fn show(
+    mut guns: ShownReader<GunEvent>,
+    mut sounds: ShownReader<PickupSound>,
+    mut blasts: ShownReader<CrateBlast>,
+    mut seen: ResMut<Seen>,
+) {
+    seen.shown.guns.extend(guns.read());
+    seen.shown.sounds.extend(sounds.read());
+    seen.shown.blasts.extend(blasts.read());
+}
+
 /// The demo with two heroes, this machine playing `local`'s, without a window or a
 /// renderer: one tick per update.
 fn demo_app(rules: Rules, local: usize) -> App {
@@ -134,7 +158,7 @@ fn demo_app(rules: Rules, local: usize) -> App {
         })
         .insert_resource(LocalPlayer(local))
         .init_resource::<Seen>()
-        .add_systems(Update, see);
+        .add_systems(Update, (see, show));
     app.update(); // Startup, and starts the clock.
     app.world_mut().run_system_once(spawn_demo).unwrap();
     app
@@ -375,9 +399,40 @@ fn sync_test(rules: Rules) -> Seen {
     seen
 }
 
+/// Gives both heroes the script's input before each tick, as the sync test's session
+/// does.
+fn feed(world: &mut World) {
+    let inputs = [scripted(world, 0), scripted(world, 1)];
+    world.resource_mut::<PlayerInputs>().0[..2].copy_from_slice(&inputs);
+}
+
+/// Plays the route without a session, each tick run once.
+fn plain_run(rules: Rules) -> Seen {
+    let ticks = route_ticks(rules.armory.weapons.len());
+    let mut app = demo_app(rules, 0);
+    app.add_systems(FixedFirst, feed);
+    while app.world().resource::<SimTick>().0 < ticks {
+        app.update();
+    }
+    app.world_mut().remove_resource::<Seen>().unwrap()
+}
+
+/// Effects and sounds were given each shot, sound and blast once, as a plain run gives
+/// them, though the sync test wrote them again each time it ran their ticks.
+fn shown_once(rules: Rules, seen: &Seen) {
+    let plain = plain_run(rules);
+    assert!(!seen.shown.guns.is_empty() && !seen.shown.blasts.is_empty());
+    assert!(seen.gun_events_written > 2 * seen.shown.guns.len());
+    assert_eq!(seen.shown.guns.len(), plain.shown.guns.len());
+    assert_eq!(seen.shown.sounds.len(), plain.shown.sounds.len());
+    assert_eq!(seen.shown.blasts.len(), plain.shown.blasts.len());
+    assert!(seen.shown == plain.shown, "shown differently");
+}
+
 #[test]
 fn the_demo_with_uyas_moves_and_guns_at_v5_rolls_back_exactly() {
     let seen = sync_test(Rules::uya(4));
+    shown_once(Rules::uya(4), &seen);
     assert!(
         seen.vendor.contains(&VendorSound::Bought),
         "{:?}",
@@ -388,7 +443,8 @@ fn the_demo_with_uyas_moves_and_guns_at_v5_rolls_back_exactly() {
 /// The kit's DL guns have no rounds for sale yet, so the vendor only refuses.
 #[test]
 fn the_demo_with_deadlockeds_moves_and_guns_rolls_back_exactly() {
-    sync_test(Rules::dl());
+    let seen = sync_test(Rules::dl());
+    shown_once(Rules::dl(), &seen);
 }
 
 /// State a snapshot doesn't hold.

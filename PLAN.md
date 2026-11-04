@@ -90,8 +90,8 @@ session is working on the task now; notes on problems met stay with their task (
 1. P1.18's next step: co-op on two machines (the owner's), over a LAN and then the
    internet by join code; port mapping (D8).
 2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Liquid Nitrogen Gun's arc onto the lock-on target; or the
-   Ultrashield's class model, 0x186D).
+   next gun to fix (the Ultrashield's class model, 0x186D; or the agents' spawn
+   lightning).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -914,10 +914,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       (a pink-orange oval, as the game's but less white, unhit); the hit's rings not yet
       seen on screen. Not done: the shield class's own model (0x186D, a small disc of 25
       joints the game draws too) and the two stars of 57 facing the camera.
-    - Not done: the rest of the Eruptor's V5 burst; the Liquid Nitrogen Gun's arc onto
-      the lock-on target, the agents' spawn lightning (their jets are dimmer than the
-      game's); then the sounds not played and the simplified behaviours (`effects.md`,
-      "In the kit and the app"; `weapons.md`, "In the kit").
+    - The Lava Gun's stream arcs high in the game not by a lock-on but because it leaves
+      along the gun's barrel (0x303F88: the gun's −y), 12° above his facing as he fires
+      (traced in sequence 49; `weapons.md`, "The barrel"). The kit raises it so
+      (`Stream::barrel_degrees`) when nothing is locked on in the third-person camera, and
+      it now lands about 18 u out where it landed within 10; seen at V5 on
+      `kitdemo-arena-lava`. Not followed: the hold's sway and the waist's pitch.
+    - Not done: the rest of the Eruptor's V5 burst; the agents' spawn lightning (their
+      jets are dimmer than the game's); then the sounds not played and the simplified
+      behaviours (`effects.md`, "In the kit and the app"; `weapons.md`, "In the kit").
     - The lights' pools show weaker than the game's on the demo's pale floor (1.25 times
       as bright beside him where the game's sand is 1.54 times), as the kit's tonemapper
       squashes brightening; open with the tonemapper (§5, 2026-11-01).
@@ -1307,7 +1312,10 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     `Joiner::to_any`), and the host's port mapped by UPnP IGD (`rac_net::upnp`,
     `igd-next`; `--no-port-mapping`); `--host [PORT]`, `--join CODE|HOST[:PORT]`, the
     join code shown, logged and copied, Ctrl+V to paste the guest's into the host,
-    `--input-delay`, `--sync-test` and a status line in `openrac` (`coop.rs`); both
+    `--input-delay`, `--sync-test` and a status line in `openrac` (`coop.rs`); the main
+    menu's Co-op page, hosting, or joining with the code on the clipboard (no text field,
+    whose letters the menu's keys would fight over; `menu/coop.rs`); effects, sounds and
+    the HUD show what resimulated ticks write once (`rac_sim::ShownReader`); both
     heroes, player 2 in silver; a peer that leaves is dropped and the game plays on;
     the pause menu doesn't stop a session, and Moves and Camera can't change in one.
     How it works and the rules for simulation code: `docs/netcode.md`.
@@ -1317,24 +1325,26 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     scripted heroes (hazard, crates, every gun, the ring, the vendor, the arena; each
     with his own camera setting) under the sync test with UYA's rules at V5 and with DL's,
     and as two peers on a slow, lossy memory network, plus a check that state left out of
-    a snapshot is caught; `rac_net`'s NAT tests (two peers behind cone NATs on the memory
+    a snapshot is caught and that effects and sounds under the sync test get what a plain
+    run gives them, once; `rac_net`'s NAT tests (two peers behind cone NATs on the memory
     network learn their addresses by STUN, swap codes and play; a host that doesn't
     punch hears nobody) (`docs/netcode.md`, "How it was checked"); the app's
     `--sync-test` played 1500 ticks off-screen with no mismatch; a host and a guest on one
     machine played together, each seeing the other's hero, the guest joining by the
-    host's code (its public address learned from Google's STUN server).
+    host's code (its public address learned from Google's STUN server), from the
+    command line and from the Co-op pages.
   - Not done:
     - UPnP tried on a real router: it changes the router's forwarding, so it waits for
       the owner's run. NAT-PMP and PCP (D8); codes with both IPv4 and IPv6 addresses (the
       socket is one or the other).
-    - Effects and sounds of resimulated ticks play again (`docs/netcode.md`, "Known
-      gaps"); hosting and joining from the menus; runs over a LAN and the internet; a
-      test of death and respawn under rollback (the demo level can't kill a hero quickly).
-  - Next step: the owner's runs on two machines, over a LAN and then the internet
-    (`--host` on one, `--join CODE` on the other with the code it shows; if the guest
-    can't reach the host, the guest's code pasted into the host with Ctrl+V), checking
-    the host's log says its router forwards the port; then NAT-PMP and PCP, and hosting
-    and joining from the menus (a field to paste a code into).
+    - Runs over a LAN and the internet; a test of death and respawn under rollback (the
+      demo level can't kill a hero quickly); a shown message about an entity spawned
+      within a rollback's reach shows again (`docs/netcode.md`, "Known gaps").
+  - Next step: the owner's runs on two machines, over a LAN and then the internet (Co-op,
+    Host a game on one; the code it shows sent over, copied, and Join with the copied
+    code on the other; if the guest can't reach the host, the guest's code pasted into
+    the host with Ctrl+V), checking the host's log says its router forwards the port;
+    then NAT-PMP and PCP.
   - `bevy_ggrs` lags Bevy (0.22 is for Bevy 0.19), so `rac_net` drives `ggrs` itself by
     swapping Bevy's `FixedMainScheduleOrder`.
   - The code ordered entities by `Entity` for determinism, which differs between peers;

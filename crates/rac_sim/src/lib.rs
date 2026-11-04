@@ -20,6 +20,7 @@
 mod messages;
 mod rng;
 pub mod rollback;
+mod shown;
 mod transform;
 
 use bevy::{ecs::schedule::SingleThreadedExecutor, prelude::*};
@@ -27,6 +28,7 @@ use bevy::{ecs::schedule::SingleThreadedExecutor, prelude::*};
 pub use messages::{SimInbox, SimMessageApp, SimMessageReader};
 pub use rng::SimRng;
 pub use rollback::{RetireExt, RollbackApp, RollbackWindow, SimId, SimIds, Snapshot, StateHasher};
+pub use shown::{ShownMessageApp, ShownReader, TickRuns};
 pub use transform::{PreviousSimTransform, SimTransform};
 
 /// Simulation ticks per second. UYA and Deadlocked NTSC-U are tuned for 60 Hz, and the kit

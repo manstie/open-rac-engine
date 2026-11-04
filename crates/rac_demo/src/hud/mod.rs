@@ -1067,7 +1067,7 @@ pub fn spawn_hud(commands: &mut Commands, player: usize, layout: &HudLayout) -> 
 fn note_level_ups(
     layout: Res<HudLayout>,
     armory: Res<Armory>,
-    mut events: MessageReader<GunEvent>,
+    mut events: rac_sim::ShownReader<GunEvent>,
     mut huds: Query<&mut PlayerHud>,
 ) {
     for event in events.read() {
@@ -1084,7 +1084,7 @@ fn note_level_ups(
 }
 
 /// Marks each player who killed something, which keeps his health up a while.
-fn note_kills(mut kills: MessageReader<Destroyed>, mut huds: Query<&mut PlayerHud>) {
+fn note_kills(mut kills: rac_sim::ShownReader<Destroyed>, mut huds: Query<&mut PlayerHud>) {
     for kill in kills.read() {
         for mut hud in huds.iter_mut().filter(|hud| hud.player == kill.player) {
             hud.killed = true;
@@ -1094,7 +1094,7 @@ fn note_kills(mut kills: MessageReader<Destroyed>, mut huds: Query<&mut PlayerHu
 
 /// Puts a help message on its player's HUD, unless one is up already: UYA's `help_show`
 /// refuses it then, and it is lost.
-fn note_help(mut asked: MessageReader<HelpAsked>, mut huds: Query<&mut PlayerHud>) {
+fn note_help(mut asked: rac_sim::ShownReader<HelpAsked>, mut huds: Query<&mut PlayerHud>) {
     for asked in asked.read() {
         for mut hud in huds.iter_mut().filter(|hud| hud.player == asked.player) {
             if hud.help.is_none() {
@@ -1105,7 +1105,10 @@ fn note_help(mut asked: MessageReader<HelpAsked>, mut huds: Query<&mut PlayerHud
 }
 
 /// Blacks out each player who was just brought back, to fade in.
-fn note_respawns(mut respawns: MessageReader<HeroRespawned>, mut huds: Query<&mut PlayerHud>) {
+fn note_respawns(
+    mut respawns: rac_sim::ShownReader<HeroRespawned>,
+    mut huds: Query<&mut PlayerHud>,
+) {
     for respawn in respawns.read() {
         for mut hud in huds.iter_mut().filter(|hud| hud.player == respawn.player) {
             hud.fade = 1.0;

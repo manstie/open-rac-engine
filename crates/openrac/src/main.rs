@@ -118,9 +118,10 @@ struct Args {
     /// hides more of the connection's delay, but makes the controls feel later.
     #[arg(long, value_name = "TICKS")]
     input_delay: Option<usize>,
-    /// Host without asking the router to forward the port (UPnP): player 2 then reaches
-    /// this machine by its code's other addresses, or a port forwarded by hand.
-    #[arg(long, requires = "host")]
+    /// When hosting, here or from the menus, don't ask the router to forward the port
+    /// (UPnP): player 2 then reaches this machine by its code's other addresses, or a port
+    /// forwarded by hand.
+    #[arg(long)]
     no_port_mapping: bool,
 }
 

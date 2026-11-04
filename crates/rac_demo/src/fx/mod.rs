@@ -1974,7 +1974,7 @@ fn emit_crate_blasts(
     recipes: Res<FxRecipes>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut rng: ResMut<FxRng>,
-    mut blasts: MessageReader<CrateBlast>,
+    mut blasts: rac_sim::ShownReader<CrateBlast>,
     mut making: Making,
 ) {
     let mut spawner = making.spawner();
@@ -1996,7 +1996,7 @@ fn emit_gun_fx(
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     marks: Query<&mark::MarkPiece>,
     mut rng: ResMut<FxRng>,
-    mut events: MessageReader<GunEvent>,
+    mut events: rac_sim::ShownReader<GunEvent>,
     mut making: Making,
 ) {
     let mut spawner = making.spawner();

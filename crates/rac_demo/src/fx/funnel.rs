@@ -309,7 +309,7 @@ pub(crate) fn draw_funnels(
     heroes: Query<(&Hero, &Arsenal)>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     images: Res<FxImages>,
-    mut events: MessageReader<GunEvent>,
+    mut events: rac_sim::ShownReader<GunEvent>,
     mut funnels: ResMut<Funnels>,
     mut rng: ResMut<FxRng>,
     mut places: Query<&mut Transform>,

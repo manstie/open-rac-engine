@@ -37,7 +37,8 @@ pub mod water;
 use bevy::prelude::*;
 use rac_input::PlayerInputs;
 use rac_sim::{
-    PreviousSimTransform, RollbackApp, SimId, SimMessageApp, SimMessageReader, SimSet, SimTransform,
+    PreviousSimTransform, RollbackApp, ShownMessageApp, SimId, SimMessageApp, SimMessageReader,
+    SimSet, SimTransform,
 };
 
 pub use camera::{CameraSetting, CameraVolume, FollowCamera, UnzoomedFov};
@@ -164,7 +165,7 @@ impl Plugin for HeroPlugin {
             .init_resource::<CollisionScene>()
             .init_resource::<HelpMeasure>()
             .add_sim_message::<HurtHero>()
-            .add_message::<HeroRespawned>()
+            .add_shown_message::<HeroRespawned>()
             .roll_back_component::<Hero>()
             .roll_back_component::<HeroBody>()
             .roll_back_component_hashed::<Health>(|health, hasher| {
