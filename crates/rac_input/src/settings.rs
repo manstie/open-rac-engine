@@ -160,7 +160,7 @@ impl Default for InputSettings {
                 vec![
                     Pad(GamepadButton::LeftTrigger2),
                     Pad(GamepadButton::RightTrigger2),
-                    Mouse(MouseButton::Right),
+                    Key(KeyCode::ShiftLeft),
                 ],
             ),
             (
@@ -172,7 +172,7 @@ impl Default for InputSettings {
             ),
             (
                 Action::FirstPerson,
-                vec![Pad(GamepadButton::LeftTrigger), Key(KeyCode::KeyV)],
+                vec![Pad(GamepadButton::LeftTrigger), Mouse(MouseButton::Right)],
             ),
             (
                 Action::NextWeapon,

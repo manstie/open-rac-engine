@@ -367,7 +367,8 @@ mod tests {
         let keys = KeyNames::default();
         let of = |action| bindings_of(&settings, &keys, Control::Action(action));
         assert_eq!(of(Action::Jump), "Space / Cross");
-        assert_eq!(of(Action::Strafe), "right mouse / L2 or R2");
+        assert_eq!(of(Action::Strafe), "Left Shift / L2 or R2");
+        assert_eq!(of(Action::FirstPerson), "right mouse / L1");
         assert_eq!(of(Action::LockOn), "L2 + R2");
         assert_eq!(of(Action::Crouch), "Left Ctrl / R1");
         assert_eq!(

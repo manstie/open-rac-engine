@@ -421,7 +421,7 @@ fn option_row(row: usize, choice: Choice) -> impl Bundle {
                     ..default()
                 },
                 children![
-                    label_text("<", 22.0, ()),
+                    label_text("<", 22.0, option_arrow(choice, false)),
                     label_text(
                         "",
                         22.0,
@@ -430,10 +430,23 @@ fn option_row(row: usize, choice: Choice) -> impl Bundle {
                             named: false,
                         }
                     ),
-                    label_text(">", 22.0, ()),
+                    label_text(">", 22.0, option_arrow(choice, true)),
                 ],
             ),
         ],
+    )
+}
+
+/// An option's arrow, stepping its choice that way when clicked. Padded out so it's
+/// easier to hit, with a margin taking the padding back so it stays where it was.
+fn option_arrow(choice: Choice, forward: bool) -> impl Bundle {
+    (
+        Node {
+            padding: UiRect::horizontal(px(12)),
+            margin: UiRect::horizontal(px(-12)),
+            ..default()
+        },
+        on_click(MenuCommand::Step(choice, forward)),
     )
 }
 
@@ -553,10 +566,12 @@ fn item(
 /// Chooses `command` on a left click, and its reverse on a right click.
 fn on_click(command: MenuCommand) -> impl Bundle {
     observe(
-        move |click: On<PointerClick>,
+        move |mut click: On<PointerClick>,
               mut chosen: ResMut<Chosen>,
               swallow: Res<SwallowClick>,
               rebinding: Res<controls::Rebinding>| {
+            // A click on an option's arrow isn't also its row's.
+            click.propagate(false);
             if swallow.0 || rebinding.is_active() {
                 return;
             }

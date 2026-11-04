@@ -703,6 +703,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - Not done: checking the full stick curve, since Bevy's own axis processing runs before
     ours; catching a real gamepad's press (only tested on synthetic pads); a key's name
     before its first press on a new layout (the US name).
+  - KB+M defaults: right mouse looks round (first person) and Left Shift strafes, as PC
+    games aim; a settings file saved before keeps its bindings until Reset.
 - [x] **P1.4** Greybox level (`rac_demo`), as data tagged by purpose (`Surface`): ramps,
   stairs, ledge blocks, a wall-jump shaft to a high platform, a gap course, a moving
   platform, a grind rail, a zip line, a pool, a melee yard, a hazard pad and checkpoints.
@@ -1149,10 +1151,11 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     mode, vsync, field of view and volume (`options.rs`, saved as `[display]` and `[sound]`
     in `settings.toml`), and the controls page, every control's bindings on the keyboard
     and mouse and the gamepad, changed by choosing a slot and pressing (P1.3). Pages
-    scroll and follow the focus; held directions repeat; right-click steps back or clears;
-    Back goes up a page. The in-game controls hint is gone: the bindings are in Options.
-    Seen running on Xvfb: every page, rebinding by key and mouse, a swap, a refusal,
-    reset, the field of view, and the settings file.
+    scroll and follow the focus; held directions repeat; right-click steps back or clears,
+    and an option's `<` and `>` step it their way; Back goes up a page. The in-game
+    controls hint is gone: the bindings are in Options. Seen running on Xvfb: every
+    page, rebinding by key and mouse, a swap, a refusal, reset, the field of view, and
+    the settings file.
   - Done 2026-11-03, the rest of the display settings (`options.rs`, section 5): the
     resolution (the window's size, from the common sizes that fit its monitor, or the
     monitor's video modes in exclusive fullscreen), a frame-rate cap (`cap_frame_rate`,

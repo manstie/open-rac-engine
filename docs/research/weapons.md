@@ -2973,7 +2973,7 @@ profiles' `gun` section):
 
   The scope's zoom (2026-10-22) is the weapons code's (`Scope` in the RON,
   `look_through_scope`): it starts each look a quarter in and moves 0.01 rad a tick on
-  R1/R2 (Crouch and Strafe; Ctrl and the right mouse button) in third person, or on the
+  R1/R2 (Crouch and Strafe; Ctrl and Shift) in third person, or on the
   left stick in the other settings. Strafe also has L2 on the pad, so L2 zooms out too
   [simplified]. It asks the camera through `GunHand::zoom`, and the camera springs its
   field of view and slows the free look (`camera.md`, "In the kit"). Seen running on
