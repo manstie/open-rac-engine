@@ -2,7 +2,7 @@
 //! sprites are [`crate::guns`]'s, its smoke [`super::emit_trails`]'s and its lens and rings,
 //! which warp the frame behind it, [`super::refract`]'s; here, the rays turning round it,
 //! each from its middle out, growing, in a colour going from its middle to its end, their
-//! texture scrolling.
+//! texture scrolling; and as it closes (0x375C70), shortening.
 
 use std::collections::BTreeMap;
 use std::f32::consts::TAU;
@@ -22,7 +22,7 @@ use super::{
     Billboard, Blend, FxImages, FxRecipes, FxRng, ShotSprite, Tex, Trail, eye, fx_material, opaque,
 };
 use crate::DemoEntity;
-use crate::guns::standing;
+use crate::guns::{closing, standing};
 
 /// What a shot shows once it stands open.
 #[derive(Debug, Default, Clone, PartialEq, Deserialize)]
@@ -56,6 +56,18 @@ pub struct OpenRays {
     pub turn: f32,
     #[serde(default)]
     pub blend: Blend,
+    #[serde(default)]
+    pub closing: Option<RaysClosing>,
+}
+
+/// The rays as their shot closes: shortening `shorten` a tick, `width` across, their end in
+/// `end`. Without this they go as it begins to close.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct RaysClosing {
+    pub shorten: f32,
+    pub width: f32,
+    #[serde(default = "opaque")]
+    pub end: [f32; 4],
 }
 
 /// One ray: its entity, the way it points and how it turns.
@@ -66,13 +78,14 @@ struct Ray {
     turn: Quat,
 }
 
-/// The rays of one open shot.
+/// The rays of one open shot, and whether they have turned to its closing look.
 #[derive(Debug)]
 struct Shown {
     rays: Vec<Ray>,
     length: f32,
     scroll: f32,
     material: Handle<StandardMaterial>,
+    closing: bool,
 }
 
 /// The open shots' rays drawn now, by player and shot.
@@ -109,7 +122,7 @@ fn ray_quad(middle: [f32; 4], end: [f32; 4]) -> Mesh {
     .with_inserted_indices(Indices::U32(vec![0, 2, 1, 1, 2, 3]))
 }
 
-/// Keeps the rays of each open shot whose recipe has them, dropping those gone or closed.
+/// Keeps the rays of each open or closing shot whose recipe has them, dropping those gone.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn step_open_rays(
     recipes: Res<FxRecipes>,
@@ -127,7 +140,11 @@ pub(crate) fn step_open_rays(
     let eye = eye(&cameras);
     let mut seen = Vec::new();
     for (hero, arsenal) in &heroes {
-        for shot in arsenal.shots.iter().filter(|shot| standing(&shot.kind)) {
+        for shot in &arsenal.shots {
+            let closing = closing(&shot.kind).is_some();
+            if !closing && !standing(&shot.kind) {
+                continue;
+            }
             let key = armory
                 .get(shot.weapon)
                 .map_or("", |def| def.effects.as_str());
@@ -139,6 +156,19 @@ pub(crate) fn step_open_rays(
                 continue;
             };
             let id = (hero.player, shot.serial);
+            if closing {
+                let (Some(close), Some(open)) = (&recipe.closing, shown.0.get_mut(&id)) else {
+                    continue;
+                };
+                if !open.closing {
+                    let quad = meshes.add(ray_quad(recipe.middle, close.end));
+                    for ray in &open.rays {
+                        commands.entity(ray.entity).insert(Mesh3d(quad.clone()));
+                    }
+                    open.closing = true;
+                }
+                open.length = (open.length - close.shorten).max(0.0);
+            }
             seen.push(id);
             let open = shown.0.entry(id).or_insert_with(|| {
                 let view = (eye - shot.position).normalize_or(Vec3::Z);
@@ -179,9 +209,16 @@ pub(crate) fn step_open_rays(
                     length: 0.0,
                     scroll: 0.0,
                     material,
+                    closing: false,
                 }
             });
-            open.length = (open.length + recipe.grow).min(recipe.length);
+            let width = match &recipe.closing {
+                Some(close) if open.closing => close.width,
+                _ => {
+                    open.length = (open.length + recipe.grow).min(recipe.length);
+                    recipe.width
+                }
+            };
             open.scroll = (open.scroll - rng.between(recipe.scroll)).rem_euclid(8.0);
             if let Some(mut material) = materials.get_mut(&open.material) {
                 material.uv_transform = Affine2::from_translation(Vec2::new(open.scroll, 0.0));
@@ -194,7 +231,7 @@ pub(crate) fn step_open_rays(
                 };
                 billboard.axis = Some(ray.way);
                 simulated.translation = shot.position + ray.way * open.length / 2.0;
-                transform.scale = Vec3::new(open.length, recipe.width, 1.0);
+                transform.scale = Vec3::new(open.length, width, 1.0);
             }
         }
     }

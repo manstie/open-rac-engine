@@ -56,8 +56,8 @@ pub(super) fn rift(
 /// A rift (0x373990): it slows as it flies and opens after a while or where it meets
 /// something, knocking what it met. Open, it takes one enemy (or other thing with hit
 /// points) at a time within its reach whose hit points are at most twice the gun's damage
-/// times its size, pulls it in and swallows it, until its time runs out or he leaves it
-/// behind.
+/// times its size, pulls it in and swallows it, until its time runs out with nothing held or
+/// he leaves it behind; then it closes, taking nothing (0x375C70).
 pub(super) fn rift_shot(
     shot: &mut Shot,
     fire: &Rift,
@@ -70,6 +70,7 @@ pub(super) fn rift_shot(
         return false;
     };
     if state.open.is_some()
+        && state.closing.is_none()
         && let Some(ripper) = fire.ripper
         && shot.level >= ripper.from_level
     {
@@ -77,7 +78,8 @@ pub(super) fn rift_shot(
     }
     let keep = rift_tick(shot, &mut state, fire, flight, out);
     shot.kind = ShotKind::Rift(state);
-    if !keep {
+    // Its end is drawn as it begins to close, as the game's closing stars are.
+    if state.closing == Some(0) {
         out.shot_event(
             shot,
             GunEventKind::Impact {
@@ -156,9 +158,19 @@ fn rift_tick(
         }
         return true;
     };
+    if let Some(closing) = &mut state.closing {
+        *closing += 1;
+        return *closing < fire.close_ticks;
+    }
     *open += 1;
-    if *open >= fire.open_ticks || shot.position.distance(flight.hero) > fire.leash {
-        return false;
+    // Its time runs out only while it holds nothing (0x373990, state 2). Closing with
+    // something held, the game's opens again while that is within 50 u of it; the kit's
+    // lets go.
+    let spent = state.taking.is_none() && *open >= fire.open_ticks;
+    if spent || shot.position.distance(flight.hero) > fire.leash {
+        state.closing = Some(0);
+        state.taking = None;
+        return true;
     }
     if let Some((entity, left, speed)) = &mut state.taking {
         let Some(taken) = targets

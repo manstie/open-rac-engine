@@ -1155,6 +1155,8 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
   V1–V2, 0x378298 from V3) with 0x37B2C8's 0x2C and 0x0F.
 - **Later states:** 3 standing, 4 hit (from V3 a bolt, below, in (0x20, 0x40, 0x7F); the
   Ultrashield's pulses 0x372338), 5 folding (draws 0x37A5C0 and 0x379CE0, not read).
+  State 4 lasts 30 frames at every level and is drawn by 0x379780 at V1–V2 (not read) and
+  0x378FF8 from V3 (below, "As a hit shakes it").
 - **The wall** (0x378A20 at V1–V2, 0x378298 from V3, queued each frame from state 2 on)
   [code, 2026-10-28] is quads in the shield's own plane: the unit square's corners (0,
   ±1, ±1) (0x1D7C50 [data]) times a size, turned about its facing axis and then taken
@@ -1178,12 +1180,28 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
   - From V3: two camera-facing stars of 57 (half 0.2, (0x20, 0x40, 0xFF) at 0x4F); glows
     of 11 at 0.225 in (0x40, 0x20, 0xFF) at 0x3F and at 1.0 in (0x10, 0x10, 0x7F) at
     0x15; rings of 27 at 1.15 in (0x80, 0x40, 0x20) at 0x4F, and of 8 at 1.1 in (0x10,
-    0x10, 0xFF) at 0x1F; at V5 a quad of texture 5 (0x1DDB64 [data]); and five strips of
+    0x10, 0xFF) at 0x1F; at V5 a quad of texture 5 (0x1DDB64 [data]: a soft disc with
+    banded shading, like a lit sphere) at 1.15 in (0x80, 0x40, 0x20) at 0x5F, added,
+    turning with the rings of 8, unfaded; and five strips of
     the cloud 67 through itself: grey 0x40, then (0x40, 0x40, 0x60) 0.02 either side and
     (0x7F, 0x40, 0x80) 0.04 either side, all at 0x2F.
   - Textures (`openrac-tool fx-textures`, Veldin): 8 a ring, 11 a soft glow, 27 a thin
     blue ring, 57 a fiery wisp, 67 a smoky cloud, 71 a starburst, 72 a fibrous disc, 75 a
     swirl, 76 a soft ring.
+- **As a hit shakes it** (0x378FF8, from V3) [code, 2026-11-04]: the standing draw's
+  layers, but the ring of 8 at 1.1 is (0x80, 0x40, 0x20) at 0x4F, unfaded, in place of the
+  blue one at 0x1F; and another ring of 8 in (0x80, 0x40, 0x20) at 0x25 grows from 0.05 by
+  0.05 a frame to 1.1 (+0x40, set to 0 as the reaction ends) and then isn't drawn.
+- **The Ultrashield's "bubble"** [code, 2026-11-04]: none of its draws (0x378298, 0x378FF8,
+  0x379CE0, and the quads 0x37ABF8 and 0x37AD80 they call) takes the copy of the frame
+  (texture −1): nothing of it warps what is behind it. What reads as a pink-white bubble
+  in the game's take (`review-holo-0x6B`) is V5's disc of 5 over V3's layers, the orange
+  rings of a hit, and several shields standing together, all added. The shield moby's own
+  class (0x186D: a disc 0.7 across with 25 joints, read with `openrac-tool moby` at
+  0x15D9AC0 in the Veldin image) is drawn too: its update ends with 0x439610, the
+  matrix and bounding-sphere update every drawn moby gets, at its width's scale (+0x18);
+  the kit doesn't draw it. Classes are found by a byte index at 0x1FDC50 + class into
+  pointers at 0x1FD200 (`moby_class_register`, 0x424368).
 - **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 10` against the kit's
   `-holo-near` drawn every tick, V3, three shields stacked): both an oval of turning
   purple-blue layers. The game's is rounder on screen (about 1.3 wide for 1 high, from
@@ -1540,9 +1558,15 @@ row's flag 0x1DDA84.
   the middle, so without its 32 wedges or their phase). On `--gun-level 5` takes
   (`rift-lens2`) it draws the sky in toward the rift's middle and an enemy being
   swallowed out into a streak toward it, and the rings bow the horizon up round it; the
-  game's take (`review-rift-0x63`) shows the cliff behind smeared in the same way. The
-  rays stop at once as it closes, where the game's shorten for 20 frames, and the rings
-  go with it, where the game's shrink away (0x375C70).
+  game's take (`review-rift-0x63`) shows the cliff behind smeared in the same way.
+  Closing, it stays a shot for its 20 ticks (`RiftState::closing`, 2026-11-04): the lens
+  and smoke go, and the rays and rings go as "Closing" below has them (the recipe's
+  `closing` for each; `open.rs`, `refract.rs`); its stars and glows are its impact's,
+  from the tick it begins to close. Seen at V5 (`kitdemo-arena-rift-close.orin`,
+  `--every-tick`): on its first closing tick the lens's warp of what is behind goes, the
+  two rings as wide as the rays bow it a few ticks more, the rays draw in as short wide
+  dashes and faint rings narrow round the star, then only the closing stars are left
+  until it goes. Not compared with the game's footage of a close.
 - **Its smoke** [code, 2026-10-31] (0x373990): every 0x61 it draws in has its texture byte
   set to 0x17's first (0x221174), and keeps 0x61's own blend, added (0x48; the spawner
   0x46DCB8 sets +3 = 0x48, +9 = 0x44), fading in from alpha 0 to 0x7F: the four from the
@@ -1559,9 +1583,19 @@ row's flag 0x1DDA84.
   rings with dark bits and rocks on the ground. Not drawn still: the lens, which
   darkens the game's (drawn since, 2026-11-04: "In the kit" above), and the view's-plane
   ring.
-- **Closing** (states 3 and 4, 20 frames, 0x375C70): the rings shrink away, the rays
-  shorten 0.125 a frame, and the stars of 57 (half 0.25 and 0.27) and glows of 11 (0.3
-  and 0.35) stay at new rolls; sound 1 at its end.
+- **Closing** (states 3 and 4, 20 frames, 0x375C70) [code, the ring calls checked in the
+  disassembly, 2026-11-04]: no lens and no smoke (`weapons.md`, "Closing", for when).
+  - The rings of +0x70 and +0x74 go on narrowing 0.04 and 0.025 a frame but stop at 0
+    rather than starting over, and take the copy from 0.5 of each point's way out
+    (0x3750E0's fourth argument; 0.8 open), so they magnify 2.
+  - The other two, rolled −(+0x78) and +0x78, are as wide as the rays are long: their
+    radius is +0x44, 3 s as it begins to close (2.27 s open), taking it from 0.8 still.
+  - The rays shorten 0.125 a frame (gone in 12), still turning and scrolling, drawn at a
+    half width of 0.08 (open 0.08 s) with their end at 0x1F (open 0x2F). `fx_beam`'s
+    second argument, 3 s open and 3 closing, isn't read.
+  - The stars of 57 (half 0.25 and 0.27) and glows of 11 (0.3 and 0.35; open, 1.3 s
+    times those) stay, at new rolls each frame.
+  - Sound 1 only at the end of state 4.
 
 #### Suck Cannon (0x3619C8, shot class 0x1872 0x381B98, V1–V4) [code, 2026-10-29]
 
@@ -1775,8 +1809,8 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Spitting Hydra (Tempest) | Close, the same at V3 (2026-11-03). The game's "violet domes" are the spit's two rings of 61, camera-facing up to 10.5 and 21 u across with the floor hiding their lower halves, and the kit draws them so; its "gold ground bolt" is the charge's crackles to the floor, grey and blue added on sand. Each spit's bolt 10 u ahead is now drawn too. The kit's violet and glows come out bluer and stronger | The kit adds colours in linear light ("Importing them", "Colours"); arcs aren't cut short at walls |
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
 | Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. No spawn burst of violet and gold lightning | Their size on screen not compared at a matching camera |
-| Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's | The placeholder ball still shows |
-| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white bubble warping what's behind it; the kit's a violet dome with dark bands | No V5 recipe |
+| Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code | The placeholder ball still shows |
+| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5 and the orange rings of a hit from its code | The class's own model (0x186D) and the stars of 57 facing the camera aren't drawn |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
 | Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |
 | Qwack-O-Ray (Qwack-O-Blitzer) | Close (2026-11-03). The floor round him is lit warm, as the game's: every gun's light is now drawn with the game's falloff (above, "How the lights fall off"), weaker on the kit's pale floor (1.25 times as bright beside him, the game's sand 1.54 times) under its tonemapper. The beam's colours are its code's; the game's looks yellower and its curls redder, and it looks to rise past his head only from the game's camera, higher behind him ("Which way the beam goes") | The colours add in linear light (below, "Importing them"); the light isn't kept 20 frames after the beam stops; the kit's beam starts along his aim, not the gun's barrel |

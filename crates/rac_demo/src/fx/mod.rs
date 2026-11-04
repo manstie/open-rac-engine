@@ -63,10 +63,10 @@ pub use light::ShotLight;
 pub use mark::{Flame, Flat, Mark};
 pub use marker::Marker;
 pub use model::{FxModel, FxModels};
-pub use open::{Open, OpenRays};
+pub use open::{Open, OpenRays, RaysClosing};
 pub use paint::{Paint, Shape};
-pub use panel::{Panel, Panels};
-pub use refract::{LensRing, OpenLens};
+pub use panel::{Panel, Panels, Showing};
+pub use refract::{LensRing, OpenLens, RingClosing};
 pub use ribbon::Ribbon;
 pub use rope::{AlongRope, Strand};
 pub use shake::{CameraShake, Shaking};
@@ -2089,6 +2089,10 @@ fn emit_trails(
                 && glare.until.is_none_or(|until| shot.ticks < until)
             {
                 spawner.glare(glare, shot.position, &mut rng);
+            }
+            // A closing rift draws no smoke in (0x375C70).
+            if crate::guns::closing(&shot.kind).is_some() {
+                continue;
             }
             let open = recipes
                 .open(key, shot.level, kind)

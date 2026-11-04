@@ -1261,7 +1261,10 @@ pub struct Rift {
     pub fly_ticks: u32,
     /// What it meets as it flies is knocked by its velocity a frame times this.
     pub knock: f32,
+    /// Open, its time while it holds nothing; then it closes for `close_ticks`, taking
+    /// nothing (0x375C70).
     pub open_ticks: u32,
+    pub close_ticks: u32,
     pub leash: f32,
     /// Open, it takes an enemy within `reach` whose hit points are at most `size` × 2 × the
     /// gun's damage, and pulls it in on a spring whose strength is drawn between these
@@ -1525,6 +1528,9 @@ pub struct Barrier {
     pub fold_ticks: u32,
     pub leash: f32,
     pub hits: u32,
+    /// Each hit plays a reaction of this many ticks (0x376B88's state 4), which from V3
+    /// changes its look and from V5 sends its pulses.
+    pub react_ticks: u32,
     /// The wall it stands as: half its width, its height.
     pub half_width: f32,
     pub height: f32,
@@ -1552,14 +1558,13 @@ pub struct Barrier {
 }
 
 /// The Ultrashield's pulses (0x372338, class 0x1869, its flight 0x371F48): every `every`
-/// ticks of a hit's `react_ticks`, one leaves at the first enemy within `range` it can
+/// ticks of a hit's reaction, one leaves at the first enemy within `range` it can
 /// see, for `share` of the damage, gaining `accel` u/s a tick; it strikes the first thing
 /// it meets, pushed `push` along its way, and fades over its last ticks from `fade_from`
 /// to `ticks`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Pulse {
     pub from_level: u8,
-    pub react_ticks: u32,
     pub every: u32,
     pub range: f32,
     /// It won't go at an enemy it went at in the last this many ticks.

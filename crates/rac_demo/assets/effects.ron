@@ -28,6 +28,7 @@
         Effect(9): (shape: Smoke, colour: (0.02, 0.02, 0.02)),
         Effect(10): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Effect(11): (shape: Glow, colour: (1.0, 0.95, 0.85)),
+        Effect(5): (shape: Glow, colour: (1.0, 1.0, 1.0)),
         Effect(6): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Effect(13): (shape: Streak, colour: (0.4, 0.5, 1.0)),
         Effect(14): (shape: Streak, colour: (1.0, 0.45, 0.55)),
@@ -1624,7 +1625,7 @@
         // a star of 65 (0x3735E0), and twelve pairs of blue glows and faint sparkles at the
         // gun (0x372F48). In flight the rift's turning rings of 76, swirl of 75 and glow of
         // 11 (0x376010), the dark smoke every 0.1 u, orange puffs (0x376328) and its light.
-        // Where it ends, its closing stars and glows for 20 ticks (0x375C70). Open
+        // As it begins to close, its closing stars and glows for its 20 ticks (0x375C70). Open
         // (0x3753F8), its size s being 0.5: stars of 57 and glows of 11 at new rolls, 24
         // turning rays of 18, and smoke drawn into it (0x373990: 0x61s in 0x17's texture,
         // added but for one in five on the ground, which is blended, with rocks).
@@ -1678,6 +1679,8 @@
                     end: (0.25, 0.25, 1.99, 0.37),
                     scroll: (0.025, 0.035),
                     turn: 1.0,
+                    // Closing (0x375C70): a half width of 0.08, not 0.08 s, its end at 0x1F.
+                    closing: Some((shorten: 0.125, width: 0.16, end: (0.25, 0.25, 1.99, 0.24))),
                 )),
                 lens: Some((
                     texture: Effect(77),
@@ -1687,11 +1690,13 @@
                     tall: 0.5,
                     behind: 0.5,
                     pull: 0.3,
+                    // Closing (0x375C70), the narrowing two magnify 2 and the other two are as
+                    // wide as the rays are long.
                     rings: [
-                        (texture: Effect(54), size: 2.25, shrink: 0.08, spin: 2.5, nearer: 0.5, from: 0.8),
-                        (texture: Effect(54), size: 2.25, shrink: 0.05, roll: 4.17, spin: 2.5, nearer: 0.5, from: 0.8),
-                        (texture: Effect(54), size: 2.27, spin: -2.5, nearer: 0.5, from: 0.8),
-                        (texture: Effect(54), size: 2.27, spin: 2.5, nearer: 0.5, from: 0.8),
+                        (texture: Effect(54), size: 2.25, shrink: 0.08, spin: 2.5, nearer: 0.5, from: 0.8, closing: Some(Narrows(0.5))),
+                        (texture: Effect(54), size: 2.25, shrink: 0.05, roll: 4.17, spin: 2.5, nearer: 0.5, from: 0.8, closing: Some(Narrows(0.5))),
+                        (texture: Effect(54), size: 2.27, spin: -2.5, nearer: 0.5, from: 0.8, closing: Some(WithRays)),
+                        (texture: Effect(54), size: 2.27, spin: 2.5, nearer: 0.5, from: 0.8, closing: Some(WithRays)),
                     ],
                 )),
                 trail: [
@@ -1741,9 +1746,10 @@
         // The Holo Shield Glove (0x3717A8; effects.md, "Holo Shield Glove") [code]: the
         // shield in flight (0x37B108), and the blue puffs as it unfolds where it lands
         // (0x376B88), half of them added; standing, its wall's sprites in its plane, over
-        // its whole 4 by 2.3. The glove's throw is the kit's own; the shield's light in
-        // flight is drawn, but not the two stars of 57 facing the camera at V3 and V5's own
-        // layer; its bolts are the defaults'.
+        // its whole 4 by 2.3, from V3 changing as a hit shakes it (0x378FF8), and V5's
+        // bubble, a soft disc of 5, over it. The glove's throw is the kit's own; the
+        // shield's light in flight is drawn, but not the two stars of 57 facing the camera
+        // from V3; its bolts are the defaults'. Nothing of it warps the frame [code].
         "holo": (
             marker: Some((layers: (Effect(88), Effect(87)), half: 1.0, turn: 2.0, colours: ((1.375, 1.875, 1.875, 0.875), (1.375, 1.875, 1.875, 0.625)), lift: 0.03)),
             fire: Some([Glow(texture: Effect(11), size: 0.4, end_size: 0.9, ticks: 6, colour: (0.4, 0.9, 1.0, 1.0))]),
@@ -1785,7 +1791,32 @@
                                     (texture: Effect(11), size: 1.0, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 0.992, 0.164), near: Some((13.0, 38.0))),
                                     (texture: Effect(27), size: 1.15, spin: (-1.0, -2.0), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
                                     (texture: Effect(27), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
-                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0))),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0)), when: Unhit),
+                                    // As a hit shakes it (0x378FF8): the ring of 8 orange, and another growing to it.
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), when: Hit),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.289), when: Hit, grow: Some(0.05)),
+                                    (texture: Effect(67), size: 1.0, spin: (-1.0, -2.0), colour: (0.5, 0.5, 0.5, 0.367)),
+                                    (texture: Effect(67), size: 1.0, offset: 0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
+                                    (texture: Effect(67), size: 1.0, offset: -0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
+                                    (texture: Effect(67), size: 1.0, offset: 0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
+                                    (texture: Effect(67), size: 1.0, offset: -0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
+                                ],
+                            )),
+                        ),
+                        4: (
+                            panels: Some((
+                                unfold: 34,
+                                layers: [
+                                    (texture: Effect(11), size: 0.225, offset: 0.01, spin: (-1.5, -2.5), colour: (0.5, 0.25, 1.99, 0.492), near: Some((13.0, 38.0))),
+                                    (texture: Effect(11), size: 1.0, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 0.992, 0.164), near: Some((13.0, 38.0))),
+                                    (texture: Effect(27), size: 1.15, spin: (-1.0, -2.0), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
+                                    (texture: Effect(27), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
+                                    // V5's bubble: a soft banded disc of 5 (0x1DDB64), added.
+                                    (texture: Effect(5), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.742)),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0)), when: Unhit),
+                                    // As a hit shakes it (0x378FF8): the ring of 8 orange, and another growing to it.
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), when: Hit),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.289), when: Hit, grow: Some(0.05)),
                                     (texture: Effect(67), size: 1.0, spin: (-1.0, -2.0), colour: (0.5, 0.5, 0.5, 0.367)),
                                     (texture: Effect(67), size: 1.0, offset: 0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
                                     (texture: Effect(67), size: 1.0, offset: -0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),

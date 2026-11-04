@@ -1488,6 +1488,42 @@ fn a_rift_swallows_an_enemy_no_stronger_than_the_guns_damage_and_leaves_a_strong
 }
 
 #[test]
+fn a_rift_closes_for_20_ticks_once_its_time_is_out_taking_nothing() {
+    let mut yard = Yard::new(&[(RIFT, 0)]);
+    let rift = |yard: &Yard| {
+        yard.arsenal()
+            .shots
+            .iter()
+            .find_map(|shot| match shot.kind {
+                ShotKind::Rift(state) => Some((state, shot.position)),
+                _ => None,
+            })
+    };
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    while rift(&yard).is_some_and(|(state, _)| state.open.is_none()) {
+        yard.idle(1);
+    }
+    yard.idle(599);
+    let (state, at) = rift(&yard).expect("the open rift");
+    assert_eq!((state.open, state.closing), (Some(599), None));
+    // Something weak beside it as it closes isn't taken.
+    let weak = yard.enemy(at, 50.0);
+    let impacts = |yard: &Yard| {
+        let impact = |event: &&GunEvent| matches!(event.kind, GunEventKind::Impact { .. });
+        yard.events.iter().filter(impact).count()
+    };
+    yard.idle(1);
+    assert_eq!(rift(&yard).map(|(state, _)| state.closing), Some(Some(0)));
+    assert_eq!(impacts(&yard), 1);
+    yard.idle(19);
+    assert_eq!(rift(&yard).map(|(state, _)| state.closing), Some(Some(19)));
+    yard.idle(1);
+    assert!(rift(&yard).is_none());
+    assert_eq!(impacts(&yard), 1);
+    assert_eq!(yard.hitpoints(weak), 50.0);
+}
+
+#[test]
 fn the_suck_cannon_takes_in_a_small_enemy_and_fires_it_back_out() {
     let mut yard = Yard::new(&[(SUCK, 0)]);
     let small = yard.enemy(Vec3::new(0.0, 1.0, -2.5), 4.0);
@@ -2259,6 +2295,39 @@ fn the_ultrashield_sends_pulses_at_an_enemy_as_a_hit_shakes_it() {
     assert!(
         taken > 0.0 && (pulses - pulses.round()).abs() < 1e-3,
         "took {taken}"
+    );
+}
+
+#[test]
+fn a_holo_shield_reacts_to_each_hit_for_30_ticks_sending_pulses_only_from_v5() {
+    let mut yard = Yard::new(&[(HOLO, 2)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    yard.idle(60);
+    let state = |yard: &Yard| {
+        yard.arsenal()
+            .shots
+            .iter()
+            .find_map(|shot| match shot.kind {
+                ShotKind::Barrier(state) => Some((state, shot.position)),
+                _ => None,
+            })
+    };
+    let (before, at) = state(&yard).expect("the shield");
+    assert_eq!(before.react, None);
+    let armory = Armory::uya();
+    {
+        let mut arsenal = yard.arsenal_mut();
+        let from = at + Vec3::new(0.0, 1.0, -0.5);
+        assert!(block_shot(&mut arsenal, &armory, from, Vec3::Z).is_some());
+    }
+    assert_eq!(state(&yard).and_then(|(state, _)| state.react), Some(0));
+    yard.idle(29);
+    assert_eq!(state(&yard).and_then(|(state, _)| state.react), Some(29));
+    yard.idle(1);
+    assert_eq!(state(&yard).and_then(|(state, _)| state.react), None);
+    assert_eq!(
+        yard.count_shots(|kind| matches!(kind, ShotKind::Pulse { .. })),
+        0
     );
 }
 

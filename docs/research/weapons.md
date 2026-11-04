@@ -2202,7 +2202,9 @@ There is no shared limit on how long a thrown thing may fall; each has its own r
 - **In flight** it loses 8% of its speed a frame, so it goes about 14 u, and opens after
   36 frames or where the line of its step meets something (a 1 u ball there is knocked,
   for 0 damage, by its velocity × 3).
-- **Open** (state 2), for 600 frames (10 s), or until he is more than 30 u away:
+- **Open** (state 2), for 600 frames (10 s), or until he is more than 30 u away
+  [code, re-read 2026-11-04]: both only while it holds nothing. Holding something, it
+  stays open until that is more than 50 u from the rift or from him. Then it closes:
   - a value grows 0.005 a frame to 0.75 (+0x80); the pull doesn't use it (read again
     2026-10-31; what it drives isn't read);
   - it looks within its size + 9 u (9.5 u) for an enemy, or a damageable moby, not of a
@@ -2218,8 +2220,15 @@ There is no shared limit on how long a thrown thing may fall; each has its own r
     it turns +0.3, +0.1 and −0.2 rad a frame about its axes and shrinks × 0.99 a frame for
     its first 30 frames, its parts pulled by the same spring;
   - enemies with more health are left alone [code, as read].
-- **V5 and up** (the Rift Ripper): each frame, each enemy within its size + 4.5 u has a 1
-  in 18 chance of a lightning bolt (0x34DAA0) of a tenth of the rift's damage.
+- **Closing** (state 3, 0x373990) [code, 2026-11-04]: 20 frames (drawn by 0x375C70,
+  `effects.md`, "Closing"), looking for nothing and pulling nothing; then it goes, its
+  loop sound stopped. If it still holds something, it lets go of it more than 50 u
+  from the rift, or else opens again (state 2, its count from 0). State 4 is the same
+  but for any held target opening it again and sound 1 as it goes; what sets state 4
+  isn't found (neither the gun, 0x372990, nor 0x3738B0).
+- **V5 and up** (the Rift Ripper): each frame it is open, each enemy within its size +
+  4.5 u has a 1 in 18 chance of a lightning bolt (0x34DAA0) of a tenth of the rift's
+  damage.
 - The row's second damage (5) isn't read here.
 
 ### Suck Cannon (0x3619C8) [code, UYA NTSC, 2026-10-22]
@@ -2744,9 +2753,12 @@ profiles' `gun` section):
     damage, every 30 or 15 ticks, 50 rounds each or 120 shared at V4), from V5 the small
     missile while it keeps by him;
   - the Rift Inducer's rift at 60–80 u/s keeping 0.92 a tick, opening after 36 ticks or
-    where it meets something, then for 600 ticks taking one target at a time within 9.5 u
-    whose hit points are at most its damage and swallowing it (`Affliction::Swallowed`,
-    a kill);
+    where it meets something, then for 600 ticks while it holds nothing taking one
+    target at a time within 9.5 u whose hit points are at most its damage and swallowing
+    it (`Affliction::Swallowed`, a kill), then closing for 20 ticks (`RiftState::closing`),
+    taking nothing. Simplified: the 30 u from him also closes it while it holds something
+    (the game's is then 50 u from the target), and closing lets go of what it holds
+    rather than opening again;
   - the Suck Cannon sucking in, every 4 ticks held, what its four balls along the vortex
     touch up to its capacity (`Arsenal::sucked`, the HUD's count), and firing one back
     out a press, 30 ticks apart, at 40 u/s;

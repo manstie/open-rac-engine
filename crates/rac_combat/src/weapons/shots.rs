@@ -361,11 +361,13 @@ impl AgentBook {
     }
 }
 
-/// A rift: open for the ticks since, its pull's strength, and the target it is pulling in
-/// with how far it has still to come and how fast it comes, in u a tick.
+/// A rift: open for the ticks since, closing for the ticks since, its pull's strength, and
+/// the target it is pulling in with how far it has still to come and how fast it comes, in u
+/// a tick.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct RiftState {
     pub open: Option<u32>,
+    pub closing: Option<u32>,
     pub spring: f32,
     pub taking: Option<(Entity, f32, f32)>,
 }
@@ -459,8 +461,8 @@ pub struct BarrierState {
     pub hits_left: u32,
     /// Folding away: ticks left.
     pub folding: Option<u32>,
-    /// Ticks until the bolt a hit sends (V3–V4), or into the reaction that sends the
-    /// Ultrashield's pulses.
+    /// Ticks until the bolt a hit sends (V3–V4), and into its reaction to its last hit,
+    /// which sends the Ultrashield's pulses.
     pub bolt: Option<u32>,
     pub react: Option<u32>,
     /// Ticks to the next point of health it gives him, and to its next drain of an enemy

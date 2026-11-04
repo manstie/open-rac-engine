@@ -1020,11 +1020,11 @@ fn barrier_tick(
             }
         }
     }
-    if let Some(pulse) = fire.pulse
-        && let Some(ticks) = &mut state.react
-    {
+    if let Some(ticks) = &mut state.react {
         *ticks += 1;
-        if (*ticks).is_multiple_of(pulse.every.max(1)) {
+        if let Some(pulse) = fire.pulse.filter(|pulse| shot.level >= pulse.from_level)
+            && (*ticks).is_multiple_of(pulse.every.max(1))
+        {
             let from = shot.position + Vec3::Y * fire.height / 2.0;
             let seen = flight
                 .targets
@@ -1048,7 +1048,7 @@ fn barrier_tick(
                 });
             }
         }
-        if *ticks >= pulse.react_ticks {
+        if *ticks >= fire.react_ticks {
             state.react = None;
         }
     }
@@ -1197,25 +1197,23 @@ pub fn block_shot(arsenal: &mut Arsenal, armory: &Armory, from: Vec3, motion: Ve
     }
     let (t, index) = nearest?;
     let shot = &mut arsenal.shots[index];
-    let (bolt_from, pulses) = match armory.get(shot.weapon).map(|def| &def.fire) {
+    let bolt_from = match armory.get(shot.weapon).map(|def| &def.fire) {
         Some(FireMode::Barrier(fire)) => {
             let pulses = fire
                 .pulse
                 .is_some_and(|pulse| shot.level >= pulse.from_level);
-            let bolt = fire
-                .bolt_from
+            fire.bolt_from
                 .filter(|&from| shot.level >= from && !pulses)
-                .map(|_| fire.bolt_after);
-            (bolt, pulses)
+                .map(|_| fire.bolt_after)
         }
-        _ => (None, false),
+        _ => None,
     };
     if let ShotKind::Barrier(state) = &mut shot.kind {
         state.hits_left = state.hits_left.saturating_sub(1);
         if state.bolt.is_none() {
             state.bolt = bolt_from;
         }
-        if pulses && state.react.is_none() {
+        if state.react.is_none() {
             state.react = Some(0);
         }
     }

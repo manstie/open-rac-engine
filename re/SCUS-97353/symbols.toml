@@ -5824,3 +5824,66 @@ address = 0x00457590
 kind = "function"
 confidence = "medium"
 note = "Runs a walker a frame towards a point at a yaw (0x4577D0 and others), once per frame count; walker_set_params gives its acceleration, top speed and turn."
+
+[[symbol]]
+name = "holo_shield_update"
+address = 0x00376B88
+kind = "function"
+confidence = "high"
+note = "The Holo Shield's shield (class 0x186D): states 0 flying, 2 unfolding, 3 standing (900 frames), 4 a hit's 30-frame reaction, 5 folding (20 frames). Queues its wall's draw each frame and ends with moby_update_bounds."
+
+[[symbol]]
+name = "holo_wall_draw_v3"
+address = 0x00378298
+kind = "function"
+confidence = "high"
+note = "The standing shield's wall from V3: billboards of 57, quads of 11, 27, 8 and at V5 texture 0x1DDB64 (5), and masked strips of 67 (holo_quad, holo_masked_strip). Takes no copy of the frame."
+
+[[symbol]]
+name = "holo_hit_draw_v3"
+address = 0x00378FF8
+kind = "function"
+confidence = "high"
+note = "The wall as a hit shakes it, from V3: as holo_wall_draw_v3 but its ring of 8 orange at 0x4F, and another growing 0.05 a frame to 1.1 (+0x40)."
+
+[[symbol]]
+name = "holo_quad"
+address = 0x0037ABF8
+kind = "function"
+confidence = "medium"
+note = "(size, push, turn, moby, position, texture, colour, blend): a quad in the shield's plane, turned and then stretched by its matrix."
+
+[[symbol]]
+name = "holo_masked_strip"
+address = 0x0037AD80
+kind = "function"
+confidence = "medium"
+note = "A strip in the shield's plane that writes one texture's alpha into the frame's, then adds a second weighted by it."
+
+[[symbol]]
+name = "rift_open_draw"
+address = 0x003753F8
+kind = "function"
+confidence = "high"
+note = "The open rift: its lens (texture -1 through 77), four rings of 54 (rift_ring_draw), 24 rays of 18 and its stars and glows."
+
+[[symbol]]
+name = "rift_ring_draw"
+address = 0x003750E0
+kind = "function"
+confidence = "high"
+note = "(radius, nearer, roll, from, position, texture): a quad facing the camera writing the texture's alpha into the frame's, then the copy of the frame (texture -1) with each corner taken from `from` of its way out."
+
+[[symbol]]
+name = "rift_close_draw"
+address = 0x00375C70
+kind = "function"
+confidence = "high"
+note = "The rift's closing (states 3 and 4, 20 frames): two rings narrowing to nothing taking the frame from 0.5, two as wide as the rays are long, the rays shortening 0.125 a frame; no lens."
+
+[[symbol]]
+name = "moby_update_bounds"
+address = 0x00439610
+kind = "function"
+confidence = "medium"
+note = "Updates a moby's matrix and bounding sphere from its position, rotation and scale (+0x2C) for drawing; called by most updates as they end."

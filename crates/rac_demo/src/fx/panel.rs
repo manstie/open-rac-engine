@@ -1,6 +1,6 @@
 //! Sprites laid in a standing shot's own upright plane, as the Holo Shield's wall
-//! (0x378A20 at V1–V2, 0x378298 from V3): drawn once it stands, unfolding where it
-//! landed and folding away with it.
+//! (0x378A20 at V1–V2, 0x378298 from V3, and 0x378FF8 from V3 as a hit shakes it): drawn
+//! once it stands, unfolding where it landed and folding away with it.
 
 use std::collections::BTreeMap;
 
@@ -26,7 +26,9 @@ pub struct Panels {
 /// A sprite in the shot's plane: `size` times its whole width and height, `offset` in
 /// front of it, turning in the plane by between the two of `spin` degrees a tick, and,
 /// with `near`, faded out while the camera is within the first of its squared distances
-/// across of the shot's middle, in fully by the second (0x40C040 between them).
+/// across of the shot's middle, in fully by the second (0x40C040 between them). It shows
+/// `when` its shot reacts to a hit or doesn't; with `grow`, it grows that much of the whole
+/// a tick from the hit up to `size`, then goes.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Panel {
     pub texture: Tex,
@@ -41,6 +43,39 @@ pub struct Panel {
     pub near: Option<(f32, f32)>,
     #[serde(default)]
     pub blend: Blend,
+    #[serde(default)]
+    pub when: Showing,
+    #[serde(default)]
+    pub grow: Option<f32>,
+}
+
+/// When a panel shows, by its shot's reaction to its last hit (`BarrierState::react`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum Showing {
+    #[default]
+    Always,
+    Hit,
+    Unhit,
+}
+
+impl Panel {
+    /// How big it is `react` ticks into its shot's reaction to a hit, or none if it isn't
+    /// drawn.
+    fn size(&self, react: Option<u32>) -> Option<f32> {
+        let shows = match self.when {
+            Showing::Always => true,
+            Showing::Hit => react.is_some(),
+            Showing::Unhit => react.is_none(),
+        };
+        match self.grow {
+            _ if !shows => None,
+            None => Some(self.size),
+            Some(grow) => {
+                let grown = grow * (react.unwrap_or(0) + 1) as f32;
+                (grown <= self.size + 1e-3).then_some(grown)
+            }
+        }
+    }
 }
 
 /// The panels drawn now, by player, shot and layer.
@@ -147,7 +182,7 @@ pub(crate) fn draw_panels(
                     *transform = Transform {
                         translation: centre + facing * Vec3::Z * panel.offset,
                         rotation: facing,
-                        scale: (size * panel.size).extend(1.0),
+                        scale: (size * panel.size(state.react).unwrap_or(0.0)).extend(1.0),
                     };
                 }
                 if let Ok(mut transform) = places.get_mut(entry.sprite) {
@@ -179,6 +214,33 @@ fn unfolded(landed: u32, folding: Option<u32>, unfold: u32, fold: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panel_shows_by_its_shots_reaction_to_a_hit_and_can_grow_from_it() {
+        let panel = |when, grow| Panel {
+            texture: Tex::Effect(8),
+            size: 1.1,
+            offset: 0.0,
+            spin: (0.0, 0.0),
+            colour: opaque(),
+            near: None,
+            blend: Blend::default(),
+            when,
+            grow,
+        };
+        assert_eq!(panel(Showing::Always, None).size(None), Some(1.1));
+        assert_eq!(panel(Showing::Unhit, None).size(Some(3)), None);
+        assert_eq!(panel(Showing::Hit, None).size(None), None);
+        assert_eq!(panel(Showing::Hit, None).size(Some(3)), Some(1.1));
+        // 0.05 a tick from the hit, to 1.1 on its 22nd tick, then gone (0x378FF8).
+        let ring = panel(Showing::Hit, Some(0.05));
+        assert_eq!(ring.size(Some(0)), Some(0.05));
+        assert!(
+            ring.size(Some(21))
+                .is_some_and(|size| (size - 1.1).abs() < 1e-5)
+        );
+        assert_eq!(ring.size(Some(22)), None);
+    }
 
     #[test]
     fn a_wall_unfolds_where_it_lands_and_folds_away() {

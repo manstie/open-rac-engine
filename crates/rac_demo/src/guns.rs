@@ -55,8 +55,17 @@ pub(crate) struct ShotLook {
 pub(crate) fn standing(kind: &ShotKind) -> bool {
     match kind {
         ShotKind::Barrier(state) => state.landed.is_some(),
-        ShotKind::Rift(state) => state.open.is_some(),
+        ShotKind::Rift(state) => state.open.is_some() && state.closing.is_none(),
         _ => false,
+    }
+}
+
+/// The ticks since a rift began to close, where only its rays and rings are left
+/// (0x375C70).
+pub(crate) fn closing(kind: &ShotKind) -> Option<u32> {
+    match kind {
+        ShotKind::Rift(state) => state.closing,
+        _ => None,
     }
 }
 
@@ -168,6 +177,10 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
         ShotKind::Spit { .. } | ShotKind::Bolt { .. } | ShotKind::Beam { .. } => Look {
             scale: Vec3::ZERO,
             ..ball(0.0, &looks.arc)
+        },
+        ShotKind::Rift(state) if state.closing.is_some() => Look {
+            scale: Vec3::ZERO,
+            ..ball(0.0, &looks.rift)
         },
         ShotKind::Rift(state) if state.open.is_some() => ball(0.9, &looks.rift),
         ShotKind::Rift(_) => ball(0.3, &looks.rift),
@@ -440,6 +453,8 @@ pub(crate) fn show_shots(
             let (sprites, streak) = if look.standing {
                 let open = draw.recipes.open(key, shot.level, name);
                 (open.map_or(&[][..], |open| open.sprites.as_slice()), None)
+            } else if closing(&shot.kind).is_some() {
+                (&[][..], None)
             } else {
                 (
                     draw.recipes.shot(key, shot.level, name),

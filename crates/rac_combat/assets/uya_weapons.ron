@@ -866,6 +866,7 @@
                 fly_ticks: 36,
                 knock: 3.0,
                 open_ticks: 600,
+                close_ticks: 20, // [code]
                 leash: 30.0,
                 reach: 9.0,
                 size: 0.5,
@@ -927,6 +928,7 @@
                 fold_ticks: 20,
                 leash: 35.0,
                 hits: 7, // 10 × 0.75
+                react_ticks: 30, // [code]
                 // As it is drawn [code]: its wall's sprites span ±2 across and ±1.2 up about
                 // a middle that rises 1.09 as it unfolds (0x376B88, 0x378298); what it
                 // blocks is still the kit's flat wall, its shape not read.
@@ -939,7 +941,6 @@
                 bolt_push: 0.5, // 0x34DFD0
                 pulse: Some((
                     from_level: 4,
-                    react_ticks: 30,
                     every: 10,
                     picked_ticks: 35,
                     range: 16.0,
