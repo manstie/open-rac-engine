@@ -821,7 +821,7 @@ pub(super) fn hydra(
     let busy = fire.spit_ticks.at(gun.level).unwrap_or(0);
     if !marked.is_empty() {
         arsenal.trigger.cooldown = busy;
-        fire_anim(arsenal, gun, out);
+        fire_anim(arsenal, gun, false, out);
         for entity in marked {
             let Some(struck) = alive(gun_input.targets, entity) else {
                 continue;
@@ -888,6 +888,7 @@ pub(super) fn hydra(
         GunEventKind::Fired {
             at: gun.muzzle,
             direction: gun.facing,
+            charged: false,
         },
     );
     arsenal.shots.push(shot);

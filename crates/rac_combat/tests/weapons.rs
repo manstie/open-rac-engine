@@ -408,6 +408,42 @@ fn the_shock_blasters_charged_shot_does_three_times_the_damage() {
 }
 
 #[test]
+fn the_shock_cannons_charged_shot_is_a_lance_hitting_along_the_aim_for_30_ticks() {
+    // 0x385948: 20 balls of 1.5 every 2 u to 40 u, each tick for 30, at ten times V5's 5;
+    // beyond the rays' 32 u, so the press's shot doesn't reach it.
+    let mut yard = Yard::new(&[(BLASTER, 4)]);
+    // Without the kit's placeholder recovery from a gun's hit, which would take most of
+    // the lance's.
+    yard.app
+        .world_mut()
+        .resource_mut::<CombatTuning>()
+        .gun_recovery_ticks = 0;
+    let target = yard.target(Vec3::new(0.25, 1.0, -36.0), 2000.0);
+    yard.hold(&[Action::Fire], 79);
+    assert_eq!(yard.hitpoints(target), 2000.0);
+    assert!(yard.arsenal().lance().is_none());
+    let log = yard.hold_logged(&[], 1);
+    assert!(
+        log[0]
+            .1
+            .iter()
+            .any(|event| matches!(event.kind, GunEventKind::Fired { charged: true, .. }))
+    );
+    assert_eq!(yard.hitpoints(target), 1950.0);
+    let lancing = yard.arsenal().lance().expect("the lance");
+    assert_eq!(lancing.tick, 0);
+    assert!(lancing.way.dot(Vec3::NEG_Z) > 0.99, "{:?}", lancing.way);
+    yard.idle(29);
+    assert_eq!(yard.arsenal().lance().map(|lancing| lancing.tick), Some(29));
+    assert_eq!(yard.hitpoints(target), 2000.0 - 30.0 * 50.0);
+    yard.idle(1);
+    assert!(yard.arsenal().lance().is_none());
+    assert_eq!(yard.hitpoints(target), 500.0);
+    // A round for the press's shot and ten for the lance.
+    assert_eq!(yard.arsenal().gun(BLASTER).unwrap().ammo, 50 - 11);
+}
+
+#[test]
 fn the_nitro_launchers_charge_bursts_and_its_blast_hits_once() {
     let mut yard = Yard::new(&[(NITRO, 0)]);
     let target = yard.target(Vec3::new(0.0, 1.0, -8.0), 50.0);

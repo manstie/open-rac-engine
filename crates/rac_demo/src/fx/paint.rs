@@ -34,6 +34,9 @@ pub enum Shape {
     Ring,
     /// A narrow leaf-shaped blade.
     Feather,
+    /// Full but for a soft hollow at its (1, 1) corner: a quarter of a screen warp's ring,
+    /// that corner at the screen's centre.
+    Edge,
 }
 
 /// A placeholder: its shape and colour (sRGB).
@@ -107,6 +110,10 @@ fn coverage(shape: Shape, p: Vec2) -> (f32, f32) {
             let across = p.y.abs() / (0.3 * soft(p.x.abs()).max(1e-3));
             (soft(across) * 0.85, 0.0)
         }
+        Shape::Edge => {
+            let off = (Vec2::ONE - p).length() / 2.0;
+            (((off - 0.1) / 0.7).clamp(0.0, 1.0), 0.0)
+        }
     }
 }
 
@@ -170,5 +177,19 @@ mod tests {
             assert!(alphas.iter().any(|&a| a > 128), "{shape:?}");
             assert!(alphas[0] < 16, "{shape:?}: its corner");
         }
+    }
+
+    #[test]
+    fn the_warps_ring_is_full_at_one_corner_and_hollow_at_the_other() {
+        let image = image(Paint {
+            shape: Shape::Edge,
+            colour: [0.5, 0.5, 0.5],
+        });
+        let data = image.data.unwrap();
+        let alpha = |x: u32, y: u32| data[((y * SIDE + x) * 4 + 3) as usize];
+        assert_eq!(alpha(0, 0), 255);
+        assert_eq!(alpha(SIDE - 1, 0), 255);
+        assert_eq!(alpha(SIDE - 1, SIDE - 1), 0);
+        assert!(alpha(SIDE / 2, SIDE / 2) > 128 && alpha(SIDE / 2, SIDE / 2) < 255);
     }
 }

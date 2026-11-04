@@ -218,7 +218,8 @@ two quads flat on that surface, half width 1.0, turning opposite ways, a turn in
   - the Nitro's blast (0x35E718): 0.4 − 0.02 × its distance from the camera within
     20 u, else 0 (which stops a shake under way), for 25 frames;
   - the Shock Blaster (0x36A790): 0.04, or 0.09 when its +0x48 is set (the charged
-    shot), for 30 frames on channels 0 and 1; the Shock Cannon (0x385948) 0.06 and 0.12;
+    shot), for 30 frames on channels 0 and 1; the Shock Cannon (0x385948) 0.06, or 0.12
+    when its hit waits the 5 frames (its +0x48; whether V1's +0x48 is that too isn't read);
   - the Eruptor (0x38A7B8): 0.4 on channel 0 and a roll of 0.15 on channel 2, 25 frames;
   - the Infecto-Bomb (0x38F6F0) and the debris pieces (0x447D00): 0.4 − 0.0175 × the
     distance within 20 u, else 0.05, 25 frames;
@@ -230,7 +231,8 @@ two quads flat on that surface, half width 1.0, turning opposite ways, a turn in
 - **Flashes:** 0x403708 over the whole screen with a fading alpha (the charged Shock
   Blaster, the shared explosion).
 - **Screen warps:** 0x36CBC0 (and copies in the Nitro, Flux scope and RY3NO code)
-  redraws the frame (texture −7) in four mirrored quarters through texture 66.
+  redraws the frame (texture −7) in four mirrored quarters through texture 66. The kit's
+  `Warp` emit draws one ("The Shock Cannon at V5", "The screen warp").
 
 ### The shared explosion and the lightning bolt [code]
 
@@ -455,7 +457,7 @@ classes in italics have no model.
 
 | Gun (V5) | Shots | Particle types | Effect textures | Other |
 |---|---|---|---|---|
-| Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's; the kit's ring sphere looks bigger than the game's ring round the gun | The charged lance (held 79 frames) and the screen warp (0x388490) aren't drawn |
+| Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's. The charged lance drawn (2026-11-04, compared on `review-shock-charged`): the pale violet oval round him round a blue column along the aim, swept as he turns; its domes and the uncharged lance's now open from the gun, as the game's | The charging sprites and glare at the gun aren't drawn. The screen warp (0x388508) is drawn (2026-11-04), though its ghosts show crisper on the greybox than on the game's scenery. The game's column is white at its core where the kit's is pale blue, adding in linear light |
 | N60 Storm (N90 Hurricane) | *0x1851* (0x1881) | 0F 17 2C 55 5A 5C 61 (+5B) | 11 47 49 57 63 65 (V5 62) | A muzzle flame quad of 63 (62 at V5); an explosion on a hit; a flash; shake 0.075; rumble 0x2BAF00 (0x2AEA10). |
 | Nitro Launcher (Eruptor) | 0x185A; *0x1858* (*0x1888*) | 04 17 2C 35 55 5A 5B 5C 61 6F 76 77 | 11 14 16 23 26 43 47 57 61 63 66 73–77 | The blast's shake (0.4 − 0.02 × distance, within 20 u); a screen warp, a flash, a landing marker, a strip; rumbles 0x2B3A40, 0x2B3DE0 (V5 0x2B3CE0). |
 | Lava Gun | *0xC41*, 0x1E52 | 19 61 6D 72 7E 80 | 11 14 23 43 44 | The stream drawn by a callback (0x305858). |
@@ -1727,7 +1729,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 
 | Gun (V5) | V5 against the game | What's behind it |
 |---|---|---|
-| Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's | The charged lance (held 79 frames) and the screen warp (0x388490) aren't drawn |
+| Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's. The charged lance drawn (2026-11-04, compared on `review-shock-charged`): the pale violet oval round him round a blue column along the aim, swept as he turns; its domes and the uncharged lance's now open from the gun, as the game's | The charging sprites and glare at the gun aren't drawn. The screen warp (0x388508) is drawn (2026-11-04), though its ghosts show crisper on the greybox than on the game's scenery. The game's column is white at its core where the kit's is pale blue, adding in linear light |
 | N60 Storm (N90 Hurricane) | Close (2026-11-03). The tracer is one long flame now, V5's own tail and flames ("N90 Hurricane"), redder than the game's | Its landing not seen in the kit's take; the bullet's model (0x1881) not drawn, its blend not read; the tail's scroll and fade; the colours add in linear light |
 | Nitro Launcher (Eruptor) | Close to V4; V5's rocks drawn (2026-11-03): the chunks fly, tumble, bounce and shrink as the game's and are maroon, the 0x61 rocks too | The chunks' smoke barely shows on the kit's bright floor where the game's trails are white; V5's own burst (sparkles, fireballs, fires) not read, V4's shown |
 | Lava Gun (Liquid Nitrogen Gun) | Partial. Its stream, nozzle and pools are V5's blue from code (2026-11-01); the kit's stream fires level, so from behind it's a stub where the game's arcs onto an enemy by lock-on | Its arc onto the lock-on target |
@@ -1780,7 +1782,10 @@ A particle type's texture is at 0x221118 + 4 × type (0x17 → 0x221174, 0x22 �
 
 Its arguments are a scroll, a matrix, a texture, a colour, a ring count and a mode. It is a unit
 ball from its pole (+z): rings every 18° (radius sin, height cos), 10 quads round, u
-alternating by column and v falling 1 a ring plus the scroll. The colour fades to the last ring
+alternating by column and v falling 1 a ring plus the scroll. The Shock Blaster's and Shock
+Cannon's lances build its matrix with 0x40C658 from (0, −elevation − 90°, heading) of their
+way, which puts its +z against that way, its x up and its y level for a level way [code,
+2026-11-04]: so their poles are at the gun. The colour fades to the last ring
 (mode 0 blended with GS alpha 0x44, its alpha going to 0; otherwise added with 0x48, its RGB
 going to 0).
 
@@ -1836,13 +1841,61 @@ The Agents of Dread's end at V5.
 - **The uncharged lance:** 20 frames, a dome of 4 rings of texture 23 (0x80, 0x80, 0xFF) at alpha
   5 t, and one of 2 rings of texture 11 (0x30, 5, 0xBF) at alpha 3 t, 1.25 times as wide; its
   centre 5 ahead, 5 long, its widths growing 0.5 and 0.3 a frame for 4, then falling 0.3 and
-  0.2.
+  0.2. Corrected 2026-11-04 [code; seen on UYA NTSC, `review-shock-charged`]: its pole is at
+  the gun and it opens out along the aim, as `fx_dome`'s callers turn its axis against their
+  way (below). The 0.5 is level (0x1DDE50) and the 0.3 up (0x1DDE54); they pass through
+  nothing and grow again the other way, which looks the same, to 1.8 and 1.0 as it fades.
+  The outer dome's rows are scaled by those widths × 1.25 after the inner's scaling, so its
+  widths are the inner's squared × 1.25 (to 11.25 level), its length still 5.
+- **Charging** (each frame held, 0x385948) [code, 2026-11-04]: under 79 frames, two 0x61
+  sprites at the gun's point 0x1DDE60 ((0.2, −0.83, 0) in its frame), size 0.1 to 0.55, in
+  (0x20, 0x80 + n, 0xFF − n) for n frames held at alpha n/3, life 10–20, spin −1 to −3, in
+  one of 0x68's first four textures (0x2212B8). From 79, two at 0.4 to 1.05 in (0x50, 0x50,
+  0x96) at 0x40 and two up to 0.2 off it in (0x96, 0x50, 0x50) in 0x61's entries 5–7, a
+  0x6F glare as the Hydra's (0x46FE70 from a point 0.05–0.15 off), and half the frames a
+  0x2C spark (0x466F98, not read further). Not drawn in the kit.
+- **Let go charged** (after more than 78 frames) [code, 2026-11-04]: no ball at the gun and
+  no rays (`weapons.md`, "Shock Blaster"); 10 rounds, sound 0 (4 uncharged), the rumble
+  0x2B3C10 either way. Its timers: the lance (0x1E1F24) 30 and the warp (0x1E1F20) 27
+  (0x1DDE2C), where an uncharged shot sets the uncharged lance's (0x1E1F3C) 20 and the
+  warp's 6. The spokes, flash and dust are as an uncharged shot's.
+- **The charged lance** for those 30 frames, from the frame let go, all following the aim
+  each frame, so swept as he turns:
+  - **Its beam** (0x3884E0 → `fx_beam_rings` 0x409448, its numbers at 0x2B3C90): from the
+    gun's point 0 to 40 u along the aim (0x1A52D0; 0x1E1F50 to 0x1E1F60), queued both before
+    and after the timer steps from its second frame, and the queue (0x4026A0) keeps both, so
+    drawn twice. A camera-facing strip of texture 69, the texture once every 1.2 u along it
+    (+0x30) and once across it. Its half width is 1 (+0x14) times a fade: 0 to 1.25 over 10
+    frames (+0x00, +0x08), then 1, and from its 20th frame (its mode, +0x10, set 2 at the
+    timer's 10) 1 falling to 0 over 10 (+0x04); half that at the gun, widening to it over
+    0.55 u (+0x18, +0x1C); in pieces of at most 8.4 u (+0x30 × +0x34). Within 80 u of the
+    camera (+0x38, +0x3C) each piece is three strips, each drawn twice: first the texture's
+    alpha written into the frame's alpha (ALPHA 0x6A: Cd, colour unchanged), then the
+    texture scrolled another way added through it (0x58: Cs·Ad + Cd), so its light is the
+    texture times itself drifting. The middle 60% across in (0x20, 0x40, 0x80) at 0x7F,
+    its two copies scrolling 0.07 and 0.08 a frame along (+0x24, +0x20); each side, from
+    its edge to 0.2 of the half width past the middle, in (0x20, 0x40, 0xFF) at 0x7F,
+    scrolling 0.042 and 0.016 (× +0x2C, +0x28). Farther off, one plain added strip.
+  - **Its domes** (0x3873F8): at the gun's point 0 along his facing (the hero's +0xC0; the
+    camera's in first person), centred 14.5 u out and 15 long (0x1DDE40), so the pole half a
+    unit behind the gun and opening out along the lance; the game's take shows them as a
+    tall pale violet oval round him round a white-blue column. `fx_dome` added:
+    texture 23 in 8 rings, its widths turned 45° about its axis, (0x20, 0x40, 0x80),
+    scrolling 0.15 a frame; turned −45°, the same in (0x40, 0x10, 0x80) scrolling 0.1 and
+    (0x10, 0x40, 0x80) scrolling 0.05; then 1.1 times as wide, texture 10 in 6 rings, (0x40,
+    0x0A, 0xD2), scrolling with the first. Alpha 2n for the first three and n for the
+    last, n the timer after the frame's step (29 down to 0). Its widths start at 1, grow 0.1
+    a frame while n is 16 or more, then fall 0.075 one way (0x1DDE48, up before the turn)
+    and 0.125 the other (0x1DDE44, level): 1.1 to 2.4 over its first 14 frames, then to 1.2
+    and 0.4. Which way the turns go isn't checked.
+  - **Its hits** (`weapons.md`, "Shock Blaster").
+  - **Sprites** each frame: five 0x61 at random points along the beam, 0.8 to 1.5, (0x20,
+    0x40, 0x80) at 0x50, life 10–18, and one at the gun, 0.3 to 1.0; in 0x68's first four
+    textures.
 - **The flash on the lens** [code, seen on UYA NTSC]: for 3 frames, a sprite of texture 11 half
   0.04 wide, 0.1 u in front of the camera on its way to the muzzle (+0x40 × +0x44 × 255 of alpha,
   grey 0x80), so a soft white ball about 0.4 of the view's height across that hides the hero;
   and the whole screen added at FIX 32 × that share.
-- **Charged** (held 79 frames; a 30-frame lance, 0x3873F8: domes of texture 23 along 15 u, shake
-  0.12): not in the kit's recipe.
 - **Its rays** (0x388920, drawn 0x388DD8): texture 23 (0x20, 0x40, 0x80), alpha 96 t, blended;
   texture 44 (0, 0x40, 0xFF) added; end sparkles (0x20, 0x20, 0x80). Shake 0.06. Each frame
   two 0x5A glares at its end (0x46C468, 0x35's texture, (0x20, 0x20, 0x80)) and two pairs of
@@ -1853,7 +1906,25 @@ The Agents of Dread's end at V5.
   from the gun 2-ish u out toward the target along the first of its tests (0x386FB0: a line test
   (0x3F8448), then the moby's distance sets damage: under 10 u all of it, under 14 ¾, under 20
   ½, else ⅛).
-- **0x388490 → 0x388508:** a screen warp in texture 66. Not drawn in the kit.
+- **The screen warp** (0x388490 → 0x388508, on 0x402768's list of four, each frame its timer
+  runs: 6 frames for an uncharged shot, 27 charged) [code, 2026-11-04]: texture 66, a quarter
+  of a ring (alpha high at its (0, 0) corner, none at (1, 1)), drawn in four mirrored
+  quarters meeting at the screen's centre into the frame's alpha only (TEST 0x513F1: alpha
+  test NEVER, FB_ONLY; ALPHA (0 − 0)·FIX + Cd), at grey 0x7F and alpha 5 × the timer, the
+  texture's (0, 0) at the screen's corners and (0xFF, 0xFF) at its centre. Then the frame's
+  copy (texture −7, 0x1DDED4) over the whole screen (0x1D0010: 512 × 416) from texel (10, 8)
+  to (492, 432) (0x1DDEA4–0x1DDEB0; 236 and 240 for the last two when 0x1D5520 is set), so
+  magnified 512 / 482 ≈ 1.06 across, mixed in by that alpha (ALPHA 0x54: (Cs − Cd)·Ad + Cd).
+  How the copy's v maps to the screen wasn't read, so whether it is magnified as much
+  upright is open. The four floats 0x388490 passes (1, 0, 0, 0.9) aren't read. So for a few
+  frames all but the middle of the screen shows the frame pushed out about 6%, most at the
+  corners [code; seen on UYA NTSC, `review-shock-charged`: the scenery doubled toward the
+  edges, the lance's streaks too, the HUD not]. Texture 66 is full but for a hollow round
+  its (1, 1) corner, falling to nothing over the last 0.7 of a side or so [verified on the
+  disc's texture]. In the kit (2026-11-04) the `Warp` emit: `fx/warp.rs` draws the frame
+  again after the 3D passes, before tone mapping, mixing in its copy magnified 1.062 both
+  ways about the centre by the ring's alpha times 5 × the timer / 0x80, the timer falling
+  from 6 (27 charged) a tick; the frame then holds the effects, as the game's copy does.
 
 #### The Lava Gun at V5 (0x305858, 0x305CA0) [code]
 

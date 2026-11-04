@@ -535,6 +535,7 @@ mod tests {
             kind: GunEventKind::Fired {
                 at,
                 direction: Vec3::NEG_Z,
+                charged: false,
             },
             shot: None,
         };

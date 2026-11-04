@@ -22,6 +22,7 @@
         Effect(46): (shape: Glow, colour: (1.0, 0.5, 0.25)),
         Effect(50): (shape: Glow, colour: (1.0, 0.9, 0.7)),
         Effect(69): (shape: Streak, colour: (0.8, 0.9, 1.0)),
+        Effect(66): (shape: Edge, colour: (0.5, 0.5, 0.5)),
         Effect(8): (shape: Ring, colour: (0.6, 0.75, 1.0)),
         Effect(9): (shape: Smoke, colour: (0.02, 0.02, 0.02)),
         Effect(10): (shape: Streak, colour: (1.0, 1.0, 1.0)),
@@ -697,7 +698,8 @@
             ]),
             // The Shock Cannon (0x385948, drawn by 0x387BF0, 0x3871E8; its rays 0x388DD8) [code]:
             // as V4 but blue, with dust thrown out level for two ticks, eight spokes of 26
-            // 4 u long for two ticks, and a lance of 23 and 11 along the aim for 20 ticks.
+            // 4 u long for two ticks, a lance of 23 and 11 along the aim for 20 ticks and a
+            // screen warp for 6.
             from_level: {
                 4: (
                     fire: Some([
@@ -708,9 +710,69 @@
                         Glow(texture: Effect(61), size: 3.0, end_size: 35.4, ticks: 8, colour: (1.0, 1.0, 1.992, 0.156), end_alpha: 0.016, roll: Some((0.0, 360.0)), spin: 2.0, ahead: 105.0),
                         Glow(texture: Effect(61), size: 3.0, end_size: 35.4, ticks: 8, colour: (1.0, 1.0, 1.992, 0.156), end_alpha: 0.016, roll: Some((0.0, 360.0)), spin: -2.5, ahead: 105.0),
                         Swell((shape: Spokes(count: 8, root: 0.025, tip: 0.125), texture: Effect(26), colour: (0.25, 0.5, 1.992), alpha: [(0, 0.992), (2, 0.5)], across: [(0, 4.0)], along: [(0, 1.0)], axis: Eye)),
-                        Swell((shape: Rings(4), texture: Effect(23), colour: (1.0, 1.0, 1.992), alpha: [(0, 0.78), (20, 0.0)], across: [(0, 1.0), (4, 2.6), (13, 0.0), (20, 0.0)], along: [(0, 5.0)], ahead: [(0, 5.0)], axis: Way, scroll: (0.0, 0.2))),
-                        Swell((shape: Rings(2), texture: Effect(11), colour: (0.375, 0.04, 1.49), alpha: [(0, 0.47), (20, 0.0)], across: [(0, 1.25), (4, 3.25), (13, 0.0), (20, 0.0)], along: [(0, 6.25)], ahead: [(0, 5.0)], axis: Way, scroll: (0.0, 0.2))),
+                        // The screen warp (0x388508): its timer 6, the ring's alpha times 5 a
+                        // frame of it (0x80 full); the frame copied from (10, 8) to (492, 432)
+                        // over the 512 across, so 512 / 482 times as big.
+                        Warp(texture: Effect(66), ticks: 6, alpha: 0.234, zoom: 1.062),
+                        // The lance (0x3871E8): its pole at the muzzle, 5 long, its widths
+                        // (level 0.5 and up 0.3 a tick for 4, then falling 0.3 and 0.2 through
+                        // nothing and out again); the outer one's are the inner's squared
+                        // times 1.25, as its code scales the scaled rows again.
+                        Swell((shape: Rings(4), texture: Effect(23), colour: (1.0, 1.0, 1.992), alpha: [(0, 0.742), (19, 0.0)], across: [(0, 1.5), (3, 3.0), (13, 0.0), (19, 1.8)], across_other: Some([(0, 1.3), (3, 2.2), (14, 0.0), (19, 1.0)]), along: [(0, 5.0)], ahead: [(0, 5.0)], axis: Way, pole_back: true, scroll: (0.0, 0.2))),
+                        Swell((shape: Rings(2), texture: Effect(11), colour: (0.375, 0.04, 1.49), alpha: [(0, 0.445), (19, 0.0)], across: [(0, 2.812), (1, 5.0), (2, 7.812), (3, 11.25), (4, 9.113), (5, 7.2), (6, 5.513), (7, 4.05), (8, 2.813), (9, 1.8), (10, 1.013), (11, 0.45), (12, 0.113), (13, 0.0), (14, 0.112), (15, 0.45), (16, 1.012), (17, 1.8), (18, 2.812), (19, 4.05)], across_other: Some([(0, 2.113), (1, 3.2), (2, 4.513), (3, 6.05), (4, 5.0), (5, 4.05), (6, 3.2), (7, 2.45), (8, 1.8), (9, 1.25), (10, 0.8), (11, 0.45), (12, 0.2), (13, 0.05), (14, 0.0), (15, 0.05), (16, 0.2), (17, 0.45), (18, 0.8), (19, 1.25)]), along: [(0, 5.0)], ahead: [(0, 5.0)], axis: Way, pole_back: true, scroll: (0.0, 0.2))),
                     ]),
+                    // Let go charged, the same but for the lance of 23 and 11 (its timer,
+                    // 0x1E1F3C, stays 0), which the charged lance below takes the place of.
+                    charged: Some([
+                        Shake(amplitude: 0.06, ticks: 30, along: [Up, Forward]),
+                        Screen(ticks: 3, colour: (1.0, 1.0, 1.0, 0.25)),
+                        Glow(texture: Effect(11), lens: true, size: 0.8, end_size: 0.8, ticks: 3, colour: (1.0, 1.0, 1.0, 1.992), end_alpha: 0.664, roll: Some((0.0, 360.0))),
+                        Burst(texture: Particle(0x17, 0), count: 80, speed: 10.0, speed_from: Some(10.0), toward: Level, jitter: 0.15, size: 0.6, end_size: 1.6, ticks: 10, ticks_to: Some(30), colour: (0.875, 0.875, 0.875, 0.5), end_alpha: 0.0, spin: 3.0),
+                        Glow(texture: Effect(61), size: 3.0, end_size: 35.4, ticks: 8, colour: (1.0, 1.0, 1.992, 0.156), end_alpha: 0.016, roll: Some((0.0, 360.0)), spin: 2.0, ahead: 105.0),
+                        Glow(texture: Effect(61), size: 3.0, end_size: 35.4, ticks: 8, colour: (1.0, 1.0, 1.992, 0.156), end_alpha: 0.016, roll: Some((0.0, 360.0)), spin: -2.5, ahead: 105.0),
+                        Swell((shape: Spokes(count: 8, root: 0.025, tip: 0.125), texture: Effect(26), colour: (0.25, 0.5, 1.992), alpha: [(0, 0.992), (2, 0.5)], across: [(0, 4.0)], along: [(0, 1.0)], axis: Eye)),
+                        // And its timer 27 (0x1DDE2C), so at first fully the copy.
+                        Warp(texture: Effect(66), ticks: 27, alpha: 1.055, zoom: 1.062),
+                    ]),
+                    // The charged lance, 30 ticks from letting go (0x385948; effects.md,
+                    // "The Shock Cannon at V5") [code]. The beam (0x409448): 40 u of 69
+                    // from the muzzle along the aim, 1 either side times a fade (0 to 1.25
+                    // over 10 ticks, then 1, then from tick 20 to nothing over 10), half
+                    // that at the muzzle widening over 0.55 u, the texture once every 1.2 u;
+                    // three strips, each the texture times itself scrolled, in (0x20, 0x40,
+                    // 0x80) and (0x20, 0x40, 0xFF) at 0x7F, drawn twice a tick. The domes
+                    // (0x3873F8): 15 long, 14.5 out, so their poles half a unit behind the
+                    // muzzle, 23 three times and 10 once, crossed at 45 degrees, swelling 1.1
+                    // to 2.4 over 14 ticks then thinning to 0.4 level and 1.2 up, at alpha
+                    // 2n and n out of 0x80 (n = 29 down to 0). Five sprites a
+                    // tick of 0x68 along it and one at the muzzle (0x46DCB8).
+                    lance: Some((
+                        beam: Some((
+                            texture: Effect(69),
+                            length: 40.0,
+                            width: 1.0,
+                            fade: [(0, 0.0), (9, 1.125), (10, 1.0), (20, 1.0), (29, 0.1)],
+                            head: (0.55, 0.5),
+                            repeat: 1.2,
+                            strips: [
+                                (across: (-0.6, 0.6), v: (0.2, 0.8), colour: (0.25, 0.5, 1.0, 1.984), scroll: (0.07, 0.08)),
+                                (across: (-1.0, 0.2), v: (0.0, 0.6), colour: (0.25, 0.5, 1.992, 1.984), scroll: (0.042, 0.016)),
+                                (across: (1.0, -0.2), v: (0.0, 0.6), colour: (0.25, 0.5, 1.992, 1.984), scroll: (0.042, 0.016)),
+                            ],
+                        )),
+                        domes: [
+                            (rings: 8, texture: Effect(23), colour: (0.25, 0.5, 1.0), alpha: [(0, 0.453), (29, 0.0)], across: [(0, 1.1), (13, 2.4), (29, 0.4)], across_other: [(0, 1.1), (13, 2.4), (29, 1.2)], along: 15.0, ahead: 14.5, roll: 45.0, scroll: 0.15),
+                            (rings: 8, texture: Effect(23), colour: (0.5, 0.125, 1.0), alpha: [(0, 0.453), (29, 0.0)], across: [(0, 1.1), (13, 2.4), (29, 0.4)], across_other: [(0, 1.1), (13, 2.4), (29, 1.2)], along: 15.0, ahead: 14.5, roll: -45.0, scroll: 0.1),
+                            (rings: 8, texture: Effect(23), colour: (0.125, 0.5, 1.0), alpha: [(0, 0.453), (29, 0.0)], across: [(0, 1.1), (13, 2.4), (29, 0.4)], across_other: [(0, 1.1), (13, 2.4), (29, 1.2)], along: 15.0, ahead: 14.5, roll: -45.0, scroll: 0.05),
+                            (rings: 6, texture: Effect(10), colour: (0.5, 0.078, 1.641), alpha: [(0, 0.227), (29, 0.0)], across: [(0, 1.21), (13, 2.64), (29, 0.44)], across_other: [(0, 1.21), (13, 2.64), (29, 1.32)], along: 15.0, ahead: 14.5, roll: -45.0, scroll: 0.15),
+                        ],
+                        along: [
+                            (per_tick: 5.0, textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.25, 0.5, 1.0, 0.625)], size: 1.6, end_size: 3.0, ticks: 10, ticks_to: 18, spin: 4.2),
+                        ],
+                        muzzle: [
+                            (per_tick: 1.0, textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.25, 0.5, 1.0, 0.625)], size: 0.6, end_size: 2.0, ticks: 10, ticks_to: 18, spin: 4.2),
+                        ],
+                    )),
                     ray: Some([
                         (texture: Effect(23), width: 2.0, end_width: Some(2.0), ticks: 15, colour: (0.25, 0.5, 1.0, 0.75), blend: Alpha),
                         (texture: Effect(44), width: 1.2, end_width: Some(1.2), ticks: 15, colour: (0.0, 0.5, 1.992, 0.75)),

@@ -28,8 +28,8 @@ use rac_sim::{SimSet, SimTransform};
 
 pub use pickups::{Bolts, Crate, CrateKind, Pickup, PickupKind, PickupTuning, Vendor, VendorMenu};
 pub use weapons::{
-    Afflicted, Affliction, Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, Sustain,
-    WeaponId,
+    Afflicted, Affliction, Armory, Arsenal, Burns, GunEvent, GunEventKind, KillXp, Lancing,
+    Sustain, WeaponId,
 };
 
 /// Seconds per tick.

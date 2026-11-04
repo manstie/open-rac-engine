@@ -83,8 +83,8 @@ session is working on the task now; notes on problems met stay with their task (
 
 **Next actions, in order:**
 1. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Shock Cannon's charged lance and warp; the Rift Ripper's lens
-   and the Ultrashield's bubble wait on a refraction pass).
+   next gun to fix (the Rift Ripper's lens and the Ultrashield's bubble, which need the
+   frame behind them; or the Liquid Nitrogen Gun's arc onto the lock-on target).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 2. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -887,9 +887,20 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       sparkles and draws, and fifteen fireballs at nearby enemies, 0x35D8E8) isn't read,
       so the kit's V5 shows V4's blast round the rocks; the chunks' smoke barely shows on
       the kit's bright floor (with the linear-light note above).
-    - Not done: the Rift Ripper's lens, the Ultrashield's bubble, the rest of the
-      Eruptor's V5 burst;
-      the Shock Cannon's charged lance and screen warp, the Liquid Nitrogen Gun's arc onto
+    - The Shock Cannon's charged shot is a lance (`weapons.md`, "The Shock Cannon's
+      charged shot is a lance"; `effects.md`, "The Shock Cannon at V5"): `rac_combat`'s
+      `Lance` hits along the aim for 30 ticks (`Arsenal::lance`), drawn by `fx/lance.rs`
+      (its beam's strips, the texture times itself scrolled, in `lance.wesl`; its domes),
+      compared on the game's `review-shock-charged` take. `fx_dome`'s callers turn its
+      pole back to the gun, so the uncharged lance's domes were drawn reversed; fixed
+      (`Swell::pole_back`). Its screen warp (0x388508) is the `Warp` emit, drawn by
+      `fx/warp.rs` as a pass after the 3D ones mixing in the frame magnified 1.062 by
+      texture 66's alpha (its own pass: Bevy's `FullscreenMaterial` binds no texture but
+      the frame). Not done: its charging sprites and glare.
+    - Not done: the Rift Ripper's lens and the Ultrashield's bubble, which need the frame
+      behind them (as a mesh, Bevy's view transmission texture read by a material, say;
+      it holds only what is opaque); the rest of the Eruptor's V5 burst;
+      the Liquid Nitrogen Gun's arc onto
       the lock-on target, the agents' spawn lightning (their jets are dimmer than the
       game's); then the sounds not played and the simplified behaviours (`effects.md`,
       "In the kit and the app"; `weapons.md`, "In the kit").

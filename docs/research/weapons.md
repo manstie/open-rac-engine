@@ -1256,6 +1256,16 @@ The gun moby's update reads its row through item 0x27.
 - The moby's +0x7C (2 at V2, 3 from V3) is set from the level; its use isn't read.
 - **V5 and up** (the Shock Cannon, 0x385948, 2026-10-22): the same firing, charge and
   balls; 23 random rays (0x386FB0 tests each) and the three down, 26 in all.
+- **The Shock Cannon's charged shot is a lance** [code, 2026-11-04; corrected: not the
+  balls and rays at three times the damage]. Let go after more than 78 frames held, it
+  fires no ball and no rays and takes 10 rounds (`ammo_use` of 1 ten times, so all that's
+  left if fewer). For 30 frames from that frame, each frame, 20 balls of 1.5 at 2, 4, … 40 u
+  along the aim (0x1A52D0, turned toward the lock-on target each frame by 0x454298) from
+  the gun's point 0x1DDE60 ((0.2, −0.83, 0) in its frame) go through 0x3FB1D0 with a damage
+  message: 10 times the row's damage, flags 0x210000. So whatever the lance touches takes
+  that every frame for half a second, and it sweeps as he turns ("charges into a beam that
+  can be swept"). Whether a target in two of the overlapping balls is hit twice a frame
+  isn't read. Its look is in `effects.md`, "The Shock Cannon at V5".
 
 ### N60 Storm (0x3A5928, bullets 0x35B390) [code, UYA NTSC, 2026-10-16]
 
@@ -2631,7 +2641,8 @@ profiles' `gun` section):
   at, "When a drawn gun may fire"), and in the look after its wait.
 - **Each gun** as "Each gun" reads it: the Shock Blaster's rate counted from each hit, its
   2- or 5-tick hit delay, its ball and 20 random and 3 low rays, and from V2 one shot a
-  press and the charged shot of three times the damage; the N60's 14-tick repeat from two
+  press and the charged shot of three times the damage (the Shock Cannon's a 30-tick lance
+  of balls along the aim, "The Shock Cannon's charged shot is a lance"); the N60's 14-tick repeat from two
   barrels, 60–80 u/s bullets living 30 or 46 ticks, bouncing from V2, with their 0.6 and
   1.0 u balls; the Nitro Launcher's target (lock-on within 12 u, else its assist), solved
   arc and cut launch, the charge's bounce, fuse, ground and enemy bursts, and the blast's

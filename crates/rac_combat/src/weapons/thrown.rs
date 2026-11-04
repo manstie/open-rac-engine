@@ -489,7 +489,7 @@ fn deploy(
         if !arsenal.has_ammo(gun.weapon, armory) {
             return false;
         }
-        fire_anim(arsenal, gun, out);
+        fire_anim(arsenal, gun, false, out);
     } else if !take_shot(arsenal, armory, gun, out) {
         run_dry(arsenal);
         return false;
@@ -697,6 +697,7 @@ fn turret_tick(
         GunEventKind::Fired {
             at: barrel,
             direction,
+            charged: false,
         },
     );
     born.push(match mega {

@@ -62,8 +62,12 @@ pub struct GunEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GunEventKind {
-    /// A shot left the muzzle, or a stream took a round.
-    Fired { at: Vec3, direction: Vec3 },
+    /// A shot left the muzzle, or a stream took a round; `charged` for a charged one.
+    Fired {
+        at: Vec3,
+        direction: Vec3,
+        charged: bool,
+    },
     /// One of a hitscan's rays, from the muzzle to where it stopped.
     Ray { from: Vec3, to: Vec3 },
     /// The Suck Cannon sucked this tick, along `aim` from the muzzle, its vortex cut short
@@ -88,6 +92,15 @@ pub enum GunEventKind {
     Marked { at: Vec3 },
     /// Let go too soon, the gun fizzled, at the gun: the Spitting Hydra's.
     Fizzled { at: Vec3 },
+}
+
+/// The Shock Cannon's charged lance this tick ([`Arsenal::lance`]): from the muzzle `from`
+/// along `way`, `tick` ticks after it was let go.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lancing {
+    pub from: Vec3,
+    pub way: Vec3,
+    pub tick: u32,
 }
 
 /// What the gun in hand keeps doing over many ticks, for a game's looping sounds and looks

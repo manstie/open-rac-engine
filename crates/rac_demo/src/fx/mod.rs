@@ -18,6 +18,7 @@ mod curls;
 mod debris;
 mod fan;
 mod funnel;
+mod lance;
 mod light;
 mod mark;
 mod marker;
@@ -33,6 +34,7 @@ mod sweep;
 mod swell;
 mod tail;
 mod vortex;
+mod warp;
 
 use std::collections::BTreeMap;
 
@@ -55,6 +57,7 @@ pub use curls::Curls;
 pub use debris::Debris;
 pub use fan::Fan;
 pub use funnel::{Funnel, SpiralStrip, Spirals};
+pub use lance::{BeamStrip, Lance, LanceBeam, LanceDome};
 pub use light::ShotLight;
 pub use mark::{Flame, Flat, Mark};
 pub use marker::Marker;
@@ -323,6 +326,17 @@ pub enum Emit {
     Curls(Curls),
     /// Pieces of a model thrown out, tumbling and bouncing ([`Debris`]).
     Debris(Debris),
+    /// The frame drawn again over the whole view, `zoom` times its size about the centre,
+    /// mixed in by `texture`'s alpha in four mirrored quarters (its (0, 0) corner at the
+    /// view's corners, (1, 1) at its centre) times `alpha`, falling evenly over `ticks`: the
+    /// game's screen warp, all but the middle pushed out for a few frames (0x388508). As
+    /// the game has one timer for it, a warp takes the place of one running.
+    Warp {
+        texture: Tex,
+        ticks: u32,
+        alpha: f32,
+        zoom: f32,
+    },
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
 }
@@ -343,7 +357,8 @@ impl Emit {
         match self {
             Emit::Flash { texture, .. }
             | Emit::Glow { texture, .. }
-            | Emit::Burst { texture, .. } => vec![*texture],
+            | Emit::Burst { texture, .. }
+            | Emit::Warp { texture, .. } => vec![*texture],
             Emit::Swell(swell) => vec![swell.texture],
             Emit::Curls(curls) => vec![curls.texture],
             Emit::Debris(debris) => debris.textures(),
@@ -571,6 +586,12 @@ pub struct Glare {
 pub struct GunFx {
     #[serde(default)]
     pub fire: Option<Vec<Emit>>,
+    /// What a charged shot shows in place of `fire`, as the Shock Cannon's.
+    #[serde(default)]
+    pub charged: Option<Vec<Emit>>,
+    /// What a charged lance shows while it runs, as the Shock Cannon's.
+    #[serde(default)]
+    pub lance: Option<Lance>,
     #[serde(default)]
     pub shot: Option<Vec<ShotSprite>>,
     /// At most one, so a level can leave it out with none.
@@ -732,9 +753,17 @@ impl FxRecipes {
             .or_else(|| self.default.at(level, part))
     }
 
-    pub fn fire(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
-        self.part(key, level, shot, |fx| fx.fire.as_deref())
+    /// What a shot shows as it leaves; a `charged` one's own, if it has one.
+    pub fn fire(&self, key: &str, level: u8, shot: Option<&str>, charged: bool) -> &[Emit] {
+        charged
+            .then(|| self.part(key, level, shot, |fx| fx.charged.as_deref()))
+            .flatten()
+            .or_else(|| self.part(key, level, shot, |fx| fx.fire.as_deref()))
             .unwrap_or(&[])
+    }
+
+    pub fn lance(&self, key: &str, level: u8) -> Option<&Lance> {
+        self.own(key, level, None, |fx| fx.lance.as_ref())
     }
 
     pub fn impact(&self, key: &str, level: u8, shot: Option<&str>) -> &[Emit] {
@@ -943,7 +972,9 @@ impl FxRecipes {
                 textures.extend(funnel.emits().flat_map(Emit::textures));
             }
             textures.extend(fx.marker.iter().flat_map(|marker| marker.layers));
-            let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
+            textures.extend(fx.lance.iter().flat_map(Lance::textures));
+            let emits = fx.fire.iter().chain(&fx.charged).chain(&fx.impact);
+            let emits = emits.chain(&fx.bounce);
             let emits = emits.chain(&fx.first_bounce).chain(&fx.ray_end);
             for emits in emits.chain(&fx.arc_end) {
                 textures.extend(emits.iter().flat_map(Emit::textures));
@@ -976,6 +1007,7 @@ impl FxRecipes {
             }
             let rays = fx.open.iter().flat_map(|open| &open.rays);
             textures.extend(rays.map(|rays| rays.texture));
+            textures.extend(fx.lance.iter().flat_map(Lance::scrolled));
             for fx in fx.from_level.values().chain(fx.shots.values()) {
                 gun(fx, textures);
             }
@@ -1201,9 +1233,11 @@ impl Plugin for FxPlugin {
             .init_resource::<fan::Fans>()
             .init_resource::<charge::Charges>()
             .init_resource::<charge::ChargeLights>()
+            .init_resource::<lance::Lances>()
             .init_resource::<panel::ShownPanels>()
             .init_resource::<FxModels>()
             .init_resource::<CameraShake>()
+            .init_resource::<warp::ScreenWarp>()
             .init_resource::<light::ShotLights>()
             .init_resource::<shell::Shells>()
             .init_resource::<funnel::Funnels>()
@@ -1225,6 +1259,7 @@ impl Plugin for FxPlugin {
                     rope::emit_along_ropes,
                     blade::emit_along_blades,
                     charge::emit_charges,
+                    lance::draw_lances,
                     step_fx,
                     model::step_models,
                     debris::step_debris,
@@ -1233,7 +1268,7 @@ impl Plugin for FxPlugin {
                     mark::step_marks,
                     light::step_lights,
                     light::ride_shots,
-                    shake::step_shake,
+                    (shake::step_shake, warp::run_warp),
                 )
                     .chain()
                     .in_set(rac_sim::SimSet::Particles)
@@ -1257,6 +1292,8 @@ impl Plugin for FxPlugin {
             );
         if app.is_plugin_added::<bevy::pbr::PbrPlugin>() {
             light::draw_lights(app);
+            lance::draw_beams(app);
+            warp::draw_warps(app);
         }
     }
 }
@@ -1323,6 +1360,7 @@ struct Spawner<'w, 's, 'a> {
     /// The world, to lay things on the floor.
     world: Option<&'a dyn CollisionWorld>,
     shake: &'a mut CameraShake,
+    warp: &'a mut warp::ScreenWarp,
     /// The light slots not taken.
     lights_free: usize,
     /// What the active camera takes in, for what shows only in view.
@@ -1342,6 +1380,7 @@ struct Making<'w, 's> {
     rock: Res<'w, debris::Rock>,
     scene: Option<Res<'w, CollisionScene>>,
     shake: ResMut<'w, CameraShake>,
+    warp: ResMut<'w, warp::ScreenWarp>,
     lights: Query<'w, 's, (), Or<(With<light::Lit>, With<light::Riding>)>>,
     views: Query<'w, 's, (&'static Camera, &'static Frustum), With<Camera3d>>,
 }
@@ -1363,6 +1402,7 @@ impl<'w> Making<'w, '_> {
                 .map(|scene| &scene.0 as &dyn CollisionWorld),
             lights_free: light::SLOTS.saturating_sub(self.lights.iter().count()),
             shake: &mut self.shake,
+            warp: &mut self.warp,
             view: self
                 .views
                 .iter()
@@ -1776,6 +1816,15 @@ impl Spawner<'_, '_, '_> {
                 }
             }
             Emit::Debris(ref debris) => self.debris(debris, at, eye, rng),
+            Emit::Warp {
+                texture,
+                ticks,
+                alpha,
+                zoom,
+            } => {
+                let ring = self.images.0.get(&texture).cloned();
+                *self.warp = warp::ScreenWarp::new(ticks, alpha, zoom, ring);
+            }
             Emit::Curls(ref curling) => {
                 let image = self.images.0.get(&curling.texture).cloned();
                 curls::spawn(
@@ -1910,8 +1959,6 @@ fn level(heroes: &Query<(&Hero, &Arsenal)>, player: usize, weapon: WeaponId) -> 
         .map_or(0, |gun| gun.level)
 }
 
-/// Shows each gun event as its gun's recipe has it at the gun's level.
-#[allow(clippy::too_many_arguments)]
 /// The shared explosion where an explosive crate goes off, as `crate_break` sets one off
 /// with its blast; at the set's own size, not the call's (`effects.md`, "The shared
 /// explosion").
@@ -1932,6 +1979,8 @@ fn emit_crate_blasts(
     }
 }
 
+/// Shows each gun event as its gun's recipe has it at the gun's level.
+#[allow(clippy::too_many_arguments)]
 fn emit_gun_fx(
     recipes: Res<FxRecipes>,
     armory: Res<Armory>,
@@ -1952,8 +2001,12 @@ fn emit_gun_fx(
         let level = level(&heroes, event.player, event.weapon);
         let shot = event.shot;
         match event.kind {
-            GunEventKind::Fired { at, direction } => {
-                for emit in recipes.expand(recipes.fire(key, level, shot)) {
+            GunEventKind::Fired {
+                at,
+                direction,
+                charged,
+            } => {
+                for emit in recipes.expand(recipes.fire(key, level, shot, charged)) {
                     spawner.emit(emit, at, Some(direction), eye, &mut rng);
                 }
             }
@@ -2238,14 +2291,49 @@ mod tests {
                 .expand(emits)
                 .any(|emit| matches!(emit, Emit::Screen { .. }))
         };
-        assert!(flashes(recipes.fire("shock_blaster", 0, None)));
+        assert!(flashes(recipes.fire("shock_blaster", 0, None, false)));
+        // The Shock Cannon's charged shot leaves out its lance of rings for the charged
+        // lance; below V5 a charged shot looks as any other.
+        let rings = |emits: &[Emit]| {
+            recipes.expand(emits).any(|emit| {
+                matches!(emit, Emit::Swell(swell) if matches!(swell.shape, SwellShape::Rings(_)))
+            })
+        };
+        assert!(rings(recipes.fire("shock_blaster", 4, None, false)));
+        assert!(!rings(recipes.fire("shock_blaster", 4, None, true)));
+        assert!(flashes(recipes.fire("shock_blaster", 4, None, true)));
+        assert_eq!(
+            recipes.fire("shock_blaster", 1, None, true),
+            recipes.fire("shock_blaster", 1, None, false)
+        );
+        let lance = recipes
+            .lance("shock_blaster", 4)
+            .expect("the charged lance");
+        assert_eq!(lance.beam.as_ref().map(|beam| beam.strips.len()), Some(3));
+        assert_eq!(lance.domes.len(), 4);
+        assert!(recipes.lance("shock_blaster", 3).is_none());
+        assert!(recipes.textures().contains(&Tex::Effect(69)));
+        assert!(recipes.scrolled().contains(&Tex::Effect(69)));
+        // Its shots warp the screen for the warp's timer, longer let go charged.
+        let warp = |level: u8, charged: bool| {
+            recipes
+                .expand(recipes.fire("shock_blaster", level, None, charged))
+                .find_map(|emit| match emit {
+                    Emit::Warp { ticks, .. } => Some(*ticks),
+                    _ => None,
+                })
+        };
+        assert_eq!(warp(4, false), Some(6));
+        assert_eq!(warp(4, true), Some(27));
+        assert_eq!(warp(3, false), None);
+        assert!(recipes.textures().contains(&Tex::Effect(66)));
         // The Flux Rifle lights its muzzle at every level and the Nitro's blast shakes the
         // camera; the shield's and the rift's lights ride them in flight, not the rift's
         // bolts.
         let has = |emits: &[Emit], which: fn(&Emit) -> bool| recipes.expand(emits).any(which);
         let light = |emit: &Emit| matches!(emit, Emit::Light { .. });
         let shake = |emit: &Emit| matches!(emit, Emit::Shake { .. });
-        assert!((0..4).all(|level| has(recipes.fire("flux", level, None), light)));
+        assert!((0..4).all(|level| has(recipes.fire("flux", level, None, false), light)));
         assert!((0..4).all(|level| has(recipes.impact("nitro", level, None), shake)));
         assert!(has(recipes.impact("annihilator", 2, None), shake));
         assert!(!has(recipes.impact("n60", 0, None), shake));
@@ -2283,8 +2371,8 @@ mod tests {
         );
         // The glove's throw shows nothing; its turret's shots and their hits do, blue from
         // V3.
-        assert!(recipes.fire("turret", 0, None).is_empty());
-        assert!(!recipes.fire("turret", 0, Some("turret")).is_empty());
+        assert!(recipes.fire("turret", 0, None, false).is_empty());
+        assert!(!recipes.fire("turret", 0, Some("turret"), false).is_empty());
         let pellet = Some("pellet");
         let tracer = |level| recipes.streak("turret", level, pellet).map(|s| s.colour);
         assert!(tracer(0).is_some());
@@ -2300,7 +2388,7 @@ mod tests {
         assert_ne!(agents(0, "agent"), agents(1, "comet"));
         assert_ne!(agents(1, "slug"), agents(2, "slug"));
         assert_eq!(agents(3, "slug"), agents(2, "slug"));
-        assert!(recipes.fire("agents", 0, None).is_empty());
+        assert!(recipes.fire("agents", 0, None, false).is_empty());
         // The coil's arcs are its own, five bowed cores each with its glow; other guns'
         // are the default lightning, but the Hydra's spit is a fan of arcs of its own,
         // fanned wider from V3 and V5.
@@ -2400,7 +2488,8 @@ mod tests {
             );
         }
         fn named(fx: &GunFx, recipes: &FxRecipes) {
-            let emits = fx.fire.iter().chain(&fx.impact).chain(&fx.bounce);
+            let emits = fx.fire.iter().chain(&fx.charged).chain(&fx.impact);
+            let emits = emits.chain(&fx.bounce);
             let emits = emits.chain(&fx.first_bounce).chain(&fx.ray_end);
             let along = fx.along_rope.iter().flatten().map(|along| &along.emit);
             for emit in emits.chain(&fx.arc_end).flatten().chain(along) {
@@ -2440,8 +2529,8 @@ mod tests {
             .map(|level| recipes.impact("gun", level, None).len())
             .collect();
         assert_eq!(impacts, [1, 1, 0, 0, 2, 2]);
-        assert_eq!(recipes.fire("gun", 3, None).len(), 0);
-        assert_eq!(recipes.fire("gun", 4, None).len(), 1);
+        assert_eq!(recipes.fire("gun", 3, None, false).len(), 0);
+        assert_eq!(recipes.fire("gun", 4, None, false).len(), 1);
         // What no level gives comes from the defaults.
         assert!(!recipes.ray("gun", 5, None).is_empty());
     }

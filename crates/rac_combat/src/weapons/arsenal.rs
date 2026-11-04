@@ -6,7 +6,7 @@
 use bevy::prelude::*;
 
 use super::{
-    Sustain,
+    Lancing, Sustain,
     def::{Armory, Mods, WeaponId},
     fire::Trigger,
     hand::ShieldUp,
@@ -148,6 +148,11 @@ impl Arsenal {
     /// looks like goes by it (the Spitting Hydra's count, 0x1E1830, stops at its most).
     pub fn charge_ticks(&self) -> Option<u32> {
         (self.sustain == Some(Sustain::Charging)).then_some(self.trigger.held)
+    }
+
+    /// The Shock Cannon's charged lance, while it runs.
+    pub fn lance(&self) -> Option<Lancing> {
+        self.trigger.lancing
     }
 
     /// The Shield Charger's shield is up round him, whatever is in his hand.

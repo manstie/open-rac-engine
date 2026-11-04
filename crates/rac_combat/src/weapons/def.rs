@@ -615,6 +615,25 @@ pub struct Hitscan {
     pub push: f32,
     /// From its level on, the button fires once and then charges.
     pub charge: Option<Charge>,
+    /// From its level on, a charged shot is a lance, with no ball or rays.
+    #[serde(default)]
+    pub lance: Option<Lance>,
+}
+
+/// The Shock Cannon's charged shot (0x385948): for `ticks` ticks from letting go, `balls`
+/// balls of `radius` every `spacing` u along the aim from the muzzle hit what they touch for
+/// `damage_scale` times the damage, each target once a tick, pushed a random way between
+/// the two of `push`. It takes `rounds` rounds, or what is left.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Lance {
+    pub from_level: u8,
+    pub ticks: u32,
+    pub balls: u32,
+    pub spacing: f32,
+    pub radius: f32,
+    pub damage_scale: f32,
+    pub push: (f32, f32),
+    pub rounds: u32,
 }
 
 /// The Shock Blaster's charged shot from V2.

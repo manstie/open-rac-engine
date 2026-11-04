@@ -130,6 +130,10 @@
                 down_spread_degrees: 20.0,
                 push: 1.5, // each ray's, along it [code]
                 charge: Some((from_level: 1, try_ticks: 20, ticks: 78, damage_scale: 3.0)),
+                // The Shock Cannon's: balls along the aim from 0x1DDE60's point (the
+                // muzzle here) each tick for 30, at 10 times the damage (0x385948,
+                // "Shock Blaster") [code].
+                lance: Some((from_level: 4, ticks: 30, balls: 20, spacing: 2.0, radius: 1.5, damage_scale: 10.0, push: (0.25, 0.333), rounds: 10)),
             )),
             effects: "shock_blaster",
             // "Aim indicators" [code, data].

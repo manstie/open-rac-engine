@@ -94,6 +94,14 @@ pub struct Swell {
     /// Its scale across its axis and along it.
     pub across: Track,
     pub along: Track,
+    /// Its scale across the other way (up, for a level axis), if not `across`.
+    #[serde(default)]
+    pub across_other: Option<Track>,
+    /// Its pole (or foot) back toward where it was left: `fx_dome`'s ball lies from its
+    /// pole down its matrix's third row, which the Shock Cannon's lances turn against their
+    /// way (0x3871E8, 0x3873F8).
+    #[serde(default)]
+    pub pole_back: bool,
     /// How far along its axis its middle is from the event.
     #[serde(default = "no_ahead")]
     pub ahead: Track,
@@ -284,14 +292,23 @@ pub(crate) fn spawn(
 impl Swelling {
     fn place(&self, tick: u32) -> Transform {
         let across = self.swell.across.at(tick);
+        let other = self
+            .swell
+            .across_other
+            .as_ref()
+            .map_or(across, |other| other.at(tick));
         let along = match self.swell.shape {
             // Its mesh takes the stretch itself.
             SwellShape::Column { .. } => 1.0,
             _ => self.swell.along.at(tick),
         };
+        let mut rotation = Quat::from_rotation_arc(Vec3::Y, self.axis);
+        if self.swell.pole_back {
+            rotation *= Quat::from_rotation_x(std::f32::consts::PI);
+        }
         Transform::from_translation(self.from + self.axis * self.swell.ahead.at(tick))
-            .with_rotation(Quat::from_rotation_arc(Vec3::Y, self.axis))
-            .with_scale(Vec3::new(across, along, across))
+            .with_rotation(rotation)
+            .with_scale(Vec3::new(across, along, other))
     }
 }
 

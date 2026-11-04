@@ -7,6 +7,7 @@
 //! the shots in flight, and says what they hit and what the hero's moves should know
 //! ([`GunHand`]).
 
+use bevy::math::ops;
 use bevy::prelude::*;
 use rac_hero::{CameraSetting, CollisionWorld, GunHand, HeroMotion, HeroState, Zoom, controller};
 use rac_input::{Action, PlayerInput};
@@ -14,11 +15,11 @@ use rac_sim::SimRng;
 use std::f32::consts::TAU;
 
 use super::{
-    Affliction, GunEventKind, Sustain,
+    Affliction, GunEventKind, Lancing, Sustain,
     aim::{GunTarget, assist_target, assist_targets, bend, first_target, view_point},
     arsenal::{Arsenal, Hand, Sights},
     def::{
-        AimAssist, Armory, Cone, FireMode, Hitscan, Homing, Lobbed, Mods, Projectile, Scope,
+        AimAssist, Armory, Cone, FireMode, Hitscan, Homing, Lance, Lobbed, Mods, Projectile, Scope,
         Stream, Timing, WeaponDef, WeaponId,
     },
     grab, hand,
@@ -122,6 +123,8 @@ pub(crate) struct Trigger {
     pub(super) fired: bool,
     /// The Shock Blaster's shot on its way: ticks to its hit, and its damage scale.
     pub(super) pending: Option<(u32, f32)>,
+    /// The Shock Cannon's charged lance, as of this tick.
+    pub(super) lancing: Option<Lancing>,
     pub(super) after_hit: u32,
     /// Ticks in the look, which some guns wait out.
     pub(super) look: u32,
@@ -749,18 +752,20 @@ pub(super) fn take_shot(
     if !arsenal.use_ammo(gun.weapon, 1, armory) {
         return false;
     }
-    fire_anim(arsenal, gun, out);
+    fire_anim(arsenal, gun, false, out);
     true
 }
 
-/// Starts the firing animation (`hero_fire_anim`, 0x4E6A08) without a round.
-pub(super) fn fire_anim(arsenal: &mut Arsenal, gun: &Gun, out: &mut Outcome) {
+/// Starts the firing animation (`hero_fire_anim`, 0x4E6A08) without a round; `charged` for
+/// a charged shot.
+pub(super) fn fire_anim(arsenal: &mut Arsenal, gun: &Gun, charged: bool, out: &mut Outcome) {
     arsenal.fire_ticks = gun.def.fire_ticks;
     out.event(
         gun.weapon,
         GunEventKind::Fired {
             at: gun.muzzle,
             direction: gun.facing,
+            charged,
         },
     );
 }
@@ -783,7 +788,8 @@ pub(super) fn ball(
 
 /// The Shock Blaster (0x36A790): a shot while the button is held, or from its charging
 /// level one shot a press and a charged one on letting go; each hits a few ticks later
-/// with a ball at the gun and a spray of rays.
+/// with a ball at the gun and a spray of rays. The Shock Cannon's charged shot is a lance
+/// instead, from the tick it is let go.
 fn hitscan(
     arsenal: &mut Arsenal,
     armory: &Armory,
@@ -793,12 +799,29 @@ fn hitscan(
     rng: &mut SimRng,
     out: &mut Outcome,
 ) {
-    let hero = gun_input.hero;
     let held = gun_input.input.held(Action::Fire);
     let trigger = &mut arsenal.trigger;
     trigger.cooldown = trigger.cooldown.saturating_sub(1);
     trigger.after_hit = trigger.after_hit.saturating_sub(1);
     let charge = fire.charge.filter(|charge| gun.level >= charge.from_level);
+    let lance = fire.lance.filter(|lance| gun.level >= lance.from_level);
+
+    if let Some(lancing) = trigger.lancing.take()
+        && let Some(lance) = &lance
+        && lancing.tick + 1 < lance.ticks
+    {
+        lance_tick(
+            arsenal,
+            armory,
+            gun,
+            lance,
+            lancing.tick + 1,
+            gun_input,
+            rng,
+            out,
+        );
+    }
+    let trigger = &mut arsenal.trigger;
 
     if let Some((left, scale)) = trigger.pending {
         if left <= 1 {
@@ -819,6 +842,7 @@ fn hitscan(
     }
     let trigger = &mut arsenal.trigger;
     let mut shoot = None;
+    let mut lance_now = None;
     match charge {
         None => {
             if held && free && trigger.cooldown == 0 {
@@ -836,21 +860,19 @@ fn hitscan(
                 }
             } else if !held {
                 if trigger.held > charge.ticks && free {
-                    shoot = Some(charge.damage_scale);
+                    match lance {
+                        Some(lance) => lance_now = Some(lance),
+                        None => shoot = Some(charge.damage_scale),
+                    }
                 }
                 trigger.held = 0;
                 trigger.fired = false;
             }
         }
     }
-    let Some(scale) = shoot else {
-        return;
-    };
-    if !take_shot(arsenal, armory, gun, out) {
-        return;
-    }
-    // Standing, the whole-body firing animation this shot starts already plays, and that
-    // delays the hit too, as does moving.
+    // Standing, the whole-body firing animation a shot starts already plays, and that
+    // delays its hit too, as does moving.
+    let hero = gun_input.hero;
     let standing = matches!(hero.state, HeroState::Idle | HeroState::Look);
     let moving = hero.velocity.length_squared() > 1e-6;
     let delay = if standing || moving {
@@ -858,7 +880,68 @@ fn hitscan(
     } else {
         fire.hit_ticks
     };
+    if let Some(lance) = lance_now {
+        if !arsenal.use_ammo(gun.weapon, 1, armory) {
+            return;
+        }
+        for _ in 1..lance.rounds {
+            arsenal.use_ammo(gun.weapon, 1, armory);
+        }
+        fire_anim(arsenal, gun, true, out);
+        // It waits out an uncharged shot's hit and the time after it before the next.
+        arsenal.trigger.after_hit = delay + fire.after_hit_ticks;
+        lance_tick(arsenal, armory, gun, &lance, 0, gun_input, rng, out);
+        return;
+    }
+    let Some(scale) = shoot else {
+        return;
+    };
+    if !take_shot(arsenal, armory, gun, out) {
+        return;
+    }
     arsenal.trigger.pending = Some((delay, scale));
+}
+
+/// The Shock Cannon's charged lance `tick` ticks after it was let go: its balls along the
+/// aim hit what they touch, each target once.
+#[allow(clippy::too_many_arguments)]
+fn lance_tick(
+    arsenal: &mut Arsenal,
+    armory: &Armory,
+    gun: &Gun,
+    lance: &Lance,
+    tick: u32,
+    gun_input: &GunInput,
+    rng: &mut SimRng,
+    out: &mut Outcome,
+) {
+    let way = gun.aim(gun.muzzle, armory);
+    arsenal.trigger.lancing = Some(Lancing {
+        from: gun.muzzle,
+        way,
+        tick,
+    });
+    let damage = gun.damage * lance.damage_scale;
+    let mut struck = Vec::new();
+    for ball_at in 1..=lance.balls {
+        let at = gun.muzzle + way * (ball_at as f32 * lance.spacing);
+        for target in ball(gun_input.targets, at, lance.radius) {
+            if !target.alive || struck.contains(&target.entity) {
+                continue;
+            }
+            struck.push(target.entity);
+            // Pushed a little any way (0x440B30).
+            let up = rng.range_f32(-1.0, 1.0);
+            let round = rng.unit_f32() * TAU;
+            let across = (1.0 - up * up).max(0.0).sqrt();
+            let push = Vec3::new(across * ops::cos(round), up, across * ops::sin(round))
+                * rng.range_f32(lance.push.0, lance.push.1);
+            out.hits.push(Hit {
+                shock: false,
+                ..gun.hit(target.entity, damage, push)
+            });
+        }
+    }
 }
 
 /// The Shock Blaster's hit: the ball at the gun, then the rays.
@@ -1286,6 +1369,7 @@ fn stream(
                     GunEventKind::Fired {
                         at: gun.muzzle,
                         direction: gun.facing,
+                        charged: false,
                     },
                 );
             } else {

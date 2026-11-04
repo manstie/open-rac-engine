@@ -74,6 +74,7 @@ pub(super) fn whip(
                 GunEventKind::Fired {
                     at: gun.muzzle,
                     direction: gun.facing,
+                    charged: false,
                 },
             );
         }
