@@ -86,7 +86,6 @@ pub(crate) struct GunLooks {
     bomb: Handle<StandardMaterial>,
     blob: Handle<StandardMaterial>,
     disc: Handle<StandardMaterial>,
-    rift: Handle<StandardMaterial>,
     thing: Handle<StandardMaterial>,
     turret: Handle<StandardMaterial>,
     holo: Handle<StandardMaterial>,
@@ -127,7 +126,6 @@ impl GunLooks {
             bomb: glow(0.95, 0.65, 0.2, 1.0),
             blob: glow(0.45, 0.9, 0.3, 1.0),
             disc: glow(0.85, 0.9, 0.95, 1.0),
-            rift: glow(0.35, 0.1, 0.55, 0.85),
             thing: glow(0.75, 0.6, 0.4, 1.0),
             turret: glow(0.55, 0.6, 0.65, 1.0),
             holo: glow(0.35, 0.9, 0.95, 0.35),
@@ -179,12 +177,13 @@ fn shot_look(kind: &ShotKind, velocity: Vec3, fire: Option<&FireMode>, looks: &G
             scale: Vec3::ZERO,
             ..ball(0.0, &looks.arc)
         },
-        ShotKind::Rift(state) if state.closing.is_some() => Look {
+        // The rift's class is 0.05 units across, at the scale its code leaves it (0x373738):
+        // the violet ball the game shows is its recipe's rings and glow in flight, and its
+        // stars, rays and lens open.
+        ShotKind::Rift(_) => Look {
             scale: Vec3::ZERO,
-            ..ball(0.0, &looks.rift)
+            ..ball(0.0, &looks.arc)
         },
-        ShotKind::Rift(state) if state.open.is_some() => ball(0.9, &looks.rift),
-        ShotKind::Rift(_) => ball(0.3, &looks.rift),
         ShotKind::Thing { .. } => ball(0.3, &looks.thing),
         ShotKind::Turret(_) => ball(0.35, &looks.turret),
         ShotKind::Pellet => ball(0.06, &looks.bullet),

@@ -582,6 +582,16 @@ pub(crate) fn step(
                 _ => bullet(shot, fire, world, targets, out),
             },
             FireMode::Lobbed(fire) if matches!(shot.kind, ShotKind::Blast { .. }) => {
+                if let Some(spray) = fire
+                    .blast
+                    .eruption
+                    .filter(|eruption| {
+                        shot.level >= eruption.from_level && shot.ticks == eruption.burst_ticks
+                    })
+                    .and_then(|eruption| eruption.spray)
+                {
+                    spray_slugs(shot, &spray, targets, rng, &mut born);
+                }
                 blast(shot, fire, targets, out)
             }
             FireMode::Lobbed(fire) => {
@@ -594,14 +604,6 @@ pub(crate) fn step(
                             surface: None,
                         },
                     );
-                    if let Some(spray) = fire
-                        .blast
-                        .eruption
-                        .filter(|eruption| shot.level >= eruption.from_level)
-                        .and_then(|eruption| eruption.spray)
-                    {
-                        spray_slugs(shot, &spray, targets, rng, &mut born);
-                    }
                     born.push(Shot {
                         velocity: Vec3::ZERO,
                         ticks: 0,
@@ -838,7 +840,7 @@ fn beam(
     shot.ticks < def.ticks
 }
 
-/// The Nitro Eruptor's burst of small bullets (0x38A668): one at each target far enough
+/// The Nitro Eruptor's burst of small bullets (0x38A7B8): one at each target far enough
 /// off of the first near it (in the targets' order, as the game's list), the rest any way
 /// round.
 fn spray_slugs(

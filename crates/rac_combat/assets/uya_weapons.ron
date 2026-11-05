@@ -246,9 +246,11 @@
                     radius_from: 2.0,
                     radius_to: [(0, 6.0), (3, 7.0)],
                     push: 1.5,
-                    // The Nitro Eruptor (0x38A7B8) [code].
+                    // The Nitro Eruptor (0x38A7B8) [code]: its timer starts at 105 and it
+                    // bursts at 90, holds three ticks and grows from 86.
                     eruption: Some((
                         from_level: 4,
+                        burst_ticks: 15,
                         wait_ticks: 18,
                         grow_ticks: 30,
                         radius: (3.0, 11.0),

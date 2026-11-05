@@ -342,6 +342,10 @@ pub enum Emit {
     },
     /// The emits of one of [`FxRecipes::sets`].
     Set(String),
+    /// These emits made this many ticks after the event, as they would be then: for those
+    /// with no delay of their own, such as the Nitro Eruptor's burst 15 ticks after its
+    /// charge lands (0x38A7B8).
+    After(u32, Vec<Emit>),
 }
 
 /// How wide a particle the game draws is for each unit of its size: its renderer
@@ -365,6 +369,7 @@ impl Emit {
             Emit::Swell(swell) => vec![swell.texture],
             Emit::Curls(curls) => vec![curls.texture],
             Emit::Debris(debris) => debris.textures(),
+            Emit::After(_, emits) => emits.iter().flat_map(Emit::textures).collect(),
             Emit::Screen { .. }
             | Emit::Model { .. }
             | Emit::Light { .. }
@@ -1258,7 +1263,7 @@ impl Plugin for FxPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    emit_gun_fx,
+                    (step_later, emit_gun_fx).chain(),
                     funnel::draw_funnels,
                     vortex::draw_vortices,
                     (open::step_open_rays, refract::step_lenses),
@@ -1853,6 +1858,11 @@ impl Spawner<'_, '_, '_> {
             }
             Emit::Swell(ref shape) => {
                 let image = self.images.0.get(&shape.texture).cloned();
+                let phase = if shape.spin == 0.0 {
+                    0.0
+                } else {
+                    rng.between((0.0, 360.0))
+                };
                 swell::spawn(
                     &mut self.commands,
                     self.meshes,
@@ -1862,6 +1872,7 @@ impl Spawner<'_, '_, '_> {
                     at,
                     way,
                     eye,
+                    phase,
                 );
             }
             Emit::Light {
@@ -1908,6 +1919,23 @@ impl Spawner<'_, '_, '_> {
                 }
             }
             Emit::Set(_) => {}
+            Emit::After(0, ref emits) => {
+                for emit in emits {
+                    self.emit(emit, at, way, eye, rng);
+                }
+            }
+            Emit::After(ticks, ref emits) => {
+                self.commands.spawn((
+                    Name::new("later"),
+                    DemoEntity,
+                    Later {
+                        left: ticks,
+                        emits: emits.clone(),
+                        at,
+                        way,
+                    },
+                ));
+            }
         }
     }
 
@@ -1988,6 +2016,45 @@ fn emit_crate_blasts(
         for emit in recipes.expand(explosion) {
             spawner.emit(emit, blast.at, None, eye, &mut rng);
         }
+    }
+}
+
+/// Emits held back from an event ([`Emit::After`]).
+#[derive(Component, Debug, Clone)]
+struct Later {
+    left: u32,
+    emits: Vec<Emit>,
+    at: Vec3,
+    way: Option<Vec3>,
+}
+
+impl Later {
+    /// Counts a tick off, saying whether its time has come.
+    fn due(&mut self) -> bool {
+        self.left = self.left.saturating_sub(1);
+        self.left == 0
+    }
+}
+
+/// Makes the emits held back whose time has come: run before the events' own, so that
+/// those `ticks` after one show as one `delay`ed that long does.
+fn step_later(
+    recipes: Res<FxRecipes>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut held: Query<(Entity, &mut Later)>,
+    mut rng: ResMut<FxRng>,
+    mut making: Making,
+) {
+    let mut spawner = making.spawner();
+    let eye = eye(&cameras);
+    for (entity, mut later) in &mut held {
+        if !later.due() {
+            continue;
+        }
+        for emit in recipes.expand(&later.emits) {
+            spawner.emit(emit, later.at, later.way, eye, &mut rng);
+        }
+        spawner.commands.entity(entity).despawn();
     }
 }
 
@@ -2270,6 +2337,19 @@ mod tests {
     }
 
     #[test]
+    fn what_comes_after_an_event_is_due_on_the_tick_a_delay_as_long_shows() {
+        // Made on the event's tick, counted from the next, as a `delay` is.
+        let mut later = Later {
+            left: 15,
+            emits: Vec::new(),
+            at: Vec3::ZERO,
+            way: None,
+        };
+        let due = (1..=20).find(|_| later.due());
+        assert_eq!(due, Some(15));
+    }
+
+    #[test]
     fn a_ball_is_in_view_only_wholly_inside_the_frustum() {
         // Looking down −Z from the origin, 90° wide and high, as Bevy's cameras project: at
         // 10 u the view reaches 10 u to each side.
@@ -2509,7 +2589,14 @@ mod tests {
             let emits = emits.chain(&fx.bounce);
             let emits = emits.chain(&fx.first_bounce).chain(&fx.ray_end);
             let along = fx.along_rope.iter().flatten().map(|along| &along.emit);
-            for emit in emits.chain(&fx.arc_end).flatten().chain(along) {
+            let mut all: Vec<&Emit> = emits.chain(&fx.arc_end).flatten().chain(along).collect();
+            let later = all.iter().filter_map(|emit| match emit {
+                Emit::After(_, emits) => Some(emits),
+                _ => None,
+            });
+            let later: Vec<&Emit> = later.flatten().collect();
+            all.extend(later);
+            for emit in all {
                 if let Emit::Set(name) = emit {
                     assert!(recipes.sets.contains_key(name), "no set {name}");
                 }
@@ -2657,6 +2744,37 @@ mod tests {
         };
         assert!(chunks(3).is_none());
         let chunks = chunks(4).expect("V5's chunks");
+        // V5 bursts 15 ticks after its charge lands, its bands spinning round it until then.
+        assert_eq!(chunks.delay, 15);
+        let v5 = recipes.impact("nitro", 4, None);
+        let after = |ticks| {
+            v5.iter().find_map(|emit| match emit {
+                Emit::After(t, emits) if *t == ticks => Some(emits.as_slice()),
+                _ => None,
+            })
+        };
+        let bands = |emits: &[Emit]| {
+            emits
+                .iter()
+                .filter(|emit| {
+                    matches!(emit, Emit::Swell(swell)
+                        if matches!(swell.shape, SwellShape::Band { .. })
+                            && swell.axis == SwellAxis::Leaning(20.0))
+                })
+                .count()
+        };
+        assert_eq!(after(1).map(bands), Some(12));
+        assert_eq!(after(20).map(bands), Some(6));
+        let shakes = |emits: &[Emit]| emits.iter().any(|emit| matches!(emit, Emit::Shake { .. }));
+        assert!(after(15).is_some_and(shakes));
+        // Its small bullets end as the agents' do, not in another burst.
+        let slug = |key| recipes.impact(key, 4, Some("slug"));
+        assert!(std::ptr::eq(slug("nitro"), slug("agents")));
+        assert!(
+            !slug("nitro")
+                .iter()
+                .any(|emit| matches!(emit, Emit::After(..)))
+        );
         assert_eq!((chunks.count, chunks.bounce), (5, Some(0.8)));
         assert_eq!(
             chunks.smokes.iter().filter(|&&smokes| smokes > 0.0).count(),

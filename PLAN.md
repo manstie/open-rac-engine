@@ -92,8 +92,8 @@ session is working on the task now; notes on problems met stay with their task (
    internet by join code, with the router's port mapping (D8). Nothing else is left in
    it.
 2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Rift Ripper's placeholder ball, which still shows round its
-   lens; then the rest of the Eruptor's V5 burst, 0x38A7B8 and 0x35D8E8).
+   next to fix (the agents' size on screen, measured in world units against the hero's;
+   then their jets, dimmer than the game's).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -884,8 +884,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       close: the game's tall oval is its round shell squeezed by the takes' 16:9, and its
       V3+ ball fading down from its top, 0x409A50, is drawn). Each gun's row in
       `effects.md` says what is left.
-    - Partial: Rift Ripper, Ultrashield, Megaturret, and the five above.
-    - Close: N90 Hurricane, Nitro Eruptor, Decimator, Multi-Disc, Quantum Whip, Plasma
+    - Partial: Ultrashield, Megaturret, and the five above.
+    - Close: Rift Ripper (its placeholder ball gone: the rift's class is 0.05 u across),
+      N90 Hurricane, Nitro Eruptor, Decimator, Multi-Disc, Quantum Whip, Plasma
       Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon, Tempest, Splitter Rifle,
       Qwack-O-Blitzer, Tesla Barrier.
     - The kit adds effects' colours in linear light, the GS in gamma: a layer at alpha a
@@ -905,13 +906,16 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       in `effects.md`, "In the kit and the app"). The Shield Charger hangs the game on Veldin
       at V3 and V5, so its V5 is judged from one frozen frame. Behaviour placeholders are in
       `weapons.md`, "In the kit".
-    - The Eruptor's V5 rocks are drawn (`effects.md`, "Nitro Eruptor's burst"): five
-      chunks of class 0x1A50, imported with the effects' models, thrown by
-      `Emit::Debris` (`fx/debris.rs`: they fly, tumble, bounce, shrink and two kinds in
-      three trail smoke), and five 0x61 rocks. The rest of V5's burst (0x38A7B8's
-      sparkles and draws, and fifteen fireballs at nearby enemies, 0x35D8E8) isn't read,
-      so the kit's V5 shows V4's blast round the rocks; the chunks' smoke barely shows on
-      the kit's bright floor (with the linear-light note above).
+    - The Eruptor's V5 burst is read whole and drawn (`effects.md`, "Nitro Eruptor's
+      burst"), compared on `review-nitro-0x7B`: the bands spinning round it before it
+      bursts (`Swell`'s `Band`, `Leaning`, `spin`), the pop, the white screen, the fire
+      ring, the growing bands, rings and warp, timed by `Emit::After`; the chunks of class
+      0x1A50 (`Emit::Debris`, `fx/debris.rs`) and 0x61 rocks. Its fire is redder and
+      dimmer than the game's (the linear-light note above); its dome of 23, masked discs
+      of 71 and 72 and quads of 54 aren't drawn. Its fifteen bullets left as the charge
+      landed, not as it burst 15 ticks later (`Eruption::burst_ticks`), and each one's
+      hit showed the gun's whole burst again, the Nitro having no "slug" entry of its
+      own; both fixed, the slug's looks now in the default recipe.
     - The Shock Cannon's charged shot is a lance (`weapons.md`, "The Shock Cannon's
       charged shot is a lance"; `effects.md`, "The Shock Cannon at V5"): `rac_combat`'s
       `Lance` hits along the aim for 30 ticks (`Arsenal::lance`), drawn by `fx/lance.rs`
@@ -961,8 +965,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     - The agents are drawn about twice the game's size against the hero. The class scale
       and the pose aren't the cause; the cause isn't found (`effects.md`, "Its size on
       screen"). Next: measure the kit's drawn agent and hero in world units.
-    - Not done: the rest of the Eruptor's V5 burst, and the agents' jets, dimmer than
-      the game's; then the sounds not played and the simplified behaviours
+    - Not done: the agents' jets, dimmer than the game's; then the sounds not played and
+      the simplified behaviours
       (`effects.md`, "In the kit and the app"; `weapons.md`, "In the kit").
     - The lights' pools show weaker than the game's on the demo's pale floor (1.25 times
       as bright beside him where the game's sand is 1.54 times), as the kit's tonemapper

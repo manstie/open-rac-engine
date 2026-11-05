@@ -2,7 +2,8 @@
 //! `fx_dome` (0x409A50: a unit ball from its pole down a chosen number of rings, in a
 //! matrix each caller scales, its colour fading by the last ring), which the Shock
 //! Cannon's lances draw, and the meshes in the game's data that the Agents of Dread's blast
-//! draws the same way (0x391AC0, 0x391F48, 0x3923A0; `effects.md`, "The Dread blast").
+//! draws the same way (0x391AC0, 0x391F48, 0x3923A0; `effects.md`, "The Dread blast"), and
+//! the bands of a ball the Nitro Eruptor spins round its burst (0x38B628).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
@@ -46,7 +47,7 @@ impl Track {
 }
 
 /// The way a shape's axis lies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Deserialize)]
 pub enum SwellAxis {
     #[default]
     Up,
@@ -54,6 +55,10 @@ pub enum SwellAxis {
     Way,
     /// Towards the camera as it starts.
     Eye,
+    /// Up, leaning this many degrees toward the camera, level: the Nitro Eruptor leans its
+    /// bands so toward the hero (0x40C658 of (0, its elevation − 20°, its heading) from
+    /// him), whom the camera stands in for.
+    Leaning(f32),
 }
 
 /// What a shape is, in units its tracks scale.
@@ -81,7 +86,13 @@ pub enum SwellShape {
         radius: f32,
         v: (f32, f32),
     },
+    /// A band of the unit ball between two `latitudes` (degrees, v 0 to 1), over `span`
+    /// degrees round from its start in 20 quads, the texture once along it (0x38B628).
+    Band { span: f32, latitudes: (f32, f32) },
 }
+
+/// Quads along a [`SwellShape::Band`], as 0x38B628 draws 21 pairs of points.
+const BAND_QUADS: u32 = 20;
 
 /// A shape an event leaves ([`super::Emit::Swell`]).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -112,6 +123,9 @@ pub struct Swell {
     pub scroll: (f32, f32),
     #[serde(default)]
     pub blend: Blend,
+    /// Degrees it turns about its axis a tick, from any turn at first.
+    #[serde(default)]
+    pub spin: f32,
 }
 
 fn no_ahead() -> Track {
@@ -162,6 +176,17 @@ fn rings(shape: &SwellShape, along: f32) -> (Vec<(f32, f32, f32, f32)>, u32, f32
                 .collect();
             (points, *around, 1.0)
         }
+        SwellShape::Band {
+            latitudes: (from, to),
+            ..
+        } => {
+            let (from, to) = (from.to_radians(), to.to_radians());
+            let points = vec![
+                (ops::cos(from), ops::sin(from), 0.0, 1.0),
+                (ops::cos(to), ops::sin(to), 1.0, 1.0),
+            ];
+            (points, BAND_QUADS, 1.0)
+        }
     }
 }
 
@@ -203,13 +228,17 @@ pub(crate) fn mesh(shape: &SwellShape, along: f32) -> Mesh {
     }
     let (points, around, repeat) = rings(shape, along);
     let around = around.max(3);
+    let round = match shape {
+        SwellShape::Band { span, .. } => span.to_radians(),
+        _ => std::f32::consts::TAU,
+    };
     let mut positions = Vec::new();
     let mut uvs = Vec::new();
     let mut colours = Vec::new();
     let mut indices = Vec::new();
     for (radius, high, v, alpha) in &points {
         for column in 0..=around {
-            let turn = column as f32 / around as f32 * std::f32::consts::TAU;
+            let turn = column as f32 / around as f32 * round;
             positions.push([radius * ops::cos(turn), *high, radius * ops::sin(turn)]);
             uvs.push([column as f32 / around as f32 * repeat, *v]);
             colours.push([1.0, 1.0, 1.0, *alpha]);
@@ -240,7 +269,23 @@ pub(crate) struct Swelling {
     tick: u32,
     from: Vec3,
     axis: Vec3,
+    /// Its turn about its axis at first, in degrees.
+    phase: f32,
     material: Handle<StandardMaterial>,
+}
+
+/// Which way a shape's axis lies, left at `at`.
+fn axis(axis: SwellAxis, at: Vec3, way: Option<Vec3>, eye: Vec3) -> Vec3 {
+    match axis {
+        SwellAxis::Up => Vec3::Y,
+        SwellAxis::Way => way.unwrap_or(Vec3::NEG_Z).normalize_or(Vec3::NEG_Z),
+        SwellAxis::Eye => (eye - at).normalize_or(Vec3::Y),
+        SwellAxis::Leaning(degrees) => {
+            let toward = (eye - at).with_y(0.0).normalize_or_zero();
+            let lean = degrees.to_radians();
+            Vec3::Y * ops::cos(lean) + toward * ops::sin(lean)
+        }
+    }
 }
 
 /// What [`super::Spawner`] needs to leave a shape.
@@ -253,12 +298,9 @@ pub(crate) fn spawn(
     at: Vec3,
     way: Option<Vec3>,
     eye: Vec3,
+    phase: f32,
 ) {
-    let axis = match swell.axis {
-        SwellAxis::Up => Vec3::Y,
-        SwellAxis::Way => way.unwrap_or(Vec3::NEG_Z).normalize_or(Vec3::NEG_Z),
-        SwellAxis::Eye => (eye - at).normalize_or(Vec3::Y),
-    };
+    let axis = axis(swell.axis, at, way, eye);
     let [r, g, b] = swell.colour;
     let material = materials.add(StandardMaterial {
         base_color: Color::srgba(r, g, b, swell.alpha.at(0)),
@@ -275,6 +317,7 @@ pub(crate) fn spawn(
         tick: 0,
         from: at,
         axis,
+        phase,
         material: material.clone(),
     };
     let place = swelling.place(0);
@@ -306,6 +349,8 @@ impl Swelling {
         if self.swell.pole_back {
             rotation *= Quat::from_rotation_x(std::f32::consts::PI);
         }
+        let turn = self.phase + self.swell.spin * tick as f32;
+        rotation *= Quat::from_rotation_y(turn.to_radians());
         Transform::from_translation(self.from + self.axis * self.swell.ahead.at(tick))
             .with_rotation(rotation)
             .with_scale(Vec3::new(across, along, other))
@@ -381,6 +426,29 @@ mod tests {
         let (rings, ..) = rings(&SwellShape::Rings(4), 1.0);
         assert_eq!(rings[0].3, 1.0);
         assert_eq!(rings[4].3, 0.0);
+    }
+
+    #[test]
+    fn a_band_spans_its_degrees_between_its_latitudes_in_twenty_quads() {
+        let band = SwellShape::Band {
+            span: 180.0,
+            latitudes: (25.0, 35.0),
+        };
+        let all = points(&mesh(&band, 1.0));
+        assert_eq!(all.len(), 2 * 21);
+        let (low, high) = (25f32.to_radians(), 35f32.to_radians());
+        let near = |a: [f32; 3], b: [f32; 3]| Vec3::from(a).distance(Vec3::from(b)) < 1e-5;
+        assert!(near(all[0], [ops::cos(low), ops::sin(low), 0.0]));
+        assert!(near(all[20], [-ops::cos(low), ops::sin(low), 0.0]));
+        assert!(near(all[21], [ops::cos(high), ops::sin(high), 0.0]));
+    }
+
+    #[test]
+    fn a_leaning_axis_tilts_from_up_toward_the_camera_level() {
+        let eye = Vec3::new(0.0, 8.0, 10.0);
+        let leaning = axis(SwellAxis::Leaning(20.0), Vec3::ZERO, None, eye);
+        assert!((leaning.angle_between(Vec3::Y).to_degrees() - 20.0).abs() < 1e-3);
+        assert!(leaning.z > 0.0 && leaning.x.abs() < 1e-6);
     }
 
     #[test]

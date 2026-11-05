@@ -5114,7 +5114,119 @@ name = "eruptor_blast_update"
 address = 0x0038A7B8
 kind = "function"
 confidence = "high"
-note = "Class 0x1888: the Nitro Eruptor's blast; its 15 bullets."
+note = "Class 0x1888: the Nitro Eruptor's blast. Timer 105: draws 0x38C238 until 90, bursts at 90 (state 1, its 15 bullets), holds 3 frames, then grows 30 (state 2)."
+
+[[symbol]]
+name = "eruptor_blast_spawn"
+address = 0x0038A668
+kind = "function"
+confidence = "high"
+note = "(position, ground point, the charge's pvars): class 0x1888; its timer 105, +0x28 2.0, +0x2C 30, +0x30 0x50, +0x3C 20."
+
+[[symbol]]
+name = "eruptor_band"
+address = 0x0038B628
+kind = "function"
+confidence = "high"
+note = "(span degrees, from latitude, to latitude, matrix, texture, colour, added): a band of the unit ball, 21 pairs of points, u along it."
+
+[[symbol]]
+name = "eruptor_band_place"
+address = 0x0038C110
+kind = "function"
+confidence = "high"
+note = "(turn, scale, latitudes, scroll, span, position, matrix, texture, colour): turns a band about its z and places it."
+
+[[symbol]]
+name = "eruptor_draw_gather"
+address = 0x0038C238
+kind = "function"
+confidence = "high"
+note = "Before the burst: billboards of 73 and 74, discs of 71 and 72, six orange bands of 180 degrees and six yellow of 90, by +0x28."
+
+[[symbol]]
+name = "eruptor_draw_grow"
+address = 0x0038CB78
+kind = "function"
+confidence = "high"
+note = "As it bursts and grows: billboards of 76, 75 and 57 and six orange bands, by 0x1DDF78 and +0x28, alpha by +0x2C."
+
+[[symbol]]
+name = "eruptor_draw_dome"
+address = 0x0038B8B0
+kind = "function"
+confidence = "high"
+note = "fx_ring_fan of texture 23 five frames of the charge's velocity ahead, its pole back, while +0x3C runs."
+
+[[symbol]]
+name = "eruptor_flash"
+address = 0x0038BDB0
+kind = "function"
+confidence = "high"
+note = "The whole screen grey 0x80 added, in state 1."
+
+[[symbol]]
+name = "eruptor_warp"
+address = 0x0038BA40
+kind = "function"
+confidence = "high"
+note = "Calls 0x38BA90 (1, 0, 0, 0.9, position, texture 66, 5 x the timer 0x1E1F9C)."
+
+[[symbol]]
+name = "eruptor_warp_draw"
+address = 0x0038BA90
+kind = "function"
+confidence = "high"
+note = "The screen warp, as 0x36CBC0: texture 66 in four quarters into the frame's alpha, then the frame (-7) from (10, 8) to (492, 432) by it."
+
+[[symbol]]
+name = "eruptor_draw_rings"
+address = 0x0038BD80
+kind = "function"
+confidence = "high"
+note = "Calls 0x38D148 and 0x38D398."
+
+[[symbol]]
+name = "eruptor_ring_wide"
+address = 0x0038D148
+kind = "function"
+confidence = "high"
+note = "The ring at 0x2B3E60 (64 quads, the Dread blast's shape) x 0x1DDF70, at (2, 2, 0.25), texture 43, (0x80, 0x40, 0x20) at +0x30, blended."
+
+[[symbol]]
+name = "eruptor_ring_narrow"
+address = 0x0038D398
+kind = "function"
+confidence = "high"
+note = "The same ring at (1, 1, 0.125)."
+
+[[symbol]]
+name = "eruptor_light"
+address = 0x0038D5E0
+kind = "function"
+confidence = "high"
+note = "light_moby_spawn from the template at 0x2BEE10."
+
+[[symbol]]
+name = "fx_masked_disc"
+address = 0x004086B8
+kind = "function"
+confidence = "medium"
+note = "(radius, uv scale, ?, turn, ?, push, position, mask texture, texture, colour, mix): a 16-point disc facing the camera; the mask's alpha into the frame's, then the texture turned, mixed (0x54) or added (0x58) by it."
+
+[[symbol]]
+name = "particle_spawn_sparkle"
+address = 0x00467DA8
+kind = "function"
+confidence = "high"
+note = "Type 0x35: (size, start size, ?, position, life, colour, roll kind, spin, ?, delay)."
+
+[[symbol]]
+name = "particle_spawn_streak"
+address = 0x00470F00
+kind = "function"
+confidence = "medium"
+note = "Type 0x77: (width, ?, length, ?, position, velocity, ?, colour, end colour, life, texture)."
 
 [[symbol]]
 name = "bouncer_bomblet_spawn"

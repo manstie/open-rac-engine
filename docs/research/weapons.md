@@ -1340,7 +1340,8 @@ The gun moby's update reads its row through item 0x27.
   ends in another blast (0x38A668, class 0x1888, update
   0x38A7B8): 18 frames, then for 30 frames a ball growing from 3 to 11 u in which
   everything (not the hero) takes the row's damage every frame (flags 0x1030000, pushed
-  1.5 away) and the acid check. As it bursts (2026-10-22) it fires 15 bullets (class
+  1.5 away) and the acid check. As it bursts, 15 frames after the charge lands (its timer
+  from 105 to 90, 2026-11-05), it fires 15 bullets (class
   0x1855, `enemy_bullet_spawn` 0x35D8E8) at 20–30 u/s, each a flat 10 damage (flags
   0x10000): one at each target but the hero farther than 8 u among up to 10 within
   13 u, the rest in random directions (any bearing, 20° down to 15° up): the vendor's

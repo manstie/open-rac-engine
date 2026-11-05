@@ -2181,8 +2181,14 @@ fn the_nitro_eruptors_burst_fires_15_small_bullets_one_at_a_target_farther_off()
     yard.target(far, 10_000.0);
     yard.idle(6);
     yard.hold(&[Action::Fire], 1);
-    for _ in 0..120 {
+    let mut blast_from = None;
+    for tick in 0..120 {
         yard.idle(1);
+        if blast_from.is_none()
+            && yard.count_shots(|kind| matches!(kind, ShotKind::Blast { .. })) > 0
+        {
+            blast_from = Some(tick);
+        }
         let slugs: Vec<_> = yard
             .arsenal()
             .shots
@@ -2193,6 +2199,8 @@ fn the_nitro_eruptors_burst_fires_15_small_bullets_one_at_a_target_farther_off()
         if slugs.is_empty() {
             continue;
         }
+        // Not as the charge lands but as it bursts, 15 ticks on (its timer from 105 to 90).
+        assert_eq!(blast_from.map(|from| tick - from), Some(15));
         assert_eq!(slugs.len(), 15);
         assert!(slugs.iter().all(|slug| slug.damage == 10.0));
         let at_far = slugs

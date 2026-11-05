@@ -105,6 +105,7 @@
         Particle(0x6D, 0): (shape: Smoke, colour: (1.0, 1.0, 1.0)),
         Particle(0x74, 0): (shape: Streak, colour: (1.0, 1.0, 1.0)),
         Particle(0x76, 0): (shape: Streak, colour: (1.0, 1.0, 1.0)),
+        Particle(0x77, 0): (shape: Streak, colour: (1.0, 0.75, 0.75)),
     },
     // Named lists of emits a recipe can use with `Set("name")`.
     sets: {
@@ -660,6 +661,41 @@
         ray: Some([(texture: Effect(43), width: 0.05, ticks: 10)]),
         arc: Some([(texture: Effect(47), width: 0.25, ticks: 10, colour: (0.75, 0.9, 1.0, 1.0))]),
         shots: {
+            // UYA's small bullet (class 0x1855, 0x35D9C0; effects.md, "The small bullet"),
+            // which the agents' guns and the Nitro Eruptor fire. Its trail and hit go by the
+            // Agents' level in the game; the kit's by the level of the gun that fired it.
+            "slug": (
+                shot: Some([
+                    (texture: Effect(57), size: 0.36, colour: (0.992, 0.992, 0.992, 0.25), spin: -1.5),
+                    (texture: Effect(57), size: 0.36, colour: (0.992, 0.992, 0.992, 0.25), spin: 0.5),
+                    (texture: Effect(47), size: 0.1, colour: (0.992, 0.992, 0.992, 0.625), flickers: true),
+                ]),
+                streak: Some([(texture: Effect(63), behind: 0.0, length: (1.333, 1.5), width: (0.28, 0.44), after: 0.5, colour: (1.992, 1.992, 1.992, 0.992))]),
+                impact: Some([Set("slug blast")]),
+                from_level: {
+                    1: (
+                    trail: Some([
+                        (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.367, 1.367, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
+                        (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(0.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
+                    ]),
+                    ),
+                    2: (
+                    trail: Some([
+                        (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
+                        (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
+                    ]),
+                        impact: Some([
+                            Burst(texture: Particle(0x2C, 0), count: 20, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(80.0), size: 0.1, size_to: Some(0.4), end_size: 0.17, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 2.8, jitter: 0.1),
+                        ]),
+                    ),
+                    3: (
+                    trail: Some([
+                        (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 0.5, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
+                        (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
+                    ]),
+                    ),
+                },
+            ),
             // The lightning bolt the Spitting Hydra, Holo Shield, Shield Charger and Rift
             // Inducer share (0x34DAA0; effects.md, "The lightning bolt") [code]: each tick
             // two bent lines, each a core of 23 and a glow of 14 in its colour, (0x20, 0x40,
@@ -988,34 +1024,88 @@
                         Burst(texture: Particle(0x5B, 3), count: 57, speed: 0.5, speed_from: Some(0.0), gravity: 0.5, keep: 0.98, size: 1.3, size_to: Some(1.7), end_size: 1.3, ticks: 15, ticks_to: Some(25), colour: (1.0, 0.5, 0.25, 0.312), end_alpha: 0.06, end_colour: Some((0.125, 0.125, 0.125)), jitter: 0.3, delay: 13, over: 18),
                     ]),
                 ),
+                // V5, the Nitro Eruptor (0x38A7B8; effects.md, "Nitro Eruptor's burst") [code]: its
+                // own burst, not V4's. Its timer starts at 105: until 90, dark swirls of 73 and
+                // 74 and two sets of six bands of a ball spinning round it, leaning 20° to the
+                // hero, shrink with +0x28 (0x38C238); at 90 it bursts (sparks, sparkles, 0x5C, a
+                // light, the shake, the chunks and rocks, and 0x38CB78's stars); for three ticks the
+                // screen goes white as 300 orange puffs go out level along the ground (0x38BDB0);
+                // then for 30 ticks (0x38CB78, 0x38BD80) the orange bands grow to about 17 u and
+                // fade, with its billboards, two rings of 43 out along the ground and the screen
+                // warp. Not drawn: its dome of 23 ahead of the charge (0x38B8B0, which takes the
+                // charge's velocity), its masked discs of 71 and 72 (0x4086B8) and the rumble.
                 4: (
                     impact: Some([
-                        Shake(amplitude: 0.4, ticks: 25, lose: 0.02, within: Some(20.0), beyond: Some(0.0)),
-                        Screen(ticks: 2, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0, delay: 10),
-                        Glow(texture: Effect(73), size: 6.576, end_size: 1.584, ticks: 9, colour: (0.5, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
-                        Glow(texture: Effect(74), size: 6.028, end_size: 1.452, ticks: 9, colour: (0.25, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
-                        Glow(texture: Effect(73), size: 4.932, end_size: 1.188, ticks: 9, colour: (0.5, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
-                        Glow(texture: Effect(74), size: 5.48, end_size: 1.32, ticks: 9, colour: (0.25, 0.039, 0.039, 0.992), end_alpha: 0.99, roll: Some((0.0, 360.0)), spin: -3.0, blend: Alpha),
-                        Burst(texture: Particle(0x17, 0), count: 100, toward: Level, speed: 10.0, speed_from: Some(10.0), size: 1.2, end_size: 2.2, ticks: 20, ticks_to: Some(40), colour: (1.0, 0.75, 0.5, 0.5), spin: 4.2, jitter: 0.15, delay: 10, over: 1, blend: Alpha),
-                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 35.0, ticks: 20, colour: (1.0, 0.5, 0.25, 1.492), roll: Some((0.0, 360.0)), spin: 2.8, delay: 12, flash: true),
-                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 25.0, ticks: 20, colour: (1.25, 0.5, 0.25, 1.492), roll: Some((0.0, 360.0)), spin: -2.8, delay: 12, flash: true),
-                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 17.5, ticks: 20, colour: (1.992, 1.992, 1.992, 1.5), roll: Some((0.0, 360.0)), spin: 2.8, delay: 12, flash: true),
-                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 12.5, ticks: 20, colour: (1.992, 1.992, 1.992, 1.375), roll: Some((0.0, 360.0)), spin: -2.8, delay: 12, flash: true),
-                        Glow(texture: Particle(0x5C, 2), size: 4.2, end_size: 5.4, ticks: 24, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: 2.8, delay: 12),
-                        Glow(texture: Particle(0x5C, 2), size: 4.2, end_size: 10.2, ticks: 24, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: -1.4, delay: 13),
-                        Glow(texture: Particle(0x5C, 2), size: 9.0, end_size: 12.0, ticks: 24, colour: (0.938, 0.938, 0.938, 0.352), roll: Some((0.0, 360.0)), spin: 1.4, delay: 13),
-                        Burst(texture: Particle(0x76, 0), count: 50, speed: 25.0, speed_from: Some(20.0), size: 0.032, end_size: 0.32, streak: Some(2.0), ticks: 20, ticks_to: Some(35), colour: (1.992, 1.0, 0.5, 1.0), delay: 12),
-                        Burst(texture: Particle(0x5B, 3), count: 57, speed: 0.5, speed_from: Some(0.0), gravity: 0.5, keep: 0.98, size: 1.3, size_to: Some(1.7), end_size: 1.3, ticks: 15, ticks_to: Some(25), colour: (1.0, 0.5, 0.25, 0.312), end_alpha: 0.06, end_colour: Some((0.125, 0.125, 0.125)), jitter: 0.3, delay: 13, over: 18),
-                        // V5's rocks (0x38A7B8; effects.md, "Nitro Eruptor's burst") [code]:
-                        // five chunks tumbling, bouncing and two in three trailing smoke,
-                        // and five of 0x61's rock particles; the rest of V5's burst isn't
-                        // read, so V4's is shown with them. The chunks' grey texture is
-                        // tinted by the moby colour the spawner sets (0x80204080 at +0x78),
-                        // as the game's maroon chunks suggest.
-                        Debris((class: 0x1A50, count: 5, scale: 3.0, speed: (8.0, 15.0), turn: 80.0, pitch: (5.0, 30.0), ticks: (100, 130), spin: (6.0, 12.0), gravity: 14.6, bounce: Some(0.8), smoke: Some((textures: [Particle(0x04, 0)], colours: [(1.992, 1.992, 1.992, 0.367), (1.0, 1.0, 1.0, 0.367), (1.5, 1.5, 1.5, 0.367), (0.5, 0.5, 0.5, 0.367)], size: 0.476, end_size: 1.619, ticks: 45, ticks_to: 45, scatter: 1.0, keep: 0.98, spin: 1.4, end_colour: Some((0.0, 0.0, 0.0)))), smokes: [0.0, 0.5, 3.0], delay: 12, colour: (1.0, 0.5, 0.25))),
-                        Burst(texture: Particle(0x61, 10), count: 2, toward: CameraLevel, cone: Some(80.0), speed: 10.0, speed_from: Some(7.0), rise: (0.0, 12.0), gravity: 14.6, size: 0.3, size_to: Some(0.4), end_size: 0.3, ticks: 90, ticks_to: Some(150), colour: (0.438, 0.414, 0.305, 0.992), end_alpha: 0.992, spin: 8.4, jitter: 0.2, delay: 12, blend: Alpha),
-                        Burst(texture: Particle(0x61, 11), count: 2, toward: CameraLevel, cone: Some(80.0), speed: 10.0, speed_from: Some(7.0), rise: (0.0, 12.0), gravity: 14.6, size: 0.3, size_to: Some(0.4), end_size: 0.3, ticks: 90, ticks_to: Some(150), colour: (0.438, 0.414, 0.305, 0.992), end_alpha: 0.992, spin: 8.4, jitter: 0.2, delay: 12, blend: Alpha),
-                        Burst(texture: Particle(0x61, 12), count: 1, toward: CameraLevel, cone: Some(80.0), speed: 10.0, speed_from: Some(7.0), rise: (0.0, 12.0), gravity: 14.6, size: 0.3, size_to: Some(0.4), end_size: 0.3, ticks: 90, ticks_to: Some(150), colour: (0.438, 0.414, 0.305, 0.992), end_alpha: 0.992, spin: 8.4, jitter: 0.2, delay: 12, blend: Alpha),
+                        After(1, [
+                            Swell((shape: Band(span: 180.0, latitudes: (25.0, 35.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.406), (14, 1.406)], across: [(0, 2.85), (13, 0.9)], along: [(0, 2.85), (13, 0.9)], axis: Leaning(20.0), spin: 17.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (10.0, 20.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.406), (14, 1.406)], across: [(0, 3.23), (13, 1.02)], along: [(0, 3.23), (13, 1.02)], axis: Leaning(20.0), spin: 22.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (-2.0, 7.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.406), (14, 1.406)], across: [(0, 3.8), (13, 1.2)], along: [(0, 3.8), (13, 1.2)], axis: Leaning(20.0), spin: 27.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (-5.0, -10.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.406), (14, 1.406)], across: [(0, 3.42), (13, 1.08)], along: [(0, 3.42), (13, 1.08)], axis: Leaning(20.0), spin: 29.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (-12.0, -18.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.406), (14, 1.406)], across: [(0, 3.23), (13, 1.02)], along: [(0, 3.23), (13, 1.02)], axis: Leaning(20.0), spin: 26.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (5.0, 15.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.406), (14, 1.406)], across: [(0, 2.85), (13, 0.9)], along: [(0, 2.85), (13, 0.9)], axis: Leaning(20.0), spin: 22.0)),
+                            Swell((shape: Band(span: 90.0, latitudes: (25.0, 35.0)), texture: Effect(63), colour: (1.0, 1.0, 0.125), alpha: [(0, 1.641), (14, 1.641)], across: [(0, 2.85), (13, 0.9)], along: [(0, 2.85), (13, 0.9)], axis: Leaning(20.0), spin: 7.0)),
+                            Swell((shape: Band(span: 90.0, latitudes: (10.0, 20.0)), texture: Effect(63), colour: (1.0, 1.0, 0.125), alpha: [(0, 1.641), (14, 1.641)], across: [(0, 3.23), (13, 1.02)], along: [(0, 3.23), (13, 1.02)], axis: Leaning(20.0), spin: 12.0)),
+                            Swell((shape: Band(span: 90.0, latitudes: (-2.0, 7.0)), texture: Effect(63), colour: (1.0, 1.0, 0.125), alpha: [(0, 1.641), (14, 1.641)], across: [(0, 3.8), (13, 1.2)], along: [(0, 3.8), (13, 1.2)], axis: Leaning(20.0), spin: 17.0)),
+                            Swell((shape: Band(span: 90.0, latitudes: (-5.0, -10.0)), texture: Effect(63), colour: (1.0, 1.0, 0.125), alpha: [(0, 1.641), (14, 1.641)], across: [(0, 3.42), (13, 1.08)], along: [(0, 3.42), (13, 1.08)], axis: Leaning(20.0), spin: 19.0)),
+                            Swell((shape: Band(span: 90.0, latitudes: (-12.0, -18.0)), texture: Effect(63), colour: (1.0, 1.0, 0.125), alpha: [(0, 1.641), (14, 1.641)], across: [(0, 3.23), (13, 1.02)], along: [(0, 3.23), (13, 1.02)], axis: Leaning(20.0), spin: 16.0)),
+                            Swell((shape: Band(span: 90.0, latitudes: (5.0, 15.0)), texture: Effect(63), colour: (1.0, 1.0, 0.125), alpha: [(0, 1.641), (14, 1.641)], across: [(0, 2.85), (13, 0.9)], along: [(0, 2.85), (13, 0.9)], axis: Leaning(20.0), spin: 12.0)),
+                        ]),
+                        Glow(texture: Effect(73), size: 4.56, end_size: 1.44, ticks: 14, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: -4.0, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(73), size: 4.18, end_size: 1.32, ticks: 14, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: 2.5, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(73), size: 3.42, end_size: 1.08, ticks: 14, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: -3.0, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(73), size: 3.8, end_size: 1.2, ticks: 14, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: 3.0, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(74), size: 4.56, end_size: 1.44, ticks: 14, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: 4.0, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(74), size: 4.18, end_size: 1.32, ticks: 14, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: -2.5, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(74), size: 3.42, end_size: 1.08, ticks: 14, colour: (0.039, 0.039, 0.5, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: 3.0, nearer: 0.01, delay: 1, blend: Alpha),
+                        Glow(texture: Effect(74), size: 3.8, end_size: 1.2, ticks: 14, colour: (0.039, 0.039, 0.25, 0.992), end_alpha: 0.992, roll: Some((0.0, 360.0)), spin: -3.0, nearer: 0.01, delay: 1, blend: Alpha),
+                        After(15, [
+                            Shake(amplitude: 0.4, ticks: 25, along: [Up]),
+                            Shake(amplitude: 0.15, ticks: 25, along: [Roll]),
+                            // The light moby from its template (0x2BEE10): 1 u up, radius 20 × 0.8, 70 ticks.
+                            Light(radius: 16.0, colour: (2.55, 2.55, 1.0), ticks: 70, above: 1.0, rise: Some((1.28, 1.28, 1.28)), fall: Some((0.09, 0.12, 0.13))),
+                        ]),
+                        // 49 streaks of 0x77 (0x470F00) toward the camera, 2.7 u long; their width isn't read.
+                        Burst(texture: Particle(0x77, 0), count: 49, toward: CameraLevel, cone: Some(130.0), speed: 27.0, speed_from: Some(18.0), rise: (0.0, 14.0), size: 0.08, end_size: 0.08, streak: Some(2.7), ticks: 25, ticks_to: Some(35), colour: (1.992, 1.0, 1.0, 0.492), end_alpha: 0.492, delay: 15),
+                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 42.0, ticks: 28, colour: (1.0, 0.5, 0.25, 1.492), roll: Some((0.0, 360.0)), spin: 1.4, delay: 15, flash: true),
+                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 30.0, ticks: 28, colour: (1.25, 0.5, 0.25, 1.492), roll: Some((0.0, 360.0)), spin: -1.4, delay: 15, flash: true),
+                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 21.0, ticks: 28, colour: (1.992, 1.992, 1.992, 1.5), roll: Some((0.0, 360.0)), spin: 1.4, delay: 15, flash: true),
+                        Glow(texture: Particle(0x35, 0), size: 0.2, end_size: 15.0, ticks: 28, colour: (1.992, 1.992, 1.992, 1.375), roll: Some((0.0, 360.0)), spin: -1.4, delay: 15, flash: true),
+                        Glow(texture: Particle(0x5C, 2), size: 5.6, end_size: 7.2, ticks: 40, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: 2.8, delay: 15),
+                        Glow(texture: Particle(0x5C, 2), size: 5.6, end_size: 13.6, ticks: 40, colour: (0.938, 0.938, 0.938, 0.547), roll: Some((0.0, 360.0)), spin: -1.4, delay: 16),
+                        Glow(texture: Particle(0x5C, 2), size: 12.0, end_size: 16.0, ticks: 40, colour: (0.938, 0.938, 0.938, 0.352), roll: Some((0.0, 360.0)), spin: 1.4, delay: 16),
+                        // 0x38CB78 as it bursts: its +0x28 at 0.5, the bands and the biggest 76 not yet grown.
+                        Glow(texture: Effect(57), size: 3.0, end_size: 3.0, ticks: 1, colour: (1.992, 0.5, 0.25, 1.641), end_alpha: 1.641, roll: Some((0.0, 360.0)), spin: -1.5, delay: 15),
+                        Glow(texture: Effect(57), size: 3.0, end_size: 3.0, ticks: 1, colour: (1.992, 0.5, 0.25, 1.641), end_alpha: 1.641, roll: Some((0.0, 360.0)), spin: -2.0, delay: 15),
+                        Glow(texture: Effect(76), size: 0.5, end_size: 0.5, ticks: 1, colour: (0.39, 0.0, 1.992, 0.938), end_alpha: 0.938, roll: Some((0.0, 360.0)), spin: 3.0, delay: 15, blend: Alpha),
+                        Glow(texture: Effect(76), size: 0.2, end_size: 0.2, ticks: 1, colour: (0.039, 0.039, 0.375, 0.938), end_alpha: 0.938, roll: Some((0.0, 360.0)), spin: -3.0, delay: 15, blend: Alpha),
+                        Glow(texture: Effect(75), size: 0.6, end_size: 0.6, ticks: 1, colour: (1.0, 0.5, 0.25, 0.367), end_alpha: 0.367, roll: Some((0.0, 360.0)), spin: -4.0, delay: 15, blend: Alpha),
+                        Debris((class: 0x1A50, count: 5, scale: 3.0, speed: (8.0, 15.0), turn: 80.0, pitch: (5.0, 30.0), ticks: (100, 130), spin: (6.0, 12.0), gravity: 14.6, bounce: Some(0.8), smoke: Some((textures: [Particle(0x04, 0)], colours: [(1.992, 1.992, 1.992, 0.367), (1.0, 1.0, 1.0, 0.367), (1.5, 1.5, 1.5, 0.367), (0.5, 0.5, 0.5, 0.367)], size: 0.476, end_size: 1.619, ticks: 45, ticks_to: 45, scatter: 1.0, keep: 0.98, spin: 1.4, end_colour: Some((0.0, 0.0, 0.0)))), smokes: [0.0, 0.5, 3.0], delay: 15, colour: (1.0, 0.5, 0.25))),
+                        Burst(texture: Particle(0x61, 10), count: 2, toward: CameraLevel, cone: Some(80.0), speed: 10.0, speed_from: Some(7.0), rise: (0.0, 12.0), gravity: 14.6, size: 0.3, size_to: Some(0.4), end_size: 0.3, ticks: 90, ticks_to: Some(150), colour: (0.438, 0.414, 0.305, 0.992), end_alpha: 0.992, spin: 8.4, jitter: 0.2, delay: 15, blend: Alpha),
+                        Burst(texture: Particle(0x61, 11), count: 2, toward: CameraLevel, cone: Some(80.0), speed: 10.0, speed_from: Some(7.0), rise: (0.0, 12.0), gravity: 14.6, size: 0.3, size_to: Some(0.4), end_size: 0.3, ticks: 90, ticks_to: Some(150), colour: (0.438, 0.414, 0.305, 0.992), end_alpha: 0.992, spin: 8.4, jitter: 0.2, delay: 15, blend: Alpha),
+                        Burst(texture: Particle(0x61, 12), count: 1, toward: CameraLevel, cone: Some(80.0), speed: 10.0, speed_from: Some(7.0), rise: (0.0, 12.0), gravity: 14.6, size: 0.3, size_to: Some(0.4), end_size: 0.3, ticks: 90, ticks_to: Some(150), colour: (0.438, 0.414, 0.305, 0.992), end_alpha: 0.992, spin: 8.4, jitter: 0.2, delay: 15, blend: Alpha),
+                        // Three ticks white (0x38BDB0, grey 0x80 added), and 100 orange puffs a tick of 0x17's
+                        // texture going out level at 15 u/s from the ground under it.
+                        Screen(ticks: 3, colour: (1.0, 1.0, 1.0, 1.0), end_alpha: 1.0, delay: 16),
+                        Burst(texture: Particle(0x17, 0), count: 300, toward: Level, speed: 15.0, speed_from: Some(15.0), size: 1.6, end_size: 2.4, ticks: 20, ticks_to: Some(40), colour: (1.992, 1.0, 0.5, 0.875), spin: 4.2, ground: Some(20.0), delay: 16, over: 2),
+                        // From 20 for 30 ticks (0x38CB78): 0x1DDF78 growing 0.7 a tick, +0x28 at 1.6 and +0x2C
+                        // falling from 29; the rings (0x38D148, 0x38D398) by 0x1DDF70 growing 0.8 a tick.
+                        After(20, [
+                            Swell((shape: Band(span: 180.0, latitudes: (25.0, 35.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.359), (30, 0.0)], across: [(0, 0.42), (29, 12.6)], along: [(0, 0.42), (29, 12.6)], axis: Leaning(20.0), spin: 17.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (10.0, 20.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.359), (30, 0.0)], across: [(0, 0.476), (29, 14.28)], along: [(0, 0.476), (29, 14.28)], axis: Leaning(20.0), spin: 22.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (-2.0, 7.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.359), (30, 0.0)], across: [(0, 0.56), (29, 16.8)], along: [(0, 0.56), (29, 16.8)], axis: Leaning(20.0), spin: 27.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (-5.0, -10.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.359), (30, 0.0)], across: [(0, 0.504), (29, 15.12)], along: [(0, 0.504), (29, 15.12)], axis: Leaning(20.0), spin: 29.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (-12.0, -18.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.359), (30, 0.0)], across: [(0, 0.476), (29, 14.28)], along: [(0, 0.476), (29, 14.28)], axis: Leaning(20.0), spin: 26.0)),
+                            Swell((shape: Band(span: 180.0, latitudes: (5.0, 15.0)), texture: Effect(42), colour: (1.0, 0.5, 0.25), alpha: [(0, 1.359), (30, 0.0)], across: [(0, 0.42), (29, 12.6)], along: [(0, 0.42), (29, 12.6)], axis: Leaning(20.0), spin: 22.0)),
+                            Swell((shape: Outline(around: 16, repeat: 1.0, points: [(0.407, 0.062, 0.75, 1.0), (0.451, 0.044, 0.625, 1.0), (0.469, 0.0, 0.5, 1.0), (0.451, -0.044, 0.375, 1.0), (0.407, -0.062, 0.25, 1.0)]), texture: Effect(43), colour: (1.0, 0.5, 0.25), alpha: [(0, 0.594), (19, 0.0)], across: [(0, 3.6), (19, 34.0)], along: [(0, 0.45), (19, 4.25)], ahead: [(0, 0.25)], blend: Alpha)),
+                            Swell((shape: Outline(around: 16, repeat: 1.0, points: [(0.407, 0.062, 0.75, 1.0), (0.451, 0.044, 0.625, 1.0), (0.469, 0.0, 0.5, 1.0), (0.451, -0.044, 0.375, 1.0), (0.407, -0.062, 0.25, 1.0)]), texture: Effect(43), colour: (1.0, 0.5, 0.25), alpha: [(0, 0.594), (19, 0.0)], across: [(0, 1.8), (19, 17.0)], along: [(0, 0.225), (19, 2.125)], ahead: [(0, 0.25)], blend: Alpha)),
+                            Warp(texture: Effect(66), ticks: 15, alpha: 0.586, zoom: 1.062),
+                        ]),
+                        Glow(texture: Effect(76), size: 1.68, end_size: 50.4, ticks: 30, colour: (0.039, 0.039, 0.25, 0.906), end_alpha: 0.0, roll: Some((0.0, 360.0)), spin: -4.0, nearer: 0.01, delay: 20, blend: Alpha),
+                        Glow(texture: Effect(76), size: 1.6, end_size: 1.6, ticks: 30, colour: (0.39, 0.0, 1.992, 0.906), end_alpha: 0.0, roll: Some((0.0, 360.0)), spin: 3.0, nearer: 0.01, delay: 20, blend: Alpha),
+                        Glow(texture: Effect(76), size: 0.64, end_size: 0.64, ticks: 30, colour: (0.039, 0.039, 0.375, 0.906), end_alpha: 0.0, roll: Some((0.0, 360.0)), spin: -3.0, nearer: 0.01, delay: 20, blend: Alpha),
+                        Glow(texture: Effect(75), size: 1.92, end_size: 1.92, ticks: 30, colour: (1.0, 0.5, 0.25, 0.367), end_alpha: 0.367, roll: Some((0.0, 360.0)), spin: -4.0, nearer: 0.01, delay: 20, blend: Alpha),
+                        Glow(texture: Effect(57), size: 9.6, end_size: 9.6, ticks: 30, colour: (1.992, 0.5, 0.25, 1.586), end_alpha: 0.0, roll: Some((0.0, 360.0)), spin: -1.5, nearer: 0.01, delay: 20),
+                        Glow(texture: Effect(57), size: 9.6, end_size: 9.6, ticks: 30, colour: (1.992, 0.5, 0.25, 1.586), end_alpha: 0.0, roll: Some((0.0, 360.0)), spin: -2.0, nearer: 0.01, delay: 20),
                     ]),
                 ),
             },
@@ -1608,38 +1698,6 @@
                         Glow(texture: Effect(11), size: 1.46, end_size: 1.46, ticks: 15, colour: (1.0, 0.375, 0.125, 0.47), end_alpha: 0.47, roll: Some((0.0, 360.0))),
                         Glow(texture: Effect(11), size: 0.98, end_size: 0.98, ticks: 15, colour: (1.0, 0.375, 0.125, 0.55), end_alpha: 0.55, roll: Some((0.0, 360.0))),
                     ]),
-                ),
-                "slug": (
-                    shot: Some([
-                        (texture: Effect(57), size: 0.36, colour: (0.992, 0.992, 0.992, 0.25), spin: -1.5),
-                        (texture: Effect(57), size: 0.36, colour: (0.992, 0.992, 0.992, 0.25), spin: 0.5),
-                        (texture: Effect(47), size: 0.1, colour: (0.992, 0.992, 0.992, 0.625), flickers: true),
-                    ]),
-                    streak: Some([(texture: Effect(63), behind: 0.0, length: (1.333, 1.5), width: (0.28, 0.44), after: 0.5, colour: (1.992, 1.992, 1.992, 0.992))]),
-                    impact: Some([Set("slug blast")]),
-                    from_level: {
-                        1: (
-                        trail: Some([
-                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.367, 1.367, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
-                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(0.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
-                        ]),
-                        ),
-                        2: (
-                        trail: Some([
-                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
-                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 1.0, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
-                        ]),
-                            impact: Some([
-                                Burst(texture: Particle(0x2C, 0), count: 20, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(80.0), size: 0.1, size_to: Some(0.4), end_size: 0.17, ticks: 30, ticks_to: Some(30), colour: (0.992, 0.992, 0.992, 0.992), spin: 2.8, jitter: 0.1),
-                            ]),
-                        ),
-                        3: (
-                        trail: Some([
-                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 0.5, 0.5, 0.75)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8, blend: Alpha),
-                            (spacing: 0.2, textures: [Particle(0x17, 0)], colours: [(1.992, 0.992, 0.5, 0.5)], size: 0.6, end_size: 1.0, ticks: 3, ticks_to: 6, spin: 2.8),
-                        ]),
-                        ),
-                    },
                 ),
             },
         ),

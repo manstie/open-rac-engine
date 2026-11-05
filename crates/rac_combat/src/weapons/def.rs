@@ -783,12 +783,13 @@ pub struct Blast {
     pub eruption: Option<Eruption>,
 }
 
-/// The Nitro Eruptor's blast (0x38A668, class 0x1888, its update 0x38A7B8): after
-/// `wait_ticks`, for `grow_ticks` a ball growing from `radius.0` to `radius.1` strikes
-/// everything in it every tick, pushed `push` away.
+/// The Nitro Eruptor's blast (0x38A668, class 0x1888, its update 0x38A7B8): the charge
+/// bursts after `burst_ticks`; after `wait_ticks`, for `grow_ticks` a ball growing from
+/// `radius.0` to `radius.1` strikes everything in it every tick, pushed `push` away.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Eruption {
     pub from_level: u8,
+    pub burst_ticks: u32,
     pub wait_ticks: u32,
     pub grow_ticks: u32,
     pub radius: (f32, f32),

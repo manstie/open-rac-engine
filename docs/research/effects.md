@@ -665,9 +665,64 @@ No muzzle effect; the charge (0x185A) is its model only. Its blast (class 0x1858
   strip (0x35F3E0) is drawn at alpha 0 (its pvar is never written).
 - The landing marker while aiming: two 2-unit quads of 88 and 87 (0x4C3500).
 
-#### Nitro Eruptor's burst (class 0x1888, update 0x38A7B8, V5) [code, 2026-11-03]
+#### Nitro Eruptor's burst (class 0x1888, update 0x38A7B8, V5) [code, 2026-11-03; all of it 2026-11-05]
 
-Read for its rocks; the rest only listed. Its first frame bursting:
+Spawned by 0x38A668 (position, the ground point a line test finds up to 20 u below the
+charge, the charge's pvars) with its timer +0x24 at 105, its size +0x28 at 2.0, +0x2C at
+30, +0x30 at 0x50 and +0x3C at 20. Frame by frame (each its update, 0x40BA90 counting a
+timer down):
+- **Gathering** (state 0 while the timer is above 90, 14 frames): +0x28 falls 0.1 a frame
+  (1.9 to 0.6), and 0x38C238 draws round it, by +0x28:
+  - eight billboards of 73 and 74 (`fx_billboard`), half +0x28 × 1.2, 1.1, 0.9 and 1.0,
+    dark blue ((0x05, 0x05, 0x40) and (0x05, 0x05, 0x20) at 0x7F), normal blend, turning
+    3–5°, 1–4° and 2–4° a frame either way: V1's implosion, shrinking;
+  - three masked discs (0x4086B8: a 16-point disc facing the camera, radius +0x28 × 1.4,
+    texture 71's alpha into the frame's, then 72 turned and coloured, mixed in by it) in
+    (0xFF, 0, 0x32), (0x80, 0x40, 0x20) and (0x7F, 0x20, 0x20) at 0x35;
+  - two of 0x38BDF8 (a quad of 54 masking a magnified copy of the frame, the rift's
+    rings' way), half +0x28 × 2.1;
+  - twelve bands of a ball (0x38C110 → 0x38B628): each a strip of the unit ball between
+    two latitudes, 21 pairs of points over its span of longitude, u along it, v across,
+    in a matrix turned about its z by its own angle (random at the spawn, 0x1E1FA0–
+    0x1E1FCC) and leaning from the hero (0x40C658 of (0, the burst's elevation from him −
+    20°, its heading)), so its axis stands 20° back toward him, scaled by +0x28 × k;
+    added. Latitudes (25°, 35°), (10°, 20°), (−2°, 7°), (−5°, −10°), (−12°, −18°) and
+    (5°, 15°) with k 1.5, 1.7, 2.0, 1.8, 1.7 and 1.5: six over 180° in texture 42,
+    (0x80, 0x40, 0x20) at +0x2C × 6 (0xB4), turning 17°, 22°, 27°, 29°, 26° and 22° a
+    frame, and six over 90° in texture 63, (0x80, 0x80, 0x10) at +0x2C × 7 (0xD2),
+    turning 7°, 12°, 17°, 19°, 16° and 12°. Textures from 0x1DDFCC and 0x1DDFD0 [data].
+- **The burst** (state 0 at 90): what is listed below, with 0x38CB78 drawn once (+0x28 at
+  0.5), and state 1.
+- **State 1** (3 frames): 0x38BDB0, the whole screen grey 0x80 added at 0x80 (V1's flash),
+  and each frame 100 0x61s (0x46DCB8) in 0x17's texture from 0.3 u above the ground
+  point, out level any way at 15 u/s, size 0.8 to 1.2, life 20–40, (0xFF, 0x80, 0x40)
+  from 0x70 to nothing, spin 2–4 steps: an orange fire ring along the ground.
+- **State 2** (30 frames, while in view within 100 u): +0x28 grows 0.5 a frame to 1.6,
+  0x1DDF78 0.7 a frame from 0 and 0x1DDF70 0.8 from 1; +0x2C counts down from 30 and
+  +0x30 falls 4 a frame. Drawn:
+  - 0x38CB78: billboards of 76 at half 0x1DDF78 × 1.2 in (5, 5, 0x20) (to 25 u, a dark
+    ring), of 76 at +0x28 × 0.5 in (0x32, 0, 0xFF) and × 0.2 in (5, 5, 0x30), all at
+    +0x2C × 4, normal blend; of 75 at +0x28 × 0.6 in (0x80, 0x40, 0x20) at 0x2F; and
+    two stars of 57 at +0x28 × 3 in (0xFF, 0x40, 0x20) at +0x2C × 7, added; and the six
+    orange bands at 0x1DDF78 × k × 0.4, at +0x2C × 6, so growing to about 17 u as they
+    fade;
+  - 0x38D148 and 0x38D398: the ring at 0x2B3E60 [data] (64 quads, 16 round, the Dread
+    blast's shape: radius 0.407–0.469, height ±0.062, v 0.75 to 0.25) × 0x1DDF70, at
+    (2, 2, 0.25) and (1, 1, 0.125), 0.25 u above the ground point, texture 43 (0x1DE000)
+    in (0x80, 0x40, 0x20) (0x1DE004) at +0x30, normal blend (0x1DDFEC–0x1DDFFC): two
+    flat rings going out along the ground, gone in 20 frames;
+  - while 0x1E1F9C runs (set at the spawn from the last burst's 30 less its distance from
+    the camera, kept within 15 to 30; 15 at first), the screen warp 0x38BA90, the Shock
+    Cannon's (texture 66, four quarters, the frame from (10, 8) to (492, 432)) at 5 ×
+    that timer.
+- **Throughout its first 19 frames** (0x38B8B0, while +0x3C runs): `fx_ring_fan` of 4
+  rings in texture 23 (0x1DDF7C), (0xFF, 0x80, 0x80) at 3 × +0x3C, added, its pole back
+  along the charge's velocity (the charge's pvar 0, in u a frame) and its middle five
+  frames of it ahead, scaled across by 0x1DDF84 and 0x1DDF88 (from 1, growing 0.8 and
+  0.4 a frame for 4 frames, then falling 0.5 and 0.3).
+- **State 3:** it goes.
+
+Its first frame bursting:
 - 49 sparks (0x470F00) out at 18–27 u/s level within a random turn of up to 130° of the
   way to the camera (0x440918(0, 2.27)) and 0–14 u/s up, life 25–35, in (0xFF, 0x80,
   0x80); four growing sparkles (0x467DA8) to 21, 15, 10.5 and 7.5 in (0x80, 0x40, 0x20)
@@ -681,12 +736,26 @@ Read for its rocks; the rest only listed. Its first frame bursting:
   throughout, ±2–6 spin steps a frame, in (0x38, 0x35, 0x27) at 0x7F throughout. The
   way to the camera is level (0x40C490 of the camera's x and y less the burst's), and
   0x440918(a, b) is a random a to b of either sign.
-- **The rest of the burst** (not read): 0x38D5E0; the draws 0x38B8B0, 0x38BDB0,
-  0x38BA40, 0x38BD80, 0x38CB78 and 0x38C238 by state (state 0 counts its timer down to 90
-  and bursts, state 1 holds 3 frames); and fifteen of 0x35D8E8 (10.0, …) at 20–30 u/s, one at
-  each of up to ten mobys within 13 u (0x3FB1D0) and the rest any way round, −20° to 15°
-  up: probably the fireballs and the fires the game's take shows. The kit's V5 shows
-  V4's blast with the rocks in their place.
+- **The rest of its first frame:** the light moby from the template at 0x2BEE10
+  (0x38D5E0) [data]: 1 u up, radius 20 (so 16), 70 frames, red and green climbing 1.28 a
+  frame to 2.55 and falling 0.09 and 0.12, blue to 1.0 falling 0.13; the shake (above);
+  rumble 0x2B3DE0; fifteen bullets (0x35D8E8, `weapons.md`). The 49 sparks are type
+  0x77 streaks (0x470F00): width 0.04, from 2.7 u behind along their way; their widths'
+  use isn't read.
+- **In the kit** (2026-11-05, `effects.ron`'s "nitro" at V5): its own burst, no longer
+  V4's. The bands are `Swell`s of shape `Band` spinning about an axis `Leaning(20.0)`
+  toward the camera, which stands in for the hero; the frames after the burst are timed
+  by `After` (emits made a number of ticks after the event). Not drawn: the dome of 23
+  (the impact gives no velocity), the masked discs of 71 and 72 (V1's aren't either),
+  the quads of 54 and the rumble. Its fifteen bullets are the agents' small bullets,
+  drawn from the default recipe's "slug": until now each one's hit showed the gun's
+  whole burst again.
+- **Compared with the game** (2026-11-05, `review-nitro-0x7B` against the kit's
+  `-nitro-near` at V5, `--every-tick`): close. Both show the orange and yellow arcs
+  spinning round a tilted axis and shrinking for a quarter of a second, the small
+  red-orange pop, the white screen, then a wide burst of fire with orange rings and
+  rocks going out along the ground and the bullets flying off. The game's fireball is
+  yellow-white where the kit's is redder and dimmer (it adds in linear light, P1.9).
 - **A piece of debris** (0x329470, a moby of class 0x1A50, the chunk; update 0x329678):
   - Its model: Veldin's core has the chunk, one surface of 53 points about 0.17 × 0.17 ×
     0.14 u in a 128² texture of dark grey (mean texel 47) [data, the disc test
@@ -1901,7 +1970,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 |---|---|---|
 | Shock Blaster (Shock Cannon) | Close, from its code (2026-11-01): the flash on the lens, the violet-white ring sphere, the spokes, dust and the rays' white and blue plume, as the game's. The charged lance drawn (2026-11-04, compared on `review-shock-charged`): the pale violet oval round him round a blue column along the aim, swept as he turns; its domes and the uncharged lance's now open from the gun, as the game's | The charging sprites and glare at the gun aren't drawn. The screen warp (0x388508) is drawn (2026-11-04), though its ghosts show crisper on the greybox than on the game's scenery. The game's column is white at its core where the kit's is pale blue, adding in linear light |
 | N60 Storm (N90 Hurricane) | Close (2026-11-03). The tracer is one long flame now, V5's own tail and flames ("N90 Hurricane"), redder than the game's | Its landing not seen in the kit's take; the bullet's model (0x1881) not drawn, its blend not read; the tail's scroll and fade; the colours add in linear light |
-| Nitro Launcher (Eruptor) | Close to V4; V5's rocks drawn (2026-11-03): the chunks fly, tumble, bounce and shrink as the game's and are maroon, the 0x61 rocks too | The chunks' smoke barely shows on the kit's bright floor where the game's trails are white; V5's own burst (sparkles, fireballs, fires) not read, V4's shown |
+| Nitro Launcher (Eruptor) | Close (2026-11-05). V5's own burst, read whole: the orange and yellow bands spinning round it and shrinking before it bursts, the pop, the white screen, the fire ring, sparkles and streaks, the bands and rings growing along the ground, the warp, and the chunks and rocks (2026-11-03), compared on `review-nitro-0x7B` | Its fire comes out redder and dimmer than the game's yellow-white (linear light); its dome of 23, masked discs and quads of 54 aren't drawn; the chunks' smoke barely shows on the kit's bright floor |
 | Lava Gun (Liquid Nitrogen Gun) | Partial. Its stream, nozzle and pools are V5's blue from code (2026-11-01). The game's arcs high because it leaves along the barrel, 12° up, not by a lock-on; the kit's does too since 2026-11-04 (`weapons.md`, "The barrel") | The hold's sway and the waist's pitch aren't followed |
 | Annihilator (Decimator) | Close as far as the takes show; they land at different distances | |
 | Flux Rifle (Splitter Rifle) | Close (2026-11-03). The game's red trail has dark puffs, V5's texture 9, and its orange ring is the pieces' domes where it lands (above, "V5, the Splitter Rifle"), now both in the kit; its red ribbons come out pinker | The domes not seen on screen (the kit's arena shot lands out of view); the colours add in linear light |
@@ -1909,7 +1978,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Spitting Hydra (Tempest) | Close, the same at V3 (2026-11-03). The game's "violet domes" are the spit's two rings of 61, camera-facing up to 10.5 and 21 u across with the floor hiding their lower halves, and the kit draws them so; its "gold ground bolt" is the charge's crackles to the floor, grey and blue added on sand. Each spit's bolt 10 u ahead is now drawn too. The kit's violet and glows come out bluer and stronger | The kit adds colours in linear light ("Importing them", "Colours"); arcs aren't cut short at walls |
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
 | Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. Their violet and gold lightning as they appear on his slots is the game's (2026-11-05: the appearing sparkles, lightning crackles at alpha 0xFF, round their models drawn added as they fade in), as are their spin, the pod's blue burst that the on-foot agents walk out of, and their end's sparkles and fade (2026-11-05) | Drawn about twice the game's size against the hero, cause not found ("Its size on screen") |
-| Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code | The placeholder ball still shows |
+| Rift Inducer (Rift Ripper) | Close (2026-11-05, `review-rift-0x63` against `-rift-near`). In flight the game's small violet ball is its rings of 76 and glow, as the kit's; open, a bright violet star with faint rays in a dark smear, its lens, over stirring dust. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code. The kit's pale sphere round it, a placeholder, is gone: the rift's class is 0.05 units across at the scale its code leaves it (0x373738) | Not drawn: the smoke on a ring in the view's plane, the spray as it fires, its spirals of 71 and orbiting sparks; the lens copies only what is opaque |
 | Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5, the orange rings of a hit, the stars of 57 and the shield class's own faint shell with its grey rim, as the game's takes show it (2026-11-05, `-holo-near` at V3 and V5) | Paler than the game's (the colours' linear light, P1.9); its colour's swing through its last 4 s. Its fold, a fade and a blue flash, is the game's (2026-11-05) |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
 | Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |
@@ -2587,7 +2656,7 @@ What it takes to show the guns' effects as the game does, from the user's disc:
   classes look like (the chunk 0x1A50's flight is read, "Nitro Eruptor's burst"); 0x447D00's types 0x0B and 0x08.
 - Which way the Shock Blaster's charged rings face (built by VU0 microcode at 0xC80),
   and the screen warp's 0x4A04B0.
-- The Nitro's acid arcs (0x39AA18, 0x39ACB0, 0x39B080), the V5 guns' draws (0x38B8B0,
-  0x38BA90, 0x38CB78, 0x3443F0) and the Lava Gun's P72 gravity.
+- The Nitro's acid arcs (0x39AA18, 0x39ACB0, 0x39B080), the V5 guns' draws (0x3443F0)
+  and the Lava Gun's P72 gravity.
 - Whether a moby updates in the frame it spawns, which sets whether the Shock Blaster's
   rays show for 14 or 15 frames.
