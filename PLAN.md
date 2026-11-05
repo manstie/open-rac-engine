@@ -91,7 +91,7 @@ session is working on the task now; notes on problems met stay with their task (
    internet by join code, with the router's port mapping (D8). Nothing else is left in
    it.
 2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Ultrashield's class model, 0x186D; or the agents' spawn
+   next gun to fix (the Ultrashield's fade as it folds, 0x379CE0; or the agents' spawn
    lightning).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
@@ -913,8 +913,15 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       (0x378FF8; panels `when: Hit` and `grow`, timed by each hit's 30-tick reaction,
       `BarrierState::react`, now at every level). Seen at V5 on `kitdemo-arena-holo-near`
       (a pink-orange oval, as the game's but less white, unhit); the hit's rings not yet
-      seen on screen. Not done: the shield class's own model (0x186D, a small disc of 25
-      joints the game draws too) and the two stars of 57 facing the camera.
+      seen on screen. The shield class's own model (0x186D) is drawn too (`effects.md`,
+      "Its own model"): at 3.25 times its class's scale and alpha 0x14, its rows stretched
+      to the wall, a faint shell round it whose grey rim is the dark rim the game's takes
+      show; the kit draws it once the shield stands (`guns.rs`, `fx::wall`). So are the
+      two stars of 57 at its middle from V3 (panels with `faces_camera`). Both seen at V3
+      and V5 on `kitdemo-arena-holo-near`. Not done: the game fades the folding shield
+      (0x379CE0, `effects.md`, "Folding") where the kit shrinks it; next, fading the
+      panels and the model over the fold instead. Its colour's swing through its last 4 s
+      isn't drawn (what a moby's colour does isn't read).
     - The Lava Gun's stream arcs high in the game not by a lock-on but because it leaves
       along the gun's barrel (0x303F88: the gun's −y), 12° above his facing as he fires
       (traced in sequence 49; `weapons.md`, "The barrel"). The kit raises it so

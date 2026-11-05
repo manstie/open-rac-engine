@@ -1,12 +1,13 @@
 //! Sprites laid in a standing shot's own upright plane, as the Holo Shield's wall
-//! (0x378A20 at V1–V2, 0x378298 from V3, and 0x378FF8 from V3 as a hit shakes it): drawn
-//! once it stands, unfolding where it landed and folding away with it.
+//! (0x378A20 at V1–V2, 0x378298 from V3, and 0x378FF8 from V3 as a hit shakes it), or at
+//! its middle facing the camera: drawn once it stands, unfolding where it landed and
+//! folding away with it.
 
 use std::collections::BTreeMap;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use rac_combat::weapons::{FireMode, ShotKind};
+use rac_combat::weapons::{FireMode, Shot, ShotKind};
 use rac_combat::{Armory, Arsenal};
 use rac_hero::Hero;
 use rac_sim::SimTick;
@@ -28,7 +29,9 @@ pub struct Panels {
 /// with `near`, faded out while the camera is within the first of its squared distances
 /// across of the shot's middle, in fully by the second (0x40C040 between them). It shows
 /// `when` its shot reacts to a hit or doesn't; with `grow`, it grows that much of the whole
-/// a tick from the hit up to `size`, then goes.
+/// a tick from the hit up to `size`, then goes. With `faces_camera` it faces the camera from
+/// the shot's middle instead, `size` units across however far the wall has unfolded, as the
+/// stars of 57 the game draws there with `fx_billboard` (0x378298).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Panel {
     pub texture: Tex,
@@ -47,6 +50,8 @@ pub struct Panel {
     pub when: Showing,
     #[serde(default)]
     pub grow: Option<f32>,
+    #[serde(default)]
+    pub faces_camera: bool,
 }
 
 /// When a panel shows, by its shot's reaction to its last hit (`BarrierState::react`).
@@ -76,6 +81,40 @@ impl Panel {
             }
         }
     }
+}
+
+/// A standing shot's wall as it is drawn now: its middle, the way it faces, and its width
+/// and height, unfolding from where it landed and folding away.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Wall {
+    pub middle: Vec3,
+    pub facing: Quat,
+    pub size: Vec2,
+}
+
+/// `shot`'s wall now, if it stands and its gun draws panels on it, with those panels.
+pub(crate) fn wall<'a>(
+    shot: &Shot,
+    armory: &Armory,
+    recipes: &'a FxRecipes,
+) -> Option<(Wall, &'a Panels)> {
+    let ShotKind::Barrier(state) = &shot.kind else {
+        return None;
+    };
+    let landed = state.landed?;
+    let def = armory.get(shot.weapon)?;
+    let FireMode::Barrier(fire) = &def.fire else {
+        return None;
+    };
+    let panels = recipes.panels(&def.effects, shot.level, Some(shot.kind.name()))?;
+    let share = unfolded(landed, state.folding, panels.unfold, fire.fold_ticks);
+    let size = Vec2::new(fire.half_width * 2.0, fire.height) * share;
+    let wall = Wall {
+        middle: shot.position + Vec3::Y * size.y / 2.0,
+        facing: Quat::from_rotation_y(state.yaw),
+        size,
+    };
+    Some((wall, panels))
 }
 
 /// The panels drawn now, by player, shot and layer.
@@ -112,6 +151,10 @@ pub(crate) fn draw_panels(
     mut commands: Commands,
 ) {
     let eye = eye(&cameras);
+    let view = cameras
+        .iter()
+        .find(|(camera, _)| camera.is_active)
+        .map_or(Quat::IDENTITY, |(_, place)| place.rotation());
     // The game turns them a frame at a time, at 60 a second, by a turn picked each frame:
     // the kit's pick holds for the tick, however many frames draw it.
     let frames = time.delta_secs() * 60.0;
@@ -121,24 +164,10 @@ pub(crate) fn draw_panels(
             let ShotKind::Barrier(state) = &shot.kind else {
                 continue;
             };
-            let Some(landed) = state.landed else {
+            let Some((wall, panels)) = wall(shot, &armory, &recipes) else {
                 continue;
             };
-            let Some(def) = armory.get(shot.weapon) else {
-                continue;
-            };
-            let FireMode::Barrier(fire) = &def.fire else {
-                continue;
-            };
-            let Some(panels) = recipes.panels(&def.effects, shot.level, Some(shot.kind.name()))
-            else {
-                continue;
-            };
-            let share = unfolded(landed, state.folding, panels.unfold, fire.fold_ticks);
-            let size = Vec2::new(fire.half_width * 2.0, fire.height) * share;
-            let centre = shot.position + Vec3::Y * size.y / 2.0;
-            let facing = Quat::from_rotation_y(state.yaw);
-            let across = (eye - centre).xz().length_squared();
+            let across = (eye - wall.middle).xz().length_squared();
             for (index, panel) in panels.layers.iter().enumerate() {
                 let id = (hero.player, shot.serial, index);
                 let fade = panel.near.map_or(1.0, |(from, to)| {
@@ -164,7 +193,7 @@ pub(crate) fn draw_panels(
                         .spawn((
                             Name::new("panel"),
                             DemoEntity,
-                            Transform::from_translation(centre).with_scale(Vec3::ZERO),
+                            Transform::from_translation(wall.middle).with_scale(Vec3::ZERO),
                             Visibility::default(),
                         ))
                         .add_child(sprite)
@@ -178,11 +207,20 @@ pub(crate) fn draw_panels(
                 });
                 let seed = (hero.player as u64) << 48 | u64::from(shot.serial) << 8 | index as u64;
                 entry.roll += FxRng::for_tick(tick.0, seed).between(panel.spin) * frames;
+                let size = panel.size(state.react).unwrap_or(0.0);
                 if let Ok(mut transform) = places.get_mut(entry.frame) {
-                    *transform = Transform {
-                        translation: centre + facing * Vec3::Z * panel.offset,
-                        rotation: facing,
-                        scale: (size * panel.size(state.react).unwrap_or(0.0)).extend(1.0),
+                    *transform = if panel.faces_camera {
+                        Transform {
+                            translation: wall.middle,
+                            rotation: view,
+                            scale: Vec3::splat(size),
+                        }
+                    } else {
+                        Transform {
+                            translation: wall.middle + wall.facing * Vec3::Z * panel.offset,
+                            rotation: wall.facing,
+                            scale: (wall.size * size).extend(1.0),
+                        }
                     };
                 }
                 if let Ok(mut transform) = places.get_mut(entry.sprite) {
@@ -227,6 +265,7 @@ mod tests {
             blend: Blend::default(),
             when,
             grow,
+            faces_camera: false,
         };
         assert_eq!(panel(Showing::Always, None).size(None), Some(1.1));
         assert_eq!(panel(Showing::Unhit, None).size(Some(3)), None);
@@ -240,6 +279,38 @@ mod tests {
                 .is_some_and(|size| (size - 1.1).abs() < 1e-5)
         );
         assert_eq!(ring.size(Some(22)), None);
+    }
+
+    #[test]
+    fn a_holo_shields_wall_stands_up_from_where_it_landed_with_stars_at_its_middle() {
+        use rac_combat::weapons::{BarrierState, Mods};
+        let armory = Armory::uya();
+        let recipes = FxRecipes::default();
+        let shot = |landed| Shot {
+            serial: 1,
+            weapon: armory.find("Holo Shield Glove").unwrap(),
+            level: 2,
+            position: Vec3::new(1.0, 0.0, 2.0),
+            velocity: Vec3::ZERO,
+            ticks: 0,
+            damage: 0.0,
+            splash: 0.0,
+            mods: Mods::default(),
+            kind: ShotKind::Barrier(BarrierState {
+                landed,
+                yaw: std::f32::consts::FRAC_PI_2,
+                ..default()
+            }),
+        };
+        assert!(wall(&shot(None), &armory, &recipes).is_none());
+        // Half unfolded, 17 ticks of 34: half its 4 by 2.3, its middle half that up.
+        let (half, panels) = wall(&shot(Some(17)), &armory, &recipes).unwrap();
+        assert!((half.size - Vec2::new(2.0, 1.15)).length() < 1e-5);
+        assert!((half.middle - Vec3::new(1.0, 0.575, 2.0)).length() < 1e-5);
+        assert!((half.facing * Vec3::Z - Vec3::X).length() < 1e-5);
+        // From V3, two stars of 57 face the camera at its middle (0x378298).
+        let stars = panels.layers.iter().filter(|panel| panel.faces_camera);
+        assert_eq!(stars.map(|star| star.size).collect::<Vec<_>>(), [0.4, 0.4]);
     }
 
     #[test]

@@ -110,6 +110,13 @@ pub const UYA_SHOT_CLASSES: &[ShotClass] = &[
         across: Some(3.0),
         ..shot(0x7F, "cut", 4, 0x1CB8, 2.151)
     },
+    // The holo shield's own class, a disc at 3.25 times its class's scale and alpha 0x14
+    // (0x376960), its rows stretched to its wall's width and height (0x376B88): a faint
+    // shell round its wall, dark at its rim.
+    ShotClass {
+        opacity: Some(0.15625),
+        ..shot(0x67, "barrier", 0, 0x186D, 3.25)
+    },
     // The pod at 1.2 (0x35B240); an agent's bangles by level (0x3C0F78).
     shot(0x57, "pod", 0, 0x1853, 1.2),
     showing(shot(0x57, "agent", 0, 0x1ADA, 1.0), 0b0001),

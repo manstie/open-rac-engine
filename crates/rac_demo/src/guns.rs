@@ -20,7 +20,7 @@ use rac_rig::{MobySkeleton, SequencePlayer};
 use rac_sim::SimTransform;
 
 use crate::DemoEntity;
-use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes, FxRng, ShotLayer, ShotStreak};
+use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes, FxRng, ShotLayer, ShotStreak, wall};
 
 /// The level the demo gives every gun, by default V3, where most have lock-on.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +51,8 @@ pub(crate) struct ShotLook {
 }
 
 /// Whether a shot stands where it landed, or stands open: a holo shield flies as its
-/// recipe's sprites and stands as the kit's wall, and a rift opens into another look.
+/// recipe's sprites and stands as its panels and its game's model, and a rift opens into
+/// another look.
 pub(crate) fn standing(kind: &ShotKind) -> bool {
     match kind {
         ShotKind::Barrier(state) => state.landed.is_some(),
@@ -284,6 +285,13 @@ pub(crate) fn hovering(kind: &ShotKind) -> bool {
     matches!(kind, ShotKind::Agent(state) if state.hover.is_some())
 }
 
+/// Whether a shot is drawn as its game's model, if its gun gives one: a holo shield only
+/// once it stands, as in flight the game squashes its model to a twentieth across and up
+/// (0x376960) and its sprites are all that show.
+fn modelled(kind: &ShotKind) -> bool {
+    !matches!(kind, ShotKind::Barrier(_)) || standing(kind)
+}
+
 /// The way a shot of a game's model faces, if it has one now.
 fn faces(kind: &ShotKind, velocity: Vec3) -> Option<Quat> {
     match kind {
@@ -361,6 +369,15 @@ pub(crate) fn show_shots(
             transform.scale = Vec3::splat(state.shown(fade));
         }
         if let Some(facing) = facing {
+            // A holo shield's model stands in its wall's middle, stretched across and up as
+            // its wall unfolds: the game scales its matrix's rows by the wall's width and
+            // height (0x376B88).
+            if let Some((wall, _)) = wall(shot, &draw.armory, &draw.recipes) {
+                simulated.translation = wall.middle;
+                simulated.rotation = wall.facing;
+                transform.scale = (wall.size / 2.0).extend(1.0);
+                continue;
+            }
             match facing.tumble {
                 Some(turn) => simulated.rotation = (turn * simulated.rotation).normalize(),
                 None => {
@@ -388,8 +405,18 @@ pub(crate) fn show_shots(
             }
             let def = draw.armory.get(shot.weapon);
             let key = def.map_or("", |def| def.effects.as_str());
-            if let Some(model) = draw.models.get(key, shot.kind.name(), shot.level) {
+            let model = draw
+                .models
+                .get(key, shot.kind.name(), shot.level)
+                .filter(|_| modelled(&shot.kind));
+            if let Some(model) = model {
                 let turn = faces(&shot.kind, shot.velocity).unwrap_or_default();
+                let place = match wall(shot, &draw.armory, &draw.recipes) {
+                    Some((wall, _)) => Transform::from_translation(wall.middle)
+                        .with_rotation(wall.facing)
+                        .with_scale((wall.size / 2.0).extend(1.0)),
+                    None => Transform::from_translation(shot.position).with_rotation(turn),
+                };
                 let tumble = matches!(
                     shot.kind,
                     ShotKind::Canister { .. } | ShotKind::Bomblet { .. }
@@ -402,8 +429,9 @@ pub(crate) fn show_shots(
                         look,
                         Facing { tumble },
                         Visibility::default(),
-                        SimTransform::from_translation(shot.position).with_rotation(turn),
-                        Transform::from_translation(shot.position).with_rotation(turn),
+                        SimTransform::from_translation(place.translation)
+                            .with_rotation(place.rotation),
+                        place,
                     ))
                     .id();
                 let skin = model.skeleton.as_ref().map(|skeleton| {

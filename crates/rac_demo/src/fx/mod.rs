@@ -65,6 +65,7 @@ pub use marker::Marker;
 pub use model::{FxModel, FxModels};
 pub use open::{Open, OpenRays, RaysClosing};
 pub use paint::{Paint, Shape};
+pub(crate) use panel::wall;
 pub use panel::{Panel, Panels, Showing};
 pub use refract::{LensRing, OpenLens, RingClosing};
 pub use ribbon::Ribbon;

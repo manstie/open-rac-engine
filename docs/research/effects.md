@@ -1177,7 +1177,10 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
     (0x32, 0, 0xFF) and 0.2 in (5, 5, 0x30); strips of 72 through 71 0.05 out in (0x20,
     0x40, 0x80) and 0.1 out in (0x7F, 0x20, 0x20) at 0x8F; the swirl 75 at 0.6 in (0x80,
     0x40, 0x20), normal-blended.
-  - From V3: two camera-facing stars of 57 (half 0.2, (0x20, 0x40, 0xFF) at 0x4F); glows
+  - From V3: two camera-facing stars of 57 at its middle (`fx_billboard`, half 0.2,
+    (0x20, 0x40, 0xFF) at 0x4F, added), rolled by two of the phases, the second the other
+    way, faded by the second near pair and skipped below a quarter of it [code,
+    2026-11-05]; glows
     of 11 at 0.225 in (0x40, 0x20, 0xFF) at 0x3F and at 1.0 in (0x10, 0x10, 0x7F) at
     0x15; rings of 27 at 1.15 in (0x80, 0x40, 0x20) at 0x4F, and of 8 at 1.1 in (0x10,
     0x10, 0xFF) at 0x1F; at V5 a quad of texture 5 (0x1DDB64 [data]: a soft disc with
@@ -1196,19 +1199,38 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
   0x379CE0, and the quads 0x37ABF8 and 0x37AD80 they call) takes the copy of the frame
   (texture −1): nothing of it warps what is behind it. What reads as a pink-white bubble
   in the game's take (`review-holo-0x6B`) is V5's disc of 5 over V3's layers, the orange
-  rings of a hit, and several shields standing together, all added. The shield moby's own
-  class (0x186D: a disc 0.7 across with 25 joints, read with `openrac-tool moby` at
-  0x15D9AC0 in the Veldin image) is drawn too: its update ends with 0x439610, the
-  matrix and bounding-sphere update every drawn moby gets, at its width's scale (+0x18);
-  the kit doesn't draw it. Classes are found by a byte index at 0x1FDC50 + class into
-  pointers at 0x1FD200 (`moby_class_register`, 0x424368).
+  rings of a hit, several shields standing together, all added, and the shield's own
+  model (below). Classes are found by a byte index at 0x1FDC50 + class into pointers at
+  0x1FD200 (`moby_class_register`, 0x424368).
+- **Its own model** (class 0x186D) [code, 2026-11-05]: drawn at every level, a lens-shaped
+  disc 0.7 across and 0.12 thick at its class's scale, upright in the class's y and z,
+  its 25 joints still through its one sequence (`openrac-tool moby` at 0x15D9AC0 in the
+  Veldin image). The spawn (0x376960) sets its scale to 3.25 times its class's (+0x2C),
+  its alpha to 0x14 (+0x23), and its matrix to be drawn as set (+0x34 bit 0x100): the
+  hero's, with its across and up rows 0.05 long. Landing and each frame of unfolding set
+  those rows to the wall's width and height (0x376B88), so it stands as an oval 4.55
+  across, 2.73 high and 0.39 thick, 1.14 times the wall's size-1 layers; in flight it is
+  a sliver 0.11 across. The width only enters the scale for the bounding sphere
+  (`moby_update_bounds`, 0x439610, takes the matrix as it is), not the draw. Folding, its
+  alpha is 0x15 less the frame, gone by the 20th (0x379CE0). Through its last 4 s
+  standing (from frame 661) its colour (+0x3C, `moby_set_colour` 0x438908) swings
+  between grey 0x80 and (0x80, 0x30, 0x10) on a sine turning 4° a frame; what that
+  colour does in a moby's draw isn't read. In the game's take (`uyantsc-veldin-fxref.sh`
+  10 at 5.6 s) it is a faint glassy shell round the wall, wider than its layers, with a
+  dark grey rim: the rim the comparison below couldn't place.
+- **Folding** (0x379CE0, from V3) [code, 2026-11-05]: the standing layers at their full
+  size, each alpha falling 2 a frame from about its own (V5's disc 3 a frame from 0x4F),
+  the stars at half 0.1875: it fades over its 20 frames rather than shrinking. The faint
+  glow of 11 at 0x15 goes below 0 at the 11th frame and wraps to near 0xFF, which would
+  flash it; not seen on screen. V1–V2's (0x37A5C0) isn't read.
 - **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 10` against the kit's
   `-holo-near` drawn every tick, V3, three shields stacked): both an oval of turning
   purple-blue layers. The game's is rounder on screen (about 1.3 wide for 1 high, from
   behind him), deeper in colour with a white middle, and has a dark grey rim; the kit's
   is flatter (about 1.8 to 1), paler on the demo's floor, with a soft edge. Not worked
-  out: why the game's is rounder than the 4 by 2.4 its matrix gives, and which layers
-  make its dark rim (the blended ones, 0x54, perhaps).
+  out: why the game's is rounder than the 4 by 2.4 its matrix gives (since mostly
+  explained, below), and which layers make its dark rim (since found: the shield's own
+  model, above).
 - **Its shape, checked** (2026-10-31):
   - **The corners** at 0x1D7C50 are (0, ±1, ±1) [read from the Veldin memory image].
   - **The order:** both kinds of quad (0x37ABF8, 0x37AD80) copy the moby's matrix and
@@ -1810,7 +1832,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
 | Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. No spawn burst of violet and gold lightning | Their size on screen not compared at a matching camera |
 | Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code | The placeholder ball still shows |
-| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5 and the orange rings of a hit from its code | The class's own model (0x186D) and the stars of 57 facing the camera aren't drawn |
+| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5, the orange rings of a hit, the stars of 57 and the shield class's own faint shell with its grey rim, as the game's takes show it (2026-11-05, `-holo-near` at V3 and V5) | Paler than the game's (the colours' linear light, P1.9); it shrinks as it folds where the game's fades (0x379CE0); its colour's swing through its last 4 s |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
 | Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |
 | Qwack-O-Ray (Qwack-O-Blitzer) | Close (2026-11-03). The floor round him is lit warm, as the game's: every gun's light is now drawn with the game's falloff (above, "How the lights fall off"), weaker on the kit's pale floor (1.25 times as bright beside him, the game's sand 1.54 times) under its tonemapper. The beam's colours are its code's; the game's looks yellower and its curls redder, and it looks to rise past his head only from the game's camera, higher behind him ("Which way the beam goes") | The colours add in linear light (below, "Importing them"); the light isn't kept 20 frames after the beam stops; the kit's beam starts along his aim, not the gun's barrel |

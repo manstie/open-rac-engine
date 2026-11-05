@@ -5861,6 +5861,27 @@ confidence = "medium"
 note = "A strip in the shield's plane that writes one texture's alpha into the frame's, then adds a second weighted by it."
 
 [[symbol]]
+name = "holo_shield_spawn"
+address = 0x00376960
+kind = "function"
+confidence = "high"
+note = "Makes the shield (class 0x186D) as it leaves the glove: scale 3.25 times its class's, alpha 0x14, its matrix used as set (+0x34 | 0x100): the hero's, its across and up rows 0.05 long, as its width and height (pvar +0x18, +0x1C) start."
+
+[[symbol]]
+name = "holo_fold_draw_v3"
+address = 0x00379CE0
+kind = "function"
+confidence = "high"
+note = "The folding shield from V3 (state 5): holo_wall_draw_v3's layers at their full size, each alpha falling 2 a frame (V5's disc 3), the stars at half 0.1875; sets the moby's alpha to 0x15 less the frame."
+
+[[symbol]]
+name = "moby_set_colour"
+address = 0x00438908
+kind = "function"
+confidence = "medium"
+note = "(moby, r, g, b): sets the moby's colour bytes, +0x3C to +0x3E."
+
+[[symbol]]
 name = "rift_open_draw"
 address = 0x003753F8
 kind = "function"
@@ -5886,4 +5907,4 @@ name = "moby_update_bounds"
 address = 0x00439610
 kind = "function"
 confidence = "medium"
-note = "Updates a moby's matrix and bounding sphere from its position, rotation and scale (+0x2C) for drawing; called by most updates as they end."
+note = "Updates a moby's matrix and bounding sphere for drawing: the matrix from its rotation (+0xF0), or with +0x34 bit 0x100 as set at +0xC0; the sphere its class's, by its scale (+0x2C), through the matrix. Called by most updates as they end."

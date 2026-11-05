@@ -2632,8 +2632,9 @@ speed to 1 (0x441C78), so an agent's or duck's first random speed doesn't last.
   tumbles 3 to 6 degrees a tick about a random axis.
 - **The disc** (class 0x1867, 1 joint, 71 keyframes) spins by its own sequence.
 - **Not modelled:** the rift (0x186B, 0.05 across) and comet (0x1893, set to 0.05 outright)
-  are drawn by their code. The holo shield's class (0x186D, 25 joints, one sequence) has its
-  panels drawn instead; whether the class itself is drawn isn't read. The blob shadow under
+  are drawn by their code. The holo shield's class (0x186D, 25 joints, one still sequence) is
+  drawn as well as its panels: at 3.25 times its class's scale and alpha 0x14, stretched to
+  its wall (`effects.md`, "Its own model"); the kit draws it once the shield stands. The blob shadow under
   small mobys (0x444070: egg, canister, V5 duck, missile, agent's gun, blob, Nitro's charge,
   bomblet) isn't in the kit. Nor are a duck's first random speed (0.85 to 1.15, until its
   first blend) and an appearing agent's opacity climbing. The V4 duck's bangles aren't read;
