@@ -1,103 +1,71 @@
 # Open Ratchet & Clank Engine: project plan
 
-The source of truth for **scope, strategy, decisions, status and next steps**.
+The source of truth for **scope, decisions, status and next steps**.
 
 - [README.md](README.md) summarises the goals (section 1) for visitors; keep it in step.
 - Working rules and commands: [CLAUDE.md](CLAUDE.md).
 - Findings, each labelled with how it was verified, are in [docs/research/](docs/research/):
-  - [disc-layout.md](docs/research/disc-layout.md): the eight discs, their TOCs and level data.
-  - [engine-notes.md](docs/research/engine-notes.md): the engine.
-  - [prior-art.md](docs/research/prior-art.md): other projects, tools and their licences.
   - [hero-controller.md](docs/research/hero-controller.md): how Ratchet moves (RE.3).
   - [camera.md](docs/research/camera.md): how the camera follows him (RE.4).
   - [weapons.md](docs/research/weapons.md): his weapons, their table, levels and mods (RE.7).
-  - [moby-format.md](docs/research/moby-format.md): moby skeletons, animation and meshes
-    (P3.7).
-  - [gameplay-format.md](docs/research/gameplay-format.md): levels' gameplay files (P3.10).
   - [effects.md](docs/research/effects.md): particles, effect textures, beams, lights
     and the guns' effects (P3.18).
   - [coop.md](docs/research/coop.md): Deadlocked's two-player campaign (RE.10).
+  - [moby-format.md](docs/research/moby-format.md): moby skeletons, animation and meshes
+    (P3.7).
+  - [gameplay-format.md](docs/research/gameplay-format.md): levels' gameplay files (P3.10).
+  - [disc-layout.md](docs/research/disc-layout.md): the discs, their TOCs and level data.
+  - [engine-notes.md](docs/research/engine-notes.md): the engine.
+  - [prior-art.md](docs/research/prior-art.md): other projects, tools and their licences.
+- How the kit's co-op works, and the rules simulation code follows for it:
+  [docs/netcode.md](docs/netcode.md).
 - The reverse-engineering setup, and the catalogue of savestates, recordings and traces:
   [docs/re-setup.md](docs/re-setup.md).
 
-Task IDs (`P2.4`, `RE.3`) are stable; use them in commits. Markers: `[x]` done, `[~]` started,
-`[ ]` not started, `[-]` dropped or moved. An `In progress (<date>)` sub-bullet means a
-session is working on the task now; notes on problems met stay with their task (CLAUDE.md,
-"Mark your work in PLAN.md").
+Task IDs (`P1.5`, `RE.3`) are stable; use them in commits. Markers: `[x]` done, `[~]` started,
+`[ ]` not started. An `In progress (<date>)` sub-bullet means a session is working on the
+task now; notes on problems met stay with their task (CLAUDE.md, "Mark your work in
+PLAN.md").
 
 ---
 
 ## 0. Status
 
-- **Phase 0** is done; CI passes on Windows and Linux (P0.7). `release.yml` packages the
-  game for both; no release has its packages yet (P7.1, P7.2).
-- **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
-  The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
-  per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
-  DL's code lacks (crouch, wall jump, zip lines, dive, campaign lock-on) and give it its
-  own flips, stick, strafing and grinding. He has the follow camera with
-  lock-on, the lock-strafe and first-person cameras with the free look's aim assist and
-  their blends (P1.7), melee for both games (P1.8), and all twenty of UYA's guns with their
-  levels, mods and aim assist (P1.9), the whip swinging his wrench moves, held in his hand (with a UYA disc, the guns' own
-  models, each level's, held in one hand or both as UYA's hold layers have them) with
-  their firing animations, UYA's quick-select ring, UYA's ammo
-  pickups and bolt, ammo, nanotech, explosive and doubler crates (the doubler's x2 and
-  help message on the HUD), UYA's vendor menu and bolt bank (P1.10), and a HUD on UYA's timings with the guns'
-  crosshairs, lock-on reticle, target marks and the Flux scope, with its zoom (P1.12;
-  the disc's textures for them, P3.18), and an Options menu with every control
-  rebindable on keyboard and mouse and gamepad (keys named as the layout has them), the
-  mouse and sticks, display (window, resolution, frame-rate cap, HUD size, graphics API)
-  and sound (P1.3, P1.12). The guns sound and show their flames, shots,
-  rays and blasts with placeholders made in code, and with a UYA disc the game's own
-  sounds for 18 guns, effect and particle textures, and the shots' models, skinned and animated by level; the six first
-  guns' effects and the other guns' as far as the effects layer goes (the Spitting
-  Hydra's charge included), and the lightning bolt four guns share, take the game's sizes,
-  colours and lives (P1.13, P3.13, P3.18). He
-  wears the open blocky model or, from the user's
-  discs, any of 15 UYA suits (Clank and the heli-pack on his back, played by UYA's
-  rules), 21 UYA multiplayer skins or 17 DL skins, and plays Ratchet's real animations
-  with a UYA disc, face, fingers, fidgets and landings included (P1.17). Input can be recorded
-  and replayed. The demo has an arena of enemies, a melee charger and a ranged shooter,
-  that drop bolts and nanotech and, infected, fight each other (P1.11).
-  Two players can play the demo together by IP or join code (`--host`, `--join`), with
-  rollback through `ggrs` and the simulation's snapshots, checked headless on the whole
-  demo; codes carry STUN's public IPv4 and IPv6 addresses and the LAN's, the host's
-  router is asked to forward its port (PCP, NAT-PMP or UPnP), and a host can punch
-  through its NAT to the guest's code (P1.18, `docs/netcode.md`).
-- **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
-  against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
-  collision rule the kit needs is read and traced in both games; RE.8 is answered
-  (NTSC-U is the native tuning).
-  UYA's weapons are read in code (RE.7): the weapon table with every gun's numbers per
-  level, ammo, XP, mods and what they do, aim assist, all twenty guns' firing and shots,
-  their V5 variants included (`weapons.md`, "Next steps" 4 has the few left), how
-  firing affects the hero, the guns' aim indicators, and the effects engine the guns
-  draw with (`effects.md`).
-  DL's two-player campaign is read in code (RE.10, `coop.md`): who player 2 is, what
-  the players share, death and respawn, difficulty, split screen, menus and missions,
-  and the tether that kills both players when they part for 10 s; its deaths, respawns
-  and team moves are checked in play on DreadZone Station, and its ammo pickups, kills,
-  weapon XP, respawns, tether and the R3 shield (only for show) on Catacrom Four.
-  Gladiator PAL's co-op is the same code with 50 Hz frame counts.
-- **Disc layer:** UYA's TOC, levels, core, moby classes, armor WAD and rails are read
-  from the disc, and DL's skin WAD, levels, cores and gameplay files' mobys (P2.1–P2.4,
-  P3.3, P3.7, P3.10). The packed boot
-  executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
-  R&C1 and GC, are identified by their boot executables' hashes (P2.2). The app reads
-  R&C3 PAL wherever it reads UYA NTSC-U, as their data is the same there (P2.10).
-- The work is on branch `re/hero-movement`, which isn't pushed yet.
+The project is a **character controller for UYA and Deadlocked**, in Rust, as Bevy
+plugins for game mash-ups, with a demo app around it.
+
+- **The hero** (P1.5) has UYA's whole move set and DL's, each game a movement profile
+  (`uya.ron`, `dl.ron`; `--moves` or the menus). He has the follow, lock-strafe and
+  first-person cameras, lock-on, the free look's aim assist and the blends between them
+  (P1.7), and melee for both games (P1.8).
+- **The guns** (P1.9): all twenty of UYA's at every level, with mods, aim assist and the
+  quick-select ring, and four of DL's ten (`--guns dl`); UYA's pickups, crates, vendor
+  and bolt bank (P1.10); a HUD on UYA's timings with the crosshairs, lock-on reticle and
+  Flux scope (P1.12). Their effects and sounds are placeholders made in code, or the
+  game's own with a UYA disc (P1.13, P3.13, P3.18).
+- **The rig** (P1.17) has UYA's hero's skeleton. He wears the open blocky model or, from
+  the user's discs, 15 UYA suits, 21 UYA multiplayer skins or 17 DL skins, and plays
+  Ratchet's real animations with a UYA disc.
+- **Co-op** (P1.18): two players by IP or join code, with rollback through `ggrs`,
+  checked headless on the whole demo.
+- **The demo app:** menus with every control rebindable (P1.3, P1.12), a greybox level
+  (P1.4) with an arena of enemies (P1.11), and input recording and replay. CI passes on
+  Windows and Linux; `release.yml` builds packages, none published yet (P7.1, P7.2).
+- **Reverse engineering:** the hero's movement (RE.3) and camera (RE.4) are read in UYA's
+  and DL's code and checked against traces; UYA's weapons are read (RE.7) and DL's begun;
+  DL's two-player campaign is read (RE.10).
 
 **Next actions, in order:**
 1. P1.18's next step, the owner's: co-op on two machines, over a LAN and then the
    internet by join code, with the router's port mapping (D8). Nothing else is left in
    it.
-2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next to fix (the agents' size on screen, measured in world units against the hero's;
-   then their jets, dimmer than the game's).
-   P3.18 and P1.10 have what is left in their tasks.
-   RE.10 has only minor unread values left.
-3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
-   moves read in code but untraced (lock-on first; RE.3's notes).
+2. P1.9's review lists how far UYA's guns are from the game and the next to fix (the
+   agents' size on screen, measured in world units against the hero's; then their
+   jets). P3.18 and P1.10 have what is left in their tasks.
+3. P1.16, the kit in an unrelated Bevy app: the sandbox example, the dependency check in
+   CI and the public API's documentation. Then DL's other six guns (P1.9).
+4. At lower priority: RE.3's moves read in code but untraced (lock-on first), the rest of
+   RE.2, and the disc layer's P2.3 and P2.4.
 
 ---
 
@@ -105,18 +73,14 @@ session is working on the task now; notes on problems met stay with their task (
 
 | ID | Goal | Done when |
 |---|---|---|
-| **G1** | Rewrite the engine of Ratchet & Clank (2002) through Ratchet: Gladiator (2005) in Rust with Bevy. The first deliverable is an **ISO-free hero kit**: the R&C3/Gladiator player controller, camera and weapons on a **placeholder rig built from primitive shapes**, packaged as Bevy plugins that other projects and game mash-ups can reuse. It comes with a standalone demo level. | The demo is playable for 5–10 minutes on Windows and Linux with no game data. The kit crates work in an unrelated Bevy app (P1.16) and depend on no disc crate. Measured movement matches the originals within agreed tolerances (RE.6). |
-| **G2** | Run each game **natively** on Windows and Linux (DX12 and Vulkan), with users supplying their own ISOs in `./source`. Every game runs on one shared hero controller with the R&C3/Gladiator controls, using that game's own movement values and abilities (D7). | Each supported release can be completed start to finish (Phase 5), with no emulator in the shipped path. |
+| **G1** | **A character controller for UYA and Deadlocked** in Rust: the hero's moves, camera, melee and guns, each game with its own values read from its code (D7), as Bevy plugins that other projects and game mash-ups can reuse. It runs on a placeholder rig built from primitive shapes, with a standalone demo level. With the user's own UYA or DL disc, the demo wears Ratchet's real models and animations and plays the guns' own sounds and effects, read at start-up. | The demo is playable for 5–10 minutes on Windows and Linux with no game data. The kit crates work in an unrelated Bevy app (P1.16) and depend on no disc crate. Measured movement matches the games within agreed tolerances (RE.6). |
 | **G3** | Controller and keyboard+mouse support, with **key remapping**. | Every action can be remapped and the bindings persist. Gamepad and KB+M both work in menus and gameplay. |
-| **G4** | **Direct-IP two-player online co-op in every game**, with mechanics derived from Ratchet: Gladiator. | Two PCs connect by IP address and play a campaign together in every supported game (Phase 6). The demo gets co-op first (P1.18). |
-| **G5** | **A full PC remaster by default** (D4): widescreen and ultrawide, any resolution, high frame rates over a 60 Hz simulation, modern anti-aliasing and post-processing, mouse-first controls and complete settings menus. | Every enhancement is on by default and can be switched off individually. A "classic" mode reproduces the original presentation for comparison. |
+| **G4** | **Direct-IP two-player online co-op** in the kit, with rollback. | Two PCs connect by IP or join code and play the demo together (P1.18). |
 
-**Non-goals for now:**
-- Competitive online multiplayer, matchmaking or hosted servers (Horizon already revives UYA
-  and DL online). Co-op connects the two players directly, with no servers of our own
-  (D8).
-- The PS3, PS4 or PS5 versions.
-- A pixel-exact emulator.
+**Non-goals:**
+- Running or remastering the original games; R&C1 and Going Commando.
+- Competitive online multiplayer, matchmaking or hosted servers. Co-op connects the two
+  players directly, with no servers of our own (D8).
 - Shipping any game data.
 - Contributing to other projects' repositories (D5).
 - macOS, mobile or web. They aren't ruled out, just not targeted.
@@ -125,410 +89,216 @@ session is working on the task now; notes on problems met stay with their task (
 
 The full rules are in CLAUDE.md ("Legal rules", "Workspace conventions"). Those that shape
 the plan:
-- **No game data in the repo.** Anything derived from a disc is generated on the user's
-  machine, from their own disc, into a local cache. CI blocks data files (P0.12).
-- **GPL-3.0-or-later.** Code under compatible licences (Wrench, PCSX2, permissive
-  projects) may be reused with its notices; decompiled game code never.
-- **A fixed, deterministic 60 Hz simulation** with interpolated rendering: lockstep and
-  rollback co-op need bit-identical state on Windows and Linux.
+- **No game data in the repo.** What the demo takes from a disc is read from the user's
+  own disc at start-up and never stored (§5, 2026-10-13). CI blocks data files (P0.12).
+- **GPL-3.0-or-later** (§5, 2026-10-15). Code under compatible licences may be reused with
+  its notices; decompiled game code never.
+- **A fixed, deterministic 60 Hz simulation** with interpolated rendering: rollback co-op
+  needs bit-identical state on Windows and Linux.
 - **The hero kit is ISO-free** (`rac_sim`, `rac_input`, `rac_hero`, `rac_rig`,
-  `rac_combat`, `rac_net`, `rac_demo`), and parsing and format crates don't depend on Bevy.
+  `rac_combat`, `rac_net`, `rac_demo`), and the disc crates don't depend on Bevy.
 - Unit tests use synthetic data; tests that need a disc are gated (section 7).
 
 ## 3. What we know (summary)
 
 The details and evidence are in `docs/research/`.
 
-- **Discs** (all eight owned by the user):
-
-  | Disc | Region | Role now |
-  |---|---|---|
-  | UYA SCUS-97353 | NTSC-U | **Primary reference for R&C3.** Packed ELF, 60 Hz, libuya, decompilation about 7% done. |
-  | R&C3 SCES-52456 | PAL | The R&C3 PAL variant. libuya has a PAL build. |
-  | DL SCUS-97465 | NTSC-U | **Primary reference for Gladiator.** Packed ELF; libdl has the hero structs and constants. Reference for co-op. |
-  | Gladiator SCES-53285 | PAL | The Gladiator PAL variant. |
-  | R&C1 SCUS-97199 | NTSC-U | Later; the reference for R&C1. Plain ELF. Lombyte targets this exact build. |
-  | R&C1 SCES-50916 v2.00 | PAL | The R&C1 PAL variant. rac1-decomp targets this exact build. |
-  | GC SCUS-97268 v2.00 | NTSC-U | Later; the reference for GC. Plain ELF; its files are visible on the disc. The Greatest Hits build; rac2-gc-decomp targets v1.01. |
-  | GC SCES-51607 | PAL | The GC PAL variant. |
-
-  Except on GC PAL, the data is hidden from the filesystem and reached through each game's
-  own table of contents: R&C1's at LBA 1500, the others' at LBA 1001. The data inside is
-  compressed with Insomniac's "WAD" LZ codec.
-- **Engine:**
-  - C++, built with SN ProDG GCC 2.95.3.
-  - A resident "core" is joined by **per-level code overlays**, each holding nearly the
-    whole game program, dispatched through `lvl.vtbl`, `lvl.camvtbl` and `lvl.sndvtbl`.
-  - Rendering is VIF → VU1 microcode → GS; the terrain, tie and shrub renderers come from
-    Naughty Dog's.
-  - Audio is Sony's **989snd**, the same library family as Jak & Daxter's.
-- **How much is shared:**
-  - **Formats are highly shared** across all four engine generations: one asset pipeline
-    with per-game adapters will do.
-  - **Gameplay code is not shared**: less than 1% is identical across games, and each game
-    has 3.7–7 MB of distinct code. Only the engine core carries over within each family
-    (R&C1 with GC, UYA with DL).
-  - So game logic has to come from **automatic translation of each game's own code**
-    (section 4).
+- **Discs:** UYA NTSC-U (SCUS-97353) and DL NTSC-U (SCUS-97465) are the references. R&C3
+  PAL (SCES-52456) and Gladiator PAL (SCES-53285) are their PAL builds, which the app reads
+  wherever their data is the same (P2.10). The data is reached through each game's table
+  of contents at LBA 1001 and compressed with Insomniac's "WAD" LZ codec
+  (`disc-layout.md`).
+- **Engine:** C++, built with SN ProDG GCC 2.95.3. A resident core is joined by a code
+  overlay per level that holds nearly the whole game program, the hero's included, so his
+  code is read from savestates taken in a level (`docs/re-setup.md`).
 - **Hero movement:** UYA and DL tune the hero in per-second units at 60 Hz, and each PAL
   release is a conversion that keeps real-time behaviour (RE.8). The two games share
   their movement code and differ in a handful of values and rules (`hero-controller.md`,
   "Differences between the games").
-- **Prior art** (October 2026, all moving fast):
-  - **ReRAC**: Rust and Bevy, ISC. A native R&C1 port; a reference, narrower in scope (D1).
-  - **OpenRAC**: GPL. Decompilations of all four games plus a planned C++ native port.
-  - **Wrench**: GPL. The format reference for all four games.
-  - **Horizon**: MIT. Its UYA and DL headers (`libuya`, `libdl`) are our starting point for
-    the hero and weapons.
-  - **OpenGOAL**: ISC. The closest architectural precedent; its 989snd reimplementation is
-    directly reusable.
-  - **ico-recomp**: MIT, Rust. A PS2 static recompiler whose crates we can reuse.
-  - **ggrs**: MIT/Apache. GGPO-style peer-to-peer netcode, independent of Bevy.
+- **Prior art** (`prior-art.md`): Horizon's `libuya` and `libdl` (MIT) for the hero's
+  structs, constants and names; Wrench (GPL) for the formats; OpenGOAL (ISC), whose
+  989snd sound effects `rac_audio` ports; `ggrs` (MIT/Apache) for netcode; ReRAC (ISC)
+  for the moby mesh.
 
-## 4. Strategy
+## 4. Architecture
 
-### 4.1 Approach: the hybrid "native engine plus translated game code"
-
-The original README asked whether to use the ISOs only as data or to translate the game
-code when an ISO is first selected. **We do both, by layer:**
-
-| Layer | Source | Where it runs |
-|---|---|---|
-| Platform: window, input, audio out, GPU (DX12/Vulkan), sockets | Bevy, wgpu and ggrs | Native |
-| Engine services: rendering (classic and remaster), audio engine, file and disc I/O, saves, input mapping | **Our Rust code** | Native |
-| Assets: levels, models, textures, animation, collision, sound, video | The user's ISO, **extracted and converted on first run** into a local cache | Native data |
-| Game logic: thousands of per-class update functions, missions, bosses, menus | The user's ISO, **statically recompiled on first run** (R5900 → Cranelift → native code, cached) | Native code, on top of our runtime, which emulates the hardware and IOP services at a high level (HLE) |
-| Rewritten systems: the hero and camera (one controller for every game, with the R&C3/Gladiator controls and each game's own movement values and abilities), weapons, HUD, co-op and netcode | **Our Rust code (the hero kit)**, replacing recompiled functions through hooks | Native |
-
-- **Why it fits:** formats are shared but code isn't. Recompiling scales to 4 engines × ~50
-  overlays without hand-porting, and keeps the game logic faithful. Our own code provides
-  the remastered rendering, the input, the hero, and co-op. No game code or data is ever
-  distributed, and users don't need a C toolchain.
-- **Progressive rewrite:** any recompiled function can be swapped for hand-written Rust,
-  using the decompilations as the specification and the recompiled version as a
-  differential-testing oracle.
-- **Precedents:** OpenGOAL (native renderers fed by the game's own logic); N64Recomp and
-  XenonRecomp (the user supplies the game, code is generated from it, function hooks allow
-  changes); Dark Cloud's PC port (fixed 60 Hz logic, interpolated rendering).
-
-**Rejected:** hand-rewriting all gameplay (too large, given how little code is shared);
-embedding an emulator core (not native); compiling decompiled C
-(ships game-derived code, and only R&C1's decompilation is mature).
-
-**Phase 4 is the decision gate.** If the recompilation spike fails, we fall back to a
-native rewrite of each game's core, using the decompilations as the specification.
-
-### 4.2 Co-op and networking
-
-- **Topology:** two peers, and no servers of our own (D8). One hosts on a UDP port and
-  the other joins by `IP:port`. The host's port is opened automatically where the router
-  allows (UPnP IGD via `igd-next`, NAT-PMP or PCP). Otherwise the players swap join
-  codes, each holding that peer's public address (learned from public STUN servers), and
-  both peers punch through their NATs at once. IPv6 connects directly when both peers
-  have it.
-- **Model:** like GGPO, both peers simulate the whole game deterministically, and only
-  player inputs cross the network, via `ggrs`.
-  - **The demo** (Phase 1) uses **rollback**: its state is small and easy to snapshot, and
-    this proves the netcode for the reusable kit.
-  - **The full games** start with **delay-based lockstep** (`ggrs` with prediction off,
-    plus a few frames of input delay). Rolling back recompiled game state would mean
-    snapshotting about 32 MB of emulated memory every frame. Rollback comes later if
-    snapshots prove cheap enough (P6.2).
-- **Safety nets:** a handshake checks the app build, the release (by boot-ELF hash) and
-  the simulation-affecting settings; per-tick state checksums detect desyncs; the host can
-  resend a full snapshot to resync.
-- **Mechanics:** taken from Gladiator's co-op (RE.10), implemented once in the native hero
-  and co-op layer, and applied to every game through per-game adapters (Phase 6).
-- **Rendering:** each peer renders its own view. Local split-screen comes after online
-  co-op, on the same foundation (D6).
-
-### 4.3 Architecture
+### 4.1 Crates
 
 All crates live in `crates/`. Libraries are prefixed `rac_*`; the binary is `openrac`.
 
 ```
-ISO-free hero kit: reusable in any Bevy app; never depends on the game-layer crates
-  rac_sim      fixed 60 Hz clock, system order, render interpolation, seeded RNG
+The hero kit: ISO-free, reusable in any Bevy app; never depends on the disc crates
+  rac_sim      fixed 60 Hz clock, system order, render interpolation, seeded RNG,
+               rollback snapshots
   rac_input    actions, bindings, remapping, per-tick input snapshots (G3)
-  rac_hero     kinematic controller (R&C3/Gladiator controls), per-game profiles, camera
+  rac_hero     kinematic controller, per-game movement profiles, camera, melee
   rac_rig      the hero's skeleton, the models it wears, procedural poses and clips
-  rac_combat   health and damage, melee, weapons, projectiles, pickups, quick-select
-  rac_net      direct-IP sessions over ggrs: rollback or lockstep, desync checks (G4)
-  rac_demo     greybox demo level, demo enemies, HUD, guns' effects and sounds (the
-               standalone demo)
+  rac_combat   health and damage, weapons, projectiles, pickups, quick-select, vendor
+  rac_net      direct-IP sessions over ggrs with rollback, desync checks (G4)
+  rac_demo     greybox demo level, demo enemies, HUD, the guns' effects and sounds
 
-Game layer: needs the user's discs
-  rac_iso      ISO9660, disc identification, TOC, sector streams                   (no Bevy)
-  rac_formats  WAD codec, ELF/overlays, level/core/gameplay, mobys, ties, tfrags,   (no Bevy)
-               shrubs, sky, collision, textures, VAG, 989snd banks, PSS
-  rac_assets   extraction cache + Bevy AssetLoaders → Mesh/Image/AnimationClip/Audio
-  rac_render   classic (PS2-faithful) and remaster render paths
-  rac_audio    989snd port (from OpenGOAL), VAG/PSS streaming                       (no Bevy)
-  rac_recomp   R5900 (+MMI, FPU, VU0 macro) → Cranelift; compiled at install       (no Bevy)
-               and cached
-  rac_runtime  EE memory, HLE kernel and IOP RPC, hooks, render bridge (G2)
-  rac_tool     CLI binary `openrac-tool`
+Disc imports: read the user's disc at start-up                                (no Bevy)
+  rac_iso      ISO9660, disc identification, sector reads
+  rac_formats  WAD codec, packed ELFs, level cores, mobys, textures, sound banks,
+               gameplay files
+  rac_audio    989snd sound effects, ported from OpenGOAL
+  rac_tool     the CLI `openrac-tool`, for reverse engineering and checks
 
 App
-  openrac      launcher and game: the demo when no disc is present, full games when one is
+  openrac      the demo: menus, settings, co-op sessions, and what it reads from a disc,
+               handed to the kit as kit types (§5, 2026-10-13)
 ```
 
-### 4.4 Order of targets
+Reverse-engineering tools that never ship live in `tools/` (`pine-probe`, `ghidra/`).
 
-| # | Release(s) | Why it is in this position |
-|---|---|---|
-| 1 | **UYA NTSC-U (SCUS-97353)**, then R&C3 PAL (SCES-52456) | The controller feel to match (D2). Both regions are owned. libuya (MIT) covers NTSC and PAL, and the decompilation supplies names for the boot path. |
-| 2 | **DL NTSC-U (SCUS-97465)**, then Gladiator PAL (SCES-53285) | Same code family as UYA, with about 69% of the core shared. libdl (MIT) has the hero structs and constants. It holds the co-op implementation behind G4. |
-| 3 | R&C1: NTSC-U SCUS-97199, then PAL v2.00 (SCES-50916) | References: rac1-decomp (PAL, about 78% done) and Lombyte (NTSC, our build exactly), and ReRAC. ReRAC's ISC format crates may be reused (P3.16). |
-| 4 | GC: NTSC-U SCUS-97268 v2.00, then PAL (SCES-51607) | Same code family as R&C1. |
+### 4.2 Co-op and networking
 
-- NTSC-U builds are the primary references: they have 60 Hz data and the community's
-  symbols. PAL releases are supported variants with their own address maps, languages and
-  50 Hz handling (RE.8).
-- The hero kit implements the UYA/DL move set, with each game's values in its own profile
-  (RE.3–RE.6). R&C1 and GC get its controls and the moves that need no item, with their
-  own movement values and abilities (D7).
+- **Topology:** two peers and no servers of our own (D8). One hosts on a UDP port and the
+  other joins by `IP:port` or join code. The host's router is asked to forward the port
+  (PCP, NAT-PMP or UPnP IGD); where it won't, the players swap join codes holding each
+  peer's public addresses, learned from public STUN servers, and punch through their NATs.
+- **Model:** like GGPO, both peers simulate everything deterministically and only inputs
+  cross the network, with rollback through `ggrs` (§5, 2026-11-04). How it works, and the
+  rules simulation code follows for it: `docs/netcode.md`.
+- **Safety nets:** a handshake checks the build and the rules (movement profile, guns, gun
+  level); per-tick state checksums detect desyncs.
+- **Mechanics:** the demo's co-op is two heroes in one world. DL's own co-op rules (shared
+  bolts and XP, respawn by the partner, the tether, the team moves) are read (RE.10) but
+  not in the kit.
 
 ## 5. Decisions
 
 ### Open, needing the owner
 
-None at the moment.
+- **Effects' colours** (P1.9): the kit adds them in linear light, the PS2 in gamma, so a
+  layer at alpha a is about 1/a^1.2 too bright over black (6.7× for the Hydra's glows) and
+  too pale over a bright floor. Matching it means adding effects in gamma space
+  (`effects.md`, "Importing them", "Colours").
+- **The Tempest's bolts** (P1.9): at V5 the game's bolt code misses the Tempest's class
+  (0x1B4F), so its bolts strike with the Shield Charger's damage (`weapons.md`, "At V5 the
+  class test misses"). The kit keeps half the gun's; whether to copy the quirk is open.
 
 ### Made
 
 | Date | Decision |
 |---|---|
-| 2026-10-11 | **D1:** An independent project, broader than ReRAC: an ISO-free, reusable hero kit (usable in mash-ups) and direct-IP two-player co-op in every game, with mechanics from Ratchet: Gladiator. ReRAC and OpenRAC stay references; permissively licensed code may be reused with attribution. |
-| 2026-10-11 | **D2:** Match R&C3's and Gladiator's player controller, and backport its controls and the moves that need no item to the older games (D7). UYA/R&C3 and DL/Gladiator come first (section 4.4). |
-| 2026-10-11 | **D3:** R&C1 and GC use their NTSC-U discs as references, as UYA and DL do; the owner supplied both on 2026-10-15. They come after UYA/R&C3 and DL/Gladiator (section 4.4). |
-| 2026-10-11 | **D4:** A full PC remaster by default (G5), with a classic mode for comparison. |
 | 2026-10-11 | **D5:** The repository is public. No contributions to other repositories are planned. |
-| 2026-10-11 | Reverse engineering is a continuous track from Phase 0, led by the hero controller. |
-| 2026-10-11 | Netcode: deterministic GGPO-style peer-to-peer via `ggrs`. Rollback in the demo; the full games start with lockstep (section 4.2). Provisional until P6.2's ADR. |
 | 2026-10-11 | Rust pinned to **1.99.0** in `rust-toolchain.toml`; Bevy **0.20**; a virtual workspace in `crates/*` and `tools/*`. |
 | 2026-10-11 | Pipelines compile **synchronously** (`RenderPlugin::synchronous_pipeline_compilation`). Bevy's parallel compilation crashed 8 runs of 8 on NVIDIA driver 595.91.07 / RTX 4070 SUPER; synchronous gave 18 clean runs of 18. Revisit under P1.15. |
-| 2026-10-11 | Strategy: the hybrid in section 4.1, provisional until the Phase 4 gate. |
-| 2026-10-11 | Reverse-engineering tools live in `tools/*` and never ship. `pine-probe` has its own PINE client: the protocol is tiny, and we need raw batched reads with our own tear handling. |
 | 2026-10-11 | Savestates and traces come from **private headless PCSX2 instances** (`boot.sh`, `replay.sh`, `warp.sh`) with copies of the owner's memory cards and settings, never from the owner's live instance. Their memory may be written (`pine-probe poke`, the level-change request) to grant an item or reach a level; the catalogue in `docs/re-setup.md` records it. |
-| 2026-10-12 | Hero constants come from **static analysis of the game code**; traces verify them. |
 | 2026-10-12 | The kit's movement is in **per-second units with the NTSC-U values, simulated at 60 Hz** (RE.8: NTSC-U is the native tuning, PAL a conversion). |
-| 2026-10-12 | Ghidra scripts live in `tools/ghidra/`, outside the Cargo workspace. Decompiled output stays in `cache/`; only facts in our own words and `re/<serial>/*.toml` are committed. |
 | 2026-10-12 | The kit crate **`rac_sim`** holds the 60 Hz clock, the `SimSet` order, `SimTick`, interpolated `SimTransform` and `SimRng` (PCG32). The workspace turns Bevy's default features off so kit crates ask only for what they use; `openrac` turns them back on. |
-| 2026-10-12 | Settings are **TOML** (`settings.toml` in the platform config directory). `PlayerInput` is a fixed 10-byte encoding (move stick in PS2 counts, look in binary-angle units, held and pressed bits); input recordings are `.orin` files of them. |
+| 2026-10-12 | Settings are **TOML** (`settings.toml` in the platform config directory). `PlayerInput` is a fixed encoding (the move stick in PS2 counts, the look in binary-angle units, held and pressed bits), 12 bytes since the look stick joined it (2026-10-17); input recordings are `.orin` files of them. |
 | 2026-10-12 | Hero collision uses **`parry3d` 0.31** behind the kit's own `CollisionWorld`. The hero's origin is at his feet; his capsule is libdl's (radius 0.45, sphere centres 0.7/0.5 and 1.05), floating over a ground probe. |
 | 2026-10-12 | `rac_input` maps pad sticks from **circle to square**, and keys send full counts on both axes: the games expect a PS2 stick's square range. |
 | 2026-10-12 | Hero surfaces carry a **`Material`** (solid, wall-jump, no-grab, hazard, deadly) after the games' collision materials. Health is a `Health` component beside the controller, which only reports hazard contact and whether a hit is fatal. |
 | 2026-10-12 | Rules the games time by **animation frame** assume one animation frame per tick until a trace says otherwise. Presses are **buffered** as in the games: each counts once, within its move's window. |
-| 2026-10-12 | The dev profile keeps **line tables only**, and heavy cargo commands run at reduced priority with fewer jobs (CLAUDE.md, "Commands"): full debug info and unrestricted parallel links froze a 31 GB machine. |
-| 2026-10-12 | **"Backport" means one controller for every game, carrying the controls and the moves that need no item; each game keeps its own abilities** and its own movement values (D7). Moves the games grant as items (charge boots, heli-pack and thruster-pack moves, glide, grind boots, gadgets) are per-hero ability flags that each game sets from its own items and saves, so R&C1 never gets charge boots. The demo turns every flag on. |
-| 2026-10-12 | **Nothing is left only in a session's context:** work is written into PLAN.md and `docs/` as it happens, and every savestate, recording, script and layout goes into `source/<game>/` (CLAUDE.md, "Every session"). |
-| 2026-10-13 | **The open model** is a blocky, flat-shaded gold Ratchet with Clank and the wrench, made in code with UYA's hero as the visual reference. It is an acceptable placeholder for the public repository. It lives in the kit crate **`rac_rig`**, so `rac_hero` stays free of rendering, and follows UYA's joint layout so animations from the user's disc can drive it. |
+| 2026-10-12 | **Moves the games grant as items** (charge boots, heli-pack and thruster-pack moves, glide, grind boots, gadgets) are per-hero ability flags, which each game sets from its own items and saves. The demo turns every flag on. |
+| 2026-10-13 | **The open model** is a blocky, flat-shaded gold Ratchet with Clank and the wrench, made in code with UYA's hero as the visual reference: an acceptable placeholder for the public repository. It lives in the kit crate **`rac_rig`**, so `rac_hero` stays free of rendering, and follows UYA's joint layout so animations from the user's disc can drive it. |
 | 2026-10-13 | **Game data reaches the kit only at run time, through kit types.** `openrac` reads the user's disc at start-up and hands `rac_rig` clips and models on the rig's joints. The kit never reads a disc, and nothing read is stored. The disc folder is `source/` by default (`--discs`). |
 | 2026-10-13 | **The hero's model is selectable:** the open model or one imported from the user's discs. Every model wears the rig's skeleton. An import is offered only when its bones line up: each rig joint has a source joint descending from the rig parent's, and the other source joints fold into their nearest such ancestor. Clips carry offsets from the source's rest pose, so each model keeps its proportions. Joints whose frame matters follow UYA's convention (`model::wrench_points`). Chosen in the menus (saved in `settings.toml`) or with `--model`. |
 | 2026-10-13 | **parry3d's `enhanced-determinism` stays off.** It turns on glam's `scalar-math`, which drops `Vec4`'s 16-byte alignment that Bevy's GPU mesh buffers rely on (the app quit on a wgpu validation error). `rac_hero` depends on `glamx` for its `libm` feature, so parry's scalar maths still avoid each platform's C library; `openrac` asserts the alignment at compile time. Determinism relies on building x86-64 without FMA. |
-| 2026-10-15 | **Each game is a movement profile; the controller is shared.** Where the games differ in numbers, the profile holds them; where a rule differs, the profile gets a switch (`strafe.flips`), not a second controller. A game's profile keeps UYA's value, marked "not read in DL" (or that game's equivalent), until its code is read, and a test lists the fields that differ from UYA's. `uya` is the default; the app chooses with `--moves` or the menus. |
-| 2026-10-15 | **D6:** Local split-screen co-op, as Gladiator had, comes after direct-IP co-op works, on the same multi-hero foundation (P6.6). |
-| 2026-10-15 | **D7:** Each game's hero moves with that game's own values (jump heights, speeds, timings), read from its code into its own profile. What carries across the games ("backported") is the controls and the moves that need no item; moves granted by items stay with the games that have them (2026-10-12). The older games also offer their original hero ("classic movement") as an option in single-player; co-op always uses the native hero. |
+| 2026-10-15 | **Each game is a movement profile; the controller is shared.** Where the games differ in numbers, the profile holds them; where a rule differs, the profile gets a switch (`strafe.flips`), not a second controller. A value not yet read in DL keeps UYA's, marked so, and a test lists the fields that differ from UYA's. `uya` is the default; the app chooses with `--moves` or the menus. |
+| 2026-10-15 | **D7:** Each game's hero moves with that game's own values (jump heights, speeds, timings), read from its code into its own profile. Moves granted by items stay with the games that have them (2026-10-12). |
 | 2026-10-15 | **D8:** Connectivity goes as far as it can without servers of our own: direct IP; automatic port mapping (UPnP IGD via `igd-next`, NAT-PMP, PCP); IPv6 where both peers have it; and UDP hole punching, with each peer's public address (learned from public STUN servers) carried in join codes the two players swap themselves. No master, rendezvous or relay servers. Two peers both behind symmetric NATs may still need a forwarded port. |
-| 2026-10-15 | **The rig's skeleton is UYA's hero's whole skeleton** (111 joints in his order, then Clank's and the wrench's), replacing the 44-joint one, so clips drive the face and fingers joint for joint. Poses carry a scale per joint, which its children take on as in the games; a model bound to joints turned at rest says so (`ModelData::turns`). A rig joint a source skeleton lacks may sit between two it has. Which clip plays, and how fast, follows the game's own rules (`rac_rig/src/play.rs`); a game hands the rig its rules for fidgets with its clips. |
-| 2026-10-15 | **The repository is GPL-3.0-or-later, replacing MIT**, the hero kit included, so projects reusing the kit must be GPL-compatible. Code under licences GPLv3 can absorb (permissive, GPL-3.0, GPL-2.0-or-later, LGPL; so Wrench and PCSX2) may be reused with its notices kept and listed in `prior-art.md`; GPL-2.0-only and unlicensed code stay reference only, and decompiled game code is never committed. GPLv2 was ruled out because several dependencies (parry3d, winit, cpal) are Apache-2.0 only. Copies of the MIT commits that were already pushed stay MIT. |
+| 2026-10-15 | **The rig's skeleton is UYA's hero's whole skeleton** (111 joints in his order, then Clank's and the wrench's), so clips drive the face and fingers joint for joint. Poses carry a scale per joint, which its children take on as in the games; a model bound to joints turned at rest says so (`ModelData::turns`). A rig joint a source skeleton lacks may sit between two it has. Which clip plays, and how fast, follows the game's own rules (`rac_rig/src/play.rs`); a game hands the rig its rules for fidgets with its clips. |
+| 2026-10-15 | **The repository is GPL-3.0-or-later, replacing MIT**, the hero kit included, so projects reusing the kit must be GPL-compatible. Code under licences GPLv3 can absorb (permissive, GPL-3.0, GPL-2.0-or-later, LGPL) may be reused with its notices kept and listed in `prior-art.md`; GPL-2.0-only and unlicensed code stay reference only, and decompiled game code is never committed. GPLv2 was ruled out because several dependencies (parry3d, winit, cpal) are Apache-2.0 only. Copies of the MIT commits that were already pushed stay MIT. |
 | 2026-10-15 | **Lock-on is gamepad only:** with a mouse the player aims. `rac_input` ignores keyboard and mouse bindings for `Action::LockOn`; its default is UYA's, both triggers together. |
-| 2026-10-17 | **The look stick reaches the simulation as stick counts** (`PlayerInput::look_stick`, making the encoding 12 bytes and `.orin` version 2; version 1 files still load), so each camera applies its game's own response: the follow camera's linear turn and springing tilt, the free look's squared (UYA) or linear (DL) speeds and quick turn. The mouse stays a direct turn in every camera (G5), and the follow camera keeps the tilt the mouse sets. The camera setting (third person, lock-strafe, first person) is a player option on `FollowCamera` whose default is the movement profile's. |
-| 2026-10-20 | **What the games carry on the hero as mobys of their own are attachments** (UYA's Clank and heli-pack): a model part on a skeleton of its own, riding a rig joint with its place and turn but not its scale, as the games normalise the joint before placing a moby. Their clips hold each joint's whole transform, and the game hands the rig its rules for choosing them (`BackAnimations`), as for fidgets. The rig's skeleton stays the hero's; the open model keeps its own Clank on the rig's Clank joints. |
+| 2026-10-17 | **The look stick reaches the simulation as stick counts** (`PlayerInput::look_stick`; `.orin` version 2, version 1 files still load), so each camera applies its game's own response: the follow camera's linear turn and springing tilt, the free look's squared (UYA) or linear (DL) speeds and quick turn. The mouse stays a direct turn in every camera, and the follow camera keeps the tilt the mouse sets. The camera setting (third person, lock-strafe, first person) is a player option on `FollowCamera` whose default is the movement profile's. |
+| 2026-10-20 | **What the games carry on the hero as mobys of their own are attachments** (UYA's Clank and heli-pack): a model part on a skeleton of its own, riding a rig joint with its place and turn but not its scale, as the games normalise the joint before placing a moby. Their clips hold each joint's whole transform, and the game hands the rig its rules for choosing them (`BackAnimations`), as for fidgets. The open model keeps its own Clank on the rig's Clank joints. |
 | 2026-10-22 | **The free look's aim assist is the stick's**, as lock-on is the gamepad's (2026-10-15): once the mouse turns the view the assist stops until the stick turns it again. **The quick-select ring plays as UYA's with QUICK SELECT PAUSE off**: it opens over the running world and holds the hero's input after 15 ticks, so co-op stays in step. |
-| 2026-10-23 | **The guns' sounds and effects go by the game's numbers, with placeholders made in code.** The kit cues sounds from `GunEvent`s and `Arsenal::sustain` and draws effects from recipes naming the game's effect textures and particle types; its placeholders are synthesized and painted at start-up, so no audio or art ships. With the user's disc the app claims the cues it plays (`SoundClaims`) and puts the disc's textures and shot models in place of the placeholders. **Sound is mixed by the game, not by Bevy's spatial audio** (which fades with the square of each ear's distance): the kit and the app each render a stereo stream (`rac_demo::sfx::SoundStream`) with UYA's falloff from the camera and pan round it; the disc's sounds play through `rac_audio`, a Rust port of OpenGOAL's 989snd sound effects (ISC). |
-| 2026-10-31 | **Help messages are named by the kit and worded by the app**: the kit asks for one by a key (`rac_combat::pickups::Help`) when the game would, once a world, and the HUD shows it on the game's timing. The demo words them itself; the game's own texts may take their place from the user's disc later, as its sounds and textures do (2026-10-23). |
-| 2026-10-31 | **A gun's muzzle comes from numbers, not from the rig's pose.** The game follows the posed hand, but the kit's rig runs per frame (`Update`), differs with or without a disc, and isn't part of the deterministic simulation that lockstep and rollback need (§4.2), so the simulation doesn't read it. The weapons file carries where the hand is by what he is doing (`Hands`, measured from the game) and each gun's point, within about 0.1 u of the game's standing and 0.3 u walking (`weapons.md`, "The muzzle"). |
+| 2026-10-23 | **The guns' sounds and effects go by the game's numbers, with placeholders made in code.** The kit cues sounds from `GunEvent`s and `Arsenal::sustain` and draws effects from recipes naming the game's effect textures and particle types; its placeholders are synthesized and painted at start-up, so no audio or art ships. With the user's disc the app claims the cues it plays (`SoundClaims`) and puts the disc's textures and shot models in place of the placeholders. **Sound is mixed by the game, not by Bevy's spatial audio** (which fades with the square of each ear's distance): the kit and the app each render a stereo stream (`rac_demo::sfx::SoundStream`) with UYA's falloff from the camera and pan round it; the disc's sounds play through `rac_audio`. |
+| 2026-10-31 | **Help messages are named by the kit and worded by the app**: the kit asks for one by a key (`rac_combat::pickups::Help`) when the game would, once a world, and the HUD shows it on the game's timing. The demo words them itself; the game's own texts may take their place from the user's disc later, as its sounds and textures do. |
+| 2026-10-31 | **A gun's muzzle comes from numbers, not from the rig's pose.** The game follows the posed hand, but the kit's rig runs per frame (`Update`), differs with or without a disc, and isn't part of the deterministic simulation rollback needs, so the simulation doesn't read it. The weapons file carries where the hand is by what he is doing (`Hands`, measured from the game) and each gun's point, within about 0.1 u of the game's standing and 0.3 u walking (`weapons.md`, "The muzzle"). |
 | 2026-10-31 | **DL's guns are chosen on their own, by `--guns dl`, while only some are in.** `--moves dl` keeps UYA's twenty, so a movement test doesn't lose them; once all ten are in and have looks, the guns should follow the game the hero moves like, in the menus too. |
-| 2026-11-01 | **The demo kit keeps Bevy's default tonemapper; playing the original games remastered uses the closest match to the game.** The PS2 has no tone curve and clamps each channel, while Bevy's default pales saturated colours (V5's violet ring shows periwinkle). The match is chosen when real levels run (P3.17), against footage of the game. Tried on the demo level only: `None` is the game's colours but blows out its floor, as the kit's lights aren't calibrated for it; `ReinhardLuminance` keeps the violet and the floor (`effects.md`, "The Quantum Whip's cutting wave"). |
+| 2026-11-01 | **The demo keeps Bevy's default tonemapper.** The PS2 has no tone curve and clamps each channel, while Bevy's default pales saturated colours (V5's violet ring shows periwinkle). Comparisons with the game use `--plain-colours`: `ReinhardLuminance`, which keeps the violet and the floor, and a sandy floor. `None` is the game's colours but blows out the demo's floor, as the kit's lights aren't calibrated for it (`effects.md`, "The Quantum Whip's cutting wave"). |
+| 2026-11-03 | **The effects' lights are drawn as the game's, not with Bevy's lights.** Each is a sphere that multiplies what the depth prepass shows within its radius by 1 + colour × (1 − distance / radius), as the game's code (0x4A3D80) and footage show, so the demo's 3D cameras get a depth prepass. Bevy's point lights fall off as 1/d² and lit only a spot by the gun (`effects.md`, "How the lights fall off"). |
 | 2026-11-03 | **Rebinding swaps.** A binding put in a slot is taken from any other control read in the same place (play or menus; Space can jump and choose), which gets the slot's old binding instead, or loses it if the slot was empty. Pause and the menu actions keep a binding on each kind of device, and each movement key its key, so the player can't lock themselves out; such a change is refused. Esc always calls off listening, so it can't be bound once taken off Pause and Back (Reset gives it back). |
 | 2026-11-03 | **The display settings:** one size for the HUD and the menus (Bevy's `UiScale`; the sights keep to the view, as the game sizes them by the screen); a graphics API chosen in the menus is used from the next start only if the machine has a GPU for it (a software adapter doesn't count), or else wgpu chooses, so a wrong choice can't stop the game starting; key names are learned from what the keys type and saved. |
 | 2026-11-03 | **Release packages are built on GitHub from a `v*` tag into a draft release**, which the owner checks and publishes (`release.yml`, P7.1). Windows links the C runtime in and, in release builds, opens no console window; Linux builds on the oldest supported Ubuntu runner, for the oldest glibc. **CI caches with `Swatinem/rust-cache`, not `cargo-chef`**, which only helps Docker builds. |
 | 2026-11-04 | **Rollback is the kit's own, over `ggrs` without `bevy_ggrs`** (which lags Bevy). A session swaps Bevy's `FixedMainScheduleOrder` for a driver that runs the usual tick schedules when `ggrs` asks, so no system moves. Snapshots clone the components and resources each kit plugin registers, for entities with a `SimId`, numbered in spawn order so it is the same on every peer; simulation code sorts by `SimId`, never `Entity`. The simulation removes entities with `retire()`, which in a session disables them so a rollback brings them back under the same `Entity`. Simulation messages are read with `SimMessageReader`, whose unread messages are part of the snapshot. The tick runs on the single-threaded executor, so systems with no order between them run in the same order on every peer. Presentation on the tick (effects, shot models) skips resimulated ticks and stays out of snapshots (`docs/netcode.md`). |
 | 2026-11-04 | **Co-op in the demo:** the host is player 1, the guest player 2; they must run the same build with the same movement profile, guns and gun level (a digest in the handshake), and each keeps their own camera setting, sent in the handshake. During a session the pause menu doesn't stop the game and sends neutral input, and Moves and Camera can't change. A peer that leaves is dropped and the other plays on alone. UDP port 26450 by default. |
-| 2026-11-03 | **The effects' lights are drawn as the game's, not with Bevy's lights.** Each is a sphere that multiplies what the depth prepass shows within its radius by 1 + colour × (1 − distance / radius), as the game's code (0x4A3D80) and footage show, so the demo's 3D cameras get a depth prepass. Bevy's point lights fall off as 1/d² and lit only a spot by the gun (`effects.md`, "How the lights fall off"). |
 
 ## 6. Roadmap
 
-The phases run roughly in order. The **reverse-engineering track (RE)** runs alongside
-every phase. Every task follows CLAUDE.md's definition of done.
+The reverse-engineering track (RE) runs alongside the kit's work. Every task follows
+CLAUDE.md's definition of done.
 
 ### Phase 0: Foundations
 
-- [x] **P0.1** Native toolchain, Rust pinned in `rust-toolchain.toml`.
-- [x] **P0.2** The Cargo workspace and the Bevy 0.20 app `crates/openrac`, with
-  `--exit-after-frames N` and a `dev` feature for dynamic linking.
-- [x] **P0.3** `source/.gitignore` ignores everything but itself; the root `.gitignore`
-  ignores `*.iso` and `/cache/`.
-- [x] **P0.4** First inspection of the discs → `docs/research/disc-layout.md`.
-- [x] **P0.5** Prior art and emulators → `prior-art.md`, `engine-notes.md`.
-- [x] **P0.6** Work around the NVIDIA parallel pipeline compilation crash (section 5).
-- [x] **P0.7** CI with GitHub Actions on `ubuntu-latest` and `windows-latest`
-  (`.github/workflows/ci.yml`): fmt, clippy, tests and a build, cached with
-  `Swatinem/rust-cache`. It passes on GitHub on both.
-  - Uncached, a run takes 21 minutes on Linux and 36 on Windows, nearly all of it
-    compiling the test binaries; the tests themselves take under a minute. The cache
-    (0.8–0.9 GB per OS) holds the dependencies only.
-  - Optional, not done: a Linux smoke run under `xvfb-run` with lavapipe (`openrac
-    --exit-after-frames 60`).
-- [-] **P0.8** Evaluate ReRAC. Moved to P3.16: it only matters for R&C1.
-- [x] **P0.9** Decisions D1–D5 (section 5).
-- [x] **P0.10** All eight whole-image SHA-1s match redump.org (`disc-layout.md`).
-- [x] **P0.11** `CONTRIBUTING.md`.
-- [x] **P0.12** Data-hygiene guard: `tools/check-data-hygiene.sh`, the `data-hygiene` CI
-  job and `.githooks/pre-commit`. It rejects disc-derived file types, savestates, memory
-  cards, recordings, traces and dumps, and any binary over 1 MB not on its allowlist.
-  - It failed on a tracked file deleted or moved in the working tree (it measured every
-    tracked path); it now skips paths that are gone.
-- [x] **P0.13** Relicense the repository from MIT to GPL-3.0-or-later (section 5):
-  `LICENSE`, the workspace's `license`, the README's notice, and the licence rules in
-  CLAUDE.md, CONTRIBUTING.md and `prior-art.md`.
+- [x] **P0.1–P0.13** The toolchain, workspace and app (`--exit-after-frames`, the `dev`
+  feature); the ignores for `source/` and `cache/`; the first look at the discs; prior
+  art; the NVIDIA workaround (§5); CI on Linux and Windows (P0.7); the discs'
+  hashes against redump.org; `CONTRIBUTING.md`; the data-hygiene guard (P0.12:
+  `tools/check-data-hygiene.sh`, its CI job and `.githooks/pre-commit`); and the relicence
+  to GPL-3.0-or-later (P0.13).
+  - Uncached, a CI run takes 21 minutes on Linux and 36 on Windows, nearly all of it
+    compiling the test binaries. Optional, not done: a Linux smoke run under `xvfb-run`
+    with lavapipe (`openrac --exit-after-frames 60`).
 
-### Track RE: Reverse engineering and the knowledge base
+### Track RE: Reverse engineering
 
-**Order:** UYA NTSC-U and DL NTSC-U, then their PAL variants (R&C3, Gladiator), then R&C1
-and GC. Raw dumps, savestates and traces stay out of git; only facts in our own words are
-committed (names, addresses, layouts, derived constants).
+**Order:** UYA NTSC-U and DL NTSC-U, then their PAL builds where the app reads them. Raw
+dumps, savestates and traces stay out of git; only facts in our own words are committed
+(names, addresses, layouts, derived constants).
 
 - [x] **RE.1** Tools and setup (`docs/re-setup.md`): PCSX2 2.8 with PINE, Ghidra 12.1 with
   ghidra-emotionengine-reloaded, and `tools/ghidra/` to import and analyse a savestate,
   decompile chosen functions into `cache/`, and apply `symbols.toml`.
 - [~] **RE.2** Machine-readable knowledge base (`re/README.md`):
   - Done: `re/<serial>/hero.toml` (the hero struct, verified fields and a frame counter,
-    read by `pine-probe`) for R&C3 PAL, Gladiator PAL, UYA NTSC-U and DL NTSC-U; and
-    `symbols.toml` for those four, each symbol with a confidence and source, checked by
-    `pine-probe`'s tests. Seeded from libdl (MIT, attributed): DL NTSC-U's resident
-    library functions and globals (100 symbols), and the library functions found by
-    matching code in UYA NTSC-U, R&C3 PAL and Gladiator PAL (37, 37 and 53; method in
-    `engine-notes.md`, "Code layout and overlays").
-  - To do: libuya's addresses, which need a memory image of UYA's multiplayer program (a
-    savestate in a local multiplayer map); a code-matching tool in `tools/` in place of
-    the throwaway script used for the seeds, to map the PAL builds' level overlays and to
-    carry libuya's names into single player; `structs.toml` and `memory-map.md`; a Ghidra
-    import script and the Rust hook tables (P4.7).
-  - libuya's addresses are for UYA's multiplayer program, which is linked differently from
-    single player, so none could be copied. UYA and R&C3 got libdl's library functions by
-    matching code instead.
-- [~] **RE.3** **Hero controller**, the first priority, for UYA and DL
-  (`hero-controller.md`; addresses in `re/<serial>/symbols.toml`). Feeds P1.5.
-  - Read in code and checked against traces: the stick pipeline, walking and the
-    sharp-turn skid, every jump type with its entry rules and parameters, air control, the
-    double jump, glide, heli jump, long jump, flips (strafe, landing and crouch), the
-    crouch turn, falling, the wall jump, ledges, the slope limit, getting hit and dying,
-    melee (UYA's and DL's), swimming, zip lines, strafing, DL's charge boots, the
-    animation each state plays, the moves that need items, and DL's differences from UYA:
-    among them, DL flips only as a strafing jump lands, and has no crouch (nor the long
-    jump, heli jump or crouch flips), no glide, no wall jump and, in the campaign, no
-    lock-on (only multiplayer levels set a target); its ledge's lip stays
-    where the top's cast hit, so he hangs against the wall, and its shimmy runs 32-frame
-    cycles of 0.60 u (`hero-controller.md`, "Deadlocked's moves", "Deadlocked's
-    ledges").
-  - DL's trace rows are read part way through the hero's update: the animation frame is
-    a tick ahead of the state and motion, and the timer one behind what the transitions
+    read by `pine-probe`) and `symbols.toml` (each symbol with a confidence and source,
+    checked by `pine-probe`'s tests) for UYA NTSC-U, R&C3 PAL, DL NTSC-U and Gladiator
+    PAL. Seeded from libdl (MIT, attributed): DL NTSC-U's resident library functions and
+    globals (100 symbols), and the library functions found by matching code in the other
+    three (37, 37 and 53; method in `engine-notes.md`, "Code layout and overlays").
+  - libuya's addresses are for UYA's multiplayer program, which is linked differently
+    from single player, so none could be copied.
+  - To do: libuya's addresses, from a savestate in a local multiplayer map; a
+    code-matching tool in `tools/` in place of the seeds' throwaway script, to map the PAL
+    builds' level overlays and carry libuya's names into single player.
+- [~] **RE.3** **Hero controller** (`hero-controller.md`; addresses in
+  `re/<serial>/symbols.toml`). Feeds P1.5.
+  - Read in code and checked against traces, in both games where both have it: the stick
+    at part tilt, walking and the sharp-turn skid, every jump type with its entry rules,
+    air control, the double jump, glide, the heli and long jumps, flips, the crouch and its
+    turn, falling and the 0.43 u step limit, the wall jump, ledges and DL's shimmy, the
+    slope limit, getting hit, dying, falling out of the level and the respawn, melee,
+    swimming, zip lines, strafing, DL's charge boots, the animation each state plays, the
+    moves that need items, and DL's differences from UYA ("Deadlocked's moves",
+    "Deadlocked's ledges"). DL's smaller items are read too, so `dl.ron` has nothing left
+    "not read in DL".
+  - Read in code only, not traced: grinding and the grind's jumps (no UYA level can be
+    grinded, and a rail written into Veldin crashes PCSX2), lock-on (it needs a gun none of
+    our savestates holds), wading, moving platforms, the walk's start and stop
+    thresholds, changing strafe sides, and DL's hits, swimming, strafing and grinding
+    (`hero-controller.md` has each).
+  - DL's trace rows are read part way through the hero's update: the animation frame is a
+    tick ahead of the state and motion, and the timer one behind what the transitions
     see; UYA's rows come after the whole update (`re-setup.md`, "Rows read mid-update";
-    `hero-controller.md`, "Reading the traces"). Rechecked on that basis: DL's double
-    jump at `t > 10` is in its code; its attack from a double jump waits a tick longer
-    (13), and UYA's grab hangs at 14, each a tick later than the kit had; the ledge
-    grab's double-jump limits were frame numbers taken for ticks (now its 31st tick in
-    both games).
-  - Both open items from that check are timed from the traces' stored hero regions, which
-    hold fields their layouts didn't name (`re-setup.md`, "Making traces with scripted
-    play"). DL's flips are past frame 18 from their 28th tick (UYA's 31st), and both
-    games' back flips wait for frame 20, UYA's 34th tick and DL's 32nd (`flip_after_tick`,
-    `back_flip_after_tick`). The late attack was the wrench coming out in place of a gun:
-    in both games Square with a gun out empties the hand and attacks 5 ticks after the
-    press (`wrench_draw_ticks`; "Starting an attack", "Deadlocked's melee"; `weapons.md`,
-    "Switching and firing"). Both are in the kit with tests.
-  - Read in code only: grinding and the grind attack (no UYA level can be grinded, and a
-    rail written into Veldin crashes PCSX2, so a trace waits for GC or DL), the wrench's
-    clank, lock-on (needs a weapon none of our savestates holds), changing strafe sides,
-    the walk's start at m 0.22 and stop under 0.17; and in DL, the missing zip lines and
-    dive, hits (a 47- or 70-frame safe time by camera), swimming (UYA's otherwise), the
-    stick with no cut-off and its length as m, strafing's 60° back, 0.05 back stick
-    and side change that stops both ways, grinding facing along the rail with its back
-    to the camera (a hop round past 120°, state 63) and chained rails, and death's
-    10-frame early report: "Deadlocked's moves", "Deadlocked's hits", "Deadlocked's
-    swimming", "Input", "Deadlocked's strafing", "Deadlocked's grinding", "Getting hit
-    and dying".
-  - Death, falling out of the level (UYA 121, DL 118) and the respawn are traced in both
-    games ("Getting hit and dying"): UYA's death lasts 109 frames and DL's 82, each fall
-    122; the level brings him back healed (UYA in place, with an 8-frame fade-in; DL by
-    reloading the level). Falls end at the 0.43 u step limit, which caps the whole
-    motion.
-  - DL's lock-strafe camera is read and traced under RE.4 (`camera.md`, "Deadlocked's
-    camera").
-  - `hero-controller.md` had DL's skid crouch on R1 "as UYA"; DL's code works out R1's
-    pad bit there and ignores it, as everywhere else it would crouch. Corrected.
-  - DL's shimmy steps are 1.5 × UYA's table, read as three times UYA's pace; the trace
-    shows about UYA's pace, because DL's lip search has a zero-length probe, leaving the
-    hang point further ahead than the wall lets him come, so the wall takes two-thirds of
-    each step. The kit models the lip (`ledge.lip_walk`).
-  - The UYA shimmy's side look was read as 0.1 u; the helper sets the vector's length,
-    so it is 0.2 u in both games. Corrected in both profiles.
-  - Both games' climbs hang still through the push-off and a frame more (traces), where
-    the kit pressed the hero down and left a frame early. Fixed in the kit.
-  - The move-angle function's axis snap (mode 1) has no caller in either game, so the
-    stick is never snapped, as in the kit ("Input", 5).
-  - Wading (UYA 117, DL 114) is read in both games' code, the same but for its numbers,
-    and is in the kit (P1.5; "Wading"). Untraced.
-  - Moving platforms are read in both games' code (UYA 0x50DB78, DL 0x68B258): the
-    platform's move carries him and turns him, and off it its last move carries on
-    through the air, losing 2 u/s² across and 25 u/s² vertically for every frame off
-    it. The kit has the carry off it; turning and the moby flags aren't modelled
-    ("Moving platforms").
-  - The stick on UYA NTSC is verified at part tilt throughout: the dead zone, the 0.25
-    cut-off, the speed's scaling and, on a diagonal, `(max + length) / 2`
-    (`uyantsc-veldin-diag-*`; "Input"; a test in `rac_hero/src/stick.rs`).
-  - DL's chained rails swap only the spline pointer and keep the segment index, so where
-    on the new rail he lands wasn't worked out; the kit starts at the new rail's start
-    ("Deadlocked's grinding").
-  - DL's smaller items are read, so `dl.ron` has nothing left "not read in DL": the
-    fall's landing, the strafe flip's stick, getting on a rail, the switch jump's search,
-    the look's 7-tick lead and the assist's cuts are UYA's; the gun's walk and fire
-    turns, its arm, the aim assist's range, cone and quick turn, the grind's speed (14
-    u/s at 17), the look's stick (no 0.5 floor) and the eye guard (only with the eye
-    under 1.15 u) are DL's own, in `dl.ron` with tests ("Deadlocked's side of firing" in
-    `weapons.md`, "Deadlocked's grinding", `camera.md`, "Lock-strafe, DL's default").
-  - The grind's jumps (40, 41, DL's 63) land on the rail they follow through their own
-    transitions, not the rail search: the fall is cut to end on the rail, and the state
-    is written to 39 without the grind's entry (UYA a frame later, DL at once). Another
-    rail is taken only past the rail's end, and never by DL's grind jump. In the kit
-    with tests ("Grinding", "Deadlocked's grinding").
-  - The 0.43 u step limit is the hero's move capping the motion at the radius less 0.02
-    (UYA 0x4ECDA0, DL 0x67F5E8), the grind's horizontal part only, with a few states
-    exempt; DL's test lets 0.43–0.4496 u through ("Found in the traces"). The kit now
-    caps DL's fall through floors too. Not modelled: the grind's cap, which only DL's
-    28 u/s after a descent reaches.
-  - Still read in code only (listed above): grinding, which needs a rail (GC or DL),
-    lock-on, wading and moving platforms. Next step, at low priority: trace lock-on on
-    UYA NTSC with a gun granted as `uyantsc-veldin-fire.sh` grants one, then the others
-    as savestates with a rail, shallow water or a moving platform turn up.
+    `hero-controller.md`, "Reading the traces").
+  - Open: where DL's chained rails put him on the new rail (they keep the segment index;
+    the kit starts at the new rail's start; "Deadlocked's grinding"); the grind's own step
+    cap, which only DL's 28 u/s after a descent reaches.
+  - Next step, at low priority: trace lock-on on UYA NTSC with a gun granted as
+    `uyantsc-veldin-fire.sh` grants one, then the others as savestates with a rail,
+    shallow water or a moving platform turn up.
 - [x] **RE.4** **Camera** (`camera.md`). Feeds P1.7.
-  - Done, UYA NTSC: the follow camera with its height modes, obstacles and collision
-    (clearance point, sweep, pull-in, the 30-frame and 30 u resets, the collision masks);
-    lock-on's steering; the camera manager, level cameras, blends between cameras,
-    camera volumes, the fixed-point, path and 0x11 cameras; the look, lock-strafe, first
-    person and the strafing a gun forces; the right stick at part tilt. Each is read in
-    code, and all but lock-on, the orbit blend and 0x11 are checked against traces
-    (`camera.md`, "Traces").
-  - Done, DL NTSC: the follow camera (UYA's, 6 u back, no push-back), lock-strafe and
-    first person, read in code and traced, the stick at part tilt included (DL doesn't
-    square it).
-  - Open, at lower priority (`camera.md`, "Next steps" item 6): a 1° unexplained in the
-    follow camera's tilt, the vertical invert's default, the first-person gun placement,
-    the camera-only collision groups, the camera classes only other builds hold, DL's aim
-    assist and special follow branches, and the untraced vertical modes.
-  - Keys tilt the sticks part-way on a `boot.sh` started with `AXIS_SCALE` (PCSX2's
-    `AxisScale`; `docs/re-setup.md`), so stick-response checks no longer need the owner.
-  - The camera blocks move with each level's build (0x580 lower on the Phoenix, 0x1740 on
-    Florana, whose core globals sit 0x1680 lower), like the rest of the level overlay's
-    data: find them per level before capturing.
-  - Captures slow the game to about 19 to 55 frames a real second, and some samples come
-    out torn (a value repeats, then skips a frame); simulations must skip those frames.
-  - A take that writes the camera setting must also clear the free look's flag bit 0, as
-    `hero_camera_set` does: left set, the left stick turns the view too (the first take
-    2 had to be redone).
+  - UYA NTSC: the follow camera with its height modes, obstacles and collision; lock-on's
+    steering; the camera manager, level cameras, blends, camera volumes, the fixed-point,
+    path and 0x11 cameras; the look, lock-strafe, first person and the strafing a gun
+    forces; the right stick at part tilt. All read in code, and all but lock-on, the orbit
+    blend and 0x11 checked against traces (`camera.md`, "Traces").
+  - DL NTSC: the follow camera (UYA's, 6 u back, no push-back), lock-strafe and first
+    person, read in code and traced, the stick at part tilt included.
+  - Open, at low priority (`camera.md`, "Next steps" 6): a 1° unexplained in the follow
+    camera's tilt, the vertical invert's default, the first-person gun placement, the
+    camera-only collision groups, DL's aim assist and special follow branches, and the
+    untraced vertical modes.
+  - For captures: the camera blocks move with each level's build, so find them per level;
+    captures slow the game and some samples come out torn, which simulations must skip;
+    a take that writes the camera setting must also clear the free look's flag bit 0, as
+    `hero_camera_set` does.
 - [~] **RE.5** **`tools/pine-probe`**: per-frame capture driven by a layout, savestate
   and recording readers, CSV export, `replay.sh` (a recording on Xvfb), `boot.sh` (a
   disc with the keyboard as controller 1, driven by xdotool, its sticks part-tilted with
@@ -540,151 +310,54 @@ committed (names, addresses, layouts, derived constants).
     height, time to apex, run speed, acceleration, turn times, air control), with
     tolerances as tests.
 - [~] **RE.7** **Weapons and combat** (`weapons.md`; addresses in
-  `re/SCUS-97353/symbols.toml`). Feeds P1.8 and P1.9.
-  - Done 2026-10-31: every [placeholder] in the guns' file read in code, data and traces
-    and in the kit (`weapons.md` and its "In the kit"): when a drawn gun may fire, the
-    states a gun fires in (the no-firing flag 0x1A71CD), how long `firing` lasts (held
-    guns until let go), the first ammo, the muzzle (each gun's class point on a table of
-    where his hand is, a test checking both against the disc; §5, 2026-10-31), the
-    Annihilator's missile (it never homes), the small missile's search, spring turn,
-    wander, weave and lives, the bounce resolver's keeps and the Bouncer's roll, the
-    Rift's pull spring, the Suck Cannon's balls, the Miniturret's count, the five nearest
-    turrets, its barrels, the Megaturret's fade and move and 1600-tick life, the guns'
-    pushes and the Shock Blaster's falloff, thrown things off the world, a duck's XP,
-    the ducks' and eggs' speeds and keep, the Blitzer's place, the agents' gun, idle and
-    25 u leash. Read but not in the kit: an agent set down in front of the camera when
-    far from him, a Megaturret's move testing the ground's material and the view. Next:
-    the open items below; none is left in the guns' file.
-  - Done 2026-10-23: how the hero holds a gun: the hold layers, their classes, weights
-    and rests, and the whip's own scale (`weapons.md`, "Holding a gun").
-  - Done 2026-10-22: the last of UYA's guns' open items: the Flux Rifle's piercing (its
-    scoped beam, class 0x186F), the Annihilator's V2–V4 mines and V5 seekers, the agents'
-    sight, walking and gun (from V2), the Nitro Eruptor's bullets, the shock arc
-    (enemies in sight, 10 frames to reach), the view's aim point (`fps_cam_find_target`,
-    30 u), the joint springs behind the raised arm and the upper body's turn, and when
-    the gun's own sequences play (`weapons.md`, "The gun's own animation"). Also the aim
-    indicators (`weapons.md`, "Aim indicators": the lock-on reticle, markers, crosshair
-    colours, each gun's crosshair and marks) and the effects engine with each gun's
-    effects (`effects.md`, for P3.18).
-  - Open: what the damage-record flags mean, the rest of the agent's update, the Plasma
-    Storm's arc, the Decimator's and Lava Gun's V5 (`weapons.md`, "Next steps" 2 and 4).
-  - Done 2026-10-22: UYA's other fourteen guns, read in code at the level of their
-    firing and their shots (`weapons.md`, "Where each gun's code is" and the sections
-    after the Flux Rifle). Not read: the V5 variants' own code, the agents' AI, the ducks'
-    and infected enemies' behaviour (each enemy's own code), and the Hydra's spit, the
-    Suck Cannon's and the RY3NO's shots in flight (`weapons.md`, "Next steps" 4).
-  - Item 0x7F, taken for a multiplayer wrench in `hero-controller.md` and
-    `symbols.toml`, is the Plasma Whip; corrected.
-  - Read in code 2026-10-21: ammo pickups, crates and the vendor's rounds; the
-    quick-select ring; the weapon, health and bolt HUDs (`weapons.md`, those sections).
-    Open: placed pickups' rounds, vendor kind 4, multiplayer's ring.
-  - Done for UYA NTSC-U, in code: the weapon table (0xF0-byte rows
-    per item and level) with every gun's damage, ammo, prices and XP thresholds; owning,
-    ammo, levelling, XP from kills and the bought Mega levels; the lock-on, shock and acid
-    mods and the levels that set them; switching and firing animations; the guns' aim
-    assist; the damage queue's one pending hit per target; and the Shock Blaster
-    (hitscan), N60 Storm (rapid fire), Nitro Launcher (lobbed), Lava Gun (stream),
-    Annihilator (homing) and Flux Rifle (sniper). Also, in code: the hero's side of
-    firing (the firing flags and animations, the walk's turn while firing, no double
-    jump while firing, the raised gun arm, the upper body's turn to the gun's target, the
-    fire direction and how guns aim with it, state 29, Triangle's quick switch), and
-    what the shock and acid mods do, with their tables (`weapons.md`, "The hero's side of
-    firing", "What shock and acid do").
-  - Traced on UYA NTSC (`uyantsc-veldin-fire-{1,2}`, the Shock Blaster and N60 given by
-    writing their bytes): the hero's side of firing, its turn spring exact to 10⁻⁸
-    (`weapons.md`, "Checked in traces"). Projectiles aren't traced.
-  - The Shock Blaster at V1 was read as firing on a press; the trace and the code show it
-    fires while Circle is held, as often as its cooldown allows. Corrected.
-  - The weapon table is static data in each level's overlay and moves per level, so the
-    disc path needs P2.6; until then the numbers come from savestate images.
-  - Row +0x50 is the rate of fire only for the guns whose code reads it; the N60 Storm
-    has its own 14-frame interval (`weapons.md`, "Numbers").
-  - The Nitro Launcher's acid does nothing as read: its blast passes item 0x77, which has
-    no entry in the acid table. Still open whether another build fills it.
-  - `hero-controller.md` had row +0x24 as a held weapon's idle and the release skid's
-    hand-slot condition as unknown; +0x24 is the firing sequence, and the skid needs the
-    wrench in hand. Corrected.
-  - Open: projectiles in traces (they are spawned mobys a fixed layout can't follow),
-    and all of DL.
-  - Next step: the rest of the hero's side of firing in traces (a glove's arm layers, the
-    raised arm, a target), with `uyantsc-veldin-fire.sh` extended (`weapons.md`, "Next
-    steps", item 1). P1.9 is built from what is read (`weapons.md`, "In the kit").
-  - Weapon definitions (DL's `GadgetDef` is 0xB0 bytes): fire rates, damage and projectile
-    behaviour.
-  - Upgrade and XP tables: UYA V1–V5, and DL V1–V10 with mods.
-  - Quick-select, aim assist, and how weapons use lock-on.
-- [~] **RE.8** **Timing across regions:** answered for UYA and DL from both regions' code
-  and checked with NTSC traces (`hero-controller.md`, "Frames and regions"). Constants
+  `re/SCUS-97353/symbols.toml`). Feeds P1.8–P1.10.
+  - Done for UYA NTSC-U, in code: the weapon table (0xF0-byte rows per item and level)
+    with every gun's numbers, owning, ammo, levelling, XP and the Mega levels; the mods;
+    switching and firing; aim assist; the damage queue; all twenty guns' firing and
+    shots, their V5 variants included; the hero's side of firing and how he holds each
+    gun; ammo pickups, crates, the vendor, the bolt bank, the quick-select ring and the
+    HUD; the guns' aim indicators; and the effects engine the guns draw with
+    (`effects.md`). The hero's side of firing is traced, its turn spring exact to 10⁻⁸
+    ("Checked in traces").
+  - The weapon table is static data in each level's overlay and moves per level, so its
+    numbers come from savestate images.
+  - Earlier readers mistook 0x4C46A8 for a sight test (it asks the table of who was sent
+    at what) and read 0x40CCA0's −π/8 about his left axis as 90° to a side. Check other
+    readings of those two functions when a gun looks wrong.
+  - Open in UYA: what the damage-record flags mean, the rest of the agent's update, the
+    Plasma Storm's arc, the Decimator's and Lava Gun's V5 (`weapons.md`, "Next steps" 2
+    and 4); placed pickups' rounds, vendor kind 4, multiplayer's ring; projectiles in
+    traces (spawned mobys a fixed layout can't follow); whether another build fills the
+    acid entry the Nitro Launcher's blast (item 0x77) lacks.
+  - DL, begun 2026-10-31 (`weapons.md`, "Deadlocked's guns"): the gadget table (0xB0-byte
+    `GadgetDef`), its levels and the mods' numbers, and four guns' code. Not read: the
+    other six guns.
+  - Next step: DL's guns, in the order of `weapons.md`'s next steps 5; at lower priority,
+    the rest of the hero's side of firing in traces (next steps 1).
+- [x] **RE.8** **Timing across regions** (`hero-controller.md`, "Frames and regions"):
+  answered for UYA and DL from both regions' code and checked with NTSC traces. Constants
   are per second, tuned at 60 Hz; R&C3 PAL folds them with 1/50, Gladiator scales them at
-  run time, and frame counts are cut to about 5/6. To do: R&C1 and GC, including R&C1's
-  50/60 Hz menu choice.
-- [ ] **RE.9** **Engine structure:** the main loop, tick order, VSync and threads, overlay
-  loading and `lvl.vtbl` dispatch. UYA/DL first, then R&C1/GC.
-- [~] **RE.10** **Gladiator's co-op mechanics**, from DL NTSC-U and Gladiator PAL:
-  - Read in DL NTSC-U's code (`coop.md`, "In short"; names in
-    `re/SCUS-97465/symbols.toml`), with the layout, heroes, cameras and shared gadget box
-    checked in a level-21 savestate (`dlntsc-dreadzone-coop.p2s`): co-op is levels 21–35,
-    chosen by the level number, running the same code as 1–15 with progress shared with
-    them; player 2 is a second hero with his own skin, camera, settings, pad, health, gun
-    in hand and quick-select; bolts, XP, maximum health and one gadget box are shared;
-    a dead player respawns after 6 s near where the partner stood, and only both dead at
-    once restarts the level (no revive); difficulty isn't raised, ammo pickups give 2.4
-    times as much and enemy hit points keep their values (the co-op factor is 1.0); the
-    split screen stacks two views (staggered in widescreen), draws at 30 fps over the
-    60 Hz ticks and goes full screen for cutscenes and menus; player 2 replaces the
-    battle bots.
-  - Checked in play on level 21 with both pads on the keyboard (`PAD2=1 boot.sh`;
-    `dlntsc-dreadzone-coop-play.p2s` and `-coop-death-{1,2,3}` traces): where both
-    start, the 6 s wait and respawn, the restart when both are dead, the partner's spots
-    first (DreadZone Station's start floor then moves every respawn to one point), the
-    shared maximum health, and the team moves (L3: ×4 damage, R3: a shield, both 30 s).
-  - Checked in play on Catacrom Four's co-op build (level 22,
-    `dlntsc-catacrom-coop-play.p2s`, `-coop-fight-{1,3,4}` traces): its first challenge
-    unlocked in memory from how planets and challenges unlock (`coop.md`, "Planets and
-    challenges"); an ammo pickup by each player at ×2.4; kills' weapon XP added once
-    per player from the first holding the gun, not the killer (`-fight-5`, `-6`: player
-    2's Magma Cannon kills counted twice once player 1 held it too); a respawn on the
-    partner's newest safe spot.
-  - **The tether** (`coop.md`, "The tether"; `-fight-5`, `dlntsc-catacrom-coop-tether-{1,2}.p2s`):
-    a level object (class 0x247B) that, with the players over 40 u apart, counts 10 s
-    down with a beam between them and then kills both, so the level restarts. Placed in
-    levels 2, 4–8, 14 and 15 and their co-op builds, the same on Gladiator PAL, whose
-    code counts at 50 frames a second (read with `openrac-tool mobys`, P3.10).
-  - The first co-op savestate wouldn't leave its pause menu while port 2 was empty; a
-    pad in port 2 fixed it.
-  - Each DL level's build moves globals as well as code (`coop_flag` is 0x130 lower on
-    Catacrom Four); `tools/ghidra/match-function.py` carries addresses across builds
-    (`coop.md`, "Status and method").
-  - **Gladiator PAL** (`coop.md`, "Gladiator PAL"; names in
-    `re/SCES-53285/symbols.toml`): every co-op function `coop.md` cites matched into its
-    DreadZone Station image; the same code and data with frame counts converted to
-    50 Hz (the respawn wait 300 frames, the team moves 1500), so the same in real time.
-    Not checked in play.
-  - **The R3 team move's shield is only for show in co-op** (`coop.md`, "Co-op's own
-    moves"; `-fight-7`): `hero_damage` applies the armour table only in multiplayer, and
-    hits took their full damage with armour 3. Team moves outlast a death (`coop.md`
-    had this wrong).
-  - To do (`coop.md`, "Not read yet / next steps"): the remaining unread values, none of
-    which the co-op rules (P6.1) are known to need.
-  - Next step: none planned; reopen for P6.1's questions as they come.
-- [ ] **RE.11** **Renderer:**
-  - For each VU program: its input packet format and meaning.
-  - How the DMA chain is built, and the hook points (`VU1_sendChain`, `VU1_syncChain`,
-    `sceGsSyncV`).
-  - Which GS tricks are used: bloom, render-to-texture, alpha tricks.
-  - Feeds Phase 3 and P4.6.
-- [ ] **RE.12** **IOP RPC services:**
-  - 989snd, cdvd, mc, and pad/dbcman (with its vibration wavetables).
-  - The unknown "stash", and DL's streamer and astrm.
-  - The network modules can be stubbed.
-  - Feeds P4.5.
+  run time, and frame counts are cut to about 5/6.
+- [x] **RE.10** **Gladiator's co-op mechanics** (`coop.md`; names in
+  `re/SCUS-97465/symbols.toml` and `re/SCES-53285/symbols.toml`): read in DL NTSC-U's code
+  and checked in play on DreadZone Station's and Catacrom Four's co-op builds; Gladiator
+  PAL is the same code with 50 Hz frame counts. Who player 2 is; what the players share
+  (bolts, XP, maximum health, one gadget box); death and the 6 s respawn by the partner,
+  with no revive and a restart when both are dead; ammo pickups at ×2.4; kills' XP; the
+  split screen; the team moves (L3: ×4 damage; R3: a shield only for show in co-op); and
+  the tether (class 0x247B: over 40 u apart for 10 s kills both). Only minor values are
+  unread (`coop.md`, "Not read yet / next steps"), none needed unless the kit takes up
+  DL's co-op rules (section 4.2).
+  - A co-op savestate won't leave its pause menu while port 2 is empty. Each DL level's
+    build moves globals as well as code; `tools/ghidra/match-function.py` carries
+    addresses across builds.
 
-### Phase 1: ISO-free hero kit and standalone demo (G1, G3, first G4 milestone)
+### Phase 1: The hero kit and its demo (G1, G3, G4)
 
 Crates: `rac_sim`, `rac_input`, `rac_hero`, `rac_rig`, `rac_combat`, `rac_net` and
-`rac_demo`, wired up in `openrac`, which runs the demo whenever no supported disc is found.
-Any non-code asset must be CC0, recorded in `crates/openrac/assets/CREDITS.md`. Check that
-an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
+`rac_demo`, wired up in `openrac`. Any non-code asset must be CC0, recorded in
+`crates/openrac/assets/CREDITS.md`. Check that an ecosystem crate supports Bevy 0.20
+before adding it (CLAUDE.md).
 
 - [x] **P1.1** App flow (`openrac`: `flow.rs`, `menu.rs`, `settings.rs`): `AppState`
   Boot → MainMenu → InGame with a `Pause` sub-state, the game clock running only in game;
@@ -694,595 +367,192 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   `SimSet` Input → World → Hero → Particles → Camera, interpolated `SimTransform`,
   `SimRng`, Bevy's `libm` feature, and input record and replay. Cross-OS hash checks are
   P1.19.
-- [~] **P1.3** Input layer (`rac_input`, G3): actions with UYA's pad layout and KB+M
-  defaults (WASD plus mouse look and aim), dead zones, sensitivity, invert and swapped
-  sticks, `InputSettings` saved in the settings file, the 12-byte `PlayerInput` (the
-  look stick as stick counts, so each camera applies its game's response; section 5),
-  `ActionState` for menus, the `.orin` codec, `Binding::PadBoth` for two-button chords,
-  and gamepad-only lock-on (section 5). Saved settings that predate an action get its
-  defaults.
-  - Done 2026-11-03: rebinding (`rac_input/src/rebind.rs`, section 5): each control's
-    bindings by `Slot` (two per device; the movement keys one key each), `assign` with
-    clashes settled by swapping, `clear`, `reset_bindings`, and `BindingCapture`, which
-    catches the next key, mouse button, wheel notch, pad button or two-button chord while
-    no action fires. A `UiClear` action (Delete, Square) clears a slot. The controls page
-    is P1.12's.
-  - Done 2026-11-03: keys named as the layout has them (`openrac/src/menu/names.rs`,
-    `KeyNames`): each letter and sign key's name is learned from what it types when
-    pressed without modifiers and saved as `key_names`, as no platform-neutral API asks
-    the layout. Seen on Xvfb with `setxkbmap fr`: Z, Q and M learned, kept after a restart.
+- [~] **P1.3** Input layer (`rac_input`, G3):
+  - Done: actions with UYA's pad layout and KB+M defaults (WASD, mouse look and aim, right
+    mouse to look round, Left Shift to strafe), dead zones, sensitivity, invert and
+    swapped sticks saved in the settings file, the 12-byte `PlayerInput` (§5), `ActionState`
+    for menus, the `.orin` codec, two-button chords and gamepad-only lock-on (§5,
+    2026-10-15). Rebinding (`rac_input/src/rebind.rs`; §5, 2026-11-03): two slots per
+    device, swaps, clearing, reset, and `BindingCapture` for the next key, button, wheel
+    notch or chord. Keys named as the layout has them (`openrac/src/menu/names.rs`). Saved
+    settings that predate an action get its defaults.
   - Not done: checking the full stick curve, since Bevy's own axis processing runs before
     ours; catching a real gamepad's press (only tested on synthetic pads); a key's name
     before its first press on a new layout (the US name).
-  - KB+M defaults: right mouse looks round (first person) and Left Shift strafes, as PC
-    games aim; a settings file saved before keeps its bindings until Reset.
 - [x] **P1.4** Greybox level (`rac_demo`), as data tagged by purpose (`Surface`): ramps,
   stairs, ledge blocks, a wall-jump shaft to a high platform, a gap course, a moving
   platform, a grind rail, a rail circuit of two lanes 3 u apart to switch between, a zip
-  line, a pool, a melee yard, a hazard pad and checkpoints.
-  - The circuit's lanes are closed loops (rails are polylines, `Shape::Rail { points }`).
-    At a lap's seam UYA's hero drops off the rail's end and gets back on 8 ticks later,
-    as the game has no rule for a rail running on into another; DL's rides on
-    (`grind.chain`). Tested in `greybox_moves.rs`, and seen in the app
-    (`kitdemo-circuit-switch.orin`).
-- [~] **P1.5** Kinematic hero controller (`rac_hero`), implementing the UYA/DL move set
-  from RE.3.
+  line, a pool, a melee yard, a hazard pad, checkpoints and the enemies' arena (P1.11).
+  - The circuit's lanes are closed loops. At a lap's seam UYA's hero drops off the rail's
+    end and gets back on 8 ticks later, as UYA has no rule for a rail running on into
+    another; DL's rides on (`grind.chain`).
+- [~] **P1.5** Kinematic hero controller (`rac_hero`), the UYA and DL move sets from RE.3.
   - **Design:** a pure step function over (state, input, camera yaw, profile, collision)
     (`controller::step`), so tests drive it without an app. Collision goes through
     `CollisionWorld` (sweeps, rays, a `Material` per body, rails, water) with a
     brute-force `parry3d` backend. The capsule floats 0.25 u over a ground probe, so steps
     up to 0.25 u need no code.
   - **Profiles:** each game's numbers are a RON profile, each value's source in a comment:
-    `assets/uya.ron` (the default) and `assets/dl.ron` (section 5, 2026-10-15). R&C1 and
-    GC will get profiles of their own, read from their code (D7, P5.7).
-  - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), crouch and its
-    turn; standing, run, long and heli jumps, flips (strafe, landing and crouch), the
-    double jump, glide, fall and air control, the fall's landings and lockout; moving
-    platforms; the wall jump; ledges
-    (grab, hang, shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge
-    boots; the ability flags; grinding, side on, with the grind jump and the switch jump
-    between rails (the demo's rail circuit); swimming; zip lines; strafing and lock-on
-    (`lock_on.rs`); melee (P1.8); DL's own flips, ledges (traced) and hits, and its
-    missing crouch, wall jump, zip lines, dive and lock-on (`strafe.landing_window`,
-    `walk.crouches`, `wall_jump.enabled`, `zip_line.enabled`, `swim.dives`,
-    `lock_on.enabled`, `dl.ron`'s `ledge` and `hit`); DL's stick and strafe sides
-    (`stick.magnitude`, `walk.start_above`, `strafe.back_degrees`,
-    `strafe.reverse_eases`); DL's grinding facing along the rail, its hop round
-    (`JumpKind::GrindTurn`) and chained rails (`grind.turn_round`, `grind.chain`); the
-    death's length per game and falling out of the level under its kill height
-    (`HeroState::FallOut`, `death.fall_out`; `Hero::respawn_below` is the kill height,
-    and every respawn heals). Tests: `rac_hero/tests/` and
+    `assets/uya.ron` (the default) and `assets/dl.ron` (§5, 2026-10-15).
+  - **Done:** idle, walk (turn springs, the stop, the sharp-turn skid), wading, crouch and
+    its turn; standing, run, long and heli jumps, flips (strafe, landing and crouch), the
+    double jump, glide, falls, air control and landings; moving platforms and the carry
+    off them; the wall jump; ledges; hits, hazards, death, falling out of the level,
+    checkpoints and the respawn's fade; DL's charge boots; the ability flags; grinding,
+    with the grind jump and the switch jump between rails; swimming; zip lines; strafing
+    and lock-on; melee (P1.8). DL's own flips, ledges, hits, stick, strafe sides and
+    grinding (facing along the rail, its hop round, chained rails), and the moves it
+    lacks, are switches in `dl.ron`. Tests: `rac_hero/tests/` and
     `rac_demo/tests/greybox_moves.rs`.
-  - The respawn fades in from black over UYA's 8 frames: the kit sends `HeroRespawned`
-    and the demo's HUD draws the fade (`hud.ron`'s `respawn_fade_seconds`).
-  - Wading (UYA 117, DL 114) is the walk flagged `wading` in water 0.25–0.85 u deep:
-    × 0.8 speed with a 2.5 u/s floor, a stop that waits for the stick to be let go, and
-    sequence 80 in the rig (`wade` in both profiles; RE.3).
-  - Off a moving platform its last move carries him through the air, slowing at 2 u/s²
-    across and 25 u/s² vertically for every tick off it (`platform` in both profiles;
-    RE.3).
   - **To do:** auto-jumping rails.
-  - The motor dropped a skin's width of every slide along a wall, cutting each of DL's
-    shimmy steps (which point into the wall) by 0.0016 u; it now keeps all the motion it
-    didn't travel (`motor.rs`).
-  - The grind faced along the rail; UYA's code turns him 90° to its right (a stance
-    offset missed in the first reading). It is now `grind.stance_degrees`, which DL's
-    profile sets to 0: DL's hero does face along the rail.
-  - The crouch turned on the walk's setting-off spring, about four times faster than UYA's
-    own, which closed the crouch flip's window; it now has the game's (`walk.crouch_turn`),
-    verified on UYA NTSC.
-  - The rig took a flip's side from its velocity, which a crouch flip from a run points
-    forward; the controller now records the side (`HeroMotion::flip_side`).
-  - **Placeholders:** the end of the charge's bounce.
-  - The motor capped only the motion across at the 0.43 u step limit, so long falls
-    reached 50 u/s; the games cap the whole vector (verified on UYA), so falls now end at
-    25.8 u/s, and a charge off an edge sinks at 6.26 u/s, not the spring's 7.5 (untraced).
-  - The hazard surface threw the hero up and back with made-up numbers; both games stop
-    him where he stands for 41 ticks and take the most health / 8 (`hit.hazard_ticks`,
-    `hazard_divisor`; `hero-controller.md`, "Getting hit and dying"). The rig still plays
-    the get-hit's animation for it **[simplified]**.
+  - **Placeholders:** the end of the charge's bounce; on the hazard surface the rig plays
+    the get-hit animation [simplified]. Not modelled: a platform turning the hero, and the
+    moby flags.
   - **Known mismatch:** a long jump from a 7-tick crouch leaves at 8.2 u/s in the kit and
     7.8 u/s in the trace: the game's first crouch frame brakes less, and its jump frame
     brakes once more. A crouch flip from a run carries one crouch tick's braking more
     speed than the game's for the same reason.
-- [-] **P1.6** Movement feel reference. Moved to RE.3, RE.5 and RE.6.
 - [x] **P1.7** The hero's camera (`rac_hero/src/camera/`, the profile's `camera` section),
-  from RE.4 (`camera.md`):
-  - Done 2026-10-22: the free look's aim assist (`FreeLookAssist`; `camera.md`, "In the
-    kit"): the target, the cuts, the quick turn's wait, the snap and keeping a target in
-    view while he moves; the stick's only (§5, 2026-10-22).
-  - **The follow camera** (third person): UYA's drag camera with the follow point's
-    height modes (the jump hold, the heli, double-jump and flip rises, the jump attack's
-    halfway height), the look point's air gain, the distance and height springs, the
-    push-back, the stick's linear turn and springing tilt, lock-on's turn and look
-    spring, strafing's drag-free arm, the aim's 90-tick blend to the look point while
-    strafing or locked on, the clearance point, the arm sweep, the camera-end sphere, the
-    cosine pull-in with its stick bump and 1.5 u minimum, and the 30-tick and 30 u
+  from RE.4 (`camera.md`, "In the kit"):
+  - **The follow camera** (third person): UYA's drag camera with its height modes,
+    springs, push-back, the stick's turn and tilt, lock-on, strafing, the aim's 90-tick
+    blend, the clearance point, the arm sweep, the camera-end sphere, the pull-in and the
     resets. DL's is the same 6 u back, so it has no push-back.
   - **The free-look camera** for the lock-strafe and first-person settings and the
-    third-person look (`Action::FirstPerson`, `HeroState::Look`): UYA's squared and DL's
-    linear stick, the quick turn, the limits and their ease, the eye's spring and jump
-    hold, the 6 u offset with its ray cut and ease-out, from last tick's eye. The
+    third-person look: UYA's squared and DL's linear stick, the quick turn, the limits, the
+    eye's spring and jump hold, and the free look's aim assist (§5, 2026-10-22). The
     setting is `FollowCamera::setting` (UYA third person, DL lock-strafe by default),
-    chosen in the menus or with `--camera`; lock-strafe doesn't lock on.
-  - **Blends** between the cameras (the cosine lerp at the games' rates), and
-    **`CameraVolume`**, a box with a priority and optional overrides.
-  - Standing while strafing, he steps round to the camera once it is 10° off.
+    chosen in the menus or with `--camera`.
+  - **Blends** between the cameras, and **`CameraVolume`**.
   - **Simplified or left out:** the kit also sweeps the camera from the pivot so it never
-    ends behind a wall; the platform carry, the swim and critter rules, volume steering and fields of
-    view, and the modes for states the kit lacks (jets, rocket jumps, jump pads, the
-    bounce's mode 11) aren't modelled; the camera setting isn't in input recordings.
-  - **Not traced against the kit:** a replay of RE.4's traces through the kit camera
-    would check it end to end (camera.md, "Next steps").
-  - Tapping strafe while moving sideways jerked the view: the kit snapped the aim between
-    the follow and look points. The games blend it over 90 frames (`camera.md`, step 8;
-    read in code, not traced); fixed.
-  - A double or heli jump turning into a glide jolted the view up 35° in a tick: the kit
-    pointed the view at the aim, so the follow point's snap from the jump's hold to his
-    height reached it. The games take only the yaw from the aim and tilt the view from
-    the arm and sprung heights, plus a look-up with the arm below level (0x3E7B50,
-    0x51E680; traced, `camera.md`, step 8); fixed in `follow::turn_view`.
+    ends behind a wall; the platform carry, the swim and critter rules, volume steering
+    and fields of view, and the modes for states the kit lacks (jets, rocket jumps, jump
+    pads, the bounce's mode 11) aren't modelled; the camera setting isn't in input
+    recordings.
+  - Not done: a replay of RE.4's traces through the kit camera, to check it end to end
+    (`camera.md`, "Next steps").
 - [x] **P1.8** Melee (`rac_hero/src/controller/melee.rs`, the profile's `melee` section,
-  and the crate `rac_combat`): the wrench combo, jump attack, throw, grind attack and the
-  clank off walls, for UYA and DL (`dl.ron`'s own numbers and wrench line), with
-  hurtboxes, hit points, one hit per attack, knockback and flash. The demo has a melee
-  yard and shows clanks as sparks.
-  - Melee with a gun in hand waits 5 ticks for the wrench to come out
-    (`wrench_draw_ticks`), and an attack from a back flip waits longer than from the
-    others (`back_flip_after_tick`); both traced in UYA and DL (RE.3).
-  - Not modelled: DL's Scorpion Flail (state 145, read in code: `hero-controller.md`,
-    "The Scorpion Flail"; with DL's guns), UYA's states 77 and 114, and the giant-Clank
-    mode. DL's shuriken, glove, Walloper and magneboots attacks have no starter found in
-    its code and may be leftovers ("Not read yet").
-  - Still open in DL: Triangle and R2 keeping an attack from starting, hero +0x4AC,
-    which keeps the combo from starting, and the throw button's camera rule (the kit
-    throws with crouch).
-  - UYA's grind can't be traced: a rail written into Veldin's empty rail list crashes
-    PCSX2 two frames into the grind. The grind attack's wrench line is computed from the
-    disc's animations instead. The method reproduces the traced combo
-    (`hero-controller.md`, "The grind attack").
-  - DL's attack frames don't creep through a blend (`melee.blend_creeps`). DL's trace rows
-    are read part way through the hero's update, so they show the frame half a frame
-    ahead of the state and motion; the kit had shifted DL's frames to match, leaving
-    every DL attack a frame short. Fixed 2026-10-23 (`hero-controller.md`, "Reading the
-    traces"; `re-setup.md`, "Rows read mid-update").
-  - DL's throw plays its animation straight through, 133 frames, where the kit had
-    UYA's hold and catch; a wrench back early jumps it to frame 62 (`thrown.catch_back`).
-  - One trace of DL's double-jump attack started later than the code's frame-16 rule
-    gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
-    double jump's own transitions for what holds a press back, then +0x4AC's writers.
-- [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
-  - The Flux scope's shots passed over or under the crosshair: they bent from his flat
-    facing to the 30 u aim point and snapped to any target within 20°, a misreading of
-    0x4C7010. Now, as its code, they bend at most 20° from the view's way, to what the
-    scope's line meets within 128 u [our own reach] (`weapons.md`, "Flux Rifle"). Still
-    open: the other guns in first person bend from his facing, where the game's fire
-    direction is the camera's (0x50F410); only points within 4 u and pitches past 80°
-    differ.
-  - The game's footage (`uyantsc-veldin-fxref.sh`, `-fxreview.sh`) shows its 16:9 view
-    at 4:3, everything 0.75 as wide as it is: UYA's savestates have the 16:9 option on
-    (byte 0x1439FD). Widths measured in it are × 4/3 (`re-setup.md`, "Gotchas").
-  - Reviewed 2026-11-01: all twenty UYA guns against the game, by gun in `effects.md`
-    ("The twenty guns against the game at V5 and V3"). The numbers match at all eight
-    levels of all twenty (by script against EE memory). Not complete, on the looks at V5:
-    - Fixed from their code since, compared on `--plain-colours --gun-level 5` takes: the
-      Shock Cannon and the Vortex Cannon (now close); the Liquid Nitrogen Gun's stream and
-      nozzle, the Dread blast and the agents' jets, the RYNOCIRATOR's tail, sun and its
-      strike (`VolleySun`), the Infecto-Bomb's V5 looks, and the explosions' dome (class
-      0x70) in every small blast (now partial); the Tempest (now close: its "domes" were
-      the spit's rings of 61, already drawn, and its gold ground bolt the charge's crackles
-      added on sand; the rings now show on a spit alone, and each spit throws its bolt);
-      the Splitter Rifle (now close: V4's looks but for its trail's dark puffs, texture 9,
-      and its landing's explosion at S 0.5, with the pieces' domes from V4, 0x447D00);
-      the N90 Hurricane (close: V5's own bullet, its tracer one long flame through its
-      last 20 places, 0x384F58, and its landings' bursts, glares, sparkle and explosion,
-      0x385220, the first glance's told by the kit's `Bounce` event; the N60's embers
-      from V2 now show on a glance, not on a target hit); the Qwack-O-Blitzer (now close:
-      its light, as every gun's, is drawn with the game's falloff, 1 − d / r, and lights
-      the floor round him; its beam's colours were already its code's, and it looks to
-      rise in the game's take only from the camera behind him); the Tesla Barrier (now
-      close: the game's tall oval is its round shell squeezed by the takes' 16:9, and its
-      V3+ ball fading down from its top, 0x409A50, is drawn). Each gun's row in
-      `effects.md` says what is left.
-    - Partial: Ultrashield, Megaturret, and the five above.
-    - Close: Rift Ripper (its placeholder ball gone: the rift's class is 0.05 u across),
-      N90 Hurricane, Nitro Eruptor, Decimator, Multi-Disc, Quantum Whip, Plasma
-      Storm, Heavy Bouncer, Shock Cannon, Vortex Cannon, Tempest, Splitter Rifle,
-      Qwack-O-Blitzer, Tesla Barrier.
-    - The kit adds effects' colours in linear light, the GS in gamma: a layer at alpha a
-      is about 1/a^1.2 too bright over black (6.7× for the Hydra's glows) and too pale over
-      a bright floor. Open, for the owner: matching it means adding effects in gamma space
-      (`effects.md`, "Importing them", "Colours").
-    - At V5 the game's bolt code misses the Tempest's class (0x1B4F), so its bolts strike
-      with the Shield Charger's damage (`weapons.md`, "At V5 the class test misses"). The
-      kit keeps half the gun's; whether to copy the quirk is open.
-    - The agents looked side-on and near the camera in the kit's take. Logged, the
-      simulation and the drawn rig put them on the game's slots facing his way, as
-      `uyantsc-veldin-agents-v5-hover.p2s` shows the game's; the take's camera lagged his
-      turn by 40°. Their size on screen isn't yet compared at a matching camera.
-    - `--no-tonemapping` blew the default floor out to white; `--plain-colours` uses
-      Reinhard luminance and a sandy floor instead.
-    - Not checked: V1, V2, V4 and V6-V8 on screen; the sounds by ear (those not played are
-      in `effects.md`, "In the kit and the app"). The Shield Charger hangs the game on Veldin
-      at V3 and V5, so its V5 is judged from one frozen frame. Behaviour placeholders are in
-      `weapons.md`, "In the kit".
-    - The Eruptor's V5 burst is read whole and drawn (`effects.md`, "Nitro Eruptor's
-      burst"), compared on `review-nitro-0x7B`: the bands spinning round it before it
-      bursts (`Swell`'s `Band`, `Leaning`, `spin`), the pop, the white screen, the fire
-      ring, the growing bands, rings and warp, timed by `Emit::After`; the chunks of class
-      0x1A50 (`Emit::Debris`, `fx/debris.rs`) and 0x61 rocks. Its fire is redder and
-      dimmer than the game's (the linear-light note above); its dome of 23, masked discs
-      of 71 and 72 and quads of 54 aren't drawn. Its fifteen bullets left as the charge
-      landed, not as it burst 15 ticks later (`Eruption::burst_ticks`), and each one's
-      hit showed the gun's whole burst again, the Nitro having no "slug" entry of its
-      own; both fixed, the slug's looks now in the default recipe.
-    - The Shock Cannon's charged shot is a lance (`weapons.md`, "The Shock Cannon's
-      charged shot is a lance"; `effects.md`, "The Shock Cannon at V5"): `rac_combat`'s
-      `Lance` hits along the aim for 30 ticks (`Arsenal::lance`), drawn by `fx/lance.rs`
-      (its beam's strips, the texture times itself scrolled, in `lance.wesl`; its domes),
-      compared on the game's `review-shock-charged` take. `fx_dome`'s callers turn its
-      pole back to the gun, so the uncharged lance's domes were drawn reversed; fixed
-      (`Swell::pole_back`). Its screen warp (0x388508) is the `Warp` emit, drawn by
-      `fx/warp.rs` as a pass after the 3D ones mixing in the frame magnified 1.062 by
-      texture 66's alpha (its own pass: Bevy's `FullscreenMaterial` binds no texture but
-      the frame). Not done: its charging sprites and glare.
-    - The Ultrashield's "bubble" warps nothing (`effects.md`, "The Ultrashield's
-      bubble"): none of its draws takes the copy of the frame. It is V5's soft disc of
-      texture 5 over V3's layers, now drawn, with the orange rings of 8 a hit shows from V3
-      (0x378FF8; panels `when: Hit` and `grow`, timed by each hit's 30-tick reaction,
-      `BarrierState::react`, now at every level). Seen at V5 on `kitdemo-arena-holo-near`
-      (a pink-orange oval, as the game's but less white, unhit); the hit's rings not yet
-      seen on screen. The shield class's own model (0x186D) is drawn too (`effects.md`,
-      "Its own model"): at 3.25 times its class's scale and alpha 0x14, its rows stretched
-      to the wall, a faint shell round it whose grey rim is the dark rim the game's takes
-      show; the kit draws it once the shield stands (`guns.rs`, `fx::wall`). So are the
-      two stars of 57 at its middle from V3 (panels with `faces_camera`). Both seen at V3
-      and V5 on `kitdemo-arena-holo-near`. It folds as the game's (`effects.md`,
-      "Folding"; 0x379CE0, 0x37A5C0): at its size, fading, with the faint glow of 11's
-      alpha wrapping past nothing into a blue flash through its last 10 ticks, as the
-      game's `holo-fold` takes show; seen at V3 on `kitdemo-arena-holo-fold`; its stars
-      a little smaller as it folds. Through its last 4 s standing its shell's colour
-      swings red-brown every 1.5 s: the moby's colour (+0x3C) is a tint, as measured on
-      the game's take (`effects.md`, "Its own model"), drawn so (`guns.rs`, `painted`).
-      Open: the V4 duck's red colour, drawn as a glow, may be the same tint.
-    - The Lava Gun's stream arcs high in the game not by a lock-on but because it leaves
-      along the gun's barrel (0x303F88: the gun's −y), 12° above his facing as he fires
-      (traced in sequence 49; `weapons.md`, "The barrel"). The kit raises it so
-      (`Stream::barrel_degrees`) when nothing is locked on in the third-person camera, and
-      it now lands about 18 u out where it landed within 10; seen at V5 on
-      `kitdemo-arena-lava`. Not followed: the hold's sway and the waist's pitch.
-    - The Agents of Dread's violet and gold lightning as they appear on his slots is
-      their appearing sparkles, type 0x68's lightning crackles at alpha 0xFF, round their
-      models drawn added as they fade in (`effects.md`, "The Agents of Dread's
-      lightning"); drawn so from V4, seen at V5 on `kitdemo-arena-agents-near`.
-    - The white-blue burst the on-foot agents walk out of is their pod opening
-      (`agent_pod_open` 0x35D738: the shared explosion at S 0.75, blue, no damage). From
-      V4 the glove throws the pod whenever no slot is free; the kit had put those agents
-      on foot by him with no pod, and now throws it. Drawn, with the agents' 30 ticks of
-      spin in place as they appear, and their end's spin, sparkles and fade
-      (`effects.md`, "The pod's burst", "In the kit"); seen at V5 on
-      `kitdemo-arena-agents-near`.
-    - The agents are drawn about twice the game's size against the hero. The class scale
-      and the pose aren't the cause; the cause isn't found (`effects.md`, "Its size on
-      screen"). Next: measure the kit's drawn agent and hero in world units.
-    - Not done: the agents' jets, dimmer than the game's; then the sounds not played and
-      the simplified behaviours
-      (`effects.md`, "In the kit and the app"; `weapons.md`, "In the kit").
-    - The lights' pools show weaker than the game's on the demo's pale floor (1.25 times
-      as bright beside him where the game's sand is 1.54 times), as the kit's tonemapper
-      squashes brightening; open with the tonemapper (§5, 2026-11-01).
-    - The Rift Ripper's lens and rings of 54 are drawn (`effects.md`, "The lens", "The
-      rings"): `fx/refract.rs`'s material, in Bevy's transmissive pass, reads the view
-      transmission texture (the camera gets `ScreenSpaceTransmission` from the start, as
-      adding it respecialises every mesh's pipeline), each point taking the frame from
-      where the game's does; compared on the game's `review-rift-0x63` take. It copies
-      only what is opaque, where the game's texture −1 is the frame as drawn so far.
-    - The rift closes as the game's (0x375C70, `effects.md`, "Closing"): it stays a shot
-      for 20 ticks (`RiftState::closing`), taking nothing, while its lens goes, its rays
-      shorten and its rings narrow away; its time runs out only while it holds nothing
-      (`weapons.md`, "Closing", with the kit's simplifications). Seen on screen at V5
-      (`kitdemo-arena-rift-close.orin`); not yet compared with the game's footage of a
-      close.
-    - The N90's bullet model (0x1881, at 18 times its class's scale) drew as a solid
-      yellow ball 1.5 u across that the game's take doesn't show; it's left out until
-      its blend is read (`shot_models.rs`).
-  - Done 2026-10-31: the game's footage of all six (`uyantsc-veldin-fxref.sh` takes
-    7–12) compared with the kit's takes for all six (`effects.md`, each gun's
-    "Compared with the game"). The Qwack-O-Ray's white haze came from its sparks not
-    flashing and every particle drawn √2 too wide (P3.18); fixed, it is close. The Rift
-    Inducer's firing and flight are close; its open smoke was blended where the game adds
-    it (fixed), and its lens is still missing. The Holo Shield's wall is flatter and paler
-    than the game's, which also has a dark rim (not worked out). The Agents of Doom match
-    but for a dimmer burst as they appear. The Bouncer's burst matches in shape. Its
-    flash whites out the game's frame but only lifts the kit's, which adds in linear
-    light. It shows only with the burst wholly in view, which the kit now checks too.
-    The Miniturret's hits match; its tracers lack the game's bright heads, since the
-    kit's `Streak` neither tapers nor fades. Recordings on lavapipe hold frames and skip
-    ticks, so judge effects with `--every-tick`.
-    The Holo Shield's wall is 4 by 2.4 in the hero's facing plane by its code, as the
-    kit draws it. The game's looked rounder on screen (1.39 for one wall) because the
-    takes show its 16:9 view at 4:3 (above; `effects.md`, "Its shape, checked").
-    Next: a tapering, fading `Streak` for the Miniturret's tracers.
-  - Every UYA class texture kept in EE memory (the shots', the whip's links') came out
-    scrambled: UYA stores those pixels in rows, only DL in the GS's order. Fixed
-    (`Core::gs_ordered`; `disc-layout.md`, "Level textures").
-  - The Quantum Whip's looks are the game's (`effects.md`, "The Quantum Whip's cutting wave"):
-    its blade is class 0x1CB8 from the disc, rigid and half see-through, with its ribbon,
-    strands and smoke (`rac_demo` `fx/blade.rs`), and V5's rope sparkles and shock wave smoke
-    are read. Without a disc the kit still draws its own blade of light. Compared with the
-    game's takes 14 and 15. Not done: V5's hit sparks (0x357B20 not re-read for V5).
-    - Particles drew a step early: the game steps one before its first draw and frees it
-      on its last step, so a life-2 sparkle shows once at half size. Every gun's particles
-      now do (`Fx::stepped_first`).
-    - The rope's strands sorted by chance, so V5's black band hid its blue strand; they now
-      draw in recipe order under the particles (`strand_material`).
-  - Done 2026-11-01: the Rift Inducer's pull
-    silent and its swallow sounded, the Agents of Doom's throw silent, their comet drawn
-    without the kit's ball, the whip's crouch throw flying whole (the handle at the
-    thrown end lying flat, the links trailing) and spinning at the game's 0.40724 rad a
-    frame, the rope leaving the top of the handle's hilt (its joint 0) in his hand and
-    thrown (`GunData::frame` and `rope_from`; `weapons.md`, "The throw"), and the rope
-    moved as the game's code does (each piece aimed along its link as it lay last tick,
-    turning towards it), so the third swing's spin trails it round him, compared with
-    take 13's footage (`weapons.md`, "The rope"), its links added below V5 so they
-    no longer darken into chunks (`effects.md`, "Plasma Whip"), and the effects picked afresh each frame held for a
-    tick at any refresh (`effects.md`, "Spitting Hydra"). Also: the Miniturret's and ducks'
-    textures (UYA's textures kept in EE memory read in rows, `disc-layout.md`); the
-    whip's hit sparks (a strike sends an impact where the rope met the target) and its
-    links sorted behind the rope's strands, which they had darkened into chunks
-    (`effects.md`, "Plasma Whip"); the shots' sounds read from the game's code
-    (`effects.md`, "The shots' entries") and played from the disc by shot kind, with the
-    shots' and the hero's loops and what no event marks (`gun_sounds.rs`,
-    `play_shots`; P3.13). Not done: the swing's turn of links 1, 2 and 5 (read from the code but tangling the
-    kit's rope; trace the links' yaw, +0xF8, through a combo in PCSX2); the whip's
-    scorches and light; the sounds listed
-    as not played under "In the kit and the app". Next: hear them in the app with the
-    disc (the arena replays `-agents`, `-rift`, `-whip`, `-qwack`), then the bounces'
-    events.
-  - Done 2026-10-31, the Agents of Doom, Rift Inducer, Qwack-O-Ray, Bouncer, Miniturret Glove and Holo Shield Glove against the game: the gloves' throw (state 34), which fixes the Holo Shield's timing, and firing cut short per gun (`weapons.md`, "What cuts it short"); what they send out as their classes' skinned models playing their own sequences, by level, and the ducks' idling, walking and eggs from it (`weapons.md`, "How they play"); the Qwack-O-Ray's funnel, also with nothing to take (`effects.md`), the open rift, the landing marker, the agents' sparkles. Seen on screen at V3, and the duck and turret at V5; the turret's head joint is inferred. Not done: the V4 duck on screen and its bangles; the rift's spirals of 71, orbiting sparks and 0x13 spray; the holo shield's class; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's marker, and the marker's conditions (the hero's state, the turrets' limit, the Holo Shield's own "can't" colours); a duck's first random speed and an appearing agent's opacity.
-  - The Miniturret was drawn and fired at its class's scale; its spawn scales it to 0.75, so its muzzle is 0.81 u up, 0.54 u along (`weapons.md`, "Its barrel"). The Megaturret keeps 1.08 (`Mega::barrel_height`).
-  - Done 2026-10-31: UYA's guns' open list (`weapons.md`, "In the kit"): the five guns' own muzzle vectors; the Disc Blade Gun's flight, traced (lifted and falling, not turned and curving; through enemies from V3, not off them); the Liquid Nitrogen Gun's freeze; the Eruptor's tilt; the Nitro's L1 aim; the Vortex Cannon's comet; the shields' XP and the Ultrashield's picks; the agents' jet-in to slots.
-  - Earlier readers mistook 0x4C46A8 for a sight test (it asks the table of who was sent at what) and read 0x40CCA0's −π/8 about his left axis as 90° to a side. Corrected in `weapons.md`; check other readings of those two functions when a gun looks wrong.
-  - DL's guns, started 2026-10-31 (`weapons.md`, "Deadlocked's guns"). Done: the tables,
-    levels and mods' numbers read; the Dual Vipers, Magma Cannon (the `Cone` fire mode), The
-    Arbiter and Fusion Rifle in `Armory::dl`, given by `--guns dl`. Not done: the other six
-    guns, the mods in the kit, DL's sounds, looks and models, its rules and hands (still
-    UYA's). Next: the B6's blast at the end of 0x40F3E0's state 4, then the order in
+  and `rac_combat`): the wrench combo, jump attack, throw, grind attack and the clank off
+  walls, for UYA and DL, with hurtboxes, hit points, one hit per attack, knockback and
+  flash; with a gun in hand he waits for the wrench (`wrench_draw_ticks`). The demo has a
+  melee yard.
+  - Not modelled: DL's Scorpion Flail (state 145, read: `hero-controller.md`, "The
+    Scorpion Flail"; with DL's guns), UYA's states 77 and 114, and the giant-Clank mode.
+  - The grind attack's wrench line is computed from the disc's animations, as UYA's grind
+    can't be traced (RE.3).
+  - Open in DL: Triangle and R2 keeping an attack from starting; hero +0x4AC, which keeps
+    the combo from starting; the throw button's camera rule (the kit throws with crouch);
+    one trace of the double-jump attack starting later than the code's frame-16 rule
+    gives (`hero-controller.md`, "Deadlocked's melee"). Next: read the double jump's own
+    transitions for what holds a press back, then +0x4AC's writers.
+- [~] **P1.9** Weapons (`rac_combat`), following RE.7. UYA's rules are in `weapons.md`;
+  what the kit has of them, and its placeholders, in its "In the kit".
+  - **Done:** all twenty UYA guns in `assets/uya_weapons.ron` with every level's numbers
+    (matching the game at all eight levels, checked by script against EE memory), the
+    mods and a fire mode each; the `Arsenal` (owning, levels, switching), the guns' aim
+    assist and the view's aim point, the damage queue, shock, acid and XP from kills;
+    `GunEvent`s naming each gun's effects for sounds and visuals; in `rac_hero`,
+    `GunHand`, the raised arm and what a gun changes in his moves; the quick-select ring
+    (§5, 2026-10-22). With a UYA disc he holds each gun's own model by level, in one hand
+    or both as UYA's hold layers have it, and the guns play their own sequences. Their
+    effects are P3.18's.
+  - **Against the game at V5** (`effects.md`, "The twenty guns against the game at V5 and
+    V3"): fourteen guns close and six partial (the Liquid Nitrogen Gun, Infecto-Bomb,
+    Agents of Dread, Ultrashield, Rynocirator and Megaturret Glove); the table says what
+    is left for each. Also open:
+    - The agents are drawn about twice the game's size against the hero, the cause not
+      found (`effects.md`, "Its size on screen"); their jets are dimmer than the game's.
+    - Not drawn: the Eruptor's dome of 23, masked discs of 71 and 72 and quads of 54; the
+      Shock Cannon's charging sprites and glare; the N90's bullet model (0x1881), left out
+      until its blend is read (`shot_models.rs`). Not seen on screen: the Ultrashield's
+      hit rings. Not compared with the game's footage: the rift's close. Not followed: the
+      Lava Gun's hold sway and the waist's pitch.
+    - In first person the other guns bend from his facing, where the game's fire
+      direction is the camera's (0x50F410); only points within 4 u and pitches past 80°
+      differ.
+    - The Miniturret's tracers lack the game's bright heads: they need a tapering,
+      fading `Streak`.
+    - The whip: the swing's turn of links 1, 2 and 5 (read, but it tangles the kit's
+      rope; trace the links' yaw, +0xF8, through a combo in PCSX2), its scorches and its
+      light.
+    - The V4 duck on screen and its bangles; the rift's spirals of 71, orbiting sparks
+      and 0x13 spray; the blob shadow (0x444070); the Nitro guns' and Infecto-Bomb's
+      landing marker and the marker's conditions; a duck's first random speed; an
+      appearing agent's opacity.
+    - Not checked: V1, V2, V4 and V6–V8 on screen, and the sounds by ear. The Shield
+      Charger hangs the game on Veldin at V3 and V5, so its V5 is judged from one frozen
+      frame.
+  - The game's footage shows its 16:9 view at 4:3, everything 0.75 as wide as it is
+    (UYA's savestates have the 16:9 option on): widths measured in it are × 4/3
+    (`re-setup.md`, "Gotchas").
+  - **DL's guns** (`weapons.md`, "Deadlocked's guns"; §5, 2026-10-31): the Dual Vipers,
+    Magma Cannon (the `Cone` fire mode), The Arbiter and Fusion Rifle in `Armory::dl`.
+    Not done: the other six, the mods in the kit, DL's sounds, looks and models, and its
+    rules and hands (still UYA's).
+  - **Next step:** measure the kit's drawn agent and hero in world units, then the
+    agents' jets. For DL: the B6's blast at the end of 0x40F3E0's state 4, then
     `weapons.md`'s next steps 5.
-  - The Annihilator held on fire dropped Ratchet towards his idle for 6 ticks between
-    shots: `fire_ticks` (30, a placeholder) ran out before its 36-tick repeat. The guns
-    not held now keep `firing` for their standing sequence as the game plays it (66 for
-    sequence 49; `weapons.md`, "How long it plays"); seen on Xvfb with the disc. Held
-    guns fire until let go, as `hero_gun_update` stops them (RE.7).
-  - Done 2026-10-23: with a UYA disc the arms hold each gun by its hold (one hand, both,
-    or none for the whip and gloves), from UYA's hold classes 1 and 2 laid over the
-    body's moves with the game's weights, rests and the flips' lift
-    (`hero_anims::hold_animations`, `rac_rig`'s `HoldLayer`; `weapons.md`, "Holding a
-    gun"); the whip's handle at 0.3 of its class's size, as its update draws it. Seen
-    on Xvfb: the two-handed guns held up in both hands, the N60 in one, the whip's
-    handle in the fist.
-  - UYA's hold classes have no skeleton (+0x14 and +0x18 are 0), which `MobyClass` took
-    for a bad bind; it now reads such a class with no joints (`moby-format.md`).
-  - Done 2026-10-22: the agents' search (`aim::level_search`, claims), states, walker and
-    gun (`ShotKind::Slug`, UYA's small bullet, and the shared `AgentBook`); the Nitro
-    Eruptor's 15 small bullets; `SmallMissile`, shared by the Decimator and the Agents of
-    Dread; the guns' own sequences on the held gun (`rac_rig::GunSkeleton`,
-    `gun_anim.rs`, recoils by `openrac`'s `gun_models::uya_motion`); the whip's rope and
-    the shield on the rig (`rope.rs`, placeholder looks). Seen running on Xvfb: the disc
-    guns skinned in his hand, the rope trailing and pulling out, the shield round him.
-  - Done 2026-10-22: the Flux Rifle's scoped beam, piercing from V2 (`ShotKind::Beam`);
-    the Annihilator's mines (V2–V4) and seekers (V5); shock arcs only to enemies in
-    sight, striking 10 ticks on (`Arcs`); the view's aim point within 30 u; the raised
-    gun arm (`rac_hero::GunArm`, which also picks the arms-only firing animation) and the
-    gun's aim point (`GunHand::target`), which turns his head and upper body through
-    `rac_rig`'s joint springs (`springs.rs`).
-  - Its look is drawn with P3.18 (shell, arcs and trails; its class's mesh never is);
-    V3's glow is open there.
-  - Done 2026-10-22: all twenty of UYA's guns (`weapons.md`, "In the kit", "The other
-    fourteen"): their RON entries, a fire mode each in `weapons/{seekers,thrown,grab,
-    hand}.rs`, enemies-only searches (`Hostile`), `Affliction`s (infected, duck,
-    swallowed, sucked) as `Afflicted` messages, the Shield Charger's `rac_hero::Shield`,
-    the Plasma Whip's `WhipHand` swinging the wrench's moves on the fire button, and the
-    holo shields' `block_shot`. The demo's enemies are `Hostile`, fight each other while
-    infected (the demo's own rules: `rac_demo::FoeHits`), are gone while a duck, and have
-    their shots stopped by holo shields; the HUD shows every gun and the Suck Cannon's
-    count.
-  - Done 2026-10-22: the guns follow the game's code where it is read: the fourteen
-    guns' disc models; the Hydra's spit and bolts, the RY3NO's missiles, the Suck
-    Cannon's shot, the Holo Shield's drain, the agents' ends, the Quantum Whip's cut, the
-    Qwack-O-Ray's ducks and eggs, and the V5 variants (`weapons.md`, "In the kit", which
-    lists what is still [placeholder]).
-  - Done 2026-10-21: the gun on the rig (`weapons.md`, "In the kit", "On the rig"):
-    `GunHand` names the gun, its `GunPose` and shots; the standing firing sequences and
-    the crouched arms layer play from the disc; guns sit in the fist (`RigGuns`,
-    `model::gun_grip`, checked against UYA's firing poses); the open model aims
-    procedurally. The quick-select ring (`weapons/ring.rs`), on placeholder rules.
-  - Done 2026-10-22: with a UYA disc he holds the guns' own models from the gadget WAD
-    (`openrac/src/gun_models.rs`), each level's: V2–V4 show more of the class's bangles,
-    V5 on another class (`moby-format.md`, "The gadget WAD"). Baked at rest; the guns'
-    own draw, idle and recoil sequences aren't played yet.
-  - Done 2026-10-22: the ring follows UYA's rules with QUICK SELECT PAUSE off (so co-op
-    stays in step): it opens on the press, holds his input after 15 ticks, picks after
-    the hold check and the stick's lock-out, steps by the d-pad's neighbour table, shows
-    the second ring with R1 and chooses as it closes (`weapons.md`, "In the kit").
-  - UYA's rules and numbers are in `docs/research/weapons.md`; what the kit has of them,
-    and its placeholders, in its "In the kit".
-  - Done: `rac_combat::weapons`, with UYA's six read guns in RON
-    (`assets/uya_weapons.ron`): every level's damage, ammo and XP, the mods' levels, and
-    the five fire modes (hitscan, projectile, lobbed, stream, homing) with their shots, so
-    the five archetypes are the N60, Nitro Launcher, Lava Gun, Annihilator and Flux Rifle.
-    The `Arsenal` owns, levels and switches them (the quick switch, next and previous);
-    the gun aim assist and the view's aim point; the damage queue, shock, acid and XP from
-    kills; `GunEvent`s, which carry each gun's effect names for sounds and visuals. In
-    `rac_hero`, `GunHand` and what it changes in his moves, lock-on by the gun's mod and
-    the strafing a gun forces. The demo gives every gun at V3 and draws its shots.
-  - A Shock Blaster at V2 or up drawn by holding fire used its 20 tries before it could
-    fire; the hold counts from when it can, as the kit's own reading.
-  - Not done: DL's guns and mods (RE.7), beyond `OwnedGun::extra_mods`.
-- [~] **P1.10** Pickups and economy (`rac_combat`): magnetised bolts; crates (bolt, ammo,
-  nanotech, explosive); health; a vendor stub that sells ammo.
-  - Done 2026-10-21 (`rac_combat::pickups`, `assets/pickups.ron`): the drops moved here;
-    ammo pickups, bolt and ammo crates and a vendor's pad (`weapons.md`, "In the kit",
-    "Pickups"). Rounds and prices are the game's.
-  - Done 2026-10-22: UYA's rules ("Ammo pickups, crates and the vendor"): the 8.7 by 3 u
-    reach; ammo taken before it flies, on landing, capped, never expiring; ammo crates'
-    1 or 2 pickups for one gun not full, never the Flux Rifle; bolt crates' bolts in
-    coins; enemies drop no ammo.
-  - Done 2026-10-29 (`pickups/nanotech.rs`, `explosive.rs`, `BoltMultiplier`; `weapons.md`,
-    "In the kit", "The other crates"): nanotech crates' orbs let out to a hero with room
-    and healing his most / 5; explosive crates' fuses (touched 179 ticks, hit 5–14, blast
-    1), warning tint and growing blast (targets 2, heroes 4); the doubler's doubling of
-    bolts and XP for 1800 ticks a crate. The demo has each in the yard and two explosive
-    crates by the arena; seen on screen (`kitdemo-yard-crates.orin`).
-  - The hero's damage in UYA is scaled by his armor (1.0 to 0.2) and the game's help
-    measure (`hero-controller.md`, "Getting hit and dying"); the kit has no armor yet.
-  - Done 2026-10-30 (`pickups/vendor.rs`, `VendorMenu`; `weapons.md`, "In the kit", "The
-    vendor's menu"): the vendor's menu by UYA's weapons menu, over the running world
-    and holding the hero's input as the ring does: rows of rounds, buy-all, guns and
-    (with `upgrades`) Mega upgrades, rebuilt each tick; Left and Right with UYA's
-    repeats; refusals; the round count; a confirm. Gun and Mega prices (+0x7C) are in
-    `uya_weapons.ron`. The demo's HUD shows it at the top; seen on screen
-    (`kitdemo-vendor.orin`). The pad opening it on stepping in is the kit's own.
-  - Done 2026-10-30 (`BoltBank`, `capped_coins`, `kill_coins`; `weapons.md`, "The bolt
-    bank" and "In the kit"): UYA's bolt bank read and built: each broken crate pays out
-    a fiftieth of it, bolt crates drop at most 2 or 3 coins and bank the rest, the
-    demo's kills pay the share, and expired bolts are banked [placeholder].
-  - Done 2026-10-30 (`PickupSound`; `weapons.md`, "Their sounds" and "In the kit"): the
-    sounds of crates, fuses, the doubler, bolts, ammo, nanotech and the vendor's menu,
-    as placeholders in the demo and, with the UYA disc, the game's entries from
-    Veldin's core and, for the explosive and doubler crates, level 4's
-    (`openrac/src/gun_sounds.rs`). Not heard yet by a person.
-  - Not done: of the bank, the drops scaled by bolts per active minute (its gate
-    0x1D6714 by the killed moby's +0xB0 isn't understood), the challenge multiplier and
-    the XP bank (0x142698).
-  - Done 2026-10-31 (`CrateDebris`; `weapons.md`, "The bolt bank" and "In the kit"): the
-    bank's debris cap read and built: crates broken close together, explosive ones as
-    they go off, cut a bolt crate's coins by 1 past 10 and 2 past 20 on UYA's count;
-    every moby slot taken as free [simplified].
-  - Done 2026-10-31 (`rac_demo::hud::doubler_look`, `pickups::HelpAsked`; `weapons.md`,
-    "The doubler's x2", "Help messages" and "In the kit"): the doubler's x2 by the bolt
-    count, kept up while it runs, pulsing round each beep by the game's steps (a tick of
-    magenta included, as the game packs its colour); the first doubler crate's help
-    message, once a world, in the demo's words on the game's timing. Seen on screen
-    (`kitdemo-doubler.orin`). Not built: Triangle closing a help message, voiced help.
-  - The vendor's menu, not done: what UYA's vendor moby needs to open it and its last
-    special row (not read); UYA's stock growing with the story, the challenge-only
-    five and the 9/10 discount (read, not built). The demo's hero owns every gun, so
-    its menu sells only ammo.
-  - Done 2026-10-30 (`rac_hero::HelpMeasure`, `hit.help`; `weapons.md`, "The help
-    measure" and "In the kit"): UYA's help measure read and built: deaths counted by
-    checkpoint as the hero comes back, taken off at a new checkpoint, scaling his hits
-    (1.2× with none, lighter past 6) and picking the nanotech crate's / 5, / 4 or / 3.
-    UYA's areas spanning checkpoints, weighing their neighbours and switched off by
-    flag 0x80 are not built.
-  - Next step: move the enemies' drops (`rac_demo/src/drops.rs`, below) here, or read
-    what UYA's vendor moby needs to open its menu and its last special row.
-  - Started by P1.11: enemies' bolt and nanotech drops, which pop out, bounce and fly to
-    the hero, and the hero's `Bolts`, are in `rac_demo/src/drops.rs`. Move them here with
-    the crates and the vendor.
-- [x] **P1.11** Demo enemies (`rac_demo/src/enemy/`, `assets/enemies.ron`). They are the
-  demo's own, not read from a game: every number is a placeholder sized against the
-  hero's.
-  - Two archetypes as RON definitions over one pure step (`enemy::brain::step`): a melee
-    charger (runs in, winds up for 30 ticks, lunges and hits once, then recovers) and a
-    ranged shooter (keeps 6–11 u away and strafes, aims, then fires three slow shots
-    along its facing, so outrunning its turn dodges them).
-  - States: idle, patrol, aggro, attack (wind-up, strike, recovery), hurt and death. They
-    see in a cone with a line-of-sight ray and hear close by; they give up past a distance
-    or a leash from home, and come back at home a while after dying.
-  - Health and damage go through `rac_combat` (hurtbox, hit points, kill XP), so the
-    wrench and guns hit them; they hurt the hero through `HurtHero`. Drops are bolts and
-    nanotech (`drops.rs`, `assets/drops.ron`).
-  - Infected by the Infector, one turns on the nearest other enemy it sees, which fights
-    back until the infection ends; their hits on each other go through `FoeHits`.
-  - An arena in the greybox level beside the melee yard: three chargers, two shooters, low
-    cover and a pillar. Tests: `rac_demo/tests/enemies.rs`.
-  - Enemies run after `SimSet::World` and before `SimSet::Hero`. Inside `World`, their
-    reads of the combat messages would be unordered against the combat systems that
-    write them, and the order could differ between peers.
-  - To do: their sounds (P1.13), health and bolts on the HUD (P1.12), and tuning by play
-    (in a scripted run, a hero who stood his ground and swung died in about 10 s).
-- [~] **P1.12** UI and HUD, PC first (G5):
-  - Started 2026-10-21 (`rac_demo::hud`, `assets/hud.ron`): health, bolts, the gun
-    panel, the level-up notice and the ring, per player; seen running.
-  - Done 2026-10-22: UYA's show-and-fade timings (`hud/clock.rs`; `weapons.md`, "In the
-    kit", "HUD"): the gun, health and bolts shown for the game's frames after what shows
-    them, the bolt tally and its roll, the low pulses, the next two recent guns, the
-    ring's fade; tests on the clock and the view. Seen running on Xvfb.
-  - Done 2026-10-22: the guns' aim indicators (`hud/sights.rs`; `weapons.md`, "In the
-    kit", "Aim indicators"): the lock-on reticle with its health arc, each gun's
-    crosshair, the target marks, the Hydra's triangles and the Flux scope, from each
-    gun's `sight` and `Arsenal::sights`, on placeholder sprites keyed by effect-texture
-    number. They replace the demo's lock-on torus. Seen running on Xvfb: the crosshairs
-    and the scope.
-  - Done 2026-10-22: the Flux scope's zoom (the weapons code asks the camera through
-    `GunHand::zoom`; the camera springs its field of view, slows the free look by it and
-    narrows the projection) and its ray, now in the weapons code, which walls and other
-    targets block (`Sights::scope_on`). Seen running on Xvfb. State 0x74 and the world
-    stopping have nothing in the kit to follow.
-  - The Flux's zoom also lerps four floats at 0x1DF720 that nothing else in Veldin's
-    code reads; what they drive is still open (`weapons.md`, "Aim indicators").
-  - Done 2026-10-22: the sights' textures from the disc's effect table (`effects.md`,
-    "Effect textures"; `crates/openrac/src/fx_textures.rs`), the rings and the scope
-    drawn from their quarters as the game draws them, the scope over a 4:3 box. Seen
-    running on Xvfb with the disc's textures and without.
-  - Lock-on is gamepad-only (`Action::is_gamepad_only`), so under Xvfb the reticle can
-    only be tested, not seen.
-  - Done 2026-11-03: the menus' pages (`openrac/src/menu/`): Options from the main and
-    pause menus, with mouse speed, inverted look, swapped sticks, both dead zones, window
-    mode, vsync, field of view and volume (`options.rs`, saved as `[display]` and `[sound]`
-    in `settings.toml`), and the controls page, every control's bindings on the keyboard
-    and mouse and the gamepad, changed by choosing a slot and pressing (P1.3). Pages
-    scroll and follow the focus; held directions repeat; right-click steps back or clears,
-    and an option's `<` and `>` step it their way; Back goes up a page. The in-game
-    controls hint is gone: the bindings are in Options. Seen running on Xvfb: every
-    page, rebinding by key and mouse, a swap, a refusal, reset, the field of view, and
-    the settings file.
-  - Done 2026-11-03, the rest of the display settings (`options.rs`, section 5): the
-    resolution (the window's size, from the common sizes that fit its monitor, or the
-    monitor's video modes in exclusive fullscreen), a frame-rate cap (`cap_frame_rate`,
-    sleeping in `Last`), the HUD and menu size (`UiScale`; the sights divide it out, so
-    they keep to the view) and the graphics API (P1.14). The window takes only the
-    setting that changed, so a size set by hand survives. Seen running on Xvfb: the
-    window resized, the cap (29.6 fps at 30), the sizes with the crosshair's pixels
-    unmoved, Vulkan falling back from lavapipe (a CPU adapter), every value saved.
-  - `warn!` before `App::new` is lost, as Bevy's log isn't up yet: the backend's warning
-    moved to a start-up system; `settings::load_or_create`'s (a broken settings file) and
-    the movement profile's fallback in `main` are still lost.
-  - Not done: L3's show-all (no binding); the scope drawn through the frame's alpha as the
-    game does (with P3.18's blends); a music volume (no music yet). Not seen: borderless,
-    fullscreen and its video modes (Xvfb has no window manager and one mode), the volume
-    heard.
+- [~] **P1.10** Pickups and economy (`rac_combat::pickups`, `assets/pickups.ron`), on
+  UYA's rules (`weapons.md`, "Ammo pickups, crates and the vendor" and "In the kit"):
+  - Done: ammo pickups; bolt, ammo, nanotech, explosive and doubler crates, with the
+    doubler's x2 on the HUD and its help message (§5, 2026-10-31); the vendor's menu over
+    the running world (`VendorMenu`), with gun and Mega prices; the bolt bank and its
+    debris cap; UYA's help measure (`rac_hero::HelpMeasure`); their sounds, placeholders
+    or the disc's (`openrac/src/gun_sounds.rs`). The demo has each in the yard. Rounds and
+    prices are the game's.
+  - Not done: the bank's drops scaled by bolts per active minute (its gate 0x1D6714 by
+    the killed moby's +0xB0 isn't understood), the challenge multiplier and the XP bank
+    (0x142698); every moby slot taken as free in the debris cap [simplified]; expired
+    bolts banked [placeholder]; the hero's armor (UYA scales his damage by it, 1.0 to
+    0.2); the help measure's areas; Triangle closing a help message, and voiced help. The
+    vendor: what UYA's vendor moby needs to open its menu and its last special row (not
+    read); the stock growing with the story, the challenge-only five and the 9/10
+    discount (read, not built). The pad opening it on stepping in is the kit's own.
+  - Next step: move the enemies' bolt and nanotech drops and the hero's `Bolts`
+    (`rac_demo/src/drops.rs`) here, or read what UYA's vendor moby needs to open its menu.
+- [x] **P1.11** Demo enemies (`rac_demo/src/enemy/`, `assets/enemies.ron`), the demo's
+  own, every number a placeholder sized against the hero's: a melee charger and a ranged
+  shooter over one pure step (`enemy::brain::step`), with idle, patrol, aggro, attack,
+  hurt and death, sight and hearing, leashes and respawns. Health and damage go through
+  `rac_combat`; they drop bolts and nanotech (`drops.rs`); infected, they fight each other
+  (`FoeHits`). Tests: `rac_demo/tests/enemies.rs`.
+  - Enemies run after `SimSet::World` and before `SimSet::Hero`: inside `World`, their
+    reads of the combat messages would be unordered against the systems that write them,
+    and the order could differ between peers.
+  - To do: their sounds (P1.13), health and bolts on the HUD (P1.12), and tuning by play.
+- [~] **P1.12** UI and HUD, PC first:
+  - Done: the HUD (`rac_demo::hud`, `assets/hud.ron`): health, bolts, the gun panel, the
+    level-up notice and the ring per player, on UYA's show-and-fade timings; the guns' aim
+    indicators (`hud/sights.rs`): the lock-on reticle, each gun's crosshair, the target
+    marks and the Flux scope with its zoom, with the disc's textures or placeholders. The
+    menus (`openrac/src/menu/`): Options from the main and pause menus, with the mouse and
+    sticks, display (window mode, resolution, vsync, frame-rate cap, field of view, HUD
+    and menu size, graphics API; §5, 2026-11-03) and volume, and the controls page, every
+    control's bindings on the keyboard and mouse and on the gamepad. Seen running on Xvfb.
+  - Not done: L3's show-all (no binding); the scope drawn through the frame's alpha as
+    the game does; a music volume (no music yet). What the Flux's zoom drives through the
+    four floats it lerps at 0x1DF720 is open (`weapons.md`, "Aim indicators").
+  - Not seen: borderless, fullscreen and its video modes (Xvfb has no window manager and
+    one mode); the volume heard; the lock-on reticle (gamepad only).
+  - `warn!` before `App::new` is lost, as Bevy's log isn't up yet: `settings::
+    load_or_create`'s warning (a broken settings file) and the movement profile's
+    fallback in `main` still are.
   - Next step: try the window modes, fullscreen resolutions and a gamepad's rebinding on
     the owner's desktop.
-  - xdotool's keys didn't reach the app under Xvfb (no window manager, so no focus);
-    `xdotool windowfocus --sync` on the window first fixes it (CLAUDE.md, "Running the
-    app off-screen").
-  - HUD: health, bolts, ammo and weapon icon; plus the quick-select ring.
-  - Pause menu.
-  - Settings:
-    - display: resolution, window mode, vsync, frame-rate cap, FOV, HUD scale, and
-      preferred backend (DX12/Vulkan);
-    - volumes;
-    - controls, including rebinding and mouse sensitivity.
-- [~] **P1.13** Placeholder sound effects and music (CC0) through `bevy_audio`, triggered by
-  events.
-  - Done (2026-10-23): the guns' sounds. `rac_demo::sfx` cues them from `GunEvent`s and
-    `Arsenal::sustain` (a new `Empty` event; charge, stream, vortex and zoom loops), plays
-    placeholders synthesized from `rac_demo/assets/sounds.ron` on its own stereo stream
-    with UYA's falloff and pan, and leaves the cues the app claims to it
-    (`openrac/src/gun_sounds.rs`, 18 guns from the disc, P3.13).
-  - An off-screen run (ALSA's null device) only showed the stream carries sound; nobody
-    has listened yet. Next: listen in the app, then the other sounds (wrench, hero,
-    pickups, enemies) and music.
-  - Done (2026-10-29): the Spitting Hydra's hold (0x31FB90; `weapons.md`, "Spitting
-    Hydra"): its charge loop (entry 2, `Sustain::Charging`), a ping as each target is
-    marked (0, `GunEventKind::Marked`) and a fizzle (5, `Fizzled`), with placeholders;
-    entry 2 checked looped on the disc for both classes. The hold no longer sets
-    `firing`, which had frozen him in the whole-body firing pose; the gun loops its
-    sequence 2 while held (`GunHand::sustaining`, `GunMotion::sustain`); it doesn't
-    charge again until the spit's time is up; held 150 it marks every tick. Not heard
-    yet: the run was off screen.
+- [~] **P1.13** Sound effects and music, cued by events: placeholders made in code, or the
+  game's own sounds with a UYA disc.
+  - Done: the guns' sounds (`rac_demo::sfx`, cued from `GunEvent`s and
+    `Arsenal::sustain`), synthesized from `rac_demo/assets/sounds.ron` on the kit's own
+    stereo stream with UYA's falloff and pan (§5, 2026-10-23); with the disc, 18 guns' and
+    the shots' own sounds (`openrac/src/gun_sounds.rs`, P3.13); the Spitting Hydra's hold,
+    marks and fizzle; the pickups' (P1.10).
+  - Not done: nobody has listened yet (off-screen runs use ALSA's null device); the
+    wrench's, the hero's and the enemies' sounds; music; shots' sounds cued from their own
+    classes, as `rac_demo::sfx` cues by gun (so the agents' guns send none, and a bolt's
+    strike and the shield's landing play their gun's impact cue); the sounds not played
+    (`effects.md`, "In the kit and the app").
+  - Next step: listen in the app with the disc (the arena replays `-agents`, `-rift`,
+    `-whip`, `-qwack`), then the bounces' events.
 - [ ] **P1.14** Platform checks:
   - Windows: pick the default backend. Today wgpu prefers Vulkan over DX12 whenever both
     exist. Test both, then set the default accordingly. The Options menu's Graphics API
@@ -1296,123 +566,64 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - After each NVIDIA driver or wgpu update, re-test Bevy's default parallel compilation:
     run `openrac --exit-after-frames 120` ten times. If it passes every time, drop the
     workaround.
-- [~] **P1.16** Make the kit ready for mash-ups:
+- [~] **P1.16** Make the kit ready for mash-ups (G1's test):
   - Done: the controller sees collision only through `rac_hero::CollisionWorld`; kit
     crates enable only the Bevy features they need; configuration comes from RON.
-  - To do: make the system that gathers `Collider`s independent of the parry backend; a CI
-    check on `cargo tree` that the kit depends on no disc, format or runtime crate;
-    document the public API; `examples/hero_sandbox.rs`, the kit in a plain Bevy app.
-- [~] **P1.17** The hero's rig and models (`rac_rig`, `openrac/src/hero_model.rs`;
-  section 5, 2026-10-13 and 2026-10-15):
+  - To do: make the system that gathers `Collider`s independent of the parry backend; a
+    CI check on `cargo tree` that the kit depends on no disc crate; document the public
+    API; `examples/hero_sandbox.rs`, the kit in a plain Bevy app.
+- [~] **P1.17** The hero's rig and models (`rac_rig`, `openrac/src/hero_model.rs`; §5,
+  2026-10-13, 2026-10-15 and 2026-10-20):
   - Done: the rig's skeleton is UYA's hero's 111 joints, face and fingers included, plus
-    Clank's and the wrench's; poses and clips carry each joint's scale, which its children
-    take on; models may be bound to joints turned at rest (`ModelData::turns`). The open
-    model (gold for player 1, silver for player 2) has procedural poses for every hero
-    state, with two-bone IK putting the wrench on the controller's swing line. The rig
-    wears any model skinned to its skeleton (`RigModels`, `ModelData`, `SkeletonMap`), and
-    a model may carry attachments: parts on skeletons of their own riding a rig joint
-    without its scale, posed by clips of their own (`AttachmentData`, `BackAnimations`,
-    `rac_rig/src/back.rs`). From the user's discs `openrac` imports 15 UYA suits, titled
-    with the game's names, with Clank and the heli-pack on the back as attachments played
-    by UYA's back rules (`moby-format.md`, "Clank and the heli-pack on the hero's back"):
-    Clank's arms, the rotors in the heli jump, glide and long jump, and his fidgets. Also
-    UYA's 21 multiplayer skins with the wrench and without Clank (`MP_SKINS`), and 17 DL
-    skins from a DL NTSC-U or Gladiator PAL disc, the five armors with their collar and
-    helmet bangles. With a UYA disc the hero plays Ratchet's real animations, chosen and
-    timed as UYA's code does (`rac_rig/src/play.rs`; `hero-controller.md`, "Idle
-    fidgets", "Landings", "The walk's animation"): the walk's bands, rates and stride,
-    fidgets, the hurt idle, each jump's air animation timed to its arc, landings and the
-    run's skid. Chosen with `--model` or the menus' Model button.
-  - Without a disc the procedural poses hung the wrench straight down along the leg, its
-    grip by the shoulder. They now hold the hand and fist as UYA's idle does
-    (`moby-format.md`, "How the idle holds it"); the left hand stays open.
+    Clank's and the wrench's, with a scale per joint; models may be bound to joints
+    turned at rest (`ModelData::turns`). The open model (gold for player 1, silver for
+    player 2) has procedural poses for every hero state, with two-bone IK putting the
+    wrench on the controller's swing line and the fist held as UYA's idle holds it
+    (`moby-format.md`, "How the idle holds it"). The rig wears any model skinned to its
+    skeleton (`RigModels`, `ModelData`, `SkeletonMap`), with attachments on skeletons of
+    their own (`AttachmentData`, `BackAnimations`). From the user's discs `openrac`
+    imports 15 UYA suits with Clank and the heli-pack on the back, played by UYA's back
+    rules (`moby-format.md`, "Clank and the heli-pack on the hero's back"); UYA's 21
+    multiplayer skins (`MP_SKINS`); and 17 DL skins with their armors' bangles. With a UYA
+    disc the hero plays Ratchet's real animations, chosen and timed as UYA's code does
+    (`rac_rig/src/play.rs`; `hero-controller.md`, "Idle fidgets", "Landings", "The walk's
+    animation"), and holds the guns by their hold layers (P1.9).
   - Read, not yet worn: DL's wrench (class 0x23FA, `Core::read_dl`,
     `Core::moby_textures`).
-  - Found not needed: the third GS texture slot is the ship's paint job.
-  - To do: DL's wrench on the skins in its sequence 1 (DL classes' sequences don't read
-    as UYA's do yet: read them first); firing poses (P1.9; DL's gadget table names each
-    weapon's firing sequence: `moby-format.md`, "DL's skins"); for the back, Clank's
-    blink and glow (UYA 0x4DCC10) and the head look's hold on it, which the rig has no
-    head look for yet. The Suck Cannon's own sequence 2 is cut to while it pulls, as
-    the Hydra's is while it charges, and 0x441FB8 plays as it lets go (`weapons.md`,
+  - To do: DL's wrench on the skins in its sequence 1 (DL classes' sequences don't read as
+    UYA's do yet: read them first, P3.7); DL's firing poses (its gadget table names each
+    weapon's firing sequence: `moby-format.md`, "DL's skins"); Clank's blink and glow
+    (UYA 0x4DCC10) and the head look's hold on it, which needs a head look in the rig; the
+    Suck Cannon's own sequence 2 while it pulls and 0x441FB8 as it lets go (`weapons.md`,
     "The gun's own animation"): read 0x441FB8, then give it `GunMotion::sustain`.
-  - UYA's Clank had no arms and no propellers: the heli-pack (class 0x25F), long taken
-    for Clank's "pack form", is his arms and the rotors, and wasn't worn. Fixed by wearing
-    it and Clank as attachments; UYA's level textures now read as DL's
-    (`Core::read_uya` reads the GS RAM image) for the pack's.
-  - `wrench_points` had been measured on a bake that ignored the wrench's rest turn (P3.7).
-    It is now (0.47, −0.12, −0.87), forward from the fist, which matches the game's
-    screenshot. Every model's wrench and the procedural poses follow it.
-  - Changing sides in a sideways strafe sometimes spun the body above the hips a full turn:
-    the strafe's twist was slerped joint by joint towards a target half a turn away, and
-    hips and chest could take the same way round. It is now one angle eased beside the pose
-    (`pose::Animator::ease`); UYA's own two twist springs (`hero-controller.md`,
-    "Strafing") aren't used yet.
-- [~] **P1.18** Direct-IP co-op in the demo (`rac_net`), the first G4 milestone:
+  - The strafe's twist is one angle eased beside the pose (`pose::Animator::ease`), as
+    slerping joint by joint spun the body a full turn; UYA's own two twist springs
+    (`hero-controller.md`, "Strafing") aren't used yet.
+- [~] **P1.18** Direct-IP co-op in the demo (`rac_net`, section 4.2; §5, 2026-11-04):
   - Done: rollback of the kit's simulation (`rac_sim::rollback`: snapshots, `SimId`,
-    `retire`; `SimMessageReader`), every kit crate's state registered; `rac_net`'s
-    `ggrs` driver, UDP link and handshake (build and rules digest, a slot each, the
-    other player's camera setting, a random id per joiner); STUN on the session's
-    socket, join codes and hole punching (D8: `rac_net::stun`, `code`, `Host::punch_to`,
-    `Joiner::to_any`), on IPv4 and, where the machine has it, IPv6 at once
-    (`UdpLink::bind_both`, a public address of each in the code); the host's port mapped
-    by PCP, then NAT-PMP, asked of the default gateway, then UPnP IGD (`rac_net::portmap`,
-    `pcp`, `upnp`; `--no-port-mapping`); `--host [PORT]`, `--join CODE|HOST[:PORT]`, the
-    join code shown, logged and copied, Ctrl+V to paste the guest's into the host,
-    `--input-delay`, `--sync-test` and a status line in `openrac` (`coop.rs`); the main
-    menu's Co-op page, hosting, or joining with the code on the clipboard (no text field,
-    whose letters the menu's keys would fight over; `menu/coop.rs`); effects, sounds and
-    the HUD show what resimulated ticks write once (`rac_sim::ShownReader`), messages
-    naming an entity matched by its `SimId` (`add_shown_message_naming`); both
-    heroes, player 2 in silver; a peer that leaves is dropped and the game plays on;
-    the pause menu doesn't stop a session, and Moves and Camera can't change in one.
-    How it works and the rules for simulation code: `docs/netcode.md`.
-  - Verified: `rac_net`'s tests (a sync test, two peers over a memory network with 3 steps
-    of latency and 5% loss matching a plain run's checksum, a refused handshake, a
-    dropped peer); `rac_demo`'s `tests/rollback.rs`, the whole demo headless with two
-    scripted heroes (hazard, crates, every gun, the ring, the vendor, the arena; each
-    with his own camera setting) under the sync test with UYA's rules at V5 and with DL's,
-    and as two peers on a slow, lossy memory network, plus a check that state left out of
-    a snapshot is caught and that effects and sounds under the sync test get what a plain
-    run gives them, once, and that both heroes die on the hazard pad and are brought back
-    under the sync test, each respawn shown once; `rac_net`'s NAT tests (two peers behind
-    cone NATs on the memory network learn their addresses by STUN, swap codes and play; a
-    host that doesn't punch hears nobody), a link on both families on the loopback, and
-    PCP and NAT-PMP against fake routers on the loopback; `rac_sim`'s test of an entity
-    spawned again under another `Entity`, named once (`docs/netcode.md`, "How it was
-    checked"); the app's
-    `--sync-test` played 1500 ticks off-screen with no mismatch; a host and a guest on one
-    machine played together, each seeing the other's hero, the guest joining by the
-    host's code (its public address learned from Google's STUN server), from the
-    command line and from the Co-op pages, again with both sockets (2026-11-05).
-  - Not done (`docs/netcode.md`, "Known gaps"):
-    - Runs over a LAN and the internet, on two machines.
-    - A mapping asked of a real router: it changes the router's forwarding, so it waits
-      for the owner's run. The owner's router answers neither PCP nor NAT-PMP (a
-      read-only probe), so there it is UPnP's. No IPv6 pinhole by PCP; mappings aren't
-      renewed past their two hours.
+    `retire`, `SimMessageReader`), every kit crate's state registered; `rac_net`'s `ggrs`
+    driver, UDP link and handshake; STUN, join codes and hole punching on IPv4 and IPv6
+    (D8); the host's port mapped by PCP, NAT-PMP or UPnP IGD (`--no-port-mapping`
+    doesn't); `--host`, `--join`, `--input-delay`, `--sync-test` and a status line
+    (`openrac/src/coop.rs`), and the main menu's Co-op page (`menu/coop.rs`); effects,
+    sounds and the HUD showing what resimulated ticks write once (`rac_sim::ShownReader`);
+    both heroes, player 2 in silver; a peer that leaves is dropped and the game plays on.
+  - Verified (`docs/netcode.md`, "How it was checked"): `rac_net`'s tests (the sync test,
+    two peers on a slow, lossy memory network, NAT traversal behind cone NATs, PCP and
+    NAT-PMP against fake routers); the whole demo headless with two scripted heroes under
+    the sync test and as two peers (`rac_demo/tests/rollback.rs`); the app's `--sync-test`
+    for 1500 ticks; a host and a guest on one machine, the guest joining by the host's
+    code from the command line and from the Co-op pages.
+  - Not done (`docs/netcode.md`, "Known gaps"): runs on two machines, over a LAN and the
+    internet; a mapping asked of a real router (it changes the router's forwarding, so it
+    waits for the owner's run; the owner's router answers neither PCP nor NAT-PMP, so
+    there it is UPnP's); an IPv6 pinhole by PCP; renewing mappings past their two hours.
   - Next step: the owner's runs on two machines, over a LAN and then the internet (Co-op,
-    Host a game on one; the code it shows sent over, copied, and Join with the copied
-    code on the other; if the guest can't reach the host, the guest's code pasted into
-    the host with Ctrl+V), checking the host's log says its router forwards the port
-    ("the router at … forwards UDP from … (UPnP)") and that leaving gives it back with no
-    warning. Then the task is done.
-  - `ggrs` confirms the other peer's inputs on arrival, even on a tick sat out, before
-    the rollback that corrects the saved checksums, so a confirmed checksum could be
-    stale (a flaky lossy-network test on CI). `Session::confirmed_tick` now updates only
-    when a tick advances; the tests check every confirmed checksum (`docs/netcode.md`).
-  - `bevy_ggrs` lags Bevy (0.22 is for Bevy 0.19), so `rac_net` drives `ggrs` itself by
-    swapping Bevy's `FixedMainScheduleOrder`.
-  - The code ordered entities by `Entity` for determinism, which differs between peers;
-    systems in one set ran in either order on several threads; messages written after
-    their reader crossed ticks out of a snapshot's reach. Fixed by `SimId`, a
-    single-threaded tick and `SimMessageReader` (`docs/netcode.md`, "Hazards").
-  - The level must wait at tick 0 while peers shake hands, but the pause menu's state
-    change unpauses the game clock before `Update`; the tick's schedules are taken out of
-    Bevy's fixed loop instead (`coop.rs`, `HeldTicks`).
-  - An IPv6 socket on `[::]` takes the IPv4 port too on Linux (and not on Windows), so
-    it clashed with the IPv4 socket's; it is set to IPv6 alone with `socket2` before
-    binding (`link.rs`, `bind_socket`).
+    Host a game on one; the code it shows sent over, copied, and Join with the copied code
+    on the other; if the guest can't reach the host, the guest's code pasted into the host
+    with Ctrl+V), checking the host's log says its router forwards the port ("the router
+    at … forwards UDP from … (UPnP)") and that leaving gives it back with no warning. Then
+    the task is done.
 - [ ] **P1.19** Determinism tests:
   - Replaying recorded inputs twice must give identical state hashes.
   - CI runs the same replays on Linux and on Windows and compares the hashes across the two
@@ -1425,487 +636,152 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - The RE.6 tolerances pass.
   - No game data is used.
 
-### Phase 2: Disc and data layer
+### Phase 2: Disc layer
 
-Crates: `rac_iso`, `rac_formats` and `rac_tool`. The boot programs unpack (P2.5), so only
-level code still needs savestates or Wrench, until P2.6 extracts the overlays.
+What the demo's imports and the reverse engineering need. Crates: `rac_iso`,
+`rac_formats` and `rac_tool`.
 
 - [x] **P2.1** `rac_iso` reads ISO9660 over `Read + Seek` (PVD, directories, file extents)
   with a raw sector API, never loading a whole image.
 - [x] **P2.2** Disc identification (`rac_iso::Release`; `disc-layout.md`,
-  "Identification"): a table of the eight releases (game, region, title, serial, version,
-  boot executable and its SHA-1, TOC sector, packed or not), and `Release::identify`,
-  which reads `SYSTEM.CNF` and hashes the boot executable. Unknown discs get an error
-  saying why, with the SHA-1 of an unknown build of a known game. `openrac` finds its discs
-  with it, and `openrac-tool identify` lists them. Every disc identifies.
-  - `SYSTEM.CNF`'s own sector was left out of the table: nothing reads it, and rebuilt
-    images move it.
+  "Identification"): every one of the owner's eight releases by its boot executable's
+  SHA-1; unknown discs get an error saying why, with the SHA-1 of an unknown build of a
+  known game. `openrac` finds its discs with it, and `openrac-tool identify` lists them.
 - [~] **P2.3** TOC parsers. Done: UYA's (`rac_formats::level::Toc`; `disc-layout.md`,
   "Level data"), and DL's and Gladiator's eight global headers (`Toc::read_dl_disc`).
-  - To do: DL's level table (what follows its global headers isn't UYA's), with its
-    missions; GC's at LBA 1001; R&C1's at LBA 1500 (the header, global ranges and
-    `levels[19]`).
+  - To do, when DL's guns' imports need it: DL's level table (what follows its global
+    headers isn't UYA's), with its missions.
 - [~] **P2.4** WAD codec. Done: the decompressor, written from UYA's own
   (`rac_formats::wad`), run on every WAD of Veldin's level data.
-  - To do: run it on every WAD of every disc; fuzzing (`cargo-fuzz`) and property tests; a
-    compressor later, for tests and mods.
-- [x] **P2.5** Unpacker for the packed executables (R&C3, UYA, DL, Gladiator, and the
-  network start-up `I5BOOTN.ELF`): `rac_formats::elf` reads the stub's WAD as the boot
-  ELF's sections, in the overlays' record format, and writes them out as a plain ELF that
-  Ghidra imports with `$gp` and section names; `openrac-tool unpack-elf`. Read in the
-  stub's code and checked byte for byte against savestates (`disc-layout.md`, "Packed
-  executables"). The boot program's `.text` is the title screen's, so level code waits
-  for P2.6.
-- [ ] **P2.6** Level overlay extraction: read the 16-byte `{dest, size, type, entry}`
-  records and produce per-level code images (for reverse engineering and the recompiler).
-  `rac_formats::elf::Program` already reads the records and writes ELFs (P2.5); what's
-  left is finding each level's overlay on the disc and the loader that applies it.
+  - To do: fuzzing (`cargo-fuzz`) and property tests, as user discs can be corrupt.
+- [x] **P2.5** Unpacker for the packed executables (`rac_formats::elf`; `openrac-tool
+  unpack-elf`): the boot ELF with `$gp` and section names, for Ghidra, checked byte for
+  byte against savestates (`disc-layout.md`, "Packed executables"). The boot program's
+  `.text` is the title screen's; level code comes from savestates.
 - [~] **P2.7** `openrac-tool` CLI. Done: `moby` (a class from an EE memory image, or as a
-  `.glb` into `cache/`), `hero`, `rails`, `cameras`, `unpack-elf` and `identify`.
-  - To do: `toc`, `extract --out cache/<release>/` and `dump-overlay`.
-- [ ] **P2.8** Cache layout and versioning:
-  - Path: `cache/<serial>-<elfsha1[0..8]>/…`.
-  - A manifest records the tool version and source hashes, so extraction can be incremental
-    and repeatable.
-- [ ] **P2.9** Validation:
-  - Commit golden **checksums** (not data) of the decompressed outputs.
-  - Tests that read real discs are gated on `OPENRAC_SOURCE_DIR`.
-  - Cross-check against `wrenchbuild unpack` output on the local machine.
+  `.glb` into `cache/`), `hero`, `rails`, `cameras`, `mobys`, `sounds`, `unpack-elf` and
+  `identify`. To do: `toc`.
 - [x] **P2.10** The R&C3 PAL disc (SCES-52456) wherever the app reads UYA NTSC-U's: the
   hero's animations, suits and skins, the guns' models and sounds, and the effects.
   `openrac` takes either (`discs::UYA`, UYA NTSC-U first) and DL NTSC-U or Gladiator PAL
   (`discs::DL`). Everything it reads is the same on both R&C3 discs, value for value, so
   nothing converts (`disc-layout.md`, "R&C3 PAL beside UYA"; disc tests in `main.rs` and
-  `gun_sounds.rs`). `openrac-tool`'s UYA commands already read either.
-- **Done when:** all eight discs identify, every TOC entry is listed, every WAD decompresses,
-  the packed ELFs unpack, and our output matches Wrench's wherever they can be compared.
+  `gun_sounds.rs`).
+- **Done when:** the four UYA and DL discs identify, and everything the demo imports reads
+  from them.
 
-### Phase 3: Asset formats, native level viewer and remaster renderer
+### Phase 3: What the demo imports from the disc
 
-Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 → GC. Crates:
-`rac_formats`, `rac_assets`, `rac_render`, `rac_audio`.
+Crates: `rac_formats` and `rac_audio`, read by `openrac`.
 
-- [ ] **P3.1** ELF and overlay model, and a **catalogue of each game's VU microcode**
-  (DVP overlays). The renderer work depends on it.
 - [~] **P3.2** Textures. Done: the armor WAD's PIF2 images (8-bit, CSM1 palette, alpha
-  0x80) → `rac_formats::texture` → Bevy `Image`.
-  - To do: PSMT4 and RGBA16 CLUTs, GS swizzles and mips; the core header's texture tables
-    and the GS RAM table (located, not read; `disc-layout.md`); a texture browser.
+  0x80) → `rac_formats::texture` → Bevy `Image`; the level core's effect, particle and
+  class textures, UYA's kept in EE memory in rows and DL's in the GS's order
+  (`Core::gs_ordered`; `disc-layout.md`, "Level textures").
+  - To do, as imports need them: PSMT4 and RGBA16 CLUTs, GS swizzles and mips.
 - [~] **P3.3** The level core header and the class tables. Done for UYA: the level header,
-  data part, core header, moby class table and hero sequence table (`rac_formats::level`).
-  - To do: the core header's other tables, and DL's.
-- [ ] **P3.4** Tfrags (terrain, with LOD 0 first), **P3.5** ties (instanced, with
-  per-instance vertex colours), **P3.6** shrubs.
+  data part, core header, moby class table and hero sequence table
+  (`rac_formats::level`).
+  - To do, as imports need them: the core header's other tables, and DL's.
 - [~] **P3.7** Mobys (`rac_formats::moby`, `moby-format.md`). Done for UYA, from memory or
   the disc: the class header, skeleton, every keyframe, the complete mesh (vertex cache,
   one to three joints per vertex, normals, texture coordinates and switches) and metal
-  packets; the armor WAD (`armor`). For DL: classes and the skin WAD
+  packets; the armor and gadget WADs. For DL: classes and the skin WAD
   (`MobyClass::read_dl`, `armor::{SkinTable, Skin}`).
-  - To do: bangles, UYA's armor entries 35–55 (whole classes), DL's sequences, and
-    mobys other than the hero as Bevy meshes and `AnimationClip`s.
-  - UYA joints can be turned at rest (Clank's face, the whole wrench, the hero's eyes and
-    legs). The skeleton record is the inverse bind as four VU0 columns, but we read −t
-    as the rest position and left the turn out, which threw Clank's eyes off his face.
-    Fixed: `Joint::inverse_bind` and `rest_rotation`, poses as turns from rest, and the
-    bake applies keyframe scales (`moby-format.md`, "Skeleton").
+  - To do: bangles, UYA's armor entries 35–55 (whole classes), and DL's sequences.
   - Open: where the game multiplies by the inverse bind (not found in code); whether
-    children inherit a joint's scale; classes whose offsets don't fit their binds (0x189B,
-    0x18AD, …); DL armors' joint 44.
-- [ ] **P3.8** Sky: shells, and rotation converted from per-frame to per-second using the
-  region's refresh rate.
-- [ ] **P3.9** Collision: the octant grid and triangle/quad faces with their type byte; a
-  debug overlay; **colliders for the hero kit**.
-- [~] **P3.10** Gameplay data. Done: UYA's rails, grind and zip line
-  (`rac_formats::gameplay`, `gameplay-format.md`), checked against the game's own list on
-  Florana; UYA's cameras, camera volumes (moby instances of class 2329 with their pvars),
-  paths, cuboids, spheres, cylinders and the camera collision list, checked against
-  five savestates (`openrac-tool cameras`).
-  - DL's gameplay files (`Gameplay::read_dl`, `Layout::DL` from Wrench's layout):
-    mobys and pvars checked against Catacrom Four's co-op savestate; `openrac-tool
-    mobys` lists any level's mobys and pvars on a UYA or DL disc.
-  - To do: level settings; tie and shrub instances; lights, sound instances and areas;
-    DL's other blocks (Wrench's offsets, unchecked), its missions and art instances.
-- [ ] **P3.11** The **classic** render path, PS2-faithful, used for validation and for
-  classic mode, with shaders in WESL:
-  - Vertex colour modulation (0x80 = 1.0, so 2× modulate).
-  - Fog, alpha test, the GS blend modes and filtering.
-  - Then the GS quirks listed in engine-notes: bloom, partial texture invalidation, and
-    accurate alpha.
-- [ ] **P3.12** Level viewer mode:
-  - Pick a release and level.
-  - Free camera.
-  - Layer toggles: tfrag, tie, shrub, moby, collision, volumes, paths.
-  - Instance inspector, with `bevy_egui` 0.43 (which supports 0.20).
-  - A switch between the classic and remaster paths.
-- [~] **P3.13** Audio:
-  - Done (2026-10-23): UYA's 989snd SFX banks (`SBlk`, the gadget WAD's per gun and the
-    level's) read in `rac_formats::sound`, with class sound tables and the core's
-    numbering; `rac_audio` ports OpenGOAL's 989snd sound effects (ISC: block handler,
-    grains, LFOs, SPU voice, ADSR, Gaussian interpolation) and plays them;
-    `openrac-tool sounds` lists a bank and renders its sounds to WAV under `cache/`. The
-    guns' cues map to class table entries from each gun's update (`effects.md`,
-    "Sounds").
-  - Bevy's spatial audio falls off with the square of the distance per ear, nothing like
-    UYA's even falloff, so both the kit and the app render their own stereo stream
-    (`rac_demo::sfx::SoundStream`) and pan and fade each sound themselves (§5).
-  - Done (2026-11-01): the shots' sounds and the Qwack-O-Ray's (`effects.md`, "The
-    shots' entries", and "In the kit and the app" for what isn't played yet).
-  - Not done: 989snd's MIDI music, VAG ADPCM streaming (music, speech) and an
-    approximation of the SPU reverb. Next step: music and VAG streams.
-- [ ] **P3.14** Video:
-  - Demultiplex PSS (MPEG-2 plus SPU ADPCM per language).
-  - Choose a decoder: an `ffmpeg` feature flag or a pure-Rust MPEG-2 decoder.
-  - Play it back as a Bevy texture.
-- [ ] **P3.15** **Milestone "walkabout":** the hero kit runs through a real level using its
-  real collision, wearing the disc's hero model. No game logic yet.
-- [ ] **P3.16** R&C1 and GC formats, from their NTSC-U and PAL discs:
-  - Evaluate ReRAC's ISC format crates for reuse with attribution (this was P0.8).
-  - Add the R&C1 and GC variants of the formats.
-- [ ] **P3.17** The **remaster** render path (G5), which is the default:
-  - HDR with tonemapping and bloom, dynamic sun shadows and ambient occlusion. The
-    tonemapper is the closest match to the game, chosen against footage, not Bevy's default
-    (§5, 2026-11-01).
-  - Longer LOD and draw distances.
-  - Anisotropic filtering and MSAA/TAA.
-  - Field of view and culling that are correct in widescreen.
-  - Uncapped frame rates through interpolation.
-  - Support for user-supplied high-resolution texture packs.
-  - Draw from rac-rs's optional modern graphics (GPL-3.0-or-later, so its code may be
-    reused with its notices). It has volumetric fog, clouds and smoke, GI, AO, shadows,
-    water, vegetation, fire, fur, metal, sun rays, a sharp HUD, FSR and DLSS, and reads
-    PCSX2 texture packs as they are. Where its code lives, how far it carries over to
-    Bevy, and what is off limits: `prior-art.md`, "rac-rs's graphical enhancements".
+    children inherit a joint's scale; classes whose offsets don't fit their binds
+    (0x189B, 0x18AD, …); DL armors' joint 44.
+- [x] **P3.10** Gameplay data (`rac_formats::gameplay`, `gameplay-format.md`), for
+  reverse engineering: UYA's rails, grind and zip line, checked against the game's own
+  list on Florana; UYA's cameras and camera volumes, checked against five savestates
+  (`openrac-tool cameras`); DL's mobys and pvars (`Gameplay::read_dl`), checked against
+  Catacrom Four's co-op savestate (`openrac-tool mobys`).
+- [x] **P3.13** Audio: UYA's 989snd sound-effect banks (`SBlk`, the gadget WAD's per gun
+  and the level's) read in `rac_formats::sound`, with class sound tables and the core's
+  numbering; `rac_audio` ports OpenGOAL's 989snd sound effects (ISC) and plays them;
+  `openrac-tool sounds` lists a bank and renders its sounds to WAV under `cache/`. Which
+  are played is P1.13's.
 - [~] **P3.18** The guns' **effects from the disc** (`effects.md`, "Importing them"):
-  - Read the level's effect and particle textures and particle definitions from its core
-    (`rac_formats`), and the shot classes' meshes (`Core::moby_class`).
-  - An ISO-free effects layer in the kit: billboards, beams, strips, trails, rings, point
-    lights, camera shake, screen flashes and particles with the game's motion, in the
-    four blends that matter; placeholders without a disc.
-  - Each gun's recipes, read gun by gun from its code, keyed by the effect names
-    `GunEvent`s carry; the sounds with P3.13.
-  - Done 2026-10-22: the effect textures (`Core::fx_textures`), and the aim indicators'
-    into `rac_demo::hud::SightImages` by their numbers.
-  - Done 2026-10-23: the particle textures and each type's list (`Core::particle_textures`,
-    `CoreHeader::particle_lists`); the kit's effects layer `rac_demo::fx` (flames, glows,
-    bursts of particles, beams and sprites on shots, additive or blended) from recipes in
-    `rac_demo/assets/effects.ron` by the game's texture numbers, with painted
-    placeholders, and the disc's textures in their place (`openrac/src/fx_textures.rs`);
-    six shot classes' meshes in flight (`openrac/src/shot_models.rs`); the sounds (P1.13,
-    P3.13). Checked by screenshots of an off-screen run.
-  - Done 2026-10-24: the six first guns' calls read with their arguments, and the
-    shared explosion at each of their calls (`effects.md`, "The calls' arguments"); their
-    recipes take the game's sizes, colours and lives by level, with the layer extended
-    for what they need (spins, fades, drag, delays, streaks, trails by distance, beams
-    along a shot's way and at each ray; `effects.md`, "Importing them" 3).
-  - Done 2026-10-28: the six guns checked on screen with the disc against PCSX2 video
-    of the same guns (`effects.md`, "Importing them" 3). The effects cast shadows (Bevy's
-    shadow pass takes blended meshes; now `NotShadowCaster`), the kit's sphere hid the
-    Nitro's blast (`blast_sphere`), and the Lava Gun's smokes are half added, half
-    blended, as the game's. The full-screen flashes of the Shock Blaster, the Nitro and
-    the Annihilator's explosions, read in code and drawn (`Screen`). The Plasma Whip's,
-    Plasma Coil's and Bouncer's calls read with their arguments (`effects.md`, "The
-    calls' arguments") and in recipes as far as the layer goes (`effects.md`,
-    "Importing them" 4), and the Miniturret Glove's with the small blast (0x4488B8) its
-    turret ends in, and the Agents of Doom's: gun events name the kind of shot that sent them, so recipes
-    give parts per kind (`shots`; the bomblets and the Annihilator's mines), guns give
-    their own arcs, and the canister is drawn at its code's 3×. The Bouncer and the coil's ball checked on screen with the disc.
-    The lightning bolt four guns share (0x34DAA0; `effects.md`, "The lightning bolt"):
-    bent beams (`jag`), one recipe in the defaults' `shots`, and the kit's bolt now
-    strikes 6 ticks in, as the game's. The Holo Shield in flight and unfolding, seen on
-    screen (`effects.md`, "Holo Shield Glove"). Ribbons through a gun's shots
-    (`rac_demo::fx::ribbon`), drawn for the Lava Gun's stream and seen on screen. The
-    coil's five bowed arcs a target (`bows`, `same_bends`), the Miniturret and the Agents
-    of Doom seen on screen through scripted replays of the demo that reach the arena
-    (`docs/re-setup.md`, "Kit demo arena replays"). The Holo Shield's standing wall as
-    sprites in its plane (`panels`; 0x378A20, 0x378298), seen on screen at V3. The Disc
-    Blade Gun's (`effects.md`, "Disc Blade Gun"): its glances as a `Bounce` gun event
-    with its own recipe part and sound cue, its end an Impact wherever it comes, its
-    trail as a flat ribbon through points it keeps (`rac_demo::fx::sweep`) and glows
-    pushed toward the camera (`nearer`); seen on screen at V3.
-  - Done 2026-10-29: the six guns left read with their arguments and in recipes as far
-    as the layer goes (`effects.md`, their sections and "Importing them" 4): the
-    Infector (its blob drawn as class 0x1E05 at 0.275 of its scale), Shield Charger,
-    Rift Inducer, Suck Cannon, Qwack-O-Ray and RY3NO; and particle types 0x19, 0x34 and
-    0x22. The 0x35 spawner takes the final size first and the start second. The
-    Infector, Rift Inducer, RY3NO and Qwack-O-Ray seen on screen at V3 through arena
-    replays (`docs/re-setup.md`); the rift's pull drew the defaults' lightning to what it
-    pulled until its recipe turned `arc` off. The Shield Charger and Suck Cannon not seen
-    yet.
-    The Plasma Whip's rope (`rac_demo::fx::rope`, from `HeroRig::rope`): its bands and
-    strips by level and the sparkles, smoke and sparks along it, seen on screen at V3
-    (`-whip.orin`). The quad helper's blend 1 weights by the quad's own alpha, not FIX.
-    The Spitting Hydra's spit (`rac_demo::fx::fan`): its arcs on the game's curve, the
-    muzzle's rings and glows and the strike's smoke and embers, seen on screen at V3
-    (`-hydra.orin`); the arcs' roll was misread (`weapons.md`, corrected). Decals and
-    rings (`effects.md`, "Importing them" 3 and 4): `Impact` events carry the surface's
-    normal (bullets and streams so far), recipes leave marks there (`rac_demo::fx::mark`:
-    the Lava Gun's pools, 0x3063C8, on the game's spring), models by class
-    (`Emit::Model`, `FxModels`; the ring class 0x307 read from the disc, "Rings") for the
-    Infector's burst and the whip's wave, and particles laid on the ground (`ground`) for
-    the Infector's gas clouds; the pools, clouds and ring seen on screen at V3
-    (`-lava.orin`, `-infector-open.orin`). Lights and shake (`effects.md`, "Lights,
-    shake, rumble and the screen" and "Importing them" 4): `Emit::Light` with the light
-    moby's envelope (class 0x27F) and lights riding shots, within the game's eight
-    slots; `Emit::Shake` on the game's three channels (0x3F2A98), weakened by the
-    distance from the camera as the calls are; recipes for the guns whose calls are
-    read. The Flux's and Annihilator's lights seen on the floor at V3 (`-flux.orin`,
-    `-annihilator.orin`); the shake only in tests (no take lands a Nitro blast near).
-    The whip's links from classes 0x183A and 0x183C (`rac_rig::RopeModels`, read by
-    `shot_models.rs`), placed as `whip_link_place` does, seen on screen at V3. The
-    Shield Charger's shell (0x342098: the dome and rim, `rac_demo::fx::shell`, in place
-    of the rig's bubble), its five arcs (0x341DA0: closed loops out from the middle, laid
-    anew as their lives run out) and its four orbiting trails (0x342478: a core and a
-    glow of stretched quads, fading in from the tail), seen on screen at V3
-    (`-shield.orin`).
-  - The rope left out each link's own length: each piece starts at the link before's
-    joint 0, 0.194 u on, so the rope is 9 stretches and 8 × 0.194 long, and the whip's
-    hit reaches 9 × the stretch + 1.657 (9.76 u in swings 1 and 2, not 8.55); both fixed
-    (`rope.rs` `LINK_LEAD`, the whip's `lead` and `tip`; `weapons.md`, "Plasma Whip").
-    Open: the yaw `whip_link_place` adds in a combo, which the kit reads as the hand's
-    travel added to links 1 and 2.
-  - Veldin's N60 always takes its bullets' second path: 0x1DE380, which picks the tracer
-    and the trail, is 1 and never written. The Nitro's blast doesn't call
-    `explosion_spawn` at all. Particle sizes are taken as halves; whether they are half
-    the diagonal instead (√2) is open.
-  - Done 2026-10-29: the Hydra's charge while held (`rac_demo::fx::charge`; `effects.md`,
-    "Spitting Hydra", "While held" and "The glare"): its strips into the gun (its point
-    1, an offset in the recipe from the class's point list, `moby-format.md`) and from V3
-    out to the world, faded in by the ticks held; the muzzle's glows and light sized by
-    the charge; and its glare (0x322B80, type 0x6F's rays) from a charge of 0.45 and
-    while the spit lasts. Seen on screen at V3 (`-hydra-side.orin`). Open: sparkles
-    where its strips meet a wall, the strips' ends on the model's posed joints rather
-    than an offset from the kit's muzzle, and whether the glows' blended half darkens
-    the game's view over a long hold as it does the kit's (a game capture of a hold).
-  - Not done: the Hydra's arcs cut at walls, the
-    Infecto-Bomb's numbers; an open rift's own look (lens, refracting rings of 54, rays;
-    the kit keeps its flight look), effects driven by a gun's sustain (the Suck Cannon's vortex) or by events the
-    kit doesn't send (taking something in, ricochets); ribbons with moving ends,
-    domes and strip rings, glows over the view, the explosion's, small blast's and
-    whip's lights and the V5 guns' shakes, the whip's scorches
-    (0x359F28: the kit's whip sends no hit event), children particles and meshes the
-    effects spawn other than the ring (`effects.md`, "Importing them" 3); the V5 shots'
-    classes; the shield's V3 glow (0x409A50, its shape not worked out) and its trails'
-    head sparkles; a reference take of the Lava Gun with no
-    enemy in reach, its ribbon's scrolling texture, and the kit's muzzle for it, above
-    and behind the disc model's barrel tip (`effects.md`, "Importing them" 3);
-    what the recipes leave out (`effects.md`, "Importing them" 4: the whip's hit
-    sparks and light, V5's sparkles, the coil's gun and lightning, its arcs' reach and waver, the
-    bolt's growth and second line past the target, the shield's lights, its strips'
-    masks (a custom material: a texture's alpha weighting another's turning colour) and
-    folding draws), and an on-screen look at the whip's V4 wave and the bolts (in the
-    arena replays the Hydra spits but never marks a target; why is open).
-    Next step: the shield's V3 glow (0x409A50 in
-    `cache/w4/seq/shield2.c` if kept: work out whether its ten rings make a disc or a
-    tube) or a game capture of the shield to compare with the kit's.
-  - A shot's firing event (the Miniturret's turret) plays its glove's fire sound, as
-    `rac_demo::sfx` cues by gun, not by shot; so the agents' guns send none yet, and a
-    bolt's strike and the shield's landing play their gun's impact cue. Still open: cue
-    shots' sounds from their own classes (P1.13).
-  - The bolt's strike, 6 ticks after the Hydra's own hit on a mark, falls in the kit's
-    placeholder 8-tick recovery from a gun's hit (`CombatTuning::gun_recovery_ticks`),
-    so in play the bolt's half is lost; the test turns the recovery off. Still open: the
-    game leaves it to each enemy's code (P1.8).
-  - The Tesla Barrier's `rand(20, 60)` is each slot's wait before its next bolt, not a
-    bolt's life (0x3410E8), but the kit's tesla bolts last that long. Still open.
-  - Every particle was drawn √2 too wide: the game's renderer takes a particle's size as
-    half its diagonal (measured on screen, `effects.md`, "Particles"). Fixed for glows,
-    bursts and trails in particle textures (`PARTICLE_ACROSS`), with `flash` for the
-    two-phase curve of types 0x35 and 0x4E (`Fx::look`), set on every recipe whose game
-    type is one of them (`effects.md`, "Importing them" 3). Not done: 0x5C, whose update
-    is read but not each caller's delay and first-phase length (its 9th and 11th
-    arguments), so its glows still change evenly; the 0.9 u its spawner puts it toward
-    the camera.
-  textures and vertex colours match in classic mode, and the collision overlay lines up.
-  Check this against PCSX2 screenshots, kept locally and never committed.
-
-### Phase 4: Runtime spike, static recompilation plus HLE (the gate for G2)
-
-**Goal:** UYA NTSC-U's unpacked game ELF plus one level overlay runs natively far enough to
-render that level through our renderer.
-
-- [ ] **P4.1** R5900 decoder in `rac_recomp`, using rabbitizer (Rust) or ico-recomp's
-  `r5900-decode` (MIT). It must cover:
-  - the integer instructions and 128-bit MMI;
-  - the COP1 FPU with PS2 semantics (no NaN, infinity or denormals; clamping);
-  - COP2 VU0 macro mode and the needed subset of COP0;
-  - branch delay slots and branch-likely instructions.
-
-  The generated code must be deterministic: the PS2's floating-point semantics are
-  implemented explicitly rather than inherited from the host.
-- [ ] **P4.2** Function discovery and control flow:
-  - Heuristics plus the RE.2 symbols, and jump tables.
-  - Indirect calls go through an address → function table.
-  - Each overlay is its own unit, keyed by (release, overlay). Functions that are identical
-    across overlays are deduplicated by hash, since DL's overlays share 85–97% of their
-    code.
-- [ ] **P4.3** Backend: Cranelift JIT for development, and ahead-of-time compilation
-  (`cranelift-object`) at **install time**, with the output cached in the data directory.
-- [ ] **P4.4** `rac_runtime`:
-  - Memory: 32 MB RAM, the scratchpad, and stubs for memory-mapped I/O.
-  - The EE kernel syscalls, emulated at a high level: threads, semaphores, interrupt
-    handlers, alarms.
-  - Interrupts are delivered at safe points.
-  - Fast snapshot and restore of the whole runtime state. Co-op resync, debugging and maybe
-    rollback (P6.2) all need it.
-- [ ] **P4.5** IOP services emulated at the SIF RPC level, using Play! (BSD) and PS2SDK as
-  references (RE.12). CD reads go to `rac_iso`; mc to save files; pad to `rac_input`;
-  989snd to `rac_audio`.
-- [ ] **P4.6** Render bridge:
-  - Intercept the submission of VU1 chains and translate each known VU1 program into native
-    draw calls, as OpenGOAL does with its buckets (RE.11).
-  - Reimplement the VU0 moby-skinning helper natively.
-- [ ] **P4.7** Hook mechanism: a table mapping (release, address) → a Rust function,
-  generated from RE.2. It serves four purposes: HLE of library functions (memcpy, printf,
-  …), engine services, the native hero, and the progressive rewrites.
-- [ ] **P4.8** Differential harness: compare RAM and hero state against PCSX2 at
-  checkpoints, using PINE (RE.5).
-- **Gate:** if the UYA level boots and renders within the spike's budget, adopt section 4.1
-  for G2. If not, write an ADR and fall back to rewriting each game's core natively, with
-  the decompilations as the specification.
-
-### Phase 5: Full games, one release at a time
-
-Order: section 4.4.
-
-- [ ] **P5.1** Boot → title screen → menus, with options and language selection (PAL discs
-  carry 5 languages).
-- [ ] **P5.2** Saves: memory card → local save files. Import PCSX2 memory-card images.
-  Support the cross-game save bonuses.
-- [ ] **P5.3** Every level, mission, boss, vendor and minigame (races, ship sections, Clank
-  and Qwark sections, Giant Clank, arenas, vehicles).
-- [ ] **P5.4** Cutscenes (in-engine scenes and FMVs), music and speech.
-- [ ] **P5.5** Remaster features (G5), **all on by default**, with classic mode available:
-  - widescreen and ultrawide, with HUD layouts to match;
-  - resolution scaling;
-  - high frame rates (a 60 Hz simulation plus interpolation);
-  - MSAA/TAA;
-  - mouse camera and aiming, and FOV;
-  - complete PC settings menus;
-  - rebinding everywhere.
-- [ ] **P5.6** Compatibility tracker at `docs/compat.md`, listing each release and level
-  with its status.
-- [ ] **P5.7** Bring the shared hero controller to R&C1 and GC (D2, D7):
-  - The native hero replaces the recompiled one, with a movement profile read from that
-    game's own code (RE.3 for R&C1 and GC).
-  - What carries across is the controls and the moves that need no item. Each game keeps
-    its own movement values and its own abilities, gated by its own items (section 5,
-    2026-10-12): no charge boots in R&C1.
-  - Fix individual levels where the new moves break assumptions: sequence breaks, triggers,
-    camera volumes.
-  - Offer the classic hero as a single-player option (D7).
-- **Done when (for each release):** it can be finished start to finish, including 100%
-  completion, with no softlocks, and its behaviour matches PCSX2 in the spot checks.
-
-### Phase 6: Direct-IP co-op in every game (G4)
-
-Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
-
-- [ ] **P6.1** Co-op rules for every game, built on RE.10 and written in `docs/coop-design.md`:
-  - What is shared and what is per player.
-  - Respawn and revive.
-  - The tether: Gladiator's (40 u, 10 s, both die) and where each game places one.
-  - The team moves: Gladiator's L3 (×4 damage, 30 s) and R3 (a shield that in co-op
-    blocks no damage), and whether ours keep that.
-  - What player 2 does in single-player-only sections (Clank, Giant Clank, ships,
-    hoverboards, races, turrets).
-  - Difficulty scaling.
-- [ ] **P6.2** ADR on netcode for the full games:
-  - Lockstep or rollback, given what a runtime snapshot costs.
-  - Input delay.
-  - Desync detection, and resync by transferring a snapshot.
-  - Joining only at level load, or at any time.
-  - Pause and menus during co-op.
-  - Whose save the progress goes to.
-- [ ] **P6.3** Two heroes in the runtime:
-  - The native hero subsystem, with two heroes, replaces the recompiled hero.
-  - Enemy targeting and every other "the hero" reference are redirected through hooks.
-  - Each player has their own camera and HUD, and each peer renders its own view.
-- [ ] **P6.4** Sessions inside the full game:
-  - Host and join from the main menu.
-  - A handshake checking the release (by boot-ELF hash), the build and the settings.
-  - Synchronised level loads.
-  - Disconnect and reconnect.
-- [ ] **P6.5** Per-game adapters, applied in the order UYA → DL → R&C1 → GC:
-  - A co-op compatibility list for each release and level.
-  - Difficulty options.
-- [ ] **P6.6** Local split-screen (D6), built on the same foundation: Bevy viewports and two
-  local input sources.
-- [ ] **P6.7** Network quality:
-  - Tests with simulated latency, packet loss and jitter.
-  - Long soak tests that look for desyncs.
-  - Target: playable at 100 ms round trip with at most 3 frames of input delay.
+  - Done: the level core's effect and particle textures and particle lists
+    (`Core::fx_textures`, `Core::particle_textures`); the kit's ISO-free effects layer
+    `rac_demo::fx` (glows, bursts, beams and bent beams, strips, ribbons, trails, rings,
+    domes, shells, decals, models, lights drawn as the game's (§5, 2026-11-03), camera
+    shake, screen flashes and warps, refraction), in the game's blends, driven by recipes
+    in `rac_demo/assets/effects.ron` keyed by the game's texture numbers, with painted
+    placeholders when there is no disc; every gun's calls read with their arguments and
+    in recipes as far as the layer goes; the shots' models, skinned and animated by level
+    (`openrac/src/shot_models.rs`). How each gun compares with the game is P1.9's review.
+  - Open in the layer (`effects.md`, "Importing them" 3 and 4, has the rest): particle
+    type 0x5C changes evenly (each caller's delay and first-phase length, its 9th and
+    11th arguments, aren't read) and lacks the 0.9 u its spawner moves it toward the
+    camera; the Tesla Barrier's `rand(20, 60)` is each slot's wait before its next bolt,
+    but the kit's bolts last that long; the bolt's strike, 6 ticks after the Hydra's hit,
+    falls in the kit's placeholder 8-tick recovery from a gun's hit
+    (`CombatTuning::gun_recovery_ticks`), so in play half the bolt is lost (the game
+    leaves it to each enemy's code); the Hydra's arcs aren't cut at walls, and its
+    strips' ends sit on an offset from the kit's muzzle, not the model's posed joints;
+    effects driven by a gun's sustain (the Suck Cannon's vortex) or by events the kit
+    doesn't send (taking something in, ricochets); children particles and meshes other
+    than the ring; the V5 shots' classes; the strips' masks (a custom material); the
+    Lava Gun's ribbon's scrolling texture; the yaw `whip_link_place` adds in a combo,
+    which the kit reads as the hand's travel added to links 1 and 2.
+  - Next step: the guns' looks, in the order P1.9's review gives.
 
 ### Phase 7: Release
 
-- [~] **P7.1** Windows package: MSVC build, zip or installer. It uses the default backend
-  chosen in P1.14 and offers the other as an option.
+- [~] **P7.1** Windows package: MSVC build, zip.
   - Done: `.github/workflows/release.yml` builds the game in release and zips
     `openrac.exe` with `LICENSE` and `README.md`, the C runtime linked in (`+crt-static`;
     blake3 is the only C code, built through `cc`, which follows it). A `v*` tag makes a
     draft GitHub release of both platforms' packages; a run by hand keeps them as
-    artifacts. Release builds open no console window (`windows_subsystem`) and attach to
-    the terminal they were started from (`attach_parent_console` in `openrac`'s `main`),
-    so a crash when started from Explorer shows nothing until P7.4's crash logs.
+    artifacts (§5, 2026-11-03). Release builds open no console window and attach to the
+    terminal they were started from (`attach_parent_console`), so a crash when started
+    from Explorer shows nothing until P7.4's crash logs.
   - Not done: no tag has published packages yet. The packages lack the dependencies'
     licence notices, which MIT and Apache-2.0 require with binaries (for example `cargo
     about`); add them before publishing a release. The backend default waits on P1.14.
-  - Tag `v0.1.0` built both packages, but the publish job failed: `download-artifact`
-    unpacks any zip, so the Windows package arrived as loose files. Fixed with
-    `skip-decompress: true`; the tag still points at the old workflow.
+  - Tag `v0.1.0`'s publish job failed: `download-artifact` unpacks any zip, so the Windows
+    package arrived as loose files. Fixed with `skip-decompress: true`; the tag still
+    points at the old workflow.
   - Next step: try both packages, and attach them to the next tag's release.
-- [~] **P7.2** Linux package: tarball and AppImage or Flatpak, using Vulkan.
-  - Done: `release.yml` (P7.1) makes a tarball, built on `ubuntu-22.04` so the binary
-    needs only glibc 2.35. Not done: AppImage or Flatpak.
-- [ ] **P7.3** First-run flow:
-  - Choose the ISOs (either `./source` or a file picker).
-  - Identify them.
-  - Extract and recompile, with a progress UI.
+- [~] **P7.2** Linux package: a tarball, built on `ubuntu-22.04` so the binary needs only
+  glibc 2.35 (`release.yml`). Not done: AppImage or Flatpak.
 - [ ] **P7.4** Polish:
   - Controller glyphs, accessibility options and crash logs.
   - Networking help: firewall, and a forwarded port for when mapping and hole punching
     fail (D8).
-  - Possibly mod support.
 - [ ] **P7.5** Legal review of disclaimers and branding (trademark use in the project
   name).
 
 ## 7. Cross-cutting
 
 - **Testing:** unit tests on synthetic data; disc tests read `OPENRAC_SOURCE_DIR`, are
-  `#[ignore]`d with a reason and run with `cargo test -- --ignored`; golden checksums;
-  feel-matching tests (RE.6); determinism replays (P1.19); differential tests against
-  PCSX2 (Phase 4 onward); visual comparisons, run locally only.
+  `#[ignore]`d with a reason and run with `cargo test -- --ignored`; feel-matching tests
+  (RE.6); the sync test and rollback tests (P1.18); determinism replays (P1.19); visual
+  comparisons with the game, run locally only.
 - **CI** (P0.7, P0.12): fmt, clippy with `-D warnings`, tests, Windows and Linux builds,
-  the data-hygiene guard, and later the ISO-free kit check (P1.16) and cross-OS
-  determinism hashes. Disc tests never run in CI. Release packages come from
+  the data-hygiene guard, and later the kit's dependency check (P1.16) and cross-OS
+  determinism hashes (P1.19). Disc tests never run in CI. Release packages come from
   `release.yml` (P7.1, P7.2).
-- **Determinism** is a requirement because of co-op: a fixed 60 Hz simulation, a seeded
-  RNG per level, `libm` maths, stable ordering, input record and replay, and state
-  checksums.
-- **Performance budgets:** the demo at 60 fps or better at 1080p on a mid-range GPU;
-  recompiled game logic under 4 ms a frame; level loads under 2 s from a warm cache; co-op
+- **Determinism** is a requirement because of co-op: a fixed 60 Hz simulation, seeded
+  RNG, `libm` maths, ordering by `SimId`, x86-64 without FMA, input record and replay,
+  and per-tick checksums (`docs/netcode.md`).
+- **Performance budgets:** the demo at 60 fps or better at 1080p on a mid-range GPU; co-op
   playable at a 100 ms round trip.
 - **Diagnostics:** `tracing` through Bevy's logging (`RUST_LOG`), the `bevy/trace_tracy`
-  feature for profiling, an egui debug overlay, and network stats (round trip, rollbacks,
-  desyncs).
-- **Documentation:** findings in `docs/research/`; our own format specs, in our words and
-  citing sources, in `docs/formats/`; architecture decision records for big choices (the
-  Phase 4 gate, the netcode model) in `docs/adr/`.
+  feature for profiling, and co-op's status line.
+- **Documentation:** findings in `docs/research/`; the kit's public API documented for
+  mash-ups (P1.16).
 
 ## 8. Risks
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| The controller doesn't feel like the original | G1 fails at its core | Reverse engineering from day one (RE.3, RE.4); measured traces (RE.5); tolerance tests (RE.6). |
-| Determinism breaks between machines or operating systems | Co-op desyncs | `libm` math, no reliance on iteration order, replay tests across operating systems in CI, per-tick checksums, resync by snapshot. |
-| Lockstep feels laggy in a fast shooter | Poor co-op | Low input delay; rollback for the demo; reconsider rollback for the full games once runtime snapshots are fast (P6.2). |
-| Backported moves break older levels (sequence breaks, triggers, cameras) | Bugs and softlocks | Per-level fixes, the classic hero option (D7), and the compatibility list (P5.6). |
-| Legal problems in a public repo (incompatible or unlicensed code, derived data, trademarks) | Takedown or relicensing | The CLAUDE.md rules (GPL-3.0-or-later; reused code keeps its notices; GPL-2.0-only and unlicensed code reference only), the CI data guard (P0.12), generating everything at install, and P7.5. |
-| VU1 and GS semantics (bloom, render-to-texture, texture paging) | Visual bugs | Native renderers per renderer type, OpenGOAL as precedent, the PCSX2 GameDB fixes as a map of hard spots, PCSX2 comparisons. |
-| Recompiler complexity (overlays, indirect jumps, asynchronous VU0, non-IEEE floats) | G2 slips | The Phase 4 spike and gate; reuse rabbitizer and ico-recomp; differential testing. |
-| IOP and sound gaps (989snd variants, "stash", DL's streamer) | Missing audio | Port OpenGOAL's 989snd; emulate at the RPC level (RE.12). |
-| PAL data tuned for 50 Hz (R&C3 PAL, Gladiator PAL) | Wrong speeds | NTSC-U as the primary reference; RE.8; per-release adapters. |
-| Bevy churn (a breaking release roughly every 4 months; ecosystem lag) | Upgrade cost | Pin versions; upgrade in one dedicated change; keep the format, recompiler, runtime and netcode cores free of Bevy. |
+| The controller doesn't feel like the original | G1 fails at its core | Reading the games' code (RE.3, RE.4); measured traces (RE.5); tolerance tests (RE.6). |
+| Determinism breaks between machines or operating systems | Co-op desyncs | `libm` maths, ordering by `SimId`, x86-64 without FMA, the sync test, replays across operating systems in CI (P1.19), per-tick checksums. |
+| Legal problems in a public repo (incompatible or unlicensed code, derived data, trademarks) | Takedown or relicensing | The CLAUDE.md rules (GPL-3.0-or-later; reused code keeps its notices; GPL-2.0-only and unlicensed code reference only), the CI data guard (P0.12), reading discs only at run time, and P7.5. |
+| Bevy churn (a breaking release roughly every 4 months; ecosystem lag) | Upgrade cost | Pin versions; upgrade in one dedicated change; keep the disc crates free of Bevy; prefer crates that don't depend on Bevy (`ggrs` without `bevy_ggrs`). |
 | The kit's API churns and breaks mash-ups | Reuse suffers | A small documented API, the sandbox example (P1.16), and semantic versioning once it stabilises. |
 | NVIDIA driver crash when compiling pipelines in parallel | Crashes at startup | Synchronous compilation (done); prewarm pipelines; re-test regularly (P1.15). |
-| Scope: 6 discs, 4 engines, online co-op and a remaster | Never finishing | Strict phase gates, UYA and DL first, and the demo first for visible progress. |
-| Continuity across many AI sessions | Lost context | Keep §0 and each task's state current, write findings into `docs/research/` as they are checked. |
+| Continuity across many AI sessions | Lost context | Keep §0 and each task's state current, and write findings into `docs/research/` as they are checked. |

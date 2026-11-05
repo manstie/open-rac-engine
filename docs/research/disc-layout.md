@@ -423,8 +423,7 @@ on both discs, whose disc tests read every level.
 3. A **WAD decompressor** is the first codec to write. Phase 2 depends on it, and so does
    any automated reverse engineering of the packed executables. Done (P2.4, P2.5):
    `openrac-tool unpack-elf` gives Ghidra the boot program (the engine core and the title
-   screen) as an ELF. Level code still comes from savestates until P2.6 extracts the
-   overlays.
+   screen) as an ELF. Level code comes from savestates.
 4. R&C1 and R&C2 keep section headers. That makes them the easiest first targets for
    mapping engine versus game code and the level-overlay interface (`lvl.*vtbl`).
 5. The VU1 microcode is cleanly separated and catalogued, so the renderer's VU programs can

@@ -1,7 +1,7 @@
 # Co-op: how Deadlocked plays its campaign with two players
 
 How Ratchet: Deadlocked runs its campaign for two players on one console (PLAN.md RE.10),
-the reference for the co-op rules every game gets (P6.1) and for the kit's co-op (P1.18).
+the reference for the kit's co-op (P1.18).
 Started 2026-10-28 from DL NTSC-U's code.
 
 ## Status and method

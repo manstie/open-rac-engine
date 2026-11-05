@@ -23,7 +23,7 @@ hero kit's weapons framework (P1.9). Started 2026-10-16 on UYA NTSC-U; DL follow
   0x2C5640 on Veldin. It is static data in each level's copy of the game program: the
   same bytes sit at 0x2C3200 on Florana, 0x2C4A00 on the Phoenix and 0x2C2940 in the
   sewers, and neither the boot ELF nor the title screen has it. So it is on the disc,
-  inside the level overlays, and can be read from the user's disc once P2.6 unpacks them.
+  inside the level overlays.
 - **Per-item arrays**, indexed by item number, kept with the save:
 
   | Address | Size | What |

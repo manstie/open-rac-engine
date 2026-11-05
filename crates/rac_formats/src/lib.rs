@@ -1,4 +1,4 @@
-//! Parsers for the games' data formats (PLAN.md §4.3, Phase 3).
+//! Parsers for the games' data formats (PLAN.md §4.1, Phases 2 and 3).
 //!
 //! Nothing here depends on Bevy, so tools and tests can use it directly. Everything reads
 //! from an [`Image`]: a block of game data addressed the way its own pointers are, either

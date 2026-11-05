@@ -189,19 +189,19 @@ add `--every-tick`, which runs one tick per frame drawn (slowed down, with every
 
 - **Layout:** a virtual workspace of `crates/*` and `tools/*`; `tools/*` holds
   reverse-engineering tools that never ship. The binary is `openrac`; libraries are
-  `rac_*` (crate map in PLAN.md §4.3); the CLI is `openrac-tool` (`rac_tool`).
+  `rac_*` (crate map in PLAN.md §4.1); the CLI is `openrac-tool` (`rac_tool`).
 - **New crates** inherit `version`, `edition`, `license` and `repository` from the
   workspace, set `publish = false` and `[lints] workspace = true`, and take shared
   dependencies from `[workspace.dependencies]`.
-- **Keep Bevy out of the core crates:** `rac_iso`, `rac_formats`, `rac_recomp` and the
-  runtime core must not depend on it.
+- **Keep Bevy out of the disc crates:** `rac_iso`, `rac_formats` and `rac_audio` must not
+  depend on it.
 - **The hero kit is ISO-free:** `rac_sim`, `rac_input`, `rac_hero`, `rac_rig`,
-  `rac_combat`, `rac_net` and `rac_demo` never depend on the disc, format, asset or
-  runtime crates, so other Bevy projects can reuse them as plain plugins (PLAN P1.16).
+  `rac_combat`, `rac_net` and `rac_demo` never depend on the disc crates, so other Bevy
+  projects can reuse them as plain plugins (PLAN P1.16).
   They ask Bevy only for the features they use (the workspace turns Bevy's defaults off;
   `openrac` turns them on), keep collision behind the kit's own interface, and keep their
   configuration in RON assets.
-- **Simulation code must be deterministic**, for lockstep and rollback co-op (PLAN §4.2):
+- **Simulation code must be deterministic**, for rollback co-op (PLAN §4.2):
   - Use `bevy::math::ops` (Bevy's `libm` feature) instead of `f32` trig, exp and pow.
   - Never depend on `HashMap`/`HashSet` iteration order; keep entity ordering stable.
   - Draw randomness only from the level's seeded RNG.
@@ -244,18 +244,16 @@ remove it without re-testing (PLAN P1.15).
 
 ## Game discs
 
-The eight discs and their hashes are in
+The discs and their hashes are in
 [docs/research/disc-layout.md](docs/research/disc-layout.md).
 
 | Folder in `source/` | Release(s) |
 |---|---|
-| `Ratchet & Clank` | R&C1 NTSC-U SCUS-97199, and R&C1 PAL v2.00 SCES-50916 |
-| `Ratchet & Clank 2` | GC NTSC-U v2.00 SCUS-97268, and GC PAL SCES-51607 |
 | `Ratchet & Clank 3` | R&C3 PAL SCES-52456, and UYA NTSC-U SCUS-97353 |
 | `Ratchet Gladiator` | Deadlocked NTSC-U SCUS-97465, and Gladiator PAL SCES-53285 |
 
-- UYA (SCUS-97353) and DL (SCUS-97465) are the primary references; R&C3 and Gladiator PAL
-  come next; then R&C1 and GC, with their NTSC-U discs as the references.
+- UYA (SCUS-97353) and DL (SCUS-97465) are the references; R&C3 PAL and Gladiator PAL are
+  their PAL builds, read wherever their data is the same (PLAN P2.10).
 - **Identify a release by its boot ELF name and SHA-1**, never by the ISO's file name.
 - **Tests that need discs** read the disc directory from `OPENRAC_SOURCE_DIR`, are marked
   `#[ignore = "needs game discs"]`, and run with `cargo test -- --ignored`. CI never runs
@@ -277,7 +275,7 @@ Setup, launchers, menu paths, gotchas and the catalogue of savestates and traces
 - **Unpacked UYA/DL code:** `openrac-tool unpack-elf --iso <disc> --out
   cache/elf/<boot>.elf` writes the boot program (the engine core and the title screen) as
   an ELF that Ghidra imports directly (about a minute). Level code, the hero's included,
-  comes from savestates until PLAN P2.6: `tools/ghidra/import-savestate.sh <state.p2s>
+  comes from savestates: `tools/ghidra/import-savestate.sh <state.p2s>
   <name> [symbols.toml]` imports a savestate's EE memory into Ghidra and analyses it
   (about 3 minutes); use a savestate in a level, not the title screen. `DecompileAt.java`
   dumps chosen functions into `cache/`, never the repo. `wrenchbuild unpack` also works,

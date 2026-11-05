@@ -1896,8 +1896,8 @@ Read in `hero_update_state`, `hero_transitions`, `hero_change_state` and the rai
       first stance's animation (sequence 44, five keyframes).
     - **Still unknown:** what grinding uses that UYA's levels lack. 208 instructions read
       the state type, so we left it.
-  - So a grind trace needs GC or DL. GC's rails are many but its disc is PAL and later
-    (PLAN D3); DL's arenas can't be played from a new game yet (`docs/re-setup.md`).
+  - So a grind trace needs DL, whose arenas can't be played from a new game yet
+    (`docs/re-setup.md`).
 - **Rails** are splines in a level list (0x1DFD10 in Veldin's build, count at 0x1DFD14),
   filled from the gameplay file when the level loads. Each entry is 0x20 bytes: a
   bounding sphere, the spline, and a flag word.

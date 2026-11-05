@@ -18,7 +18,7 @@ else comes from web research and has not been re-checked.
 facts or code from. Every project is noted here, but it goes into the README only when we
 first take something from it.
 
-## Projects doing what we want to do
+## Ports and decompilations of the games
 
 | Project | What it is | Target | Licence | Status |
 |---|---|---|---|---|
@@ -50,8 +50,7 @@ volumetric fog, 3D clouds and shining stars, global illumination, ambient occlus
 dynamic shadows, clear reflective water with waves and tides, vegetation, animated fire
 that lights the scene, rising volumetric smoke, fur on Ratchet, shiny metal, sun rays,
 frame smoothing and a sharp HUD. It also has FSR and DLSS upscaling, and reads PCSX2
-texture packs as they are. That is close to what PLAN P3.17 and P5.5 want, so **draw from
-it for the remaster render path**.
+texture packs as they are. Its fire, smoke and metal may help the demo's effects.
 
 - **Where it lives:** `rac-rs/src/engine/viewer/` has one module per effect, with its WGSL
   beside it:
@@ -87,8 +86,57 @@ it for the remaster render path**.
   look like where those rewrites live. Treat them as decompiled game code and never copy
   them. Check where baked data such as `viewer/firebook/firebook.r8g8.z` (6 MB) comes from
   before taking any of it.
-- **Tuned for R&C1:** rac-rs's effects are tuned for R&C1's levels. Our first targets are
-  UYA and DL (PLAN §4.4).
+- **Tuned for R&C1:** rac-rs's effects are tuned for R&C1's levels; ours are UYA's and
+  DL's.
+
+### rac-rs's runtime
+
+Checked on 2026-11-05 from the file tree and the headers of the files named here, through
+the GitHub API ✔. Their bodies haven't been read.
+
+rac-rs runs R&C1's own code. Running the games is outside this project's scope (PLAN §1),
+so this is for reference. Its parts:
+
+- **The recompiler** is a Python script that setup runs, `tools/recgen_iso.py`. It reads the
+  boot ELF and each level's overlay records from the user's ISO and writes one Rust
+  function per game function. Control flow is structured where the graph allows and a
+  `loop { match pc }` where it doesn't.
+  - The functions come from a list of entry and end addresses per level
+    (`tools/fn_bounds.tsv`). A coverage run picks which get compiled, and anything else
+    runs in the interpreter.
+  - Setup downloads a Rust toolchain to build the generated crates, which takes 10–30
+    minutes and about 6 GB of memory.
+- **The EE core** is the `oracle/` crate:
+  - an R5900 interpreter that the generated code shares (`core/src/cpu.rs`, `fpu.rs`,
+    `vu.rs`: integer, MMI, FPU, VU0 macro mode);
+  - memory and DMA (`mem.rs`), VIF and VU (`vif.rs`, `vu.rs`, `vu0aot.rs`);
+  - a high-level kernel (`hle.rs`), with `cold.rs` booting the ELF from the ISO with no
+    BIOS and no savestate;
+  - the memory card (`mc.rs`), the SPU2 (`spu2.rs`) and the IOP's 989snd driver
+    (`snd989/`, with tests).
+- **Game-specific parts:** the addresses of the SDK functions it hooks, its stub and boot
+  hook rules (`stubs.txt`, `cold_hooks.txt`) and constants such as the vblank counter. For
+  GC PAL it has begun a second profile, `oracle/src/rc2/`, which finds the same SDK
+  functions at GC's addresses by matching masked code (`ver::Addrs`).
+- **Drawing** has two paths:
+  - The default draws the game's state natively on `wgpu` from the level's decoded assets
+    (`rac-rs/src/engine/viewer/`), as OpenGOAL does.
+  - `--gsfull` (`rac-rs/src/engine/gsfull/`) runs VIF1, VU1 and a software GS. VU1 has an
+    interpreter, and `tools/vu/vu1gen.py` translates the disc's microprograms to Rust. This
+    shows a game's whole picture with no renderer written for it. GC uses it for the HUD
+    and effects over its world.
+- **What would carry to UYA:** the CPU core, the kernel, VIF, VU, GS and SPU2 models, and
+  probably 989snd, once their R&C1 addresses become a UYA profile as `rc2/` is for GC.
+  UYA's function list, level loader and game hooks would be new.
+- **Off limits**, besides `src/rac1/game/` and `src/rac1/retail/` (above):
+  - `oracle/src/hs_hands/` holds rewrites of R&C1's hottest functions, generated from the
+    game's code, so it is game code.
+  - The PGO profiles in `pgo/` come from running the game.
+- **Check before taking:** `snd989/` reimplements Sony's 989snd from its IOP module (its
+  comments cite the module's addresses), as OpenGOAL's port did from Jak's. Find out how it
+  was written before taking any of it, and prefer our OpenGOAL port where the two overlap.
+- **Scale:** its comments mention its 137th development session ("dev s137"). R&C1 has
+  decompilations at 72–78% to check against; UYA's is at about 7%.
 
 ## Modding tools and format references
 
@@ -247,7 +295,7 @@ it for the remaster render path**.
 | Cranelift 0.136 | Apache-2.0 with LLVM exception | `cranelift-jit` and `cranelift-object` (for compiling ahead of time). The gecko GameCube/Wii emulator (GPL) is a precedent for using it this way. |
 | `ps2-memcard` / `ps2mc` crates | various | Read PS2 memory-card images, for importing PCSX2 saves. |
 | `objdiff-core` | MIT/Apache | Function diffing, for differential testing. |
-| `ggrs` 0.13 | MIT/Apache | GGPO-style peer-to-peer netcode over UDP. Supports rollback, and lockstep with prediction turned off. It doesn't depend on Bevy. Our planned co-op transport (PLAN §4.2). |
+| `ggrs` 0.13 | MIT/Apache | GGPO-style peer-to-peer netcode over UDP. Supports rollback, and lockstep with prediction turned off. It doesn't depend on Bevy. Our co-op's rollback, driven by `rac_net` (PLAN §4.2). |
 | `bevy_ggrs` 0.22, `lightyear` 0.30, `bevy_replicon` 0.44 | MIT/Apache | Bevy networking crates, all still on Bevy 0.19 as of 2026-10-11. |
 | `igd-next` 0.18 | MIT | UPnP port mapping, so direct-IP hosts can open a port automatically (PLAN D8). Used by `rac_net::upnp`, with its blocking client, which brings `attohttpc` (MPL-2.0, which GPLv3 can absorb). |
 | `socket2` 0.6 | MIT/Apache | Opens co-op's IPv6 socket for IPv6 alone, which std can't set before binding, so it leaves the IPv4 port to its own socket (PLAN D8). Used by `rac_net::link`. PCP and NAT-PMP (`rac_net::pcp`) are our own, from RFC 6887 and RFC 6886. |
@@ -256,4 +304,4 @@ it for the remaster render path**.
 
 | Reuse, keeping its notices | Reference only (read, never copy) | Never commit |
 |---|---|---|
-| ReRAC (ISC), OpenGOAL (ISC), Play! (BSD-2), ico-recomp crates (MIT), libdl and libuya (MIT), Pipe (MIT), rabbitizer (MIT), CCC (MIT), pine-ipc (MIT), Cranelift (Apache), ggrs (MIT/Apache), igd-next (MIT), PS2SDK (AFL-2.0), rac-modding-resources (CC0); Wrench, Replanetizer, PCSX2, DobieStation, PS2Recomp, m2c, and the tooling of OpenRAC, rac1-decomp and Lombyte (all GPL-3.0), rac-rs's engine and shaders (GPL-3.0-or-later, without its DLSS bridge), paraLLEl-GS (LGPL) | ps2tek and RCMemory (no licence), any GPL-2.0-only code, Sony's manuals | Decompiled game code (whatever its label, so the decompiled sources of rac1-decomp, Lombyte and OpenRAC's decompilations, and rac-rs's rewrites of the game's functions), game data or anything extracted from it, Sony SDK code or NDA material |
+| ReRAC (ISC), OpenGOAL (ISC), Play! (BSD-2), ico-recomp crates (MIT), libdl and libuya (MIT), Pipe (MIT), rabbitizer (MIT), CCC (MIT), pine-ipc (MIT), Cranelift (Apache), ggrs (MIT/Apache), igd-next (MIT), PS2SDK (AFL-2.0), rac-modding-resources (CC0); Wrench, Replanetizer, PCSX2, DobieStation, PS2Recomp, m2c, and the tooling of OpenRAC, rac1-decomp and Lombyte (all GPL-3.0), rac-rs's engine and shaders (GPL-3.0-or-later, without its DLSS bridge), paraLLEl-GS (LGPL) | ps2tek and RCMemory (no licence), any GPL-2.0-only code, Sony's manuals | Decompiled game code (whatever its label, so the decompiled sources of rac1-decomp, Lombyte and OpenRAC's decompilations, and rac-rs's rewrites of the game's functions, its `hs_hands` included), game data or anything extracted from it, Sony SDK code or NDA material |

@@ -296,8 +296,8 @@ code, with its notices, not here; what may be reused is in `CLAUDE.md`'s legal r
   screen, menus) are in [coop.md](coop.md).
 - **Split-screen multiplayer maps** also have their own builds: UYA levels 50–55 and DL
   levels 61–74.
-- **The single-player code in R&C1–UYA assumes one hero.** A co-op backport therefore needs
-  native support for several heroes, cameras and HUDs (see PLAN.md, Phase 6 and RE.10).
+- **The single-player code in R&C1–UYA assumes one hero.** Co-op in those games would
+  need native support for several heroes, cameras and HUDs.
 
 ## Misc
 

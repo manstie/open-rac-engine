@@ -1,47 +1,47 @@
 # Open Ratchet & Clank Engine
 
-An open-source reimplementation of Insomniac Games' PlayStation 2 *Ratchet & Clank* engine,
-written in Rust with the [Bevy](https://bevy.org) game engine.
+A character controller for Ratchet as he plays in *Ratchet & Clank 3* and *Ratchet:
+Gladiator*, written in Rust as plugins for the [Bevy](https://bevy.org) game engine, with
+a demo to play it in.
 
 > [!NOTE]
-> **No game content is included.** You need your own copies of the games. This is an
+> **No game content is included.** The kit and its demo run without the games; with your
+> own copy of a disc, the demo can also use Ratchet's real models and sounds. This is an
 > unofficial fan project; see the [disclaimer](#disclaimer).
 
 ## Goals
 
-- **A standalone hero kit.** The *Ratchet & Clank 3* / *Gladiator*-era player controller,
-  camera, melee and weapons, rebuilt to feel as close to the originals as possible.
+- **A hero kit for your own projects.** Ratchet's moves, camera, melee and weapons from
+  *Ratchet & Clank 3* and *Ratchet: Gladiator*, each game's with its own numbers read from
+  that game's code, rebuilt to feel as close to the originals as possible.
   - It runs **without any game disc**, using a placeholder character made of simple shapes.
   - It is packaged as Bevy plugins you can drop into your own projects and mash-ups.
-- **Run the original games natively on Windows and Linux**, with DirectX 12 and Vulkan,
-  using disc images you supply.
+  - With your own disc of either game, the demo uses Ratchet's real models, animations,
+    sounds and weapon effects, read from the disc as it starts.
 - **Controller, keyboard and mouse support**, with every action remappable.
-- **Two-player online co-op in every game, connecting the players directly** with no
-  servers to host, and with mechanics based on *Ratchet: Gladiator*'s co-op. Local
-  split-screen follows.
+- **Two-player online co-op, connecting the players directly** with no servers to host.
 
 ## Games
 
-| Game | Also released as | Disc versions being worked with | Status |
+| Game | Also released as | Disc versions | Status |
 |---|---|---|---|
-| *Ratchet & Clank 3* (2004) | *Ratchet & Clank: Up Your Arsenal* | SCUS-97353 (USA), SCES-52456 (Europe/Australia) | First target; the hero controller is playable in the demo, tuned to the USA release |
-| *Ratchet: Gladiator* (2005) | *Ratchet: Deadlocked* | SCUS-97465 (USA), SCES-53285 (Europe/Australia) | First target; research |
-| *Ratchet & Clank* (2002) | | SCUS-97199 (USA), SCES-50916 (Europe/Australia, v2.00) | Planned |
-| *Ratchet & Clank 2* (2003) | *Ratchet & Clank: Going Commando* | SCUS-97268 (USA, v2.00), SCES-51607 (Europe/Australia) | Planned |
+| *Ratchet & Clank 3* (2004) | *Ratchet & Clank: Up Your Arsenal* | SCUS-97353 (USA), SCES-52456 (Europe/Australia) | Playable in the demo: the moves, camera, melee and all twenty weapons, tuned to the USA release |
+| *Ratchet: Gladiator* (2005) | *Ratchet: Deadlocked* | SCUS-97465 (USA), SCES-53285 (Europe/Australia) | Playable in the demo: the moves, camera and melee, and four of its ten weapons |
 
-Other disc versions may be added later. Each disc is identified by its contents, not its
-file name. The details are in [docs/research/disc-layout.md](docs/research/disc-layout.md).
+Each disc is identified by its contents, not its file name. The details are in
+[docs/research/disc-layout.md](docs/research/disc-layout.md).
 
 ## How it works
 
-1. **You supply the game.** Point the engine at an `.iso` image of a disc you own.
-2. **The game's data is converted on your machine.** On first run, the engine identifies the
-   disc and converts its levels, models, textures, sound and video into a local cache.
-3. **The game's code is converted on your machine too.** The original gameplay logic is
-   translated from PlayStation 2 machine code into native code ("static recompilation"),
-   so each game keeps its own behaviour.
-4. **A new engine runs it.** Rendering, audio, input, the player character, the camera,
-   co-op networking and the remaster features are reimplemented natively in Rust.
+1. **The kit stands alone.** Its crates hold the hero's movement, camera, weapons and
+   co-op, and depend on no game data. Without a disc he is a placeholder made of simple
+   shapes.
+2. **The numbers come from the games' code.** Jump heights, speeds, timings and weapon
+   stats are read from each game with reverse-engineering tools and written down, in our
+   own words, as that game's profile.
+3. **Your disc, if you have one, dresses him.** The demo reads Ratchet's models,
+   animations, sounds and effect textures from your own disc image as it starts. Nothing
+   it reads is saved.
 
 Nothing from the games is stored in or distributed by this repository.
 
@@ -61,8 +61,6 @@ Builds for Windows and Linux (x86-64) are attached to the
 - Linux needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12 and later) and a Vulkan driver.
 
 ## Building from source
-
-There is little to see yet: the app opens a window with a placeholder scene.
 
 1. **Install Rust** through [rustup](https://rustup.rs). The exact compiler version is
    pinned in `rust-toolchain.toml` and installed automatically.
@@ -95,9 +93,9 @@ in that folder, so they can't be committed by accident.
 
 | Document | What's in it |
 |---|---|
-| [PLAN.md](PLAN.md) | Goals, strategy, decisions, the task-by-task roadmap and the current status. |
+| [PLAN.md](PLAN.md) | Goals, decisions, the task-by-task roadmap and the current status. |
 | [CLAUDE.md](CLAUDE.md) | Working rules for contributors, human or AI: legal rules, setup, commands and conventions. |
-| [docs/research/](docs/research/) | What we know so far: the disc layouts, the engine's internals, and related projects with their licences. |
+| [docs/research/](docs/research/) | What we know so far: how the hero moves, his camera and weapons, the disc formats, and related projects with their licences. |
 
 ## Contributing
 
@@ -125,8 +123,7 @@ PlayStation 2 preservation community. We have taken facts or code from these pro
 - [ReRAC](https://github.com/re-rac/rerac): a native Rust/Bevy port of *Ratchet & Clank*
   (2002). Its notes on mobys guided our model reader.
 - [OpenGOAL](https://github.com/open-goal/jak-project): the native PC port of *Jak and
-  Daxter*, and a model for this project's architecture. Our sound engine ports its 989snd
-  sound effects.
+  Daxter*. Our sound engine ports its 989snd sound effects.
 - [PCSX2](https://github.com/PCSX2/pcsx2): the PS2 emulator we reverse engineer with. Our
   probe follows its PINE protocol and its savestate formats.
 
