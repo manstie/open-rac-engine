@@ -1231,7 +1231,8 @@ pub fn block_shot(arsenal: &mut Arsenal, armory: &Armory, from: Vec3, motion: Ve
 }
 
 /// The Agents of Doom (0x35C9F0): a press with fewer than the most about plays the throw,
-/// and as the pod leaves his hand it takes a round; from V4 the agents come to him at once.
+/// and as the pod leaves his hand it takes a round; from V4 the agents come to the free
+/// slots round him at once, and the pod is thrown only when none is free.
 pub(super) fn agents(
     arsenal: &mut Arsenal,
     armory: &Armory,
@@ -1253,42 +1254,30 @@ pub(super) fn agents(
     ) {
         return;
     }
-    let hero = gun_input.hero;
-    if fire.direct_from.is_some_and(|from| gun.level >= from) {
+    // From V4 they jet to the slots round him, each while one is free; with none free
+    // the pod is thrown, and those it lets out walk.
+    if let Some(hover) = fire
+        .hover
+        .as_ref()
+        .filter(|_| fire.direct_from.is_some_and(|from| gun.level >= from))
+        && free_slot(arsenal, hover).is_some()
+    {
+        let hero = gun_input.hero;
         let facing = flat(gun.facing).normalize_or(Vec3::NEG_Z);
-        for at in round(hero.position, facing, fire.spread)
-            .into_iter()
-            .take(fire.per_pod as usize)
-            .take(fire.deploy.most.saturating_sub(about))
-        {
-            // To a slot round him while one is free, else on foot beside him.
-            let free = fire.hover.as_ref().and_then(|hover| {
-                (0..hover.slots.len()).find(|slot| {
-                    !arsenal.shots.iter().any(|shot| {
-                        matches!(shot.kind, ShotKind::Agent(AgentState {
-                            hover: Some(Hovering { slot: taken, landing: None }),
-                            ..
-                        }) if taken == *slot)
-                    })
-                })
-            });
-            let (at, hovering) = match (free, &fire.hover) {
-                (Some(slot), Some(hover)) => (
-                    slot_place(hover.slots[slot], hero.position, facing),
-                    Some(Hovering {
-                        slot,
-                        landing: None,
-                    }),
-                ),
-                _ => (at, None),
+        for _ in 0..fire.per_pod {
+            let Some(slot) = free_slot(arsenal, hover) else {
+                break;
             };
             let serial = arsenal.next_serial();
             arsenal.shots.push(gun.shot(
                 serial,
-                at,
+                slot_place(hover.slots[slot], hero.position, facing),
                 Vec3::ZERO,
                 ShotKind::Agent(AgentState {
-                    hover: hovering,
+                    hover: Some(Hovering {
+                        slot,
+                        landing: None,
+                    }),
                     yaw: yaw_of(facing),
                     ..Default::default()
                 }),
@@ -1301,6 +1290,18 @@ pub(super) fn agents(
     arsenal
         .shots
         .push(gun.shot(serial, gun.muzzle, velocity, ShotKind::Pod));
+}
+
+/// The first slot round him no agent of his hovers on (0x3C15A8).
+fn free_slot(arsenal: &Arsenal, hover: &AgentHover) -> Option<usize> {
+    (0..hover.slots.len()).find(|slot| {
+        !arsenal.shots.iter().any(|shot| {
+            matches!(shot.kind, ShotKind::Agent(AgentState {
+                hover: Some(Hovering { slot: taken, landing: None }),
+                ..
+            }) if taken == *slot)
+        })
+    })
 }
 
 /// A slot round the hero (0x4C5220): turned over his head from his left, and out from a
@@ -1415,6 +1416,8 @@ pub(super) fn agents_shot(
                 None if shot.ticks >= POD_TICKS => shot.position,
                 None => return true,
             };
+            // Opening, it bursts in blue (0x35D738's shared explosion, which deals nothing).
+            out.shot_event(shot, GunEventKind::Impact { at, surface: None });
             for spot in round(at, way, fire.spread)
                 .into_iter()
                 .take(fire.per_pod as usize)
@@ -1457,6 +1460,11 @@ fn draw(rng: &mut SimRng, (low, high): (f32, f32)) -> f32 {
     } else {
         low
     }
+}
+
+/// An agent's turn by one drawn between its spin's two, degrees a second.
+fn spin(state: &mut AgentState, fire: &Agents, rng: &mut SimRng) {
+    state.yaw = wrap(state.yaw + draw(rng, fire.spin).to_radians() * TICK);
 }
 
 fn draw_ticks(rng: &mut SimRng, (low, high): (u32, u32)) -> u32 {
@@ -1524,13 +1532,22 @@ fn agent(
             book.claims.push((targets[index].entity, sight.claim_ticks));
         }
     }
-    // Keeping to its slot it only fires.
+    // Through its last ticks it spins as it fades (0x3BD298 past its switch).
+    if shot.ticks > fire.life_ticks.saturating_sub(fire.fading_ticks) {
+        spin(state, fire, rng);
+    }
+    // Keeping to its slot it only fires; appearing there, it spins where it came out
+    // (state 0x10).
     if let (Some(_), Some(hover)) = (state.hover, &fire.hover) {
         if shot.ticks >= fire.life_ticks || shot.position.distance(flight.hero) > fire.leash {
             agent_end(shot, None, fire, flight, out, born);
             return false;
         }
-        hover_tick(shot, state, hover, flight, rng, book);
+        if shot.ticks <= hover.appear_ticks {
+            spin(state, fire, rng);
+        } else {
+            hover_tick(shot, state, hover, flight, rng, book);
+        }
         agent_gun(shot, state, fire, flight, rng, born, book);
         return true;
     }

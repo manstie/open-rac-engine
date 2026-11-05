@@ -13,14 +13,14 @@ use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use rac_combat::{
     Armory, Arsenal,
-    weapons::{FireMode, ShotKind, ShotPose},
+    weapons::{FireMode, Shot, ShotKind, ShotPose, def::Agents},
 };
 use rac_hero::Hero;
 use rac_rig::{MobySkeleton, SequencePlayer};
 use rac_sim::SimTransform;
 
 use crate::DemoEntity;
-use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes, FxRng, ShotLayer, ShotStreak, wall};
+use crate::fx::{Billboard, FxImages, FxQuad, FxRecipes, FxRng, ShotLayer, ShotStreak, Wall, wall};
 
 /// The level the demo gives every gun, by default V3, where most have lock-on.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,6 +280,116 @@ pub(crate) struct Facing {
     tumble: Option<Quat>,
 }
 
+/// A shot's model with materials of its own, each with its class's colour and blend, as its
+/// paint changes while it comes and goes ([`painted`]).
+#[derive(Component, Debug, Clone, PartialEq)]
+pub(crate) struct OwnPaint(Vec<(Handle<StandardMaterial>, Srgba, AlphaMode)>);
+
+/// How a shot's model is painted where that isn't as its class is: a share of its class's
+/// alpha, a tint of its colour, and its blend if that changes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Paint {
+    alpha: f32,
+    tint: Vec3,
+    blend: Option<AlphaMode>,
+}
+
+impl Default for Paint {
+    fn default() -> Self {
+        Self {
+            alpha: 1.0,
+            tint: Vec3::ONE,
+            blend: None,
+        }
+    }
+}
+
+/// Whether a shot's model changes its paint as it comes and goes: a holo shield's, and an
+/// agent's.
+fn own_paint(kind: &ShotKind) -> bool {
+    matches!(kind, ShotKind::Barrier(_) | ShotKind::Agent(_))
+}
+
+/// The Agents of Doom's rules, if the shot is theirs.
+fn agents_of<'a>(shot: &Shot, armory: &'a Armory) -> Option<&'a Agents> {
+    match &armory.get(shot.weapon)?.fire {
+        FireMode::Agents(fire) => Some(fire),
+        _ => None,
+    }
+}
+
+/// How a shot's model is painted now where that isn't as its class is. Through a holo
+/// shield's last 4 s standing its colour swings from grey to (0x80, 0x30, 0x10) and back on
+/// a sine turning 4° a frame (`moby_set_colour` in 0x376B88), which the game's takes show
+/// as its shell's rim going red-brown every 1.5 s, a tint; folding, its alpha goes from
+/// 0x14 to nothing, one a frame (0x379CE0). An agent appearing on its slot is added (mode
+/// bit 0x200) as its alpha climbs 4 a frame from nothing, then is whole (0x3BD298's state
+/// 0x10): a glowing silhouette among its sparkles. Through the last ticks of its life it
+/// is added again as its alpha falls 4 a frame (past the switch).
+fn painted(shot: &Shot, wall: Option<&Wall>, agents: Option<&Agents>) -> Option<Paint> {
+    match &shot.kind {
+        ShotKind::Barrier(_) => {
+            let wall = wall?;
+            let tint = wall.ending.map_or(Vec3::ONE, |tick| {
+                let swing = ops::sin(((tick + 1) as f32 * 4.0).to_radians()) * 0.5 + 0.5;
+                Vec3::ONE.lerp(Vec3::new(1.0, 0.375, 0.125), swing)
+            });
+            let alpha = wall.folding.map_or(1.0, |(tick, of)| {
+                (of + 1).saturating_sub(tick) as f32 / of as f32
+            });
+            Some(Paint {
+                alpha,
+                tint,
+                ..default()
+            })
+        }
+        ShotKind::Agent(state) => {
+            let fire = agents?;
+            let appear = fire.hover.as_ref().map_or(0, |hover| hover.appear_ticks);
+            let fading = fire.life_ticks.saturating_sub(fire.fading_ticks);
+            // In fours of 0x80.
+            let fours = if state.hover.is_some() && shot.ticks <= appear {
+                shot.ticks.max(1)
+            } else if shot.ticks > fading {
+                32u32.saturating_sub(shot.ticks - fading)
+            } else {
+                return None;
+            };
+            Some(Paint {
+                alpha: fours as f32 * 4.0 / 128.0,
+                blend: Some(AlphaMode::Add),
+                ..default()
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Paints each of a shot's own materials as it is now, touching only those that change.
+fn repaint(
+    materials: &mut Assets<StandardMaterial>,
+    parts: &[(Handle<StandardMaterial>, Srgba, AlphaMode)],
+    now: Option<Paint>,
+) {
+    let paint = now.unwrap_or_default();
+    for (handle, class, mode) in parts {
+        let colour = Color::srgba(
+            class.red * paint.tint.x,
+            class.green * paint.tint.y,
+            class.blue * paint.tint.z,
+            class.alpha * paint.alpha,
+        );
+        let mode = paint.blend.unwrap_or(*mode);
+        let same = materials
+            .get(handle)
+            .is_none_or(|material| material.base_color == colour && material.alpha_mode == mode);
+        if !same && let Some(mut material) = materials.get_mut(handle) {
+            material.base_color = colour;
+            material.alpha_mode = mode;
+        }
+    }
+}
+
 /// An agent hovering on its jets.
 pub(crate) fn hovering(kind: &ShotKind) -> bool {
     matches!(kind, ShotKind::Agent(state) if state.hover.is_some())
@@ -345,11 +455,12 @@ pub(crate) fn show_shots(
         &mut SimTransform,
         &mut Transform,
         Option<&Facing>,
+        Option<&OwnPaint>,
     )>,
     mut commands: Commands,
 ) {
     let mut seen = Vec::new();
-    for (entity, look, mut simulated, mut transform, facing) in &mut shown {
+    for (entity, look, mut simulated, mut transform, facing, own) in &mut shown {
         let shot = heroes
             .iter()
             .filter(|(hero, _)| hero.player == look.player)
@@ -369,10 +480,19 @@ pub(crate) fn show_shots(
             transform.scale = Vec3::splat(state.shown(fade));
         }
         if let Some(facing) = facing {
+            let wall_now = wall(shot, &draw.armory, &draw.recipes);
+            if let Some(OwnPaint(parts)) = own {
+                let now = painted(
+                    shot,
+                    wall_now.as_ref().map(|(wall, _)| wall),
+                    agents_of(shot, &draw.armory),
+                );
+                repaint(&mut draw.materials, parts, now);
+            }
             // A holo shield's model stands in its wall's middle, stretched across and up as
             // its wall unfolds: the game scales its matrix's rows by the wall's width and
             // height (0x376B88).
-            if let Some((wall, _)) = wall(shot, &draw.armory, &draw.recipes) {
+            if let Some((wall, _)) = wall_now {
                 simulated.translation = wall.middle;
                 simulated.rotation = wall.facing;
                 transform.scale = (wall.size / 2.0).extend(1.0);
@@ -411,7 +531,8 @@ pub(crate) fn show_shots(
                 .filter(|_| modelled(&shot.kind));
             if let Some(model) = model {
                 let turn = faces(&shot.kind, shot.velocity).unwrap_or_default();
-                let place = match wall(shot, &draw.armory, &draw.recipes) {
+                let wall_now = wall(shot, &draw.armory, &draw.recipes);
+                let place = match wall_now {
                     Some((wall, _)) => Transform::from_translation(wall.middle)
                         .with_rotation(wall.facing)
                         .with_scale((wall.size / 2.0).extend(1.0)),
@@ -452,10 +573,22 @@ pub(crate) fn show_shots(
                     });
                     (origin, joints, skeleton.moby.inverse_bindposes.clone())
                 });
+                let own = own_paint(&shot.kind);
+                let mut paints = Vec::new();
                 for (mesh, material) in &model.parts {
+                    let material = match draw.materials.get(material).filter(|_| own) {
+                        Some(class) => {
+                            let class = class.clone();
+                            let (colour, mode) = (class.base_color.to_srgba(), class.alpha_mode);
+                            let handle = draw.materials.add(class);
+                            paints.push((handle.clone(), colour, mode));
+                            handle
+                        }
+                        None => material.clone(),
+                    };
                     let mut part = commands.spawn((
                         Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material.clone()),
+                        MeshMaterial3d(material),
                         NotShadowCaster,
                         Transform::default(),
                     ));
@@ -474,6 +607,15 @@ pub(crate) fn show_shots(
                             part.insert(ChildOf(root));
                         }
                     }
+                }
+                if !paints.is_empty() {
+                    let now = painted(
+                        shot,
+                        wall_now.as_ref().map(|(wall, _)| wall),
+                        agents_of(shot, &draw.armory),
+                    );
+                    repaint(&mut draw.materials, &paints, now);
+                    commands.entity(root).insert(OwnPaint(paints));
                 }
                 continue;
             }
@@ -709,5 +851,86 @@ pub(crate) fn step_shot_layers(
         billboard.axis = Some(way);
         transform.translation = way * (length / 2.0 - streak.behind);
         transform.scale = Vec3::new(length, width, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rac_combat::WeaponId;
+    use rac_combat::weapons::{AgentState, BarrierState, Hovering, Mods};
+
+    use super::*;
+
+    fn shot(kind: ShotKind, ticks: u32) -> Shot {
+        Shot {
+            serial: 1,
+            weapon: WeaponId(0),
+            level: 4,
+            position: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+            ticks,
+            damage: 0.0,
+            splash: 0.0,
+            mods: Mods::default(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn an_agent_appears_on_its_slot_added_as_its_alpha_climbs_and_fades_so_at_its_end() {
+        let armory = Armory::uya();
+        let weapon = armory.find("Agents of Doom").unwrap();
+        let fire = agents_of(&shot(ShotKind::Pod, 0), &armory);
+        assert!(fire.is_none());
+        let agent = |ticks, hover| Shot {
+            weapon,
+            ..shot(ShotKind::Agent(AgentState { hover, ..default() }), ticks)
+        };
+        let paint = |agent: Shot| painted(&agent, None, agents_of(&agent, &armory));
+        let slot = Some(Hovering {
+            slot: 0,
+            landing: None,
+        });
+        let added = |alpha| {
+            Some(Paint {
+                alpha,
+                blend: Some(AlphaMode::Add),
+                ..default()
+            })
+        };
+        // 4 of 0x80 a frame from nothing, for 30 frames (0x3BD298's state 0x10); it is
+        // first drawn a tick old.
+        assert_eq!(paint(agent(1, slot)), added(4.0 / 128.0));
+        assert_eq!(paint(agent(30, slot)), added(120.0 / 128.0));
+        assert_eq!(paint(agent(31, slot)), None);
+        // One out on foot is drawn as its class is from the first.
+        assert_eq!(paint(agent(1, None)), None);
+        assert!(own_paint(&agent(1, None).kind));
+        // Through the last 30 of its 2000 ticks, 4 less a frame from whole.
+        assert_eq!(paint(agent(1970, None)), None);
+        assert_eq!(paint(agent(1971, None)), added(124.0 / 128.0));
+        assert_eq!(paint(agent(1999, slot)), added(12.0 / 128.0));
+    }
+
+    #[test]
+    fn a_holo_shields_shell_swings_red_through_its_last_4_s_and_fades_as_it_folds() {
+        let shield = shot(ShotKind::Barrier(BarrierState::default()), 900);
+        let wall = |ending, folding| Wall {
+            middle: Vec3::ZERO,
+            facing: Quat::IDENTITY,
+            size: Vec2::ONE,
+            ending,
+            folding,
+        };
+        let paint = |ending, folding| painted(&shield, Some(&wall(ending, folding)), None).unwrap();
+        assert_eq!(paint(None, None), Paint::default());
+        // At its sine's top, 92° in, (0x80, 0x30, 0x10) of grey 0x80 (0x376B88).
+        let red = paint(Some(22), None).tint;
+        assert!(
+            (red - Vec3::new(1.0, 0.375, 0.125)).length() < 0.01,
+            "{red}"
+        );
+        // Folding, a twentieth of its alpha less each tick (0x379CE0).
+        assert_eq!(paint(None, Some((5, 20))).alpha, 0.8);
     }
 }

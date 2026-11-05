@@ -1,7 +1,7 @@
 //! Sprites laid in a standing shot's own upright plane, as the Holo Shield's wall
 //! (0x378A20 at V1–V2, 0x378298 from V3, and 0x378FF8 from V3 as a hit shakes it), or at
 //! its middle facing the camera: drawn once it stands, unfolding where it landed and
-//! folding away with it.
+//! fading as it folds (0x37A5C0 at V1–V2, 0x379CE0 from V3).
 
 use std::collections::BTreeMap;
 
@@ -31,7 +31,10 @@ pub struct Panels {
 /// `when` its shot reacts to a hit or doesn't; with `grow`, it grows that much of the whole
 /// a tick from the hit up to `size`, then goes. With `faces_camera` it faces the camera from
 /// the shot's middle instead, `size` units across however far the wall has unfolded, as the
-/// stars of 57 the game draws there with `fx_billboard` (0x378298).
+/// stars of 57 the game draws there with `fx_billboard` (0x378298). As its shot folds, its
+/// alpha falls from the first of `fold` by the second a tick, where the game's fold draw
+/// gives it its own; without one, from its own alpha by [`FOLD_FADE`]; and it is
+/// `fold_size` if that is given.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Panel {
     pub texture: Tex,
@@ -52,7 +55,15 @@ pub struct Panel {
     pub grow: Option<f32>,
     #[serde(default)]
     pub faces_camera: bool,
+    #[serde(default)]
+    pub fold: Option<(f32, f32)>,
+    #[serde(default)]
+    pub fold_size: Option<f32>,
 }
+
+/// How much a panel's alpha falls a tick as its shot folds: 2 of 0x80 a frame, the layers
+/// keeping their size (0x37A5C0, 0x379CE0).
+pub const FOLD_FADE: f32 = 2.0 / 128.0;
 
 /// When a panel shows, by its shot's reaction to its last hit (`BarrierState::react`).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -81,16 +92,34 @@ impl Panel {
             }
         }
     }
+
+    /// Its alpha `tick` ticks into its shot's folding, counting from 1: as the game's, a
+    /// byte with 0x80 for 1, so a faint one falling past nothing wraps round to nearly 2.
+    /// From V3 the glow of 11 at 0x15 does from the 11th tick, and the folding shield
+    /// flashes blue as it goes, as the game's takes show.
+    fn folding_alpha(&self, tick: u32) -> f32 {
+        let (from, fade) = self.fold.unwrap_or((self.colour[3], FOLD_FADE));
+        let byte = (from * 128.0).round() - (fade * 128.0 * tick as f32).round();
+        byte.rem_euclid(256.0) / 128.0
+    }
 }
 
 /// A standing shot's wall as it is drawn now: its middle, the way it faces, and its width
-/// and height, unfolding from where it landed and folding away.
+/// and height, unfolding from where it landed; through its last [`ENDING_TICKS`] standing,
+/// the ticks into them; and while it folds, the tick of its folding it is on, counting from
+/// 1, and how many there are.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Wall {
     pub middle: Vec3,
     pub facing: Quat,
     pub size: Vec2,
+    pub ending: Option<u32>,
+    pub folding: Option<(u32, u32)>,
 }
+
+/// How long before its time is up a holo shield shows that it ends: 4 s (0x376B88 swings
+/// its model's colour from its 661st frame standing of 900).
+pub const ENDING_TICKS: u32 = 240;
 
 /// `shot`'s wall now, if it stands and its gun draws panels on it, with those panels.
 pub(crate) fn wall<'a>(
@@ -107,12 +136,21 @@ pub(crate) fn wall<'a>(
         return None;
     };
     let panels = recipes.panels(&def.effects, shot.level, Some(shot.kind.name()))?;
-    let share = unfolded(landed, state.folding, panels.unfold, fire.fold_ticks);
+    let fold = fire.fold_ticks.max(1);
+    // Folding, it has as many ticks left as it began with: the first is tick 1.
+    let folding = state
+        .folding
+        .map(|left| (fold + 1 - left.clamp(1, fold), fold));
+    // It folds at the size it had reached, the game's rows growing only while it unfolds.
+    let stood = landed.saturating_sub(folding.map_or(0, |(tick, _)| tick - 1));
+    let share = (stood as f32 / panels.unfold.max(1) as f32).min(1.0);
     let size = Vec2::new(fire.half_width * 2.0, fire.height) * share;
     let wall = Wall {
         middle: shot.position + Vec3::Y * size.y / 2.0,
         facing: Quat::from_rotation_y(state.yaw),
         size,
+        ending: stood.checked_sub(fire.stand_ticks.saturating_sub(ENDING_TICKS)),
+        folding,
     };
     Some((wall, panels))
 }
@@ -207,7 +245,12 @@ pub(crate) fn draw_panels(
                 });
                 let seed = (hero.player as u64) << 48 | u64::from(shot.serial) << 8 | index as u64;
                 entry.roll += FxRng::for_tick(tick.0, seed).between(panel.spin) * frames;
-                let size = panel.size(state.react).unwrap_or(0.0);
+                // Folding, it is drawn as if unhit (0x379CE0).
+                let react = state.react.filter(|_| wall.folding.is_none());
+                let size = panel.size(react).map_or(0.0, |size| match wall.folding {
+                    Some(_) => panel.fold_size.unwrap_or(size),
+                    None => size,
+                });
                 if let Ok(mut transform) = places.get_mut(entry.frame) {
                     *transform = if panel.faces_camera {
                         Transform {
@@ -227,7 +270,14 @@ pub(crate) fn draw_panels(
                     transform.rotation = Quat::from_rotation_z(entry.roll.to_radians());
                 }
                 if let Some(mut material) = materials.get_mut(&entry.material) {
-                    material.base_color.set_alpha(panel.colour[3] * fade);
+                    // Folding, the game sets each alpha by the tick alone, drawing what the
+                    // camera's nearness would show at all.
+                    let alpha = match wall.folding {
+                        Some((tick, _)) if fade > 0.0 => panel.folding_alpha(tick),
+                        Some(_) => 0.0,
+                        None => panel.colour[3] * fade,
+                    };
+                    material.base_color.set_alpha(alpha);
                 }
                 drawn.push(id);
             }
@@ -240,13 +290,6 @@ pub(crate) fn draw_panels(
         }
         keep
     });
-}
-
-/// How much of its whole size a standing shot shows: unfolding over `unfold` ticks from
-/// landing, and back to nothing over the `fold` ticks of its folding.
-fn unfolded(landed: u32, folding: Option<u32>, unfold: u32, fold: u32) -> f32 {
-    let grown = (landed as f32 / unfold.max(1) as f32).min(1.0);
-    folding.map_or(grown, |left| grown * left as f32 / fold.max(1) as f32)
 }
 
 #[cfg(test)]
@@ -266,6 +309,8 @@ mod tests {
             when,
             grow,
             faces_camera: false,
+            fold: None,
+            fold_size: None,
         };
         assert_eq!(panel(Showing::Always, None).size(None), Some(1.1));
         assert_eq!(panel(Showing::Unhit, None).size(Some(3)), None);
@@ -281,12 +326,10 @@ mod tests {
         assert_eq!(ring.size(Some(22)), None);
     }
 
-    #[test]
-    fn a_holo_shields_wall_stands_up_from_where_it_landed_with_stars_at_its_middle() {
+    /// A V3 holo shield `landed` ticks ago, with `folding` ticks of its folding left.
+    fn holo(armory: &Armory, landed: Option<u32>, folding: Option<u32>) -> Shot {
         use rac_combat::weapons::{BarrierState, Mods};
-        let armory = Armory::uya();
-        let recipes = FxRecipes::default();
-        let shot = |landed| Shot {
+        Shot {
             serial: 1,
             weapon: armory.find("Holo Shield Glove").unwrap(),
             level: 2,
@@ -298,13 +341,20 @@ mod tests {
             mods: Mods::default(),
             kind: ShotKind::Barrier(BarrierState {
                 landed,
+                folding,
                 yaw: std::f32::consts::FRAC_PI_2,
                 ..default()
             }),
-        };
-        assert!(wall(&shot(None), &armory, &recipes).is_none());
+        }
+    }
+
+    #[test]
+    fn a_holo_shields_wall_stands_up_from_where_it_landed_with_stars_at_its_middle() {
+        let armory = Armory::uya();
+        let recipes = FxRecipes::default();
+        assert!(wall(&holo(&armory, None, None), &armory, &recipes).is_none());
         // Half unfolded, 17 ticks of 34: half its 4 by 2.3, its middle half that up.
-        let (half, panels) = wall(&shot(Some(17)), &armory, &recipes).unwrap();
+        let (half, panels) = wall(&holo(&armory, Some(17), None), &armory, &recipes).unwrap();
         assert!((half.size - Vec2::new(2.0, 1.15)).length() < 1e-5);
         assert!((half.middle - Vec3::new(1.0, 0.575, 2.0)).length() < 1e-5);
         assert!((half.facing * Vec3::Z - Vec3::X).length() < 1e-5);
@@ -314,12 +364,39 @@ mod tests {
     }
 
     #[test]
-    fn a_wall_unfolds_where_it_lands_and_folds_away() {
-        assert_eq!(unfolded(0, None, 34, 20), 0.0);
-        assert_eq!(unfolded(17, None, 34, 20), 0.5);
-        assert_eq!(unfolded(900, None, 34, 20), 1.0);
-        assert_eq!(unfolded(900, Some(5), 34, 20), 0.25);
-        // Folding before it has unfolded shrinks what there is.
-        assert_eq!(unfolded(17, Some(10), 34, 20), 0.25);
+    fn a_folding_wall_keeps_its_size_as_its_panels_fade() {
+        let armory = Armory::uya();
+        let recipes = FxRecipes::default();
+        // Its fold's 5th tick of 20, with 16 left: still its whole size.
+        let folding = holo(&armory, Some(905), Some(16));
+        let (wall_now, panels) = wall(&folding, &armory, &recipes).unwrap();
+        assert_eq!(wall_now.folding, Some((5, 20)));
+        // Its last 240 ticks standing began at 660: it folded 241 ticks into them.
+        assert_eq!(wall_now.ending, Some(241));
+        assert!((wall_now.size - Vec2::new(4.0, 2.3)).length() < 1e-5);
+        // Folding as it unfolds, it keeps what it had reached: 17 ticks, then 3 of folding.
+        let early = holo(&armory, Some(19), Some(18));
+        let (early, _) = wall(&early, &armory, &recipes).unwrap();
+        assert!((early.size - Vec2::new(2.0, 1.15)).length() < 1e-5);
+        // From its own alpha, 2 of 0x80 a tick: a star from 0x4F; the blue ring of 8 from
+        // 0x3F where it stands at 0x1F (0x379CE0); and the faint glow of 11 at 0x15 down to
+        // 1 at the 10th tick, then wrapped round to 0xFF and falling again.
+        let alpha = |texture, size: f32, tick| {
+            let panel = panels
+                .layers
+                .iter()
+                .find(|panel| panel.texture == texture && (panel.size - size).abs() < 1e-3)
+                .unwrap();
+            panel.folding_alpha(tick)
+        };
+        assert!((alpha(Tex::Effect(57), 0.4, 5) - (0x4F - 10) as f32 / 128.0).abs() < 2e-3);
+        assert!((alpha(Tex::Effect(8), 1.1, 5) - (0x3F - 10) as f32 / 128.0).abs() < 2e-3);
+        assert_eq!(alpha(Tex::Effect(11), 1.0, 10), 1.0 / 128.0);
+        assert_eq!(alpha(Tex::Effect(11), 1.0, 11), 255.0 / 128.0);
+        assert_eq!(alpha(Tex::Effect(11), 1.0, 20), 237.0 / 128.0);
+        // Its stars are a little smaller as it folds: half 0.1875 for 0.2.
+        let stars = panels.layers.iter().filter(|panel| panel.faces_camera);
+        let sizes: Vec<_> = stars.map(|star| star.fold_size).collect();
+        assert_eq!(sizes, [Some(0.375), Some(0.375)]);
     }
 }

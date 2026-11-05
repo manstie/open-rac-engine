@@ -1789,12 +1789,22 @@ fn from_v4_agents_jet_to_slots_round_him_and_land_when_their_rounds_are_gone() {
     assert!((at.x + 1.475 * angle.cos()).abs() < 0.1, "{at}");
     assert!((at.y - 1.475 * angle.sin()).abs() < 0.1, "{at}");
     assert!((at.z - 0.5).abs() < 0.1, "{at}");
-    // A second press finds the slots taken: those go on foot beside him.
+    // A second press finds the slots taken: the pod is thrown, and those it lets out
+    // walk, where it bursts.
     yard.idle(60);
     yard.tick(&[Action::Fire], &[Action::Fire]);
-    yard.idle(30);
+    let mut ticks = 0;
+    while hover(&yard).len() < 8 {
+        yard.idle(1);
+        ticks += 1;
+        assert!(ticks < 400, "{:?}", hover(&yard));
+    }
+    assert!(ticks > 20, "{ticks}");
+    assert_eq!(yard.count_shots(|kind| matches!(kind, ShotKind::Pod)), 0);
+    assert!(yard.events.iter().any(
+        |event| event.shot == Some("pod") && matches!(event.kind, GunEventKind::Impact { .. })
+    ));
     let agents = hover(&yard);
-    assert_eq!(agents.len(), 8);
     assert_eq!(agents.iter().filter(|(_, h)| h.is_some()).count(), 4);
     // An enemy near a hoverer: no one on a slot chases it.
     let before = agents[0].0;
@@ -1815,6 +1825,54 @@ fn from_v4_agents_jet_to_slots_round_him_and_land_when_their_rounds_are_gone() {
     }
     // 120 rounds at one each 15 ticks from each of four.
     assert!(ticks > 400, "{ticks}");
+}
+
+#[test]
+fn an_agent_spins_as_it_appears_on_its_slot_and_through_its_last_ticks() {
+    let first = |yard: &Yard| {
+        yard.arsenal()
+            .shots
+            .first()
+            .and_then(|shot| match &shot.kind {
+                ShotKind::Agent(state) => Some((shot.ticks, shot.position, state.yaw)),
+                _ => None,
+            })
+    };
+    // Its turn over each of the next `ticks`, in degrees.
+    let turns = |yard: &mut Yard, ticks: usize| -> Vec<f32> {
+        (0..ticks)
+            .map(|_| {
+                let (_, _, before) = first(yard).unwrap();
+                yard.idle(1);
+                let (_, _, after) = first(yard).unwrap();
+                (after - before)
+                    .rem_euclid(std::f32::consts::TAU)
+                    .to_degrees()
+            })
+            .collect()
+    };
+    let mut yard = Yard::new(&[(AGENTS, 3)]);
+    yard.tick(&[Action::Fire], &[Action::Fire]);
+    while first(&yard).is_none() {
+        yard.idle(1);
+    }
+    // Its first tick is the first of 30 appearing: 100–1440°/s drawn each, staying put.
+    let (ticks, at, _) = first(&yard).unwrap();
+    assert_eq!(ticks, 1);
+    let spin = |turns: &[f32]| turns.iter().all(|turn| (1.6..24.1).contains(turn));
+    let appearing = turns(&mut yard, 29);
+    assert!(spin(&appearing), "{appearing:?}");
+    assert_eq!(first(&yard).unwrap().1, at);
+    // On its slot it keeps its way.
+    assert_eq!(turns(&mut yard, 30), [0.0; 30]);
+    // And spins again through the last 30 of its 2000.
+    while first(&yard).unwrap().0 < 1970 {
+        yard.idle(1);
+    }
+    let fading = turns(&mut yard, 29);
+    assert!(spin(&fading), "{fading:?}");
+    yard.idle(1);
+    assert!(first(&yard).is_none());
 }
 
 #[test]

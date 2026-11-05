@@ -65,8 +65,8 @@ pub use marker::Marker;
 pub use model::{FxModel, FxModels};
 pub use open::{Open, OpenRays, RaysClosing};
 pub use paint::{Paint, Shape};
-pub(crate) use panel::wall;
 pub use panel::{Panel, Panels, Showing};
+pub(crate) use panel::{Wall, wall};
 pub use refract::{LensRing, OpenLens, RingClosing};
 pub use ribbon::Ribbon;
 pub use rope::{AlongRope, Strand};
@@ -506,6 +506,9 @@ pub struct Trail {
     pub spacing: f32,
     #[serde(default)]
     pub until: Option<u32>,
+    /// Laid only once the shot is this many ticks old.
+    #[serde(default)]
+    pub after: Option<u32>,
     pub textures: Vec<Tex>,
     pub colours: Vec<[f32; 4]>,
     pub size: f32,
@@ -2115,6 +2118,7 @@ fn emit_trails(
             let path = shot.position - last;
             for trail in trails {
                 if trail.until.is_some_and(|until| shot.ticks >= until)
+                    || trail.after.is_some_and(|after| shot.ticks < after)
                     || (trail.hovering && !crate::guns::hovering(&shot.kind))
                 {
                     continue;

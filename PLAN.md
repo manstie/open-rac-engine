@@ -92,8 +92,8 @@ session is working on the task now; notes on problems met stay with their task (
    internet by join code, with the router's port mapping (D8). Nothing else is left in
    it.
 2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
-   next gun to fix (the Ultrashield's fade as it folds, 0x379CE0; or the agents' spawn
-   lightning).
+   next gun to fix (the Rift Ripper's placeholder ball, which still shows round its
+   lens; then the rest of the Eruptor's V5 burst, 0x38A7B8 and 0x35D8E8).
    P3.18 and P1.10 have what is left in their tasks.
    RE.10 has only minor unread values left.
 3. At lower priority: the disc layer, P2.3, P2.4 and P2.6, and the rest of RE.2; RE.3's
@@ -926,19 +926,37 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
       to the wall, a faint shell round it whose grey rim is the dark rim the game's takes
       show; the kit draws it once the shield stands (`guns.rs`, `fx::wall`). So are the
       two stars of 57 at its middle from V3 (panels with `faces_camera`). Both seen at V3
-      and V5 on `kitdemo-arena-holo-near`. Not done: the game fades the folding shield
-      (0x379CE0, `effects.md`, "Folding") where the kit shrinks it; next, fading the
-      panels and the model over the fold instead. Its colour's swing through its last 4 s
-      isn't drawn (what a moby's colour does isn't read).
+      and V5 on `kitdemo-arena-holo-near`. It folds as the game's (`effects.md`,
+      "Folding"; 0x379CE0, 0x37A5C0): at its size, fading, with the faint glow of 11's
+      alpha wrapping past nothing into a blue flash through its last 10 ticks, as the
+      game's `holo-fold` takes show; seen at V3 on `kitdemo-arena-holo-fold`; its stars
+      a little smaller as it folds. Through its last 4 s standing its shell's colour
+      swings red-brown every 1.5 s: the moby's colour (+0x3C) is a tint, as measured on
+      the game's take (`effects.md`, "Its own model"), drawn so (`guns.rs`, `painted`).
+      Open: the V4 duck's red colour, drawn as a glow, may be the same tint.
     - The Lava Gun's stream arcs high in the game not by a lock-on but because it leaves
       along the gun's barrel (0x303F88: the gun's −y), 12° above his facing as he fires
       (traced in sequence 49; `weapons.md`, "The barrel"). The kit raises it so
       (`Stream::barrel_degrees`) when nothing is locked on in the third-person camera, and
       it now lands about 18 u out where it landed within 10; seen at V5 on
       `kitdemo-arena-lava`. Not followed: the hold's sway and the waist's pitch.
-    - Not done: the rest of the Eruptor's V5 burst; the agents' spawn lightning (their
-      jets are dimmer than the game's); then the sounds not played and the simplified
-      behaviours (`effects.md`, "In the kit and the app"; `weapons.md`, "In the kit").
+    - The Agents of Dread's violet and gold lightning as they appear on his slots is
+      their appearing sparkles, type 0x68's lightning crackles at alpha 0xFF, round their
+      models drawn added as they fade in (`effects.md`, "The Agents of Dread's
+      lightning"); drawn so from V4, seen at V5 on `kitdemo-arena-agents-near`.
+    - The white-blue burst the on-foot agents walk out of is their pod opening
+      (`agent_pod_open` 0x35D738: the shared explosion at S 0.75, blue, no damage). From
+      V4 the glove throws the pod whenever no slot is free; the kit had put those agents
+      on foot by him with no pod, and now throws it. Drawn, with the agents' 30 ticks of
+      spin in place as they appear, and their end's spin, sparkles and fade
+      (`effects.md`, "The pod's burst", "In the kit"); seen at V5 on
+      `kitdemo-arena-agents-near`.
+    - The agents are drawn about twice the game's size against the hero. The class scale
+      and the pose aren't the cause; the cause isn't found (`effects.md`, "Its size on
+      screen"). Next: measure the kit's drawn agent and hero in world units.
+    - Not done: the rest of the Eruptor's V5 burst, and the agents' jets, dimmer than
+      the game's; then the sounds not played and the simplified behaviours
+      (`effects.md`, "In the kit and the app"; `weapons.md`, "In the kit").
     - The lights' pools show weaker than the game's on the demo's pale floor (1.25 times
       as bright beside him where the game's sand is 1.54 times), as the kit's tonemapper
       squashes brightening; open with the tonemapper (§5, 2026-11-01).

@@ -1588,6 +1588,9 @@ pub struct AgentHover {
     /// Each slot: how far round from his left over his head, in degrees; how far out from
     /// a point `behind` him.
     pub slots: Vec<(f32, f32, f32)>,
+    /// It appears where it came out over these ticks, spinning (state 0x10), then makes
+    /// for its slot.
+    pub appear_ticks: u32,
     /// Farther than `far`, it flies at `far_gain` and `far_top`, through the world; nearer,
     /// at gains and tops drawn each tick, stopping for the world.
     pub far: f32,
@@ -1611,7 +1614,8 @@ pub struct Agents {
     pub deploy: Deploy,
     pub gravity: f32,
     pub per_pod: u32,
-    /// From this level they come to the hero at once instead of from a pod.
+    /// From this level they come to the hero at once, while a slot round him is free,
+    /// instead of from a pod.
     pub direct_from: Option<u8>,
     /// How those keep by him at first, while they have rounds.
     #[serde(default)]
@@ -1628,6 +1632,10 @@ pub struct Agents {
     pub chase_ticks: u32,
     /// It also ends `life_ticks` after it comes out, or this far from the hero.
     pub life_ticks: u32,
+    /// Through its last `fading_ticks`, and as it appears on a slot, it spins by a turn
+    /// drawn each tick between `spin`'s two, degrees a second.
+    pub fading_ticks: u32,
+    pub spin: (f32, f32),
     pub leash: f32,
     /// How it ends, by level (0x3C2140).
     pub end: ByLevel<AgentEnd>,

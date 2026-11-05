@@ -1925,11 +1925,16 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
   waits 45 frames from the last.
 - **The pod** lands and lets out four agents (class 0x1ADA, 0x3C0F78), 0.25–0.75 u to
   his front, back, left and right of where it is, each only while fewer than eight are
-  about. From V4 four agents come at once to the hero instead of a pod.
+  about. From V4, while one of his four slots is free (`agent_slot_free` 0x3C15A8), up to
+  four agents come at once to the free slots instead of a pod, each only while one still
+  is; with none free the glove throws the pod as below V4 [code, 0x35C9F0, 2026-11-05].
+  The pod opening bursts blue (`effects.md`, "The pod's burst").
 - **Jetting in** (V4 and up; read 2026-10-31): an agent spawned while one of the four slots
   is free (`hero_slots_update` 0x4C5220 places them at 0x1E2240 each frame; 0x1E2280 says
-  whose) starts on that slot, invisible, in state 0x10, turning and sparking, its alpha
-  growing, for 30 frames, then state 7 hovers there. One spawned with none free walks.
+  whose) starts on that slot, invisible, in state 0x10, turning (rand(100, 1440)°/s drawn
+  each frame) and sparking, its alpha growing, for 30 frames without moving, then state 7
+  hovers there. One spawned with none free (from the pod) walks. Through the last 30 of
+  any agent's 2000 frames it turns so again as it fades [code, 2026-11-05].
   - **The slots:** a vector from his left, turned 36° at each step about his facing, so
     over his head: 36° out 1.475 u from 0.5 u behind him; 72° out 2 u (0.8 u with the
     lock-strafe camera), 108° out 2.2 u, both from 1 u behind him; 144° out 1.475 u from

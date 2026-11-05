@@ -4610,7 +4610,7 @@ name = "moby_set_colour"
 address = 0x00438908
 kind = "function"
 confidence = "high"
-note = "(moby, r, g, b) -> +0x3C..+0x3E."
+note = "(moby, r, g, b) -> +0x3C..+0x3E: a tint, 0x80 for 1, as the holo shield's swing shows."
 
 [[symbol]]
 name = "moby_follow_parent"
@@ -4960,7 +4960,7 @@ name = "agent_update"
 address = 0x003BD298
 kind = "function"
 confidence = "high"
-note = "Agent of Doom: states 0 idle, 1 wander, 3 follow, 5 chase, 6-8 and 0x10 the hero's slots, 8 jump down."
+note = "Agent of Doom: states 0 idle, 1 wander, 3 follow, 5 chase, 6-8 and 0x10 the hero's slots, 8 jump down. 0x10 appears on a slot (V4+): 30 frames of alpha +4, drawn added (mode 0x200), a lightning sparkle of type 0x68 a frame; its last 30 of 2000 frames the same, alpha falling."
 
 [[symbol]]
 name = "agent_tick"
@@ -4975,6 +4975,27 @@ address = 0x003C0F78
 kind = "function"
 confidence = "high"
 note = "Speeds +0x310 6.5-8, +0x314 5.5-6.5; rounds 50 each (V2-V3), a shared 120 (V4) or 40 (V5)."
+
+[[symbol]]
+name = "agent_slot_free"
+address = 0x003C15A8
+kind = "function"
+confidence = "medium"
+note = "Whether one of the hero's four agent slots is free (0x1E2280). From V4 the glove sends agents to him only while it says so, else throws the pod; agent_spawn puts one on a slot only then."
+
+[[symbol]]
+name = "agent_pod_update"
+address = 0x0035CEC8
+kind = "function"
+confidence = "high"
+note = "The agents' pod (class 0x1853): state 0 flies (0x35D2C0), 2 spawns four agents 0.25-0.75 u along the hero's right and forward axes while fewer than eight are about, then 1 opens (agent_pod_open)."
+
+[[symbol]]
+name = "agent_pod_open"
+address = 0x0035D738
+kind = "function"
+confidence = "high"
+note = "Unless it splashed (pvar +0x24), the shared explosion at S 0.75: no counts but 30 smoke, colour set A with red and blue swapped, damage 0 in 2 u; then a sound and the pod goes."
 
 [[symbol]]
 name = "agent_end"
@@ -5873,13 +5894,6 @@ address = 0x00379CE0
 kind = "function"
 confidence = "high"
 note = "The folding shield from V3 (state 5): holo_wall_draw_v3's layers at their full size, each alpha falling 2 a frame (V5's disc 3), the stars at half 0.1875; sets the moby's alpha to 0x15 less the frame."
-
-[[symbol]]
-name = "moby_set_colour"
-address = 0x00438908
-kind = "function"
-confidence = "medium"
-note = "(moby, r, g, b): sets the moby's colour bytes, +0x3C to +0x3E."
 
 [[symbol]]
 name = "rift_open_draw"

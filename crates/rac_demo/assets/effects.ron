@@ -491,6 +491,18 @@
             Burst(texture: Particle(0x17, 0), count: 20, speed: 1.0, speed_from: Some(0.5), toward: Camera, cone: Some(90.0), size: 1.5, end_size: 1.95, ticks: 40, ticks_to: Some(70), colour: (1.992, 1.25, 0.75, 0.5), spin: 1.4, jitter: 0.5, delay: 2, blend: Alpha),
             Burst(texture: Particle(0x5C, 0), count: 100, toward: Level, speed: 7.5, speed_from: Some(7.5), size: 1.1, end_size: 1.2, ticks: 20, ticks_to: Some(27), colour: (1.992, 0.781, 0.375, 0.617), delay: 5),
         ],
+        // Where the agents' pod lets them out (0x35D738), unless it splashed: the shared
+        // explosion at S 0.75 with only its glows and 30 smoke (counts 0, no glares, debris,
+        // dome, flash or rings, damage 0), in colour set A with red and blue swapped.
+        "pod blast": [
+            Glow(texture: Particle(0x5C, 0), size: 4.5, end_size: 6.75, ticks: 30, colour: (0.438, 1.109, 1.93, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 0), size: 4.5, end_size: 6.75, ticks: 30, colour: (0.0, 0.773, 1.93, 0.781), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 4.5, end_size: 6.75, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 5), size: 4.5, end_size: 6.75, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 4.5, end_size: 6.75, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Glow(texture: Particle(0x5C, 6), size: 4.5, end_size: 6.75, ticks: 30, colour: (0.438, 1.109, 1.93, 0.992), roll: Some((0.0, 360.0))),
+            Burst(texture: Particle(0x17, 0), count: 30, speed: 1.5, speed_from: Some(0.75), toward: Camera, cone: Some(90.0), size: 2.25, end_size: 2.925, ticks: 40, ticks_to: Some(70), colour: (0.75, 1.25, 1.992, 0.5), spin: 1.4, jitter: 0.75, delay: 2, blend: Alpha),
+        ],
         // The Agents of Dread's blast (0x390EE0, class 0x188F; effects.md, "The Dread blast")
         // [code]: r grows 2/3 u a tick. The small blast at S 2 and a shake; the view whitened
         // and two flat rings of 43 at 2r and r across, fading 5 of 0x80 a tick; a column of
@@ -1539,7 +1551,8 @@
             },
         ),
         // The Agents of Doom (0x35C9F0; effects.md, "Agents of Doom") [code]: nothing as the
-        // glove throws; where an agent ends at V1, the shared explosion; its comet at
+        // glove throws; a blue burst where the pod lets its agents out; where an agent ends
+        // at V1, the shared explosion; its comet at
         // V2-V4 (class 0x1893) a head of fiery puffs (0x17) each tick and, where it lands,
         // the shared explosion, sparks (0x19) and glows (11) for 15 ticks; the agents'
         // small bullets (class 0x1855) glows of 57 and 47, a streak (63) and embers (0x17)
@@ -1551,24 +1564,34 @@
             impact: Some([]),
             shots: {
                 "agent": (
-                    // As it appears (0x3BD298, state 0x10), blue sparkles (0x35s, so they
-                    // flash) rising from it.
+                    // Through the last 30 ticks of its 2000 (0x3BD298, past its switch), a
+                    // sparkle a tick of 0x35 at alpha 0xFF (so they flash) in blue, one of
+                    // type 0x68's four lightning crackles, rising from it, one in four
+                    // blended (render byte 0x44) and the rest added; its model fades added
+                    // (`guns.rs`, `painted`).
                     trail: Some([
-                        (per_tick: 1.0, until: Some(30), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 0.99), (0.31, 0.5, 0.99, 0.99), (0.0, 0.125, 0.99, 0.99)], size: 0.95, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true),
+                        (per_tick: 0.75, after: Some(1971), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 1.25, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true),
+                        (per_tick: 0.25, after: Some(1971), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 1.25, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true, blend: Alpha),
                     ]),
                     impact: Some([Set("agent blast")]),
                     from_level: {
-                        // From V4, its jets while it hovers (0x3C1D38): three of type 0x4A a
-                        // tick from its point 0, going down 3 to 4 u/s (0x46AB08).
+                        // From V4, as it appears on a slot (state 0x10), the same sparkles
+                        // at 0.35-0.6, all added, which with its model added as it fades in
+                        // (`guns.rs`, `painted`) make the game's burst of lightning; and its
+                        // jets while it hovers (0x3C1D38): three of type 0x4A a tick from its
+                        // point 0, going down 3 to 4 u/s (0x46AB08). Then its end's sparkles.
                         3: (trail: Some([
-                            (per_tick: 1.0, until: Some(30), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 0.99), (0.31, 0.5, 0.99, 0.99), (0.0, 0.125, 0.99, 0.99)], size: 0.95, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true),
+                            (per_tick: 1.0, until: Some(31), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 0.95, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true, hovering: true),
                             (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(0.0, 0.0, 1.992, 1.617)], end_colour: Some((0.0, 0.0, 1.617)), size: 0.286, end_size: 0.381, ticks: 5, ticks_to: 5, rise: (-4.0, -3.0), scatter: 0.025, keep: 0.98, above: 0.11, hovering: true),
                             (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(1.992, 1.992, 0.0, 0.75)], end_colour: Some((1.0, 0.0, 0.0)), size: 0.286, end_size: 0.381, ticks: 6, ticks_to: 6, rise: (-4.0, -3.0), scatter: 0.025, keep: 0.98, above: 0.11, hovering: true),
                             (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(0.617, 0.992, 1.992, 1.867)], end_colour: Some((0.0, 0.0, 1.992)), size: 0.095, end_size: 0.286, ticks: 4, ticks_to: 4, rise: (-4.0, -3.0), scatter: 0.025, keep: 0.98, above: 0.11, hovering: true),
+                            (per_tick: 0.75, after: Some(1971), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 1.25, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true),
+                            (per_tick: 0.25, after: Some(1971), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 1.25, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true, blend: Alpha),
                         ])),
                         4: (impact: Some([Set("dread blast")])),
                     },
                 ),
+                "pod": (impact: Some([Set("pod blast")])),
                 // Its blast strikes as it grows; what shows is the agent's end.
                 "blast": (blast_sphere: Some(false)),
                 "comet": (
@@ -1771,6 +1794,9 @@
                     ]),
                     // Standing, its wall (0x378A20; 0x378298 from V3): sprites in its plane,
                     // the strips' masks (a second texture's alpha written first) not drawn.
+                    // Folding, each fades from its own alpha by 2 a frame (0x37A5C0,
+                    // 0x379CE0), but where it says otherwise; from V3 the faint glow of 11
+                    // falls past nothing and wraps, flashing blue as the shield goes.
                     panels: Some((
                         unfold: 34,
                         layers: [
@@ -1789,22 +1815,22 @@
                             panels: Some((
                                 unfold: 34,
                                 layers: [
-                                    // Two stars of 57 at its middle, half 0.2, facing the camera (0x378298).
-                                    (texture: Effect(57), size: 0.4, spin: (-1.0, -2.0), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true),
-                                    (texture: Effect(57), size: 0.4, spin: (0.5, 1.5), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true),
+                                    // Two stars of 57 at its middle, half 0.2, facing the camera (0x378298); folding, 0.1875 (0x379CE0).
+                                    (texture: Effect(57), size: 0.4, spin: (-1.0, -2.0), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true, fold_size: Some(0.375)),
+                                    (texture: Effect(57), size: 0.4, spin: (0.5, 1.5), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true, fold_size: Some(0.375)),
                                     (texture: Effect(11), size: 0.225, offset: 0.01, spin: (-1.5, -2.5), colour: (0.5, 0.25, 1.99, 0.492), near: Some((13.0, 38.0))),
                                     (texture: Effect(11), size: 1.0, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 0.992, 0.164), near: Some((13.0, 38.0))),
                                     (texture: Effect(27), size: 1.15, spin: (-1.0, -2.0), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
                                     (texture: Effect(27), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
-                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0)), when: Unhit),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0)), when: Unhit, fold: Some((0.492, 0.015625))),
                                     // As a hit shakes it (0x378FF8): the ring of 8 orange, and another growing to it.
                                     (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), when: Hit),
                                     (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.289), when: Hit, grow: Some(0.05)),
                                     (texture: Effect(67), size: 1.0, spin: (-1.0, -2.0), colour: (0.5, 0.5, 0.5, 0.367)),
                                     (texture: Effect(67), size: 1.0, offset: 0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
                                     (texture: Effect(67), size: 1.0, offset: -0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
-                                    (texture: Effect(67), size: 1.0, offset: 0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
-                                    (texture: Effect(67), size: 1.0, offset: -0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
+                                    (texture: Effect(67), size: 1.0, offset: 0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0)), fold: Some((0.492, 0.015625))),
+                                    (texture: Effect(67), size: 1.0, offset: -0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0)), fold: Some((0.492, 0.015625))),
                                 ],
                             )),
                         ),
@@ -1812,24 +1838,24 @@
                             panels: Some((
                                 unfold: 34,
                                 layers: [
-                                    // Two stars of 57 at its middle, half 0.2, facing the camera (0x378298).
-                                    (texture: Effect(57), size: 0.4, spin: (-1.0, -2.0), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true),
-                                    (texture: Effect(57), size: 0.4, spin: (0.5, 1.5), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true),
+                                    // Two stars of 57 at its middle, half 0.2, facing the camera (0x378298); folding, 0.1875 (0x379CE0).
+                                    (texture: Effect(57), size: 0.4, spin: (-1.0, -2.0), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true, fold_size: Some(0.375)),
+                                    (texture: Effect(57), size: 0.4, spin: (0.5, 1.5), colour: (0.25, 0.5, 1.99, 0.617), near: Some((13.0, 38.0)), faces_camera: true, fold_size: Some(0.375)),
                                     (texture: Effect(11), size: 0.225, offset: 0.01, spin: (-1.5, -2.5), colour: (0.5, 0.25, 1.99, 0.492), near: Some((13.0, 38.0))),
                                     (texture: Effect(11), size: 1.0, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 0.992, 0.164), near: Some((13.0, 38.0))),
                                     (texture: Effect(27), size: 1.15, spin: (-1.0, -2.0), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
                                     (texture: Effect(27), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), near: Some((13.0, 38.0))),
-                                    // V5's bubble: a soft banded disc of 5 (0x1DDB64), added.
-                                    (texture: Effect(5), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.742)),
-                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0)), when: Unhit),
+                                    // V5's bubble: a soft banded disc of 5 (0x1DDB64), added; folding, from 0x4F by 3 a frame.
+                                    (texture: Effect(5), size: 1.15, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.742), fold: Some((0.617, 0.0234375))),
+                                    (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (0.125, 0.125, 1.99, 0.242), near: Some((13.0, 38.0)), when: Unhit, fold: Some((0.492, 0.015625))),
                                     // As a hit shakes it (0x378FF8): the ring of 8 orange, and another growing to it.
                                     (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.617), when: Hit),
                                     (texture: Effect(8), size: 1.1, offset: 0.01, spin: (-1.5, -2.5), colour: (1.0, 0.5, 0.25, 0.289), when: Hit, grow: Some(0.05)),
                                     (texture: Effect(67), size: 1.0, spin: (-1.0, -2.0), colour: (0.5, 0.5, 0.5, 0.367)),
                                     (texture: Effect(67), size: 1.0, offset: 0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
                                     (texture: Effect(67), size: 1.0, offset: -0.02, spin: (-1.5, -2.5), colour: (0.5, 0.5, 0.75, 0.367), near: Some((13.0, 25.0))),
-                                    (texture: Effect(67), size: 1.0, offset: 0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
-                                    (texture: Effect(67), size: 1.0, offset: -0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0))),
+                                    (texture: Effect(67), size: 1.0, offset: 0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0)), fold: Some((0.492, 0.015625))),
+                                    (texture: Effect(67), size: 1.0, offset: -0.04, spin: (-0.5, -1.5), colour: (0.992, 0.5, 1.0, 0.367), near: Some((13.0, 38.0)), fold: Some((0.492, 0.015625))),
                                 ],
                             )),
                         ),

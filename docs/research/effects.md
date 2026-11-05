@@ -1107,6 +1107,65 @@ the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05
 - **An agent appearing** (0x3BD298, state 0x10): 0x35 sparkles of rand(0.35, 0.6) to
   0.001, rising, 20–40 frames, in blue (R rand & 0x2F, G 0x10–0x4F, B 0x7F) and one of
   type 0x68's four textures, added, as its opacity climbs 4 a frame.
+  - **The Agents of Dread's lightning** [code, 2026-11-05; seen at V5]: the state is
+    only from V4, for an agent spawned onto a free slot round him (the spawn, 0x3C0F78,
+    sets it alpha 0 and a 30-frame timer at +0x33C); agents out of the pod (V1–V3) or
+    on foot start following. Each of its 30 frames it sheds one sparkle at its place ±0.3
+    with alpha byte 0xFF (nearly 2), and type 0x68's four textures (the list at
+    0x2212B8: particle textures 53–56) are lightning crackles; its alpha rises 4 and mode
+    bit 0x200 (libuya's `DRAW_TRANSPARENT_WEIRD`, drawn added) is set, its yaw turning
+    rand(100, 1440)°/s; then alpha 0x80, the bit cleared. So each appears as a glowing
+    white-gold silhouette of itself wrapped in violet crackles, as the game's V5 take
+    shows (`uyantsc-veldin-fxreview.sh agents 0x5B`, 3.5–5 s). Nothing else in the agent,
+    the glove (0x35C9F0) or the spawn draws at V5.
+  - **Its end** (the same update, past the switch) [code, 2026-11-05]: through the last 30
+    frames of its 2000-frame life (+0x144, counted down after the switch), a sparkle a
+    frame of the same kind at rand(0.5, 0.75), one in four normal-blended (render byte
+    0x44, else 0x48), as its alpha falls 4 a frame from 0x80, mode bit 0x200 set, and its
+    yaw turns rand(100, 1440)°/s as it does appearing; on the last, `agent_end`.
+- **The pod's burst** (`agent_pod_open` 0x35D738) [code, 2026-11-05; seen at V5]: the pod
+  (0x35CEC8) spawns its four agents in state 2, then opens in state 1: unless it splashed
+  (+0x24, set on materials 0, 1 and 0xB), `explosion_spawn` at its place at S 0.75 with
+  every count 0 but 30 smoke, no glares, debris, dome, flash, glow or rings, no shake, and
+  damage 0 within 2 u (f15 2.0 is the damage ball's radius, +0x68; f14, its damage at
+  +0x6C, is 0). Its colours are set A with red and blue swapped: (0x38, 0x8E, 0xF7), (0,
+  0x63, 0xF7), (0x40, 0x7F, 0xFF), (0, 0x20, 0xFF), (0, 0x8F, 0xFF), (0x30, 0x64, 0xFF), smoke
+  (0x60, 0xA0, 0xFF), dome (0, 0, 0xFF) at 0x28, ring (0x30, 0x64, 0xFF). So: six 0x5C
+  glows of 3S growing to 4.5S over 30 frames, then on the 3rd frame 30 blue puffs of 0x17
+  (1.5S, life 40-70, alpha 0x40, blended). It is the white-blue cloud in the game's V5 take
+  (`uyantsc-veldin-fxreview.sh agents 0x5B`, 12.1-13.1 s), from which the on-foot agents
+  walk: from V4 the glove (0x35C9F0) sends agents straight to the hero only while a slot
+  is free (`agent_slot_free` 0x3C15A8), and with none free throws the pod as below V4.
+- **In the kit** (2026-11-05):
+  - The pod opening reports an impact, and its recipe is the burst ("pod blast").
+  - From V4 the glove sends agents to his free slots, else throws the pod, as the game
+    does.
+  - An agent on a slot stays where it came out for its first 30 ticks, spinning by a turn
+    drawn each tick, and spins the same through its last 30. Both are in the simulation
+    (`thrown.rs`, `agent`).
+  - Its model is added as its alpha climbs, then again as it falls (`guns.rs`,
+    `painted`).
+  - The sparkles: from V4 at alpha 0xFF as it appears on a slot, and at every level
+    through its last 30 ticks.
+  - Seen at V5 on `kitdemo-arena-agents-near`: the second press's pod bursts blue and
+    its agents walk out of it, as in the game.
+  - Not done: an agent the pod lets out from V4 while a slot has come free walks
+    instead of taking the slot (`agent_spawn` checks again).
+- **Its size on screen** [seen on UYA NTSC and in the kit, 2026-11-05]: against the hero,
+  the kit's agents are drawn about twice the game's. On a slot beside him (slot 0, V5):
+  - In the game's take at 7 s, the agent stands half his height, a barrel 0.17 of it
+    and its head 0.10.
+  - In the kit's `-agents-near` at V5, it stands his whole height, a barrel 0.40 and its
+    head 0.20.
+  - Measured against the slots' 2.39 u spacing, the game's agent is about 0.73 u tall
+    and its hero about 1.47 u; the kit's are about 1.19 u each.
+  - Ruled out:
+    - The class's scale. In `uyantsc-veldin-agents-v5-hover.p2s` the four mobys have
+      scale 0.09826, the class's own, which the kit's mesh uses (0.56 u tall at rest,
+      0.9 u with V5's bangles).
+    - The pose. Sequence 9 scales no joint, and the binds carry no scale.
+  - Not found: the cause. Next: measure the kit's drawn agent and hero in world units
+    (their joints' world positions against the rest mesh).
 - **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 8` against the kit's
   `-agents-near` drawn every tick, V3): both show the cyan landing ring, the throw and
   agents appearing at his hand in blue sparkles, which in the game add up to a brighter
@@ -1214,15 +1273,34 @@ Shared by the turrets' ends, the small missiles (0x343330), and the callers 0x31
   (`moby_update_bounds`, 0x439610, takes the matrix as it is), not the draw. Folding, its
   alpha is 0x15 less the frame, gone by the 20th (0x379CE0). Through its last 4 s
   standing (from frame 661) its colour (+0x3C, `moby_set_colour` 0x438908) swings
-  between grey 0x80 and (0x80, 0x30, 0x10) on a sine turning 4° a frame; what that
-  colour does in a moby's draw isn't read. In the game's take (`uyantsc-veldin-fxref.sh`
+  between grey 0x80 and (0x80, 0x30, 0x10) on a sine turning 4° a frame. The game's
+  `holo-fold` take shows it as a tint, 0x80 for 1: measured on the shell's rim over the
+  sand, its green and blue fall to about 0.75 and 0.6 of its red and back, every 4.0 s
+  of the take (90 frames at its 38% speed), red holding [verified on UYA NTSC,
+  2026-11-05]. The kit tints the shell so (`guns.rs`, `painted`), measured the same way
+  on `kitdemo-arena-holo-fold`: green and blue to 0.69 and 0.51 of red, every 90 ticks,
+  through the last 240 before its fold. So the V4 duck's
+  (0x40, 0x10, 0x10) (0x39C2F8), drawn as a red glow, may be a tint darkening it. In the game's take (`uyantsc-veldin-fxref.sh`
   10 at 5.6 s) it is a faint glassy shell round the wall, wider than its layers, with a
   dark grey rim: the rim the comparison below couldn't place.
-- **Folding** (0x379CE0, from V3) [code, 2026-11-05]: the standing layers at their full
-  size, each alpha falling 2 a frame from about its own (V5's disc 3 a frame from 0x4F),
-  the stars at half 0.1875: it fades over its 20 frames rather than shrinking. The faint
-  glow of 11 at 0x15 goes below 0 at the 11th frame and wraps to near 0xFF, which would
-  flash it; not seen on screen. V1–V2's (0x37A5C0) isn't read.
+- **Folding** (0x379CE0 from V3, 0x37A5C0 at V1–V2) [code, 2026-11-05; seen at V3 and
+  V5]: the standing layers at their full size, each alpha the fold's frame t (1 to 20)
+  takes 2 a frame from, mostly its own standing alpha: from V3 the blue ring of 8 and
+  the last pair of strips of 67 from 0x3F (standing 0x1F and 0x2F), V5's disc from 0x4F
+  by 3 a frame; the camera's nearness only decides whether a layer is drawn, not its
+  alpha; the stars at half 0.1875. It fades rather than shrinking. The colour is a word
+  `(alpha − 2t) << 24 | rgb` passed unclamped to the quad's corners (0x37ABF8), so the
+  faint glow of 11 at 0x15 falls past 0 at its 11th frame and wraps to 0xFF, nearly 2:
+  a blue glow the wall's size, added at twice its colour, through the last 10 frames.
+  The game's takes (`uyantsc-veldin-fxreview.sh holo-fold` at rows 0x69 and 0x6B) show
+  just that: the shield fading at its full size, turning bright blue for about its last
+  10 frames (blue-violet over V5's pink), then gone at once. The model's alpha is 0x15
+  less the frame.
+  - In the kit (2026-11-05): panels keep their size and fade by 2 of 0x80 a tick from
+    their own alpha, or from a `fold` of their own, as a byte that wraps
+    (`fx/panel.rs`, `Panel::folding_alpha`); the model fades evenly to nothing
+    (`guns.rs`, `FoldFade`). Seen at V3 on `kitdemo-arena-holo-fold`: the same fade, blue
+    flash and end. The stars take their smaller size as it folds (`fold_size`).
 - **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 10` against the kit's
   `-holo-near` drawn every tick, V3, three shields stacked): both an oval of turning
   purple-blue layers. The game's is rounder on screen (about 1.3 wide for 1 high, from
@@ -1830,9 +1908,9 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Infector (Infecto-Bomb) | Partial. V5's blob, its smoke, globs and bubbles, gas and rings are from code (2026-11-01); the game's yellow-green spatter lands on enemies, the kit's blob bursts in the air off to the side | V3's wash is its gas clouds (0x34) on a grey floor |
 | Spitting Hydra (Tempest) | Close, the same at V3 (2026-11-03). The game's "violet domes" are the spit's two rings of 61, camera-facing up to 10.5 and 21 u across with the floor hiding their lower halves, and the kit draws them so; its "gold ground bolt" is the charge's crackles to the floor, grey and blue added on sand. Each spit's bolt 10 u ahead is now drawn too. The kit's violet and glows come out bluer and stronger | The kit adds colours in linear light ("Importing them", "Colours"); arcs aren't cut short at walls |
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
-| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. No spawn burst of violet and gold lightning | Their size on screen not compared at a matching camera |
+| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. Their violet and gold lightning as they appear on his slots is the game's (2026-11-05: the appearing sparkles, lightning crackles at alpha 0xFF, round their models drawn added as they fade in), as are their spin, the pod's blue burst that the on-foot agents walk out of, and their end's sparkles and fade (2026-11-05) | Drawn about twice the game's size against the hero, cause not found ("Its size on screen") |
 | Rift Inducer (Rift Ripper) | Partial. The game's a small violet ball and smoke; the kit's a pale see-through sphere round it. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code | The placeholder ball still shows |
-| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5, the orange rings of a hit, the stars of 57 and the shield class's own faint shell with its grey rim, as the game's takes show it (2026-11-05, `-holo-near` at V3 and V5) | Paler than the game's (the colours' linear light, P1.9); it shrinks as it folds where the game's fades (0x379CE0); its colour's swing through its last 4 s |
+| Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5, the orange rings of a hit, the stars of 57 and the shield class's own faint shell with its grey rim, as the game's takes show it (2026-11-05, `-holo-near` at V3 and V5) | Paler than the game's (the colours' linear light, P1.9); its colour's swing through its last 4 s. Its fold, a fade and a blue flash, is the game's (2026-11-05) |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |
 | Suck Cannon (Vortex Cannon) | Close, from its code (2026-11-01): the brown tube, arcs, smoke and dust flowing to the gun, as the game's | Its refractions aren't drawn |
 | Qwack-O-Ray (Qwack-O-Blitzer) | Close (2026-11-03). The floor round him is lit warm, as the game's: every gun's light is now drawn with the game's falloff (above, "How the lights fall off"), weaker on the kit's pale floor (1.25 times as bright beside him, the game's sand 1.54 times) under its tonemapper. The beam's colours are its code's; the game's looks yellower and its curls redder, and it looks to rise past his head only from the game's camera, higher behind him ("Which way the beam goes") | The colours add in linear light (below, "Importing them"); the light isn't kept 20 frames after the beam stops; the kit's beam starts along his aim, not the gun's barrel |

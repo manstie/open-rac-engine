@@ -717,6 +717,7 @@
                 // 10 u/s beyond 10 u.
                 hover: Some((
                     slots: [(36.0, 1.475, 0.5), (72.0, 2.0, 1.0), (108.0, 2.2, 1.0), (144.0, 1.475, 0.5)],
+                    appear_ticks: 30, // its +0x33C (0x3C0F78)
                     far: 10.0,
                     far_gain: 4.0,
                     far_top: 10.0,
@@ -767,6 +768,10 @@
                 reach: 2.0,
                 chase_ticks: 420,
                 life_ticks: 2000,
+                // 0x3BD298 past its switch, and its state 0x10 [code]: 100–1440°/s drawn
+                // each frame.
+                fading_ticks: 30,
+                spin: (100.0, 1440.0),
                 leash: 25.0, // tested every 60 frames [code]
                 end: [
                     (0, Blast(radius: 2.0, push: 0.0)),
