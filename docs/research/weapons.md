@@ -1471,9 +1471,18 @@ its three calls, read 2026-10-31).
   the lock-strafe or first-person camera; towards the target in 0x1A57B8 when there is
   one. It lives 128 u / 400 u/s = 19 frames, so its range is 128 u.
 - **At the muzzle** a ball of 1.5 u takes the row's damage too.
-- **Scoped** (the look state 1 or the aiming state 29 with 0x1A71C5 set), the aim is
-  corrected towards targets within 128 u and 20° (0x4C7010), and from the first-person
+- **Scoped** (the look state 1 or the aiming state 29 with 0x1A71C5 set), the shot goes
+  from the muzzle at the free look's aim point (0x1A6230, at most 30 u out) if that is
+  within 20° of the fire direction (2° when the point is within 4 u), else the fire
+  direction bent 20° towards it (`aim_bend_to_point` 0x4C7010; corrected 2026-11-05 [code]:
+  it reads only the aim point and the fire direction, and the 128 passed to it is never
+  read, so there is no pull towards targets). The scoped view is first person, whose fire
+  direction is the camera's forward (`hero_fp_gun_place`, below). From the first-person
   camera a hitscan from the camera goes along the aim as well (0x37C818).
+  - So in the game a scoped shot meets the crosshair at the aim point and passes over it
+    beyond 30 u, by the muzzle's drop below the eye: from the hand's height in the kit,
+    2.3 u high at 100 u looking up 7.5°. The kit aims at what the scope's line meets
+    within the shot's 128 u instead [our own, so it hits the crosshair at any range].
 - **Each frame** the shot tests the line of its step (0x346D90); what it hits takes the
   row's damage, and the shot stops there if that object can take damage (0x4435E8: its
   +0x98 record has +8 set), else flies on. This shot never pierces, at any level: its
@@ -2683,7 +2692,8 @@ profiles' `gun` section):
   passing over what the one before hit; balls of 0.6, 0.8 and 2.5 u: `ShotKind::Beam`).
 - **Aim:** the lock-on target; else, in the lock-strafe and first-person cameras and the
   look, the point the view centres on, bent from his facing by at most 80° (8° within
-  4 u); else the gun's own assist (`gun_aim_target`'s cubic cone and score; none in
+  4 u; the scoped Flux Rifle bends from the view's way by at most 20°, to what the
+  scope's line meets within 128 u); else the gun's own assist (`gun_aim_target`'s cubic cone and score; none in
   lock-strafe); else his facing.
 - **Damage:** one pending hit per target a tick, the strongest, a weaker one adding its
   mods; shock arcs to the first other living enemy in sight within 8 u, striking it 10

@@ -652,6 +652,57 @@ fn the_flux_rifles_shot_crosses_its_range_in_a_few_ticks() {
 }
 
 #[test]
+fn scoped_the_flux_rifles_shot_goes_at_the_crosshair_far_off_and_looking_up() {
+    // "Flux Rifle": scoped, the shot bends from the view to what it centres on, out to the
+    // shot's 128 u, though the muzzle is well below the eye; an enemy off the crosshair
+    // doesn't draw it.
+    for (setting, mouse) in [
+        (CameraSetting::ThirdPerson, 300),
+        (CameraSetting::FirstPerson, 150),
+    ] {
+        let mut yard = Yard::new(&[(FLUX, 0)]);
+        let camera = yard.camera(setting);
+        yard.look_through_scope();
+        for _ in 0..10 {
+            let mut held = Buttons::NONE;
+            held.insert(Action::FirstPerson);
+            yard.app.world_mut().resource_mut::<PlayerInputs>().0[0] = PlayerInput {
+                look: [0, mouse],
+                held,
+                ..default()
+            };
+            yard.app.update();
+        }
+        yard.hold(&[Action::FirstPerson], 2);
+        let view = *yard.app.world().get::<SimTransform>(camera).unwrap();
+        let along = view.rotation * Vec3::NEG_Z;
+        assert!(along.y > 0.1, "{setting:?} looks up: {along}");
+        // Nothing is on it, so the scope's line ends at the shot's reach.
+        let crosshair = view.translation + along * 128.0;
+        let off_crosshair = yard.enemy(
+            view.translation + Quat::from_rotation_y(0.15) * along * 40.0,
+            100.0,
+        );
+        yard.hold(&[Action::FirstPerson, Action::Fire], 1);
+        let shot = yard
+            .arsenal()
+            .shots
+            .iter()
+            .find(|shot| matches!(shot.kind, ShotKind::Bullet { .. }))
+            .expect("a shot in flight");
+        let way = shot.velocity.normalize();
+        let to = crosshair - shot.position;
+        let off = (to - way * to.dot(way)).length();
+        assert!(
+            off < 0.05,
+            "{setting:?}: {off} u off the crosshair at 128 u"
+        );
+        yard.idle(30);
+        assert_eq!(yard.hitpoints(off_crosshair), 100.0);
+    }
+}
+
+#[test]
 fn the_flux_scope_starts_a_quarter_in_zooms_by_r1_and_r2_and_springs_back_out() {
     // "Aim indicators", the zoom: from the view's 63.6° to 20° at V1, 0.01 rad a frame.
     let mut yard = Yard::new(&[(FLUX, 0)]);

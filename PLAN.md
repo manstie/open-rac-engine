@@ -852,6 +852,13 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     gives; still open (`hero-controller.md`, "Deadlocked's melee"). Next: read the
     double jump's own transitions for what holds a press back, then +0x4AC's writers.
 - [~] **P1.9** Weapons framework (`rac_combat`), following RE.7:
+  - The Flux scope's shots passed over or under the crosshair: they bent from his flat
+    facing to the 30 u aim point and snapped to any target within 20°, a misreading of
+    0x4C7010. Now, as its code, they bend at most 20° from the view's way, to what the
+    scope's line meets within 128 u [our own reach] (`weapons.md`, "Flux Rifle"). Still
+    open: the other guns in first person bend from his facing, where the game's fire
+    direction is the camera's (0x50F410); only points within 4 u and pitches past 80°
+    differ.
   - The game's footage (`uyantsc-veldin-fxref.sh`, `-fxreview.sh`) shows its 16:9 view
     at 4:3, everything 0.75 as wide as it is: UYA's savestates have the 16:9 option on
     (byte 0x1439FD). Widths measured in it are × 4/3 (`re-setup.md`, "Gotchas").

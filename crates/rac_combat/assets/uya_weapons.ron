@@ -475,6 +475,8 @@
                 muzzle_ball: 1.5,
                 barrels: [(0.0, 0.0, 0.0)],
                 assist: None,
+                // Scoped, bent at most 20° (0x4C7010) to what the view meets within the
+                // shot's 128 u [our own reach: the game's point is 30 u out].
                 scope: Some((128.0, 20.0)),
                 // "The scoped beam pierces" [code]: 30 u a frame for 26 frames, drawn
                 // 100 u ahead; balls of 0.6 u at V1, 0.8 at V2-V3, 2.5 from V4, pushing

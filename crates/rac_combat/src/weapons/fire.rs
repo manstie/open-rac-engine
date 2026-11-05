@@ -657,13 +657,7 @@ impl<'a> Gun<'a> {
         let Some(point) = self.view_point else {
             return self.facing;
         };
-        let rules = &armory.rules;
-        let wanted = (point - from).normalize_or(self.facing);
-        let mut most = rules.bend_degrees.to_radians();
-        if point.distance(from) < rules.bend_near {
-            most *= 0.1;
-        }
-        bend(self.facing, wanted, most)
+        bend_to_point(self.facing, from, point, armory.rules.bend_degrees, armory)
     }
 
     /// Straight at the lock-on target (`aim_at_target`), else where the view centres.
@@ -740,6 +734,18 @@ impl<'a> Gun<'a> {
             acid: self.mods.acid,
         }
     }
+}
+
+/// `aim_bend_to_point` (0x4C7010): from `from` straight at `point` if that is within
+/// `degrees` of the fire direction `along` (a tenth of that when the point is nearer than
+/// the rules' `bend_near`), else `along` bent that far towards it.
+fn bend_to_point(along: Vec3, from: Vec3, point: Vec3, degrees: f32, armory: &Armory) -> Vec3 {
+    let wanted = (point - from).normalize_or(along);
+    let mut most = degrees.to_radians();
+    if point.distance(from) < armory.rules.bend_near {
+        most *= 0.1;
+    }
+    bend(along, wanted, most)
 }
 
 /// Takes a round and starts the firing animation; false if it is out of ammo.
@@ -1166,50 +1172,45 @@ fn projectile(
         )?;
         Some(gun_input.targets[index].centre)
     };
-    let mut direction = match (gun.lock, gun.view_point) {
-        (Some((_, at)), _) => (at - from).normalize_or(gun.facing),
-        (None, Some(_)) => gun.view_aim(from, armory),
-        (None, None) => assisted().map_or(gun.facing, |at| (at - from).normalize_or(gun.facing)),
-    };
-    // Scoped in the look, the aim bends to the nearest target near it.
-    let scoped = gun_input.hero.state == HeroState::Look;
-    let mut scoped_at = None;
-    if let Some((range, degrees)) = fire.scope
-        && scoped
-    {
-        let limit = degrees.to_radians();
-        let nearest = gun_input
-            .targets
-            .iter()
-            .filter(|target| target.alive && target.centre.distance(from) <= range)
-            .map(|target| {
-                let to = (target.centre - from).normalize_or_zero();
-                (direction.angle_between(to), to, target.centre)
-            })
-            .filter(|&(angle, ..)| angle <= limit)
-            .min_by(|a, b| a.0.total_cmp(&b.0));
-        if let Some((_, to, at)) = nearest {
-            direction = to;
-            scoped_at = Some(at);
+    // Scoped (the look, once its view is ready), the view is first person, whose fire
+    // direction is the camera's (0x50F410), and the shot bends from it to what the scope
+    // centres on, before any lock-on target.
+    let scoped = gun_input
+        .view
+        .filter(|_| gun_input.hero.state == HeroState::Look && gun_input.hero.look_ready);
+    let direction = match (fire.scope, scoped) {
+        (Some((reach, degrees)), Some(view)) => {
+            let point = view_point(
+                gun_input.world,
+                gun_input.targets,
+                view.eye,
+                view.direction,
+                reach,
+            );
+            bend_to_point(view.direction, from, point, degrees, armory)
         }
-    }
-    // And a beam goes from the eye along the aim with the shot.
-    if let (Some(beam), Some(view), true) = (&fire.scope_beam, gun_input.view, scoped) {
-        let aim = scoped_at.map_or(view.direction, |at| {
-            (at - view.eye).normalize_or(view.direction)
-        });
+        _ => match (gun.lock, gun.view_point) {
+            (Some((_, at)), _) => (at - from).normalize_or(gun.facing),
+            (None, Some(_)) => gun.view_aim(from, armory),
+            (None, None) => {
+                assisted().map_or(gun.facing, |at| (at - from).normalize_or(gun.facing))
+            }
+        },
+    };
+    // And a beam goes from the eye along the view with the shot.
+    if let (Some(beam), Some(view)) = (&fire.scope_beam, scoped) {
         out.event(
             gun.weapon,
             GunEventKind::Ray {
                 from: view.eye,
-                to: view.eye + aim * beam.shown,
+                to: view.eye + view.direction * beam.shown,
             },
         );
         let serial = arsenal.next_serial();
         arsenal.shots.push(gun.shot(
             serial,
             view.eye,
-            aim * (beam.step / TICK),
+            view.direction * (beam.step / TICK),
             ShotKind::Beam { hit: false },
         ));
     }

@@ -666,8 +666,11 @@ pub struct Projectile {
     /// Shots go from each of these in turn: right, up and forward of the muzzle.
     pub barrels: Vec<[f32; 3]>,
     pub assist: Option<AimAssist>,
-    /// In the look, the aim bends to the nearest target within `scope.0` u and `scope.1`
-    /// degrees of it.
+    /// Scoped in the look, shots bend from the view's way by at most `scope.1` degrees
+    /// towards the first thing the view's line meets within `scope.0` u, or its end
+    /// (`aim_bend_to_point`, 0x4C7010). The game's point is the free look's, 30 u out, so
+    /// from a muzzle below the eye its shots pass over what the scope centres on beyond
+    /// that [our own: the scope's reach, so they meet the crosshair wherever it is].
     pub scope: Option<(f32, f32)>,
     /// Scoped in the look, a beam goes with each shot from the view's eye along the aim.
     #[serde(default)]
