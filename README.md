@@ -53,6 +53,9 @@ Builds for Windows and Linux (x86-64) are attached to the
 
 - Your disc images go in a `source` folder in the folder you start it from;
   `--discs <folder>` points it elsewhere. Without discs it plays its own placeholder hero.
+  With *Ratchet & Clank 3* or *Up Your Arsenal* (either release in the table above) the
+  hero is Ratchet, with his animations, suits and guns from the disc; *Ratchet:
+  Gladiator* or *Deadlocked* adds that game's skins.
 - `--help` lists the other options. The game prints its log to the terminal it was started
   from, if any; on Windows it opens no console window of its own.
 - Linux needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12 and later) and a Vulkan driver.

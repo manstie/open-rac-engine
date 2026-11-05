@@ -355,6 +355,31 @@ Veldin's level data:
   literals and starts blocks. With any other length (`12 00 00`) it ends the block: the
   rest is padding (0xEE) and the next packet starts the next block.
 
+## R&C3 PAL beside UYA [verified 2026-11-05]
+
+Compared with our own readers (`openrac`'s disc tests `rac3_pal_gives_what_uya_ntsc_gives`
+and `rac3_pals_gun_sounds_are_uya_ntscs`) and by reading both tables of contents raw:
+
+- **The table of contents has UYA's layout:** eight global headers of the same sizes
+  (0x7400 bytes in all), then the level table with the same 52 levels. The headers' first
+  sectors differ, as the files lie elsewhere on the disc.
+- **The armor WAD's header (the fifth) and the gadget WAD's (the seventh)** are the same
+  bytes after their first sector, so the suits, skins and guns lie at the same places
+  within them. The other six differ [not read; the PAL disc has German and Italian
+  besides UYA's English, French and Spanish].
+- **Veldin's level files** differ in size (the level WAD 9,449 sectors against UYA's
+  9,439, the scene 13,451 against 13,678), but its core unpacks to the same 20,000,480
+  bytes with the same 227 moby classes.
+- **Everything `openrac` reads is the same, value for value:** the hero's skeleton and 127
+  sequences, with Clank's, the heli-pack's and the gun-holding arms' clips; the 15 suits
+  and 21 multiplayer skins; the guns' 72 models, the shots' 26, the three effect models
+  and the whip's links; Veldin's effect and particle textures and particle lists; and the
+  guns' sound tables and banks (every bank in the gadget WAD, Veldin's and level 4's).
+- So R&C3 PAL's conversion to 50 Hz is in its code ([hero-controller.md](
+  hero-controller.md), "Frames and regions"), not in this data: its clips carry UYA's
+  frames. The app plays either disc's data on NTSC-U's timings, and reads UYA NTSC-U's
+  when both are there.
+
 ## Level data (DL NTSC-U and Gladiator PAL) [verified 2026-10-15]
 
 Read in DL's loader in our DreadZone Station image (`dl_level_read_headers` 0x159AB0,

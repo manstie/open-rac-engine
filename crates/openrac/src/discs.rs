@@ -11,6 +11,13 @@ use rac_iso::{Disc, SystemCnf};
 
 pub use rac_iso::Release;
 
+/// The releases of UYA the app reads, the reference first. R&C3 PAL holds the same data
+/// wherever the app reads it (`disc-layout.md`, "R&C3 PAL beside UYA").
+pub const UYA: [Release; 2] = [Release::UyaNtsc, Release::Rac3Pal];
+
+/// The releases of DL the app reads, the reference first. Both hold the same skins.
+pub const DL: [Release; 2] = [Release::DlNtsc, Release::GladiatorPal];
+
 /// An opened disc image, for `rac_formats` to read.
 pub struct DiscImage(Disc<BufReader<File>>);
 
@@ -46,6 +53,12 @@ pub fn find(folder: &Path, release: Release) -> Option<(PathBuf, DiscImage)> {
     rac_iso::find_images(folder, 2)
         .into_iter()
         .find_map(|path| open_as(&path, release).map(|disc| (path, disc)))
+}
+
+/// The first disc image in `folder` of the first of `releases` found there, so a folder
+/// holding two releases of a game gives the one listed first.
+pub fn find_any(folder: &Path, releases: &[Release]) -> Option<(PathBuf, DiscImage)> {
+    releases.iter().find_map(|&release| find(folder, release))
 }
 
 /// Reads the real disc: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.

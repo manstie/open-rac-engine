@@ -147,7 +147,7 @@ Development is native, with no container.
 | `cargo run` | Runs the game: a main menu, then the hero kit's demo level. Options (in both the main and pause menus) has the bindings, mouse and sticks, display and sound, saved in `settings.toml`. The default workspace member is `crates/openrac`. |
 | `cargo run --features dev` | Bevy's dynamic linking for faster rebuilds. Never for release builds. |
 | `cargo run -- --exit-after-frames 120` | Smoke test: exits with code 0 after 120 frames. Add `--demo` to start in the level, `--spectator` for a free camera. |
-| `cargo run -- --demo` with the UYA NTSC-U disc image in `source/` | The hero plays Ratchet's real animations, read from the disc at start-up (`--discs DIR` to look elsewhere). Without it his animation is procedural. |
+| `cargo run -- --demo` with the UYA NTSC-U or R&C3 PAL disc image in `source/` | The hero plays Ratchet's real animations, read from the disc at start-up (`--discs DIR` to look elsewhere). Without it his animation is procedural. |
 | `cargo run -- --demo --model uya` (or `open`, `uya-snowman`, `uya-mp-robo`, `dl-jak`, …) | Chooses the hero's model: a UYA suit or multiplayer skin, a DL or Gladiator skin (names in `crates/openrac/src/hero_model.rs`, `SUITS`, `MP_SKINS` and `DL_SUITS`), or the open blocky one. The menus' Model button does the same and saves the choice. |
 | `cargo run -- --demo --moves dl` | Chooses the game the hero moves like: `uya` (the default), `dl`, or a profile's RON file. The menus' Moves button does the same and saves the choice. |
 | `cargo run -- --demo --guns dl` | Gives the hero Deadlocked's guns read so far (`docs/research/weapons.md`, "Deadlocked's guns") instead of UYA's. |

@@ -418,7 +418,7 @@ fn gap_key(kind: PickupSoundKind) -> PickupSoundKind {
 }
 
 /// A class's sound table, and the bank its entries' sounds are in.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Table {
     bank: BankId,
     sounds: Vec<ClassSound>,
@@ -1397,5 +1397,37 @@ mod tests {
         let mut out = vec![0.0; 2 * 9600];
         read.synth.render(&mut out);
         assert!(out.iter().any(|sample| sample.abs() > 0.1));
+    }
+
+    /// The guns' sounds from R&C3 PAL are UYA NTSC-U's: the same tables, and the same banks
+    /// in the gadget WAD and the levels they're read from.
+    #[test]
+    #[ignore = "needs game discs"]
+    fn rac3_pals_gun_sounds_are_uya_ntscs() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let read = |release| {
+            let (_, mut disc) =
+                crate::discs::find(std::path::Path::new(&folder), release).expect("the disc");
+            let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+            let tables = import(&mut disc, &core, crate::hero_anims::LEVEL)
+                .unwrap()
+                .tables;
+            let gadgets = GadgetTable::read_uya(&Toc::read_uya_disc(&mut disc).unwrap()).unwrap();
+            let banks: Vec<_> = (0..gadgets.entries.len())
+                .map(|index| gadgets.read_sounds(&mut disc, index).unwrap())
+                .collect();
+            let levels: Vec<_> = [crate::hero_anims::LEVEL, CRATES_LEVEL]
+                .map(|level| read_uya_sound_bank(&mut disc, level).unwrap())
+                .into();
+            (tables, banks, levels)
+        };
+        let ntsc = read(crate::discs::Release::UyaNtsc);
+        let pal = read(crate::discs::Release::Rac3Pal);
+        assert!(!ntsc.0.is_empty() && ntsc.1.iter().any(Option::is_some));
+        assert!(ntsc.0 == pal.0, "the tables differ");
+        for (index, (ntsc, pal)) in ntsc.1.iter().zip(&pal.1).enumerate() {
+            assert!(ntsc == pal, "gadget {index}'s bank differs");
+        }
+        assert!(ntsc.2 == pal.2, "the levels' banks differ");
     }
 }

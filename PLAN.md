@@ -83,7 +83,8 @@ session is working on the task now; notes on problems met stay with their task (
   from the disc, and DL's skin WAD, levels, cores and gameplay files' mobys (P2.1–P2.4,
   P3.3, P3.7, P3.10). The packed boot
   executables unpack into ELFs for Ghidra (P2.5). All eight discs, including the NTSC-U
-  R&C1 and GC, are identified by their boot executables' hashes (P2.2).
+  R&C1 and GC, are identified by their boot executables' hashes (P2.2). The app reads
+  R&C3 PAL wherever it reads UYA NTSC-U, as their data is the same there (P2.10).
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
@@ -1430,6 +1431,12 @@ level code still needs savestates or Wrench, until P2.6 extracts the overlays.
   - Commit golden **checksums** (not data) of the decompressed outputs.
   - Tests that read real discs are gated on `OPENRAC_SOURCE_DIR`.
   - Cross-check against `wrenchbuild unpack` output on the local machine.
+- [x] **P2.10** The R&C3 PAL disc (SCES-52456) wherever the app reads UYA NTSC-U's: the
+  hero's animations, suits and skins, the guns' models and sounds, and the effects.
+  `openrac` takes either (`discs::UYA`, UYA NTSC-U first) and DL NTSC-U or Gladiator PAL
+  (`discs::DL`). Everything it reads is the same on both R&C3 discs, value for value, so
+  nothing converts (`disc-layout.md`, "R&C3 PAL beside UYA"; disc tests in `main.rs` and
+  `gun_sounds.rs`). `openrac-tool`'s UYA commands already read either.
 - **Done when:** all eight discs identify, every TOC entry is listed, every WAD decompresses,
   the packed ELFs unpack, and our output matches Wrench's wherever they can be compared.
 

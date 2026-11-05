@@ -1,7 +1,7 @@
 //! Open Ratchet & Clank Engine: application entry point.
 //!
-//! It runs the hero kit's demo. If the user's own UYA disc is in the discs folder, the
-//! hero plays Ratchet's animations read from it, holds and hears its guns, and Ratchet's
+//! It runs the hero kit's demo. If the user's own UYA or R&C3 disc is in the discs folder,
+//! the hero plays Ratchet's animations read from it, holds and hears its guns, and Ratchet's
 //! own model can be chosen in the menus, as can the game he moves like. The roadmap lives in `PLAN.md` at the
 //! repository root.
 
@@ -353,15 +353,20 @@ fn from_disc(folder: &std::path::Path) -> FromDisc {
 }
 
 /// The hero's animations, suits, multiplayer skins and guns, with the guns' sounds, from a
-/// UYA NTSC-U disc, if one is in `folder`.
+/// UYA NTSC-U or R&C3 PAL disc, if one is in `folder`.
 fn from_uya(folder: &std::path::Path) -> FromDisc {
-    let Some((path, mut disc)) = discs::find(folder, discs::Release::UyaNtsc) else {
+    let Some((path, disc)) = discs::find_any(folder, &discs::UYA) else {
         info!(
-            "no UYA NTSC-U disc in {}: the hero's animation is procedural",
+            "no UYA NTSC-U or R&C3 PAL disc in {}: the hero's animation is procedural",
             folder.display()
         );
         return FromDisc::default();
     };
+    read_uya(&path, disc)
+}
+
+/// What [`from_uya`] reads, from `disc` at `path`.
+fn read_uya(path: &std::path::Path, mut disc: discs::DiscImage) -> FromDisc {
     let read = rac_formats::level::Core::read_uya(&mut disc, hero_anims::LEVEL)
         .and_then(|core| core.hero().map(|hero| (core, hero)));
     let (core, hero) = match read {
@@ -395,7 +400,7 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
     };
     let suits = [hero_model::SUITS, hero_model::MP_SKINS].concat();
     let read = hero_model::import(&mut disc, &core, &hero, &suits);
-    let models = imported(&suits, read, &path);
+    let models = imported(&suits, read, path);
     let effects = core.fx_textures().unwrap_or_else(|error| {
         warn!(
             "couldn't read the effect textures from {}: {error}",
@@ -471,7 +476,7 @@ fn from_uya(folder: &std::path::Path) -> FromDisc {
     FromDisc {
         animations,
         models,
-        guns: guns(&mut disc, &core, &hero, &path),
+        guns: guns(&mut disc, &core, &hero, path),
         shots,
         effect_models,
         rope_models,
@@ -512,9 +517,7 @@ fn guns(
 /// The skins from a DL NTSC-U or Gladiator PAL disc, if one is in `folder`. Both hold the
 /// same skins, so one is enough.
 fn from_dl(folder: &std::path::Path) -> Vec<hero_model::Imported> {
-    let found = discs::find(folder, discs::Release::DlNtsc)
-        .or_else(|| discs::find(folder, discs::Release::GladiatorPal));
-    let Some((path, mut disc)) = found else {
+    let Some((path, mut disc)) = discs::find_any(folder, &discs::DL) else {
         return Vec::new();
     };
     let skins = hero_model::import_dl(&mut disc, hero_model::DL_SUITS);
@@ -575,5 +578,62 @@ fn exit_after_frames(
 ) {
     if frames.0 >= limit.0 {
         exit.write(AppExit::Success);
+    }
+}
+
+/// Reads the real discs: `OPENRAC_SOURCE_DIR` names the folder of the user's disc images.
+#[cfg(test)]
+mod disc_tests {
+    use super::*;
+
+    /// R&C3 PAL gives the hero all that UYA NTSC-U gives, value for value
+    /// (`disc-layout.md`, "R&C3 PAL beside UYA"); the guns' sounds are compared in
+    /// `gun_sounds`.
+    #[test]
+    #[ignore = "needs game discs"]
+    fn rac3_pal_gives_what_uya_ntsc_gives() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let read = |release| {
+            let (path, disc) =
+                discs::find(std::path::Path::new(&folder), release).expect("the disc");
+            read_uya(&path, disc)
+        };
+        let ntsc = read(discs::Release::UyaNtsc);
+        let pal = read(discs::Release::Rac3Pal);
+        // Everything is read, so nothing passes by being missing from both.
+        assert!(ntsc.animations.is_some() && pal.gun_sounds.is_some());
+        let suits = hero_model::SUITS.len() + hero_model::MP_SKINS.len();
+        assert_eq!(ntsc.models.len(), suits);
+        assert_eq!(ntsc.guns.len(), gun_models::UYA_GUN_MODELS.len());
+        assert_eq!(ntsc.shots.len(), shot_models::UYA_SHOT_CLASSES.len());
+        assert_eq!(
+            ntsc.effect_models.len(),
+            shot_models::UYA_EFFECT_CLASSES.len()
+        );
+        assert_eq!(ntsc.rope_models.len(), shot_models::UYA_ROPE_CLASSES.len());
+        assert!(!ntsc.effect_textures.effects.is_empty());
+        // Not `assert_eq!`: a difference would print every vertex of both.
+        assert!(ntsc.animations == pal.animations, "the animations differ");
+        assert_eq!(ntsc.models.len(), pal.models.len());
+        for (ntsc, pal) in ntsc.models.iter().zip(&pal.models) {
+            assert!(ntsc == pal, "the model \"{}\" differs", ntsc.data.name);
+        }
+        assert!(ntsc.guns == pal.guns, "the guns' models differ");
+        assert!(ntsc.shots == pal.shots, "the shots' models differ");
+        assert!(
+            ntsc.effect_models == pal.effect_models,
+            "the effects' models differ"
+        );
+        assert!(
+            ntsc.rope_models == pal.rope_models,
+            "the whip's links differ"
+        );
+        let (ntsc, pal) = (&ntsc.effect_textures, &pal.effect_textures);
+        assert!(ntsc.effects == pal.effects, "the effect textures differ");
+        assert!(
+            ntsc.particles == pal.particles,
+            "the particle textures differ"
+        );
+        assert_eq!(ntsc.particle_lists, pal.particle_lists);
     }
 }
