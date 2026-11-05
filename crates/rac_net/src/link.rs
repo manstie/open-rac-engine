@@ -1,11 +1,11 @@
-//! How a session's packets travel: over UDP ([`UdpLink`]), or through memory with chosen
-//! delays and losses for tests ([`MemoryNet`]).
+//! How a session's packets travel: over UDP ([`UdpLink`]), IPv4 and IPv6 at once, or
+//! through memory with chosen delays and losses for tests ([`MemoryNet`]).
 //!
 //! Each datagram starts with a tag byte, so `ggrs`'s own packets and the handshake's
 //! ([`crate::handshake`]) share one port. STUN's ([`crate::stun`]) come untagged, and are
 //! told apart by the magic cookie every STUN message carries.
 
-use bevy::log::warn;
+use bevy::log::{debug, warn};
 use ggrs::{Message, NonBlockingSocket};
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -125,47 +125,111 @@ impl NonBlockingSocket<SocketAddr> for Link {
     }
 }
 
-/// A non-blocking UDP socket.
+/// Non-blocking UDP sockets, one for IPv4 and one for IPv6, either of which may be
+/// missing: packets go out of the one for their address's family.
 pub struct UdpLink {
-    socket: UdpSocket,
+    v4: Option<UdpSocket>,
+    v6: Option<UdpSocket>,
     buffer: Box<[u8; MAX_PACKET]>,
 }
 
+/// A non-blocking socket bound to `address`. An IPv6 one takes IPv6 alone, everywhere
+/// (systems differ in what they do unasked), so it leaves the IPv4 port to its own socket.
+fn bind_socket(address: SocketAddr) -> io::Result<UdpSocket> {
+    let socket = if address.is_ipv6() {
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV6,
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        socket.set_only_v6(true)?;
+        socket.bind(&address.into())?;
+        socket.into()
+    } else {
+        UdpSocket::bind(address)?
+    };
+    socket.set_nonblocking(true)?;
+    Ok(socket)
+}
+
 impl UdpLink {
-    /// Binds `address`: `0.0.0.0:port` to host on a port, port 0 for any free one.
+    /// Binds `address` alone: `0.0.0.0:port` to host on a port, port 0 for any free one.
     pub fn bind(address: SocketAddr) -> io::Result<Self> {
-        let socket = UdpSocket::bind(address)?;
-        socket.set_nonblocking(true)?;
+        let socket = Some(bind_socket(address)?);
+        let (v4, v6) = if address.is_ipv6() {
+            (None, socket)
+        } else {
+            (socket, None)
+        };
         Ok(Self {
-            socket,
+            v4,
+            v6,
             buffer: Box::new([0; MAX_PACKET]),
         })
     }
 
-    pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.socket.local_addr()
+    /// Binds UDP `port` on IPv4 and, if `ipv6`, on IPv6 as well, so peers reach this
+    /// machine by either: port 0 takes a free one, which IPv6 then takes too if it can. An
+    /// IPv6 socket that can't be bound is left out; it is IPv4's that must be.
+    pub fn bind_both(port: u16, ipv6: bool) -> io::Result<Self> {
+        let mut link = Self::bind(SocketAddr::from(([0, 0, 0, 0], port)))?;
+        if ipv6 {
+            let port = link.local_addrs().first().map_or(port, SocketAddr::port);
+            let any = |port| SocketAddr::from(([0u16; 8], port));
+            link.v6 = bind_socket(any(port))
+                .or_else(|_| bind_socket(any(0)))
+                .inspect_err(|error| warn!("couldn't open IPv6 UDP: {error}; IPv4 only"))
+                .ok();
+        }
+        Ok(link)
+    }
+
+    /// Where each socket is bound, IPv4's first.
+    pub fn local_addrs(&self) -> Vec<SocketAddr> {
+        [&self.v4, &self.v6]
+            .into_iter()
+            .flatten()
+            .filter_map(|socket| socket.local_addr().ok())
+            .collect()
     }
 }
 
 impl Transport for UdpLink {
     fn send(&mut self, to: SocketAddr, bytes: &[u8]) {
+        let socket = if to.is_ipv6() { &self.v6 } else { &self.v4 };
+        let Some(socket) = socket else {
+            debug!("no socket of {to}'s family to send to it from");
+            return;
+        };
         // UDP may drop anything; the protocols above resend what matters.
-        if let Err(error) = self.socket.send_to(bytes, to) {
-            warn!("couldn't send to {to}: {error}");
+        match socket.send_to(bytes, to) {
+            Ok(_) => {}
+            // Every address in a join code is tried, and some lead nowhere from here.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NetworkUnreachable | io::ErrorKind::HostUnreachable
+                ) =>
+            {
+                debug!("couldn't send to {to}: {error}");
+            }
+            Err(error) => warn!("couldn't send to {to}: {error}"),
         }
     }
 
     fn receive(&mut self) -> Vec<(SocketAddr, Vec<u8>)> {
         let mut received = Vec::new();
-        loop {
-            match self.socket.recv_from(&mut self.buffer[..]) {
-                Ok((length, from)) => received.push((from, self.buffer[..length].to_vec())),
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                // Windows reports a peer's closed port as a reset on the next receive.
-                Err(error) if error.kind() == io::ErrorKind::ConnectionReset => continue,
-                Err(error) => {
-                    warn!("couldn't receive: {error}");
-                    break;
+        for socket in [&self.v4, &self.v6].into_iter().flatten() {
+            loop {
+                match socket.recv_from(&mut self.buffer[..]) {
+                    Ok((length, from)) => received.push((from, self.buffer[..length].to_vec())),
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    // Windows reports a peer's closed port as a reset on the next receive.
+                    Err(error) if error.kind() == io::ErrorKind::ConnectionReset => continue,
+                    Err(error) => {
+                        warn!("couldn't receive: {error}");
+                        break;
+                    }
                 }
             }
         }
@@ -306,5 +370,54 @@ impl Transport for MemoryLink {
             !(lets_in || nat.is_some_and(|nat| *to == nat.public || *to == nat.private))
         });
         arrived
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What arrives at `socket` within a second.
+    fn heard(socket: &UdpSocket) -> Vec<u8> {
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut buffer = [0; 64];
+        let (length, _) = socket.recv_from(&mut buffer).unwrap();
+        buffer[..length].to_vec()
+    }
+
+    #[test]
+    fn a_link_on_both_families_talks_to_peers_of_each() {
+        let mut link = UdpLink::bind_both(0, true).unwrap();
+        let bound = link.local_addrs();
+        let loopback = |at: &SocketAddr| match at {
+            SocketAddr::V4(at) => SocketAddr::from(([127, 0, 0, 1], at.port())),
+            SocketAddr::V6(at) => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], at.port())),
+        };
+        // A machine without IPv6 binds IPv4 alone.
+        assert!(bound[0].is_ipv4());
+        assert!(bound.len() == 1 || bound[1].is_ipv6());
+        // The IPv6 socket takes IPv6 alone, so the IPv4 port is IPv4's.
+        let peers: Vec<UdpSocket> = bound
+            .iter()
+            .map(|at| UdpSocket::bind(SocketAddr::new(loopback(at).ip(), 0)).unwrap())
+            .collect();
+        for (peer, at) in peers.iter().zip(&bound) {
+            peer.send_to(&[at.is_ipv6() as u8], loopback(at)).unwrap();
+        }
+        let mut received = Vec::new();
+        let start = std::time::Instant::now();
+        while received.len() < peers.len() && start.elapsed().as_secs() < 2 {
+            received.extend(link.receive());
+        }
+        assert_eq!(received.len(), peers.len());
+        for (from, bytes) in received {
+            assert_eq!(bytes, [from.is_ipv6() as u8]);
+            link.send(from, b"back");
+        }
+        for peer in &peers {
+            assert_eq!(heard(peer), b"back");
+        }
     }
 }

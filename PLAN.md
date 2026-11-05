@@ -61,9 +61,9 @@ session is working on the task now; notes on problems met stay with their task (
   that drop bolts and nanotech and, infected, fight each other (P1.11).
   Two players can play the demo together by IP or join code (`--host`, `--join`), with
   rollback through `ggrs` and the simulation's snapshots, checked headless on the whole
-  demo; codes carry STUN's public address and the LAN's, the host's router is asked to
-  forward its port (UPnP), and a host can punch through its NAT to the guest's code
-  (P1.18, `docs/netcode.md`).
+  demo; codes carry STUN's public IPv4 and IPv6 addresses and the LAN's, the host's
+  router is asked to forward its port (PCP, NAT-PMP or UPnP), and a host can punch
+  through its NAT to the guest's code (P1.18, `docs/netcode.md`).
 - **Reverse engineering:** the hero's movement is read in UYA's and DL's code and checked
   against traces (RE.3); the camera is finished (RE.4): every mode, blend, volume and
   collision rule the kit needs is read and traced in both games; RE.8 is answered
@@ -87,8 +87,9 @@ session is working on the task now; notes on problems met stay with their task (
 - The work is on branch `re/hero-movement`, which isn't pushed yet.
 
 **Next actions, in order:**
-1. P1.18's next step: co-op on two machines (the owner's), over a LAN and then the
-   internet by join code; port mapping (D8).
+1. P1.18's next step, the owner's: co-op on two machines, over a LAN and then the
+   internet by join code, with the router's port mapping (D8). Nothing else is left in
+   it.
 2. P1.9's review lists how far UYA's guns are from the game at V5, what is left, and the
    next gun to fix (the Ultrashield's class model, 0x186D; or the agents' spawn
    lightning).
@@ -1309,13 +1310,16 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     `ggrs` driver, UDP link and handshake (build and rules digest, a slot each, the
     other player's camera setting, a random id per joiner); STUN on the session's
     socket, join codes and hole punching (D8: `rac_net::stun`, `code`, `Host::punch_to`,
-    `Joiner::to_any`), and the host's port mapped by UPnP IGD (`rac_net::upnp`,
-    `igd-next`; `--no-port-mapping`); `--host [PORT]`, `--join CODE|HOST[:PORT]`, the
+    `Joiner::to_any`), on IPv4 and, where the machine has it, IPv6 at once
+    (`UdpLink::bind_both`, a public address of each in the code); the host's port mapped
+    by PCP, then NAT-PMP, asked of the default gateway, then UPnP IGD (`rac_net::portmap`,
+    `pcp`, `upnp`; `--no-port-mapping`); `--host [PORT]`, `--join CODE|HOST[:PORT]`, the
     join code shown, logged and copied, Ctrl+V to paste the guest's into the host,
     `--input-delay`, `--sync-test` and a status line in `openrac` (`coop.rs`); the main
     menu's Co-op page, hosting, or joining with the code on the clipboard (no text field,
     whose letters the menu's keys would fight over; `menu/coop.rs`); effects, sounds and
-    the HUD show what resimulated ticks write once (`rac_sim::ShownReader`); both
+    the HUD show what resimulated ticks write once (`rac_sim::ShownReader`), messages
+    naming an entity matched by its `SimId` (`add_shown_message_naming`); both
     heroes, player 2 in silver; a peer that leaves is dropped and the game plays on;
     the pause menu doesn't stop a session, and Moves and Camera can't change in one.
     How it works and the rules for simulation code: `docs/netcode.md`.
@@ -1326,25 +1330,29 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     with his own camera setting) under the sync test with UYA's rules at V5 and with DL's,
     and as two peers on a slow, lossy memory network, plus a check that state left out of
     a snapshot is caught and that effects and sounds under the sync test get what a plain
-    run gives them, once; `rac_net`'s NAT tests (two peers behind cone NATs on the memory
-    network learn their addresses by STUN, swap codes and play; a host that doesn't
-    punch hears nobody) (`docs/netcode.md`, "How it was checked"); the app's
+    run gives them, once, and that both heroes die on the hazard pad and are brought back
+    under the sync test, each respawn shown once; `rac_net`'s NAT tests (two peers behind
+    cone NATs on the memory network learn their addresses by STUN, swap codes and play; a
+    host that doesn't punch hears nobody), a link on both families on the loopback, and
+    PCP and NAT-PMP against fake routers on the loopback; `rac_sim`'s test of an entity
+    spawned again under another `Entity`, named once (`docs/netcode.md`, "How it was
+    checked"); the app's
     `--sync-test` played 1500 ticks off-screen with no mismatch; a host and a guest on one
     machine played together, each seeing the other's hero, the guest joining by the
     host's code (its public address learned from Google's STUN server), from the
-    command line and from the Co-op pages.
-  - Not done:
-    - UPnP tried on a real router: it changes the router's forwarding, so it waits for
-      the owner's run. NAT-PMP and PCP (D8); codes with both IPv4 and IPv6 addresses (the
-      socket is one or the other).
-    - Runs over a LAN and the internet; a test of death and respawn under rollback (the
-      demo level can't kill a hero quickly); a shown message about an entity spawned
-      within a rollback's reach shows again (`docs/netcode.md`, "Known gaps").
+    command line and from the Co-op pages, again with both sockets (2026-11-05).
+  - Not done (`docs/netcode.md`, "Known gaps"):
+    - Runs over a LAN and the internet, on two machines.
+    - A mapping asked of a real router: it changes the router's forwarding, so it waits
+      for the owner's run. The owner's router answers neither PCP nor NAT-PMP (a
+      read-only probe), so there it is UPnP's. No IPv6 pinhole by PCP; mappings aren't
+      renewed past their two hours.
   - Next step: the owner's runs on two machines, over a LAN and then the internet (Co-op,
     Host a game on one; the code it shows sent over, copied, and Join with the copied
     code on the other; if the guest can't reach the host, the guest's code pasted into
-    the host with Ctrl+V), checking the host's log says its router forwards the port;
-    then NAT-PMP and PCP.
+    the host with Ctrl+V), checking the host's log says its router forwards the port
+    ("the router at … forwards UDP from … (UPnP)") and that leaving gives it back with no
+    warning. Then the task is done.
   - `bevy_ggrs` lags Bevy (0.22 is for Bevy 0.19), so `rac_net` drives `ggrs` itself by
     swapping Bevy's `FixedMainScheduleOrder`.
   - The code ordered entities by `Entity` for determinism, which differs between peers;
@@ -1354,6 +1362,9 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
   - The level must wait at tick 0 while peers shake hands, but the pause menu's state
     change unpauses the game clock before `Update`; the tick's schedules are taken out of
     Bevy's fixed loop instead (`coop.rs`, `HeldTicks`).
+  - An IPv6 socket on `[::]` takes the IPv4 port too on Linux (and not on Windows), so
+    it clashed with the IPv4 socket's; it is set to IPv6 alone with `socket2` before
+    binding (`link.rs`, `bind_socket`).
 - [ ] **P1.19** Determinism tests:
   - Replaying recorded inputs twice must give identical state hashes.
   - CI runs the same replays on Linux and on Windows and compares the hashes across the two

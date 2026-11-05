@@ -14,7 +14,7 @@ use std::{
 
 use crate::link::Link;
 
-/// Public STUN servers, asked together; the first answer wins.
+/// Public STUN servers, asked together; the first answer of each family (IPv4, IPv6) wins.
 pub const SERVERS: &[&str] = &[
     "stun.l.google.com:19302",
     "stun1.l.google.com:19302",
@@ -149,25 +149,26 @@ pub fn answer(transaction: &Transaction, seen: SocketAddr) -> Vec<u8> {
     packet
 }
 
-/// Looks the servers up, keeping those of `family`'s kind (IPv4 or IPv6, as the socket
-/// is). It waits on the system's resolver, so call it off the frame loop.
-pub fn resolve(servers: &[&str], ipv6: bool) -> Vec<SocketAddr> {
+/// Looks the servers up, IPv4 and IPv6 addresses both. It waits on the system's
+/// resolver, so call it off the frame loop.
+pub fn resolve(servers: &[&str]) -> Vec<SocketAddr> {
     servers
         .iter()
         .filter_map(|server| server.to_socket_addrs().ok())
         .flatten()
-        .filter(|address| address.is_ipv6() == ipv6)
         .collect()
 }
 
-/// Asking the servers for this socket's public address, until one answers or the tries
-/// run out.
+/// Asking the servers for this machine's public addresses, one of each family the
+/// servers are, over the link's socket of that family: until each has an answer or the
+/// tries run out.
 pub struct StunQuery {
     servers: Vec<SocketAddr>,
     transaction: Transaction,
     last_sent: Option<Instant>,
     tries: u32,
-    found: Option<SocketAddr>,
+    /// IPv4's first.
+    found: Vec<SocketAddr>,
 }
 
 impl StunQuery {
@@ -177,43 +178,50 @@ impl StunQuery {
             transaction: new_transaction(),
             last_sent: None,
             tries: 0,
-            found: None,
+            found: Vec::new(),
         }
     }
 
-    /// Takes the servers' answers from `link`, and asks again if it is time to. Returns
-    /// the public address once a server has said it.
-    pub fn poll(&mut self, link: &Link, now: Instant) -> Option<SocketAddr> {
+    fn answered(&self, server: &SocketAddr) -> bool {
+        self.found
+            .iter()
+            .any(|found| found.is_ipv6() == server.is_ipv6())
+    }
+
+    /// Takes the servers' answers from `link`, and asks again those of a family still
+    /// unanswered if it is time to. Returns the public addresses found so far.
+    pub fn poll(&mut self, link: &Link, now: Instant) -> &[SocketAddr] {
         for (from, packet) in link.take_stun() {
-            if self.found.is_none() && self.servers.contains(&from) {
-                self.found = parse_answer(&packet, &self.transaction);
+            if self.servers.contains(&from)
+                && !self.answered(&from)
+                && let Some(public) = parse_answer(&packet, &self.transaction)
+            {
+                self.found.push(public);
+                self.found.sort_by_key(SocketAddr::is_ipv6);
             }
-        }
-        if self.found.is_some() {
-            return self.found;
         }
         let due = self
             .last_sent
             .is_none_or(|last| now.duration_since(last) >= RESEND);
-        if due && self.tries < TRIES {
+        if due && self.tries < TRIES && !self.done(now) {
             self.tries += 1;
             self.last_sent = Some(now);
             let request = request(&self.transaction);
-            for server in &self.servers {
+            for server in self.servers.iter().filter(|server| !self.answered(server)) {
                 link.send_raw(*server, &request);
             }
         }
-        None
+        &self.found
     }
 
-    /// No server answered in time, or there were none to ask.
-    pub fn gave_up(&self, now: Instant) -> bool {
-        self.found.is_none()
-            && (self.servers.is_empty()
-                || (self.tries >= TRIES
-                    && self
-                        .last_sent
-                        .is_none_or(|last| now.duration_since(last) >= RESEND)))
+    /// Every family has its answer, or no server will now answer: what has been found is
+    /// all there will be.
+    pub fn done(&self, now: Instant) -> bool {
+        let out_of_tries = self.tries >= TRIES
+            && self
+                .last_sent
+                .is_none_or(|last| now.duration_since(last) >= RESEND);
+        out_of_tries || self.servers.iter().all(|server| self.answered(server))
     }
 }
 

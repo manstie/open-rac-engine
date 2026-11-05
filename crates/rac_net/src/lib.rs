@@ -8,9 +8,10 @@
 //! - [`handshake`] agrees the terms before a session: same build, same rules, a slot each.
 //! - [`link`] carries the packets: UDP, or memory with chosen delays, losses and NATs for
 //!   tests.
-//! - [`stun`] learns this machine's public address, and [`code`] puts a peer's addresses in
-//!   a join code the players swap, so each can punch through its NAT to the other, and
-//!   [`upnp`] asks the host's router to forward its port (D8).
+//! - [`stun`] learns this machine's public addresses, and [`code`] puts a peer's addresses
+//!   in a join code the players swap, so each can punch through its NAT to the other, and
+//!   [`portmap`] asks the host's router to forward its port, by PCP or NAT-PMP ([`pcp`]) or
+//!   UPnP ([`upnp`]) (D8).
 //! - [`Session`] is a running session. [`start_session`] puts it in charge of the
 //!   simulation's ticks; [`end_session`] hands them back.
 //! - [`SessionStatus`] and [`SessionEvent`]s say how it is going, for the app to show.
@@ -18,6 +19,8 @@
 pub mod code;
 pub mod handshake;
 pub mod link;
+pub mod pcp;
+pub mod portmap;
 pub mod stun;
 pub mod upnp;
 

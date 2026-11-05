@@ -24,7 +24,10 @@ mod seekers;
 pub mod shots;
 mod thrown;
 
-use bevy::{ecs::entity::EntityHashMap, prelude::*};
+use bevy::{
+    ecs::entity::{EntityHashMap, MapEntities},
+    prelude::*,
+};
 use rac_hero::{CollisionScene, FollowCamera, Health, Hero, HeroBody, HeroTuning, LockOn};
 use rac_input::PlayerInputs;
 use rac_sim::{SimId, SimRng, SimTransform};
@@ -137,8 +140,9 @@ pub enum Affliction {
 }
 
 /// A gun afflicted a target.
-#[derive(Message, Debug, Clone, Copy, PartialEq)]
+#[derive(Message, MapEntities, Debug, Clone, Copy, PartialEq)]
 pub struct Afflicted {
+    #[entities]
     pub target: Entity,
     pub player: usize,
     pub weapon: WeaponId,

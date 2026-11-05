@@ -1,9 +1,10 @@
 //! The whole demo under rollback (PLAN.md P1.18, `docs/netcode.md`): two heroes, each
 //! with his own camera setting, break crates, fire every gun at the dummies, shop and
 //! fight the arena's enemies, under `rac_net`'s sync test, which rolls every tick back and
-//! runs it again, and as two peers on a slow, lossy network. Under the sync test, effects
-//! and sounds are given what a plain run gives them, once. The demo runs as the app has
-//! it, HUD, rig and effects included, without a window or a renderer.
+//! runs it again, and as two peers on a slow, lossy network; and die and are brought back.
+//! Under the sync test, effects, sounds and the HUD are given what a plain run gives them,
+//! once. The demo runs as the app has it, HUD, rig and effects included, without a window
+//! or a renderer.
 
 use bevy::{
     asset::AssetPlugin, ecs::system::RunSystemOnce, math::ops,
@@ -12,7 +13,10 @@ use bevy::{
 use rac_combat::pickups::{CrateBlast, PickupSound, PickupSoundKind, VendorSound};
 use rac_combat::{Armory, Arsenal, Crate, Destroyed, GunEvent, GunEventKind};
 use rac_demo::{Bolts, DemoGunLevel, DemoPlugin, DemoSettings, Enemy, spawn_demo};
-use rac_hero::{CameraSetting, FollowCamera, Health, Hero, HeroProfile, HeroTuning};
+use rac_hero::{
+    CameraSetting, FollowCamera, Health, Hero, HeroBody, HeroProfile, HeroRespawned, HeroTuning,
+    controller::HeroState,
+};
 use rac_input::{Action, Buttons, LocalPlayer, PlayerInput, PlayerInputs};
 use rac_net::{
     Answer, Host, Joiner, Link, MemoryNet, NetPlugin, Session, SessionSettings, SessionStatus,
@@ -64,6 +68,7 @@ struct Seen {
     fired: BTreeSet<(usize, usize)>,
     enemies_destroyed: BTreeSet<Entity>,
     hurt: BTreeSet<usize>,
+    died: BTreeSet<usize>,
     vendor: BTreeSet<VendorSound>,
     /// Players whose quick-select ring opened.
     ring: BTreeSet<usize>,
@@ -78,6 +83,7 @@ struct Shown {
     guns: Vec<GunEvent>,
     sounds: Vec<PickupSound>,
     blasts: Vec<CrateBlast>,
+    respawns: Vec<HeroRespawned>,
 }
 
 fn see(
@@ -85,7 +91,7 @@ fn see(
     mut destroyed: MessageReader<Destroyed>,
     mut pickups: MessageReader<PickupSound>,
     enemies: Query<(), With<Enemy>>,
-    heroes: Query<(&Hero, &Health, &Arsenal)>,
+    heroes: Query<(&Hero, &HeroBody, &Health, &Arsenal)>,
     mut seen: ResMut<Seen>,
 ) {
     for event in guns.read() {
@@ -110,9 +116,12 @@ fn see(
             seen.vendor.insert(sound);
         }
     }
-    for (hero, health, arsenal) in &heroes {
+    for (hero, body, health, arsenal) in &heroes {
         if health.current < health.max {
             seen.hurt.insert(hero.player);
+        }
+        if body.0.state == HeroState::Dead {
+            seen.died.insert(hero.player);
         }
         if arsenal.quick.open.is_some() {
             seen.ring.insert(hero.player);
@@ -124,11 +133,13 @@ fn show(
     mut guns: ShownReader<GunEvent>,
     mut sounds: ShownReader<PickupSound>,
     mut blasts: ShownReader<CrateBlast>,
+    mut respawns: ShownReader<HeroRespawned>,
     mut seen: ResMut<Seen>,
 ) {
     seen.shown.guns.extend(guns.read());
     seen.shown.sounds.extend(sounds.read());
     seen.shown.blasts.extend(blasts.read());
+    seen.shown.respawns.extend(respawns.read());
 }
 
 /// The demo with two heroes, this machine playing `local`'s, without a window or a
@@ -409,7 +420,13 @@ fn feed(world: &mut World) {
 /// Plays the route without a session, each tick run once.
 fn plain_run(rules: Rules) -> Seen {
     let ticks = route_ticks(rules.armory.weapons.len());
+    plain_run_for(rules, ticks, |_| {})
+}
+
+/// Plays `ticks` of the route without a session, after `setup`.
+fn plain_run_for(rules: Rules, ticks: u64, setup: fn(&mut App)) -> Seen {
     let mut app = demo_app(rules, 0);
+    setup(&mut app);
     app.add_systems(FixedFirst, feed);
     while app.world().resource::<SimTick>().0 < ticks {
         app.update();
@@ -445,6 +462,52 @@ fn the_demo_with_uyas_moves_and_guns_at_v5_rolls_back_exactly() {
 fn the_demo_with_deadlockeds_moves_and_guns_rolls_back_exactly() {
     let seen = sync_test(Rules::dl());
     shown_once(Rules::dl(), &seen);
+}
+
+/// Leaves both heroes a hit from death, as nothing in the demo level kills one quickly.
+fn nearly_dead(app: &mut App) {
+    let mut healths = app.world_mut().query::<&mut Health>();
+    for mut health in healths.iter_mut(app.world_mut()) {
+        health.current = 1;
+    }
+}
+
+/// Both heroes, a hit from death, walk onto the hazard pad: under the sync test they die
+/// and are brought back at their spawns, and the HUD is told of each respawn once, as a
+/// plain run tells it.
+#[test]
+fn heroes_die_and_respawn_under_rollback() {
+    for rules in [Rules::uya as fn(u8) -> Rules, |_| Rules::dl()] {
+        let mut app = demo_app(rules(2), 0);
+        nearly_dead(&mut app);
+        let sync_test = Session::sync_test(2, 7).unwrap().with_local_input(scripted);
+        start_session(app.world_mut(), sync_test);
+        // Until both are back, and past the furthest a rollback reaches.
+        let mut back = None;
+        while back.is_none_or(|back| app.world().resource::<SimTick>().0 < back + 8) {
+            app.update();
+            let tick = app.world().resource::<SimTick>().0;
+            assert_eq!(status(&app), Some(SessionStatus::Running), "at tick {tick}");
+            assert!(tick < 900, "{:?}", app.world().resource::<Seen>().died);
+            let seen = app.world().resource::<Seen>();
+            if back.is_none() && seen.shown.respawns.len() >= 2 {
+                back = Some(tick);
+            }
+        }
+        let ticks = app.world().resource::<SimTick>().0;
+        end_session(app.world_mut());
+        let seen = app.world_mut().remove_resource::<Seen>().unwrap();
+        assert_eq!(seen.died.len(), 2, "heroes died: {:?}", seen.died);
+        let respawned: BTreeSet<usize> = seen
+            .shown
+            .respawns
+            .iter()
+            .map(|respawn| respawn.player)
+            .collect();
+        assert_eq!(respawned.len(), 2, "{:?}", seen.shown.respawns);
+        let plain = plain_run_for(rules(2), ticks, nearly_dead);
+        assert_eq!(seen.shown.respawns, plain.shown.respawns);
+    }
 }
 
 /// State a snapshot doesn't hold.

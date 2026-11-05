@@ -342,7 +342,7 @@ fn learn_public(
     let mut now = Instant::now();
     for _ in 0..50 {
         now += stun::RESEND / 4;
-        if let Some(public) = query.poll(link, now) {
+        if let Some(&public) = query.poll(link, now).first() {
             return public;
         }
         serve_stun(server);

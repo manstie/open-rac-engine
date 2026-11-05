@@ -13,11 +13,23 @@
 //! what earlier runs of the tick showed. A run that writes what an earlier one did shows
 //! nothing new; one that writes something else shows it, a few ticks late. What a run
 //! showed and a later one didn't write is not taken back.
+//!
+//! A message naming a simulated entity (a target destroyed) is matched by the entity's
+//! [`SimId`] ([`ShownMessageApp::add_shown_message_naming`]): a rollback that reaches back
+//! past the entity's spawn spawns it again, under the same number but another `Entity`.
 
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::{
+    ecs::{
+        entity::{EntityMapper, MapEntities},
+        entity_disabling::Disabled,
+        query::Allow,
+        system::SystemParam,
+    },
+    prelude::*,
+};
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::SimTick;
+use crate::{Departed, SimId, SimTick};
 
 /// How many runs of ticks back a message's run is still known.
 const KEPT_RUNS: usize = 512;
@@ -30,7 +42,9 @@ pub struct TickRuns<M: Message> {
     /// The first message's number, the tick, and the run's number.
     runs: VecDeque<(usize, u64, u64)>,
     next_run: u64,
-    marker: std::marker::PhantomData<M>,
+    /// Puts the numbers of the entities a message names in place of their `Entity`, for
+    /// messages that name some.
+    by_number: Option<fn(&mut M, &mut ByNumber<'_>)>,
 }
 
 impl<M: Message> Default for TickRuns<M> {
@@ -38,9 +52,29 @@ impl<M: Message> Default for TickRuns<M> {
         Self {
             runs: VecDeque::new(),
             next_run: 0,
-            marker: std::marker::PhantomData,
+            by_number: None,
         }
     }
+}
+
+/// Maps each simulated entity to an `Entity` standing for its [`SimId`], which every run
+/// of a tick agrees on; other entities stay as they are.
+struct ByNumber<'a>(&'a dyn Fn(Entity) -> Option<SimId>);
+
+impl EntityMapper for ByNumber<'_> {
+    fn get_mapped(&mut self, source: Entity) -> Entity {
+        (self.0)(source)
+            .filter(|id| id.get() != 0)
+            // The last generation, which no live entity reaches.
+            .and_then(|id| Entity::try_from_bits(u64::from(id.get()) | u64::from(u32::MAX) << 32))
+            .unwrap_or(source)
+    }
+
+    fn set_mapped(&mut self, _source: Entity, _target: Entity) {}
+}
+
+fn map_by_number<M: MapEntities>(message: &mut M, numbers: &mut ByNumber<'_>) {
+    message.map_entities(numbers);
 }
 
 impl<M: Message> TickRuns<M> {
@@ -72,6 +106,13 @@ pub trait ShownMessageApp {
     /// Adds the message `M` (if it isn't yet) and notes where each run of a tick begins
     /// among its messages.
     fn add_shown_message<M: Message + Clone + PartialEq>(&mut self) -> &mut Self;
+
+    /// Adds `M` as [`Self::add_shown_message`] does, for a message that names simulated
+    /// entities: runs of a tick match it by the entities' [`SimId`]s, not their `Entity`
+    /// values, which differ once a rollback spawns an entity again.
+    fn add_shown_message_naming<M: Message + Clone + PartialEq + MapEntities>(
+        &mut self,
+    ) -> &mut Self;
 }
 
 impl ShownMessageApp for App {
@@ -84,6 +125,14 @@ impl ShownMessageApp for App {
         }
         self.init_resource::<TickRuns<M>>()
             .add_systems(FixedFirst, open_run::<M>)
+    }
+
+    fn add_shown_message_naming<M: Message + Clone + PartialEq + MapEntities>(
+        &mut self,
+    ) -> &mut Self {
+        self.add_shown_message::<M>();
+        self.world_mut().resource_mut::<TickRuns<M>>().by_number = Some(map_by_number::<M>);
+        self
     }
 }
 
@@ -146,6 +195,8 @@ impl<M: Clone + PartialEq> ShownLog<M> {
 pub struct ShownReader<'w, 's, M: Message + Clone + PartialEq> {
     reader: MessageReader<'w, 's, M>,
     runs: Res<'w, TickRuns<M>>,
+    numbers: Query<'w, 's, &'static SimId, Allow<Disabled>>,
+    departed: Option<Res<'w, Departed>>,
     log: Local<'s, ShownLog<M>>,
 }
 
@@ -153,14 +204,35 @@ impl<M: Message + Clone + PartialEq> ShownReader<'_, '_, M> {
     /// The messages this reader hasn't read whose tick hasn't shown them yet, in the order
     /// they were written.
     pub fn read(&mut self) -> std::slice::Iter<'_, M> {
-        let log = &mut *self.log;
+        let Self {
+            reader,
+            runs,
+            numbers,
+            departed,
+            log,
+        } = self;
+        let log = &mut **log;
+        let number = |entity| {
+            numbers.get(entity).ok().copied().or_else(|| {
+                departed
+                    .as_ref()
+                    .and_then(|departed| departed.number_of(entity))
+            })
+        };
         log.batch.clear();
         let mut newest = None;
-        for (message, id) in self.reader.read_with_id() {
-            let new = match self.runs.run_of(id.id) {
+        for (message, id) in reader.read_with_id() {
+            let new = match runs.run_of(id.id) {
                 Some((tick, run)) => {
                     newest = newest.max(Some(tick));
-                    log.is_new(tick, run, message)
+                    match runs.by_number {
+                        Some(by_number) => {
+                            let mut key = message.clone();
+                            by_number(&mut key, &mut ByNumber(&number));
+                            log.is_new(tick, run, &key)
+                        }
+                        None => log.is_new(tick, run, message),
+                    }
                 }
                 // Written before any tick ran.
                 None => true,
@@ -216,6 +288,78 @@ mod tests {
             .add_systems(FixedUpdate, bang)
             .add_systems(Update, hear);
         app
+    }
+
+    /// Something simulated, spawned at tick 1.
+    #[derive(Component)]
+    #[require(SimId)]
+    struct Thing;
+
+    /// A message naming it, written at tick 2.
+    #[derive(Message, MapEntities, Debug, Clone, Copy, PartialEq)]
+    struct Named(#[entities] Entity);
+
+    fn spawn_thing(tick: Res<SimTick>, mut commands: Commands) {
+        if tick.0 == 1 {
+            commands.spawn(Thing);
+        }
+    }
+
+    fn name_things(
+        tick: Res<SimTick>,
+        things: Query<Entity, With<Thing>>,
+        mut named: MessageWriter<Named>,
+    ) {
+        if tick.0 == 2 {
+            named.write_batch(things.iter().map(Named));
+        }
+    }
+
+    #[derive(Resource, Default)]
+    struct HeardNamed(Vec<Entity>);
+
+    fn hear_named(mut named: ShownReader<Named>, mut heard: ResMut<HeardNamed>) {
+        heard.0.extend(named.read().map(|named| named.0));
+    }
+
+    /// Runs ticks 0 to 3, then 0 to 3 again from tick 0's snapshot, which spawns the thing
+    /// again under another `Entity`, reading after each run or, `late`, only at the end,
+    /// when the first thing has gone; returns what was heard.
+    fn named_twice(naming: bool, late: bool) -> Vec<Entity> {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, SimPlugin))
+            .init_resource::<HeardNamed>()
+            .add_systems(FixedUpdate, (spawn_thing, name_things))
+            .add_systems(Update, hear_named);
+        if naming {
+            app.add_shown_message_naming::<Named>();
+        } else {
+            app.add_shown_message::<Named>();
+        }
+        let saved = Snapshot::save(app.world_mut());
+        for run in 0..2 {
+            if run > 0 {
+                saved.load(app.world_mut());
+            }
+            for _ in 0..4 {
+                app.world_mut().run_schedule(FixedMain);
+            }
+            if !late || run > 0 {
+                app.world_mut().run_schedule(Update);
+            }
+        }
+        app.world().resource::<HeardNamed>().0.clone()
+    }
+
+    #[test]
+    fn an_entity_spawned_again_is_named_once() {
+        // Matched by `Entity`, the thing spawned again is another.
+        let plain = named_twice(false, false);
+        assert_eq!(plain.len(), 2);
+        assert_ne!(plain[0], plain[1]);
+        // Matched by number, it is the same, whether the first is still there or gone.
+        assert_eq!(named_twice(true, false), plain[..1]);
+        assert_eq!(named_twice(true, true).len(), 1);
     }
 
     #[test]

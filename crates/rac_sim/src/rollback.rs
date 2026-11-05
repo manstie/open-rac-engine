@@ -26,6 +26,7 @@ use bevy::{
 };
 use std::{
     any::{Any, TypeId},
+    collections::VecDeque,
     sync::Arc,
 };
 
@@ -40,7 +41,7 @@ use crate::{SimRng, SimTick, SimTransform};
 /// while `SimTransform` doesn't, so effects that move with the tick stay out of it. An
 /// entity spawned without [`SimIds`] keeps 0.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[component(on_add = number_entity)]
+#[component(on_add = number_entity, on_remove = note_departure)]
 pub struct SimId(u32);
 
 impl SimId {
@@ -70,6 +71,43 @@ fn number_entity(mut world: DeferredWorld, context: HookContext) {
     ids.next += 1;
     if let Some(mut sim_id) = world.get_mut::<SimId>(context.entity) {
         sim_id.0 = id;
+    }
+}
+
+/// How many departures [`Departed`] remembers: far more than the simulation removes
+/// between two frames.
+const KEPT_DEPARTURES: usize = 1024;
+
+/// Numbered entities lately despawned, newest last, with their numbers. Presentation may
+/// read a message naming one after it went (a load despawns what was spawned since, and a
+/// burial what was retired) and still knows it by its number (`ShownMessageApp::
+/// add_shown_message_naming`). Not rolled back.
+#[derive(Resource, Debug, Default)]
+pub struct Departed(VecDeque<(Entity, SimId)>);
+
+impl Departed {
+    /// The number `entity` had, if it went lately.
+    pub fn number_of(&self, entity: Entity) -> Option<SimId> {
+        self.0
+            .iter()
+            .rev()
+            .find(|(gone, _)| *gone == entity)
+            .map(|&(_, id)| id)
+    }
+}
+
+fn note_departure(mut world: DeferredWorld, context: HookContext) {
+    let Some(&id) = world.get::<SimId>(context.entity) else {
+        return;
+    };
+    if id.0 == 0 {
+        return;
+    }
+    if let Some(mut departed) = world.get_resource_mut::<Departed>() {
+        departed.0.push_back((context.entity, id));
+        if departed.0.len() > KEPT_DEPARTURES {
+            departed.0.pop_front();
+        }
     }
 }
 
@@ -468,6 +506,7 @@ impl Snapshot {
 /// Registers the simulation core's own state.
 pub(crate) fn register(app: &mut App) {
     app.init_resource::<SimIds>()
+        .init_resource::<Departed>()
         .roll_back_resource_hashed::<SimTick>(std::hash::Hash::hash)
         .roll_back_resource_hashed::<SimRng>(std::hash::Hash::hash)
         .roll_back_resource::<SimIds>()

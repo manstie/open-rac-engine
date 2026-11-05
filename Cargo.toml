@@ -52,6 +52,9 @@ serde_json = "1"
 # Identifies disc releases by their boot executable's hash (PLAN.md P2.2). BSD-3-Clause,
 # no dependencies.
 sha1_smol = "1"
+# Co-op's IPv6 socket, set to take IPv6 alone so it leaves the IPv4 port to its own (PLAN.md
+# D8); std can't set that before binding.
+socket2 = "0.6"
 thiserror = "2"
 toml = "1"
 # Bevy's graphics library, at its version, for `openrac` to check at start-up that the

@@ -22,7 +22,7 @@
 pub mod pickups;
 pub mod weapons;
 
-use bevy::prelude::*;
+use bevy::{ecs::entity::MapEntities, prelude::*};
 use rac_hero::{AimTarget, Hero, HeroBody};
 use rac_sim::{
     RollbackApp, ShownMessageApp, SimId, SimMessageApp, SimSet, SimTransform, StateHasher,
@@ -99,8 +99,9 @@ pub struct Struck {
 
 /// A target's [`Hitpoints`] ran out. The game decides what that means: a crate breaks, an
 /// enemy dies.
-#[derive(Message, Debug, Clone, Copy, PartialEq)]
+#[derive(Message, MapEntities, Debug, Clone, Copy, PartialEq)]
 pub struct Destroyed {
+    #[entities]
     pub target: Entity,
     pub player: usize,
     /// The gun that did it; `None` for the wrench.
@@ -153,9 +154,9 @@ impl Plugin for CombatPlugin {
             .add_sim_message::<Destroyed>()
             .add_sim_message::<Afflicted>()
             // What effects, sounds and the HUD read, once a tick however often it runs.
-            .add_shown_message::<Destroyed>()
+            .add_shown_message_naming::<Destroyed>()
             .add_shown_message::<GunEvent>()
-            .add_shown_message::<Afflicted>()
+            .add_shown_message_naming::<Afflicted>()
             .add_shown_message::<pickups::CrateBlast>()
             .add_shown_message::<pickups::PickupSound>()
             .add_shown_message::<pickups::HelpAsked>()

@@ -194,6 +194,7 @@ only from the decompilation projects.
 | `ggrs` 0.13 | MIT/Apache | GGPO-style peer-to-peer netcode over UDP. Supports rollback, and lockstep with prediction turned off. It doesn't depend on Bevy. Our planned co-op transport (PLAN §4.2). |
 | `bevy_ggrs` 0.22, `lightyear` 0.30, `bevy_replicon` 0.44 | MIT/Apache | Bevy networking crates, all still on Bevy 0.19 as of 2026-10-11. |
 | `igd-next` 0.18 | MIT | UPnP port mapping, so direct-IP hosts can open a port automatically (PLAN D8). Used by `rac_net::upnp`, with its blocking client, which brings `attohttpc` (MPL-2.0, which GPLv3 can absorb). |
+| `socket2` 0.6 | MIT/Apache | Opens co-op's IPv6 socket for IPv6 alone, which std can't set before binding, so it leaves the IPv4 port to its own socket (PLAN D8). Used by `rac_net::link`. PCP and NAT-PMP (`rac_net::pcp`) are our own, from RFC 6887 and RFC 6886. |
 
 ## Reuse summary for this repo
 

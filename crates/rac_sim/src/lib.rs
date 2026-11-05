@@ -27,7 +27,9 @@ use bevy::{ecs::schedule::SingleThreadedExecutor, prelude::*};
 
 pub use messages::{SimInbox, SimMessageApp, SimMessageReader};
 pub use rng::SimRng;
-pub use rollback::{RetireExt, RollbackApp, RollbackWindow, SimId, SimIds, Snapshot, StateHasher};
+pub use rollback::{
+    Departed, RetireExt, RollbackApp, RollbackWindow, SimId, SimIds, Snapshot, StateHasher,
+};
 pub use shown::{ShownMessageApp, ShownReader, TickRuns};
 pub use transform::{PreviousSimTransform, SimTransform};
 

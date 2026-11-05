@@ -5,10 +5,10 @@
 //! player 1, the guest player 2. The game clock keeps running behind the pause menu
 //! during a session, since the other player plays on.
 //!
-//! Meanwhile each side learns where it can be reached and shows it as a join code (D8),
-//! copied to the clipboard: the guest joins by the host's code or address. The host asks
-//! its router to forward its port (UPnP); where it won't, the host pastes the guest's code
-//! (Ctrl+V) to punch through its NAT to it.
+//! Meanwhile each side learns where it can be reached, by IPv4 and IPv6, and shows it as a
+//! join code (D8), copied to the clipboard: the guest joins by the host's code or address.
+//! The host asks its router to forward its port (PCP, NAT-PMP or UPnP); where it won't,
+//! the host pastes the guest's code (Ctrl+V) to punch through its NAT to it.
 
 use bevy::{
     app::FixedMainScheduleOrder, clipboard::Clipboard, ecs::schedule::InternedScheduleLabel,
@@ -20,10 +20,11 @@ use rac_input::{LocalPlayer, PlayerInput};
 use rac_net::{
     Answer, Host, Joiner, Link, NetPlugin, Session, SessionEvent, SessionSettings, SessionStatus,
     Terms, UdpLink,
-    code::{JoinCode, local_address},
-    device_input, end_session, start_session,
+    code::{JoinCode, MOST_ADDRESSES, local_address},
+    device_input, end_session,
+    portmap::{self, Mapping, Unmapped},
+    start_session,
     stun::{self, StunQuery},
-    upnp::{self, Mapping, MappingError},
 };
 use rac_sim::StateHasher;
 use std::{
@@ -230,23 +231,22 @@ fn begin(world: &mut World) {
         *world.resource::<rac_demo::DemoGunLevel>(),
     );
     let setup = setup(world.resource::<DemoSettings>());
-    // IPv6 only to a host reached by nothing else.
-    let ipv6 = matches!(&choice, CoopChoice::Join(hosts) if hosts.iter().all(SocketAddr::is_ipv6));
-    let bind = match choice {
-        CoopChoice::Host(port) => SocketAddr::from(([0, 0, 0, 0], port)),
-        _ if ipv6 => SocketAddr::from(([0u16; 8], 0)),
-        _ => SocketAddr::from(([0, 0, 0, 0], 0)),
+    // IPv6 as well where this machine has a way to the IPv6 internet.
+    let ipv6 = local_address(0, true).is_some();
+    let port = match choice {
+        CoopChoice::Host(port) => port,
+        _ => 0,
     };
-    let udp = match UdpLink::bind(bind) {
+    let udp = match UdpLink::bind_both(port, ipv6) {
         Ok(udp) => udp,
         Err(error) => {
-            error!("couldn't open UDP {bind}: {error}; playing alone");
+            error!("couldn't open UDP port {port}: {error}; playing alone");
             return;
         }
     };
-    let port = udp.local_addr().map_or(0, |address| address.port());
+    let bound = udp.local_addrs();
     let link = Link::new(udp);
-    world.insert_resource(Reach::new(link.clone(), port, ipv6));
+    world.insert_resource(Reach::new(link.clone(), &bound));
     let connecting = match choice {
         CoopChoice::Host(port) => {
             info!("hosting on UDP port {port}: waiting for player 2");
@@ -254,7 +254,7 @@ fn begin(world: &mut World) {
                 local_address(port, false).filter(|_| !world.contains_resource::<NoPortMapping>());
             world.insert_resource(match local {
                 Some(local) => {
-                    PortMapping::Asking(std::thread::spawn(move || upnp::map_port(local)))
+                    PortMapping::Asking(std::thread::spawn(move || portmap::map_port(local)))
                 }
                 None => PortMapping::Unmapped,
             });
@@ -264,10 +264,13 @@ fn begin(world: &mut World) {
             }
         }
         CoopChoice::Join(hosts) => {
-            let hosts: Vec<_> = hosts
+            // Only the families this machine has a socket for.
+            let (hosts, unreachable): (Vec<_>, Vec<_>) = hosts
                 .into_iter()
-                .filter(|host| host.is_ipv6() == ipv6)
-                .collect();
+                .partition(|host| bound.iter().any(|bound| bound.is_ipv6() == host.is_ipv6()));
+            if !unreachable.is_empty() {
+                info!("this machine can't reach {unreachable:?}");
+            }
             info!("joining the host at {hosts:?}");
             Connecting::Join {
                 joiner: Joiner::to_any(link.clone(), hosts, terms, setup),
@@ -345,12 +348,13 @@ fn connect(world: &mut World) {
 #[derive(Resource)]
 struct Refused(String);
 
-/// Where this machine can be reached, for its join code: its address on its own network,
-/// and the public one STUN servers see the session's socket at (`rac_net::stun`).
+/// Where this machine can be reached, for its join code: its addresses on its own network,
+/// and the public ones STUN servers see the session's sockets at (`rac_net::stun`), IPv4's
+/// and IPv6's.
 #[derive(Resource)]
 struct Reach {
     link: Link,
-    local: Option<SocketAddr>,
+    local: Vec<SocketAddr>,
     /// The STUN servers' addresses, looked up off the frame loop.
     servers: Option<JoinHandle<Vec<SocketAddr>>>,
     query: Option<StunQuery>,
@@ -361,12 +365,12 @@ struct Reach {
     pasted: Option<String>,
 }
 
-/// The host's port on its router (`rac_net::upnp`), asked for off the frame loop, and
+/// The host's port on its router (`rac_net::portmap`), asked for off the frame loop, and
 /// given back on leaving the level. It outlives the handshake, so a mapping made after
 /// the guest arrived by another way is still removed.
 #[derive(Resource)]
 enum PortMapping {
-    Asking(JoinHandle<Result<Mapping, MappingError>>),
+    Asking(JoinHandle<Result<Mapping, Unmapped>>),
     Mapped(Mapping),
     Unmapped,
 }
@@ -382,9 +386,10 @@ fn follow_mapping(mut mapping: ResMut<PortMapping>) {
     match handle.join() {
         Ok(Ok(mapped)) => {
             info!(
-                "the router at {} forwards UDP from {}",
+                "the router at {} forwards UDP from {} ({})",
                 mapped.router(),
-                mapped.external
+                mapped.external(),
+                mapped.protocol()
             );
             *mapping = PortMapping::Mapped(mapped);
         }
@@ -420,12 +425,19 @@ fn unmap_on_exit(mut exits: MessageReader<AppExit>, mut commands: Commands) {
 }
 
 impl Reach {
-    fn new(link: Link, port: u16, ipv6: bool) -> Self {
+    /// For a link whose sockets are bound at `bound`.
+    fn new(link: Link, bound: &[SocketAddr]) -> Self {
+        let families: Vec<bool> = bound.iter().map(SocketAddr::is_ipv6).collect();
         Self {
             link,
-            local: local_address(port, ipv6),
+            local: bound
+                .iter()
+                .filter_map(|bound| local_address(bound.port(), bound.is_ipv6()))
+                .collect(),
             servers: Some(std::thread::spawn(move || {
-                stun::resolve(stun::SERVERS, ipv6)
+                let mut servers = stun::resolve(stun::SERVERS);
+                servers.retain(|server| families.contains(&server.is_ipv6()));
+                servers
             })),
             query: None,
             code: None,
@@ -435,9 +447,10 @@ impl Reach {
     }
 }
 
-/// Asks the STUN servers for this machine's public address, and waits for the host's port
-/// mapping, then makes its join code and copies it to the clipboard: the mapped address
-/// first, then the public one, then its own on its network, which is enough on a LAN.
+/// Asks the STUN servers for this machine's public addresses, and waits for the host's
+/// port mapping, then makes its join code and copies it to the clipboard: the mapped
+/// address first, then the public IPv4 and IPv6 ones, then its own on its network, which
+/// is enough on a LAN.
 fn learn_code(
     mut reach: ResMut<Reach>,
     mapping: Option<Res<PortMapping>>,
@@ -458,17 +471,21 @@ fn learn_code(
         return;
     };
     let now = Instant::now();
-    let public = query.poll(link, now);
-    if public.is_none() && !query.gave_up(now) {
+    let public = query.poll(link, now).to_vec();
+    if !query.done(now) {
         return;
     }
     let mapped = match mapping.as_deref() {
         Some(PortMapping::Asking(_)) => return,
-        Some(PortMapping::Mapped(mapped)) => Some(mapped.external),
+        Some(PortMapping::Mapped(mapped)) => Some(mapped.external()),
         _ => None,
     };
     let mut addresses: Vec<SocketAddr> = Vec::new();
-    for address in [mapped, public, *local].into_iter().flatten() {
+    for address in mapped
+        .into_iter()
+        .chain(public)
+        .chain(local.iter().copied())
+    {
         if !addresses.contains(&address) {
             addresses.push(address);
         }
@@ -479,6 +496,8 @@ fn learn_code(
         reach.code = Some(String::new());
         return;
     }
+    // The last, a second local address, is the least needed.
+    addresses.truncate(MOST_ADDRESSES);
     let code = JoinCode(addresses.clone()).encode();
     info!("your join code is {code}, for {addresses:?}");
     if let Some(mut clipboard) = clipboard

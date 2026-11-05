@@ -1,7 +1,5 @@
-//! Opening the host's port on its router (D8): UPnP IGD's port mapping, asked of the
-//! router that answers on the network. Routers with UPnP turned off, and networks behind
-//! a carrier's NAT, don't map; the join code's STUN address and punching are the way in
-//! then.
+//! Opening the host's port by UPnP IGD's port mapping (D8), asked of the router that
+//! answers the search on the network; [`crate::portmap`] asks this after PCP and NAT-PMP.
 //!
 //! Every call waits on the network for up to a few seconds, so make them off the frame
 //! loop.
@@ -9,10 +7,10 @@
 use igd_next::{Gateway, PortMappingProtocol, SearchOptions, search_gateway};
 use std::{net::SocketAddr, time::Duration};
 
+use crate::portmap::LEASE;
+
 /// How long the search for a router waits for answers.
 pub const SEARCH: Duration = Duration::from_secs(3);
-/// How long a mapping lasts unless removed first, so one left by a crash doesn't linger.
-pub const LEASE: Duration = Duration::from_secs(2 * 60 * 60);
 const DESCRIPTION: &str = "Open Ratchet & Clank Engine co-op";
 
 #[derive(Debug, thiserror::Error)]

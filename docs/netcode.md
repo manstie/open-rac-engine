@@ -49,6 +49,12 @@ input wrong loads the snapshot of that tick and simulates forward again.
   something else, such as the other player's shot now known, shows it, as late as the
   rollback reached back. What an earlier run showed and the corrected one didn't write (a
   shot predicted that never happened) stays shown: the effect has played.
+- A message naming a simulated entity (`Destroyed`, `Afflicted`) derives Bevy's
+  `MapEntities` and is added with `add_shown_message_naming`: runs of a tick match it by
+  the entities' `SimId`s, not their `Entity` values. A rollback reaching back past an
+  entity's spawn spawns it again under the same number but another `Entity`. An entity
+  that has gone by the time its message is read (a load despawned it, or a burial) is
+  still known by its number: `SimId`'s removal hook keeps the last 1024 in `Departed`.
 - Outside a session every tick runs once, and the reader reads every message, as
   `MessageReader` does. A reader remembers 64 ticks, more than a rollback reaches (8).
 
@@ -72,7 +78,7 @@ input wrong loads the snapshot of that tick and simulates forward again.
 6. **Presentation on the tick** (effects, shot models) goes in systems that don't run
    while resimulating, and its entities have no `SimId`. Presentation reads the
    simulation's messages with `ShownReader`, and their types are added with
-   `add_shown_message`.
+   `add_shown_message`, or `add_shown_message_naming` if they name an entity.
 7. **Settings that change the simulation** (movement profile, guns, gun level, each
    player's camera setting) are agreed in the handshake and can't change during a
    session.
@@ -97,19 +103,27 @@ input wrong loads the snapshot of that tick and simulates forward again.
 
 1. Both peers spawn the level with both heroes, in player order, so its state is the same.
    The tick's schedules are taken out of Bevy's fixed loop, so it waits at tick 0.
-2. Each side learns where it can be reached and makes its join code (`rac_net::code`):
-   its public address, which public STUN servers report for the session's own socket
-   (`rac_net::stun`, RFC 5389), then its address on its own network. The host first asks
-   its router to forward its UDP port (UPnP IGD, `rac_net::upnp`, a two-hour lease given
-   back on leaving the level or quitting; `--no-port-mapping` skips it), and puts the
-   forwarded address first. The code is shown on the status line, logged, and copied to
-   the clipboard.
+2. Each side opens the session's UDP port on IPv4 and, if the machine has a route to
+   the IPv6 internet, on IPv6 (`UdpLink::bind_both`; the IPv6 socket takes IPv6 alone,
+   so the two don't fight over the port). It learns where it can be reached and makes
+   its join code (`rac_net::code`): its public addresses, one of each family, which
+   public STUN servers report for the session's own sockets (`rac_net::stun`, RFC 5389),
+   then its addresses on its own network. The host first asks its router to forward its
+   UDP port (`rac_net::portmap`): by PCP (RFC 6887), or NAT-PMP (RFC 6886) if the router
+   answers PCP with NAT-PMP's version, both asked of the default route's gateway
+   (`rac_net::pcp`, three tries over 1.75 s), and then by UPnP IGD (`rac_net::upnp`, a
+   3 s search). The lease is two hours, given back on leaving the level or quitting;
+   `--no-port-mapping` skips it all. The forwarded address goes first in the code, then
+   the public IPv4 and IPv6 ones, then the local ones, four at most. The code is shown on
+   the status line, logged, and copied to the clipboard.
 3. The guest, given the host's code or address by `--join` or from the clipboard by the
-   main menu's Co-op page, says hello every 250 ms, at every address in the code at once,
+   main menu's Co-op page, says hello every 250 ms, at every address in the code it has a
+   socket for at once,
    with its build, a digest of the rules (movement profile, guns, gun level), its camera
    setting and a random id; the host welcomes it
    into slot 1, or refuses it with the reason (`rac_net::handshake`). The id makes hellos
-   reaching the host by two paths (the LAN's and the NAT's) one guest's. Every packet
+   reaching the host by two paths (the LAN's and the NAT's, or IPv4's and IPv6's) one
+   guest's; the session runs on the path the host heard first. Every packet
    shares the one UDP port with `ggrs`, tagged with whose it is, and STUN's untagged,
    known by its magic cookie (`rac_net::link`).
 4. Through NATs (D8): a host whose NAT drops the guest's hellos is given the guest's code
@@ -145,7 +159,19 @@ input wrong loads the snapshot of that tick and simulates forward again.
   back, in either case, with look-alike letters, and catch a mistyped letter; two peers
   each behind a port-restricted cone NAT on the memory network learn their public
   addresses from a STUN server there, swap codes, meet and play 120 ticks agreeing with
-  a plain run; a host behind one hears nobody until it punches.
+  a plain run; a host behind one hears nobody until it punches; a link bound on both
+  families trades packets with an IPv4 peer and an IPv6 peer on the loopback; PCP and
+  NAT-PMP requests are laid out as the RFCs have them, a refusal says why, a fake PCP
+  router on the loopback maps and unmaps, a NAT-PMP-only one is asked by NAT-PMP once
+  it answers PCP with its version, and a silent one is given up on; the default gateway
+  is read from a Linux route table.
+- `rac_sim`'s tests: a message naming an entity that a rollback spawns again under
+  another `Entity` is shown once, whether the first entity is still there when it is
+  read or gone.
+- `rac_demo`'s `tests/rollback.rs`: both heroes left a hit from death walk onto the
+  hazard pad under the sync test, with UYA's rules and with DL's: both die and are
+  brought back with no mismatch, and the HUD is told of each respawn once, as a plain
+  run tells it.
 - The app on one machine (2026-11-04): a host learned its public address from Google's
   STUN server through the owner's router and showed its code; a guest given the code
   (`--join CODE`) reached the host on its LAN address and they played with no desync; a
@@ -153,15 +179,21 @@ input wrong loads the snapshot of that tick and simulates forward again.
 - The app's `--sync-test` on the demo, 1500 ticks off-screen, walking, jumping, swinging
   and firing, with no mismatch; a host and a guest on one machine, each seeing the
   other's hero move.
+- The app on one machine with both sockets (2026-11-05, `--no-port-mapping`): the host's
+  code held its public IPv4 address (from STUN) and its LAN's; the guest joined by it on
+  the LAN, and the host played on alone once the guest left. That machine has no IPv6
+  route, so it opened IPv4 alone. Its router (192.168.1.1) answers neither NAT-PMP's
+  address request nor PCP's ANNOUNCE (both read-only), so there it is UPnP's or nothing.
 
 ## Known gaps
 
-- A shown message naming an entity (`Destroyed` for the HUD, `Afflicted` for the gun
-  sounds) shows again if a rollback reaches back past the entity's spawn, which spawns it
-  again under another `Entity`.
-- No test reaches a hero's death and respawn under rollback: the demo level has no pit
-  or deadly floor, and its enemies seldom kill him.
-- Port mapping is UPnP IGD's only, and hasn't been tried on a real router (no test can
-  stand in for one); NAT-PMP and PCP aren't in. A host whose router doesn't forward needs
-  the guest's code, or a port forwarded by hand. Codes carry IPv4 unless the socket is
-  IPv6, which it is only when every address the guest was given is.
+- No mapping has been asked of a real router (it changes the router's forwarding; no
+  test can stand in for one): UPnP waits for the owner's run, and PCP and NAT-PMP for a
+  router that speaks them. Only IPv4 is mapped: PCP can open an IPv6 firewall's pinhole
+  too, which isn't asked for, so an IPv6 host behind a firewall is reached as through a
+  NAT. A host whose router doesn't forward needs the guest's code (Ctrl+V), or a port
+  forwarded by hand.
+- Mappings aren't renewed: one lasts two hours. That matters for a guest arriving after
+  that, and for a router that drops a session's packets once their mapping lapses
+  (untested; most keep a flow they are already passing).
+- The default gateway is asked of Linux and Windows only; elsewhere only UPnP maps.
