@@ -109,14 +109,17 @@ The repository is public, so everything committed here is published.
   - Permissive: ReRAC (ISC), OpenGOAL (ISC), Play! (BSD), ico-recomp (MIT), libdl and
     libuya (MIT).
   - Copyleft: GPL-3.0, GPL-2.0-or-later and LGPL projects such as Wrench, PCSX2,
-    Replanetizer, PS2Recomp, DobieStation, m2c and the decompilation projects' own
-    tooling.
+    Replanetizer, PS2Recomp, DobieStation, m2c, rac-rs and the decompilation projects'
+    own tooling.
 - **Reference only** (read them for facts, then implement independently; never translate
   their code line by line): GPL-2.0-only code, and code with no licence (ps2tek,
   RCMemory).
 - Decompiled game code stays forbidden whatever licence its project puts on it
-  (rac1-decomp, Lombyte, OpenRAC's decompilations): the game's copyright is Sony's.
+  (rac1-decomp, Lombyte, OpenRAC's decompilations, rac-rs's rewrites of the game's
+  functions): the game's copyright is Sony's.
 - The full licence table is in [docs/research/prior-art.md](docs/research/prior-art.md).
+- The README's Acknowledgements lists only the projects we have taken facts or code from.
+  The first time we take something from a project, add it there.
 
 ## Environment
 

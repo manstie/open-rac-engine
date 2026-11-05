@@ -1523,6 +1523,11 @@ Work order: UYA NTSC-U → R&C3 PAL → DL NTSC-U → Gladiator PAL → R&C1 →
   - Field of view and culling that are correct in widescreen.
   - Uncapped frame rates through interpolation.
   - Support for user-supplied high-resolution texture packs.
+  - Draw from rac-rs's optional modern graphics (GPL-3.0-or-later, so its code may be
+    reused with its notices). It has volumetric fog, clouds and smoke, GI, AO, shadows,
+    water, vegetation, fire, fur, metal, sun rays, a sharp HUD, FSR and DLSS, and reads
+    PCSX2 texture packs as they are. Where its code lives, how far it carries over to
+    Bevy, and what is off limits: `prior-art.md`, "rac-rs's graphical enhancements".
 - [~] **P3.18** The guns' **effects from the disc** (`effects.md`, "Importing them"):
   - Read the level's effect and particle textures and particle definitions from its core
     (`rac_formats`), and the shot classes' meshes (`Core::moby_class`).

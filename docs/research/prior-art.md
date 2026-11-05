@@ -14,11 +14,16 @@ else comes from web research and has not been re-checked.
 - Never commit decompiled game code, game data or Sony SDK code, whatever licence label a
   project puts on it.
 
+**Acknowledgements:** the README's Acknowledgements lists only the projects we have taken
+facts or code from. Every project is noted here, but it goes into the README only when we
+first take something from it.
+
 ## Projects doing what we want to do
 
 | Project | What it is | Target | Licence | Status |
 |---|---|---|---|---|
 | **ReRAC** ✔ [re-rac/rerac](https://github.com/re-rac/rerac) | A native PC port of R&C1 written in **Rust on Bevy** (0.19). Crates for formats, game logic, engine and extractor, plus `cargo xtask`. Format specs in `docs/formats/` were written from Wrench's behaviour without copying its code. Its `moby_rac1.md` (vertex IDs, the vertex cache, the VU0 skinning slots, normals and texture switches) was the reference for our moby mesh decoder on 2026-10-13, and its `moby_skinning_lighting.md` (the metal packets' vertex layout and what R&C1's code does with them) for our metal packets on 2026-10-15; our code is our own, and every rule was checked on UYA's data (`moby-format.md`, "Mesh", "Metal packets"). | One disc: R&C1 NTSC-U SCUS-97199 v1.00 | **ISC** ✔ | Created 2026-09-26 ✔. "All levels load and render", not playable start to finish ✔. Only macOS on Apple Silicon has been tested ✔. Has a launcher repo and a Discord. |
+| **rac-rs** ✔ [AsobiCodes/rac-rs](https://github.com/AsobiCodes/rac-rs) | A PC port of R&C1 in Rust. Setup statically recompiles the user's disc into Rust that runs on its own EE core. Graphics, sound, movies, input and the PC features are native code on raw `wgpu` (Vulkan, DX12) with WGSL shaders, not on Bevy. **Its optional modern graphics are what we want from it** (see "rac-rs's graphical enhancements" below). | R&C1 PAL v1.00 SCES-50916 and NTSC-U v1.00 SCUS-97199 ✔. The owner's NTSC-U disc is that one; their PAL disc is v2.00, which rac-rs doesn't support | **GPL-3.0-or-later** ✔ (NOTICE.md; its DLSS files are excepted) | Created 2026-10-14 ✔. v0.5 plays start to credits on Windows and Linux ✔. About 220 stars ✔ (2026-11-05). |
 | **OpenRAC** ✔ [OpenRAC/OpenRAC](https://github.com/OpenRAC/OpenRAC) | A hub for matching decomps of all four games, plus a planned OpenGOAL-style native port (C++20, OpenGL 4.1, SDL3, no emulation) | All four games | NOASSERTION ✔ (GPL-3.0-or-later) | Created 2026-10-03 ✔. Port design in `docs/port`: 989snd replaced at its API, no IOP model, rendering hooks at `VU1_sendChain`, `VU1_syncChain` and `sceGsSyncV`. Cross-game docs in `docs/engine/`. |
 | **rac1-decomp** ✔ [OpenRAC/rac1-decomp](https://github.com/OpenRAC/rac1-decomp) | Matching decompilation of R&C1 | **SCES_509.16 PAL v2.00 with SHA-1 `79956931…`, which is exactly the user's disc** ✔ | GPL-3.0 ✔ (MIT before 2026-10-07) | About 78% of code matched (decomp.dev). Covers the boot ELF and all 19 overlays. Has `config/names.tsv` and `symbol_addrs.txt`. |
 | **Lombyte** ✔ [lombyte-project/Lombyte](https://github.com/lombyte-project/Lombyte) | Matching decompilation of R&C1. Its long-term goal is a native Rust port. | SCUS-97199: its `config/us/checksum.sha1` gives `SCUS_971.99` SHA-1 `72fd1de3…`, **which is exactly the user's disc** ✔ (2026-10-15) | GPL-3.0 ✔ | About 70% |
@@ -33,6 +38,57 @@ R&C1 US 72%, UYA 6.9%, GC 2.8%, DL 0.5%. No decompilation targets R&C3 PAL or Gl
 
 No retail or prototype EE executable is known to keep its symbol tables, so names come
 only from the decompilation projects.
+
+### rac-rs's graphical enhancements
+
+Checked on 2026-11-05 from rac-rs's README, NOTICE.md and file tree through the GitHub API
+✔. None of its code has been read yet.
+
+rac-rs's Graphics page puts optional modern graphics over the PS2 look. Each has quality
+levels, and a Classic setting keeps the original look. They are: enhanced lighting with
+volumetric fog, 3D clouds and shining stars, global illumination, ambient occlusion,
+dynamic shadows, clear reflective water with waves and tides, vegetation, animated fire
+that lights the scene, rising volumetric smoke, fur on Ratchet, shiny metal, sun rays,
+frame smoothing and a sharp HUD. It also has FSR and DLSS upscaling, and reads PCSX2
+texture packs as they are. That is close to what PLAN P3.17 and P5.5 want, so **draw from
+it for the remaster render path**.
+
+- **Where it lives:** `rac-rs/src/engine/viewer/` has one module per effect, with its WGSL
+  beside it:
+  - `volfog`, `volclouds` and `volsmoke`;
+  - `sunshadow` and `shadowvol`;
+  - `waterfx`, `vegfx` and `furfx`;
+  - `firefx`, `firesim`, `firebook` and `groundfire`;
+  - `metalfx` and the other `metal*` modules;
+  - `star`, `starfield`, `skyvis` and `sunrecv`;
+  - `smooth`, `hudsharp` and `upscale/`.
+
+  Texture packs are in `src/engine/texpack/`, with PCSX2's texture naming in `gsname.rs`.
+  Dynamic lights are in `src/engine/dynlight.rs`.
+- **How it differs from us:** rac-rs draws what the recompiled game sends the GS (`gscap`
+  and `gsfull`, with VU1 in Rust) on raw `wgpu`, and adds its effects to that. We draw
+  decoded assets in Bevy. So its shaders and techniques carry over, since Bevy's WESL
+  shaders are a superset of WGSL, but its hooks into the frame don't. Each effect has to
+  become a Bevy material, render-graph node or post-process pass.
+- **Compare with Bevy first:** Bevy 0.20 already has volumetric fog, SSAO, SSR, contact
+  shadows, an atmosphere, TAA, SMAA and DLSS (`bevy_pbr`, `bevy_anti_alias`). Weigh rac-rs's
+  version of each against Bevy's before porting it. The game-specific effects are where
+  rac-rs helps most: water, fire, smoke, fur, metal, vegetation, the sky and stars, the
+  HUD, and PCSX2 texture packs.
+- **Licence:** GPL-3.0-or-later, so its code may be reused if its notice stays in the file
+  header and the reuse is listed here, as with Wrench. These parts are exceptions:
+  - Its DLSS bridge (`ngx_abi`, `rac_ngx.dll`) is under NVIDIA's licence, with a GPL
+    section 7 exception of rac-rs's own. Leave it out.
+  - Its FSR files are AMD's, under MIT.
+  - Its level readers that began as ports of rac1-decomp's MIT Python tools also carry
+    rac1-decomp's notice.
+- **Off limits:** the README says rac-rs rewrites original functions in Rust "where a fix,
+  a PC feature or speed needs it". `rac-rs/src/rac1/game/` and `rac-rs/src/rac1/retail/`
+  look like where those rewrites live. Treat them as decompiled game code and never copy
+  them. Check where baked data such as `viewer/firebook/firebook.r8g8.z` (6 MB) comes from
+  before taking any of it.
+- **Tuned for R&C1:** rac-rs's effects are tuned for R&C1's levels. Our first targets are
+  UYA and DL (PLAN §4.4).
 
 ## Modding tools and format references
 
@@ -200,4 +256,4 @@ only from the decompilation projects.
 
 | Reuse, keeping its notices | Reference only (read, never copy) | Never commit |
 |---|---|---|
-| ReRAC (ISC), OpenGOAL (ISC), Play! (BSD-2), ico-recomp crates (MIT), libdl and libuya (MIT), Pipe (MIT), rabbitizer (MIT), CCC (MIT), pine-ipc (MIT), Cranelift (Apache), ggrs (MIT/Apache), igd-next (MIT), PS2SDK (AFL-2.0), rac-modding-resources (CC0); Wrench, Replanetizer, PCSX2, DobieStation, PS2Recomp, m2c, and the tooling of OpenRAC, rac1-decomp and Lombyte (all GPL-3.0), paraLLEl-GS (LGPL) | ps2tek and RCMemory (no licence), any GPL-2.0-only code, Sony's manuals | Decompiled game code (whatever its label, so the decompiled sources of rac1-decomp, Lombyte and OpenRAC's decompilations), game data or anything extracted from it, Sony SDK code or NDA material |
+| ReRAC (ISC), OpenGOAL (ISC), Play! (BSD-2), ico-recomp crates (MIT), libdl and libuya (MIT), Pipe (MIT), rabbitizer (MIT), CCC (MIT), pine-ipc (MIT), Cranelift (Apache), ggrs (MIT/Apache), igd-next (MIT), PS2SDK (AFL-2.0), rac-modding-resources (CC0); Wrench, Replanetizer, PCSX2, DobieStation, PS2Recomp, m2c, and the tooling of OpenRAC, rac1-decomp and Lombyte (all GPL-3.0), rac-rs's engine and shaders (GPL-3.0-or-later, without its DLSS bridge), paraLLEl-GS (LGPL) | ps2tek and RCMemory (no licence), any GPL-2.0-only code, Sony's manuals | Decompiled game code (whatever its label, so the decompiled sources of rac1-decomp, Lombyte and OpenRAC's decompilations, and rac-rs's rewrites of the game's functions), game data or anything extracted from it, Sony SDK code or NDA material |

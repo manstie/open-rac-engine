@@ -3,15 +3,6 @@
 An open-source reimplementation of Insomniac Games' PlayStation 2 *Ratchet & Clank* engine,
 written in Rust with the [Bevy](https://bevy.org) game engine.
 
-The aim is to play the original PS2 games natively on Windows and Linux, as a full PC
-remaster, using your own game discs. That covers *Ratchet & Clank* (2002) through
-*Ratchet: Deadlocked* / *Ratchet: Gladiator* (2005).
-
-> [!IMPORTANT]
-> **Early development:** nothing is playable yet. Right now the repository contains the
-> project plan, research notes and the skeleton of the application. Follow
-> [PLAN.md](PLAN.md) for progress.
-
 > [!NOTE]
 > **No game content is included.** You need your own copies of the games. This is an
 > unofficial fan project; see the [disclaimer](#disclaimer).
@@ -24,28 +15,16 @@ remaster, using your own game discs. That covers *Ratchet & Clank* (2002) throug
   - It is packaged as Bevy plugins you can drop into your own projects and mash-ups.
 - **Run the original games natively on Windows and Linux**, with DirectX 12 and Vulkan,
   using disc images you supply.
-- **A full PC remaster by default.** That means:
-  - widescreen and ultrawide, at any resolution;
-  - high frame rates;
-  - modern anti-aliasing and lighting;
-  - mouse and keyboard as first-class controls;
-  - complete settings menus.
-
-  A classic mode keeps the original look for comparison.
 - **Controller, keyboard and mouse support**, with every action remappable.
 - **Two-player online co-op in every game, connecting the players directly** with no
   servers to host, and with mechanics based on *Ratchet: Gladiator*'s co-op. Local
   split-screen follows.
-- **One hero controller for every game.** The older games get the newer games' controls
-  and the moves that need no item, while keeping their own movement (jump heights,
-  speeds), abilities and gadgets. Their original movement stays available as an option
-  in single-player.
 
 ## Games
 
 | Game | Also released as | Disc versions being worked with | Status |
 |---|---|---|---|
-| *Ratchet & Clank 3* (2004) | *Ratchet & Clank: Up Your Arsenal* | SCUS-97353 (USA), SCES-52456 (Europe/Australia) | First target; research |
+| *Ratchet & Clank 3* (2004) | *Ratchet & Clank: Up Your Arsenal* | SCUS-97353 (USA), SCES-52456 (Europe/Australia) | First target; the hero controller is playable in the demo, tuned to the USA release |
 | *Ratchet: Gladiator* (2005) | *Ratchet: Deadlocked* | SCUS-97465 (USA), SCES-53285 (Europe/Australia) | First target; research |
 | *Ratchet & Clank* (2002) | | SCUS-97199 (USA), SCES-50916 (Europe/Australia, v2.00) | Planned |
 | *Ratchet & Clank 2* (2003) | *Ratchet & Clank: Going Commando* | SCUS-97268 (USA, v2.00), SCES-51607 (Europe/Australia) | Planned |
@@ -64,8 +43,7 @@ file name. The details are in [docs/research/disc-layout.md](docs/research/disc-
 4. **A new engine runs it.** Rendering, audio, input, the player character, the camera,
    co-op networking and the remaster features are reimplemented natively in Rust.
 
-Nothing from the games is stored in or distributed by this repository. The full strategy,
-and the reasons behind it, are in [PLAN.md](PLAN.md#4-strategy).
+Nothing from the games is stored in or distributed by this repository.
 
 ## Running a release build
 
@@ -132,21 +110,22 @@ where things stand, before opening a pull request. The legal rules matter most:
 ## Acknowledgements
 
 This project builds on years of work by the Ratchet & Clank modding community and the
-PlayStation 2 preservation community. Their research documents the file formats and
-hardware that make this possible:
+PlayStation 2 preservation community. We have taken facts or code from these projects:
 
 - [Wrench](https://github.com/chaoticgd/wrench): modding tools and file-format research for
-  the PS2 games.
+  the PS2 games, including the level and gameplay layouts.
 - [Horizon](https://github.com/Horizon-Private-Server): the *Up Your Arsenal* and
-  *Deadlocked* online revival, and its reverse-engineered game headers.
-- [OpenRAC](https://github.com/OpenRAC) and [Lombyte](https://github.com/lombyte-project/Lombyte):
-  decompilation projects for the series.
+  *Deadlocked* online revival. Its reverse-engineered game headers (libdl and libuya)
+  seeded our symbol tables and moby layouts.
+- [OpenRAC](https://github.com/OpenRAC): decompilation projects for the series, and their
+  notes on the engine.
 - [ReRAC](https://github.com/re-rac/rerac): a native Rust/Bevy port of *Ratchet & Clank*
-  (2002).
+  (2002). Its notes on mobys guided our model reader.
 - [OpenGOAL](https://github.com/open-goal/jak-project): the native PC port of *Jak and
-  Daxter*, and a model for this project's architecture.
-- [PCSX2](https://github.com/PCSX2/pcsx2), [Play!](https://github.com/jpd002/Play-) and
-  [ps2tek](https://psi-rockin.github.io/ps2tek/): PS2 emulation and hardware documentation.
+  Daxter*, and a model for this project's architecture. Our sound engine ports its 989snd
+  sound effects.
+- [PCSX2](https://github.com/PCSX2/pcsx2): the PS2 emulator we reverse engineer with. Our
+  probe follows its PINE protocol and its savestate formats.
 
 None of these projects is affiliated with this one.
 
