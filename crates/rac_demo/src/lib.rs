@@ -255,10 +255,9 @@ pub fn spawn_demo(
                 meshes.add(Cuboid::from_size(half_extents * 2.0)),
                 piece.rotation,
             ),
-            Shape::Rail { start, end, radius } => (
-                meshes.add(Cylinder::new(radius, start.distance(end))),
-                // A cylinder's axis is +y; turn it to run from start to end.
-                Quat::from_rotation_arc(Vec3::Y, (end - start).normalize()),
+            Shape::Rail { ref points, radius } => (
+                meshes.add(rail_mesh(points, radius, piece.translation)),
+                Quat::IDENTITY,
             ),
             Shape::Sphere { radius } => (meshes.add(Sphere::new(radius)), piece.rotation),
         };
@@ -516,6 +515,27 @@ pub fn spawn_demo(
     }
 }
 
+/// A rail's tube: a cylinder along each segment through `points`, placed about `origin`.
+fn rail_mesh(points: &[Vec3], radius: f32, origin: Vec3) -> Mesh {
+    let mut segments = points.windows(2).map(|pair| {
+        let (start, end) = (pair[0], pair[1]);
+        // A cylinder's axis is +y; turn it to run from start to end.
+        Mesh::from(Cylinder::new(radius, start.distance(end))).transformed_by(
+            Transform::from_translation((start + end) / 2.0 - origin)
+                .with_rotation(Quat::from_rotation_arc(Vec3::Y, (end - start).normalize())),
+        )
+    });
+    let mut tube = segments
+        .next()
+        .unwrap_or_else(|| Sphere::new(radius).into());
+    for segment in segments {
+        if let Err(error) = tube.merge(&segment) {
+            warn!("a rail segment couldn't join its tube: {error}");
+        }
+    }
+    tube
+}
+
 /// Removes everything [`spawn_demo`] created, and the pickups left about.
 pub fn despawn_demo(
     mut commands: Commands,
@@ -643,5 +663,35 @@ fn hide_hero_in_first_person(
 fn move_platforms(tick: Res<SimTick>, mut platforms: Query<(&Mover, &mut SimTransform)>) {
     for (mover, mut transform) in &mut platforms {
         transform.translation = mover.position_at(tick.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::mesh::VertexAttributeValues;
+
+    #[test]
+    fn a_rails_tube_runs_through_its_points_about_its_origin() {
+        // 10 u along −z, then 10 u along +x, drawn about the middle of the two.
+        let points = [
+            Vec3::ZERO,
+            Vec3::new(0.0, 0.0, -10.0),
+            Vec3::new(10.0, 0.0, -10.0),
+        ];
+        let mesh = rail_mesh(&points, 0.1, Vec3::new(5.0, 0.0, -5.0));
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        let (min, max) = positions
+            .iter()
+            .map(|&p| Vec3::from(p))
+            .fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(min, max), p| {
+                (min.min(p), max.max(p))
+            });
+        assert!(min.distance(Vec3::new(-5.1, -0.1, -5.1)) < 1e-4, "{min}");
+        assert!(max.distance(Vec3::new(5.0, 0.1, 5.0)) < 1e-4, "{max}");
     }
 }

@@ -7,7 +7,9 @@
 //!
 //! Bevy's axes: y is up, and the player starts at the origin looking down −z.
 
-use bevy::prelude::*;
+use std::f32::consts::PI;
+
+use bevy::{math::ops, prelude::*};
 use rac_combat::CrateKind;
 use rac_hero::{GrindRail, Material, Water};
 
@@ -66,16 +68,15 @@ impl Surface {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Shape {
     /// An axis-aligned box before the piece's rotation.
     Box {
         half_extents: Vec3,
     },
-    /// A thin cylinder from `start` to `end`, in world space.
+    /// A thin tube through `points`, in world space.
     Rail {
-        start: Vec3,
-        end: Vec3,
+        points: Vec<Vec3>,
         radius: f32,
     },
     Sphere {
@@ -118,13 +119,15 @@ impl Piece {
     /// What the hero rides along, for a grind rail (its top, from start to end) or a zip
     /// line (its cable).
     pub fn rail(&self) -> Option<GrindRail> {
-        match (self.surface, self.shape) {
-            (Surface::GrindRail, Shape::Rail { start, end, radius }) => Some(GrindRail::new(vec![
-                start + Vec3::Y * radius,
-                end + Vec3::Y * radius,
-            ])),
-            (Surface::ZipLine, Shape::Rail { start, end, .. }) => {
-                Some(GrindRail::zip_line(vec![start, end]))
+        match (self.surface, &self.shape) {
+            (Surface::GrindRail, Shape::Rail { points, radius }) => Some(GrindRail::new(
+                points
+                    .iter()
+                    .map(|&point| point + Vec3::Y * *radius)
+                    .collect(),
+            )),
+            (Surface::ZipLine, Shape::Rail { points, .. }) => {
+                Some(GrindRail::zip_line(points.clone()))
             }
             _ => None,
         }
@@ -132,8 +135,8 @@ impl Piece {
 
     /// What the hero swims in, for water: the whole box.
     pub fn water(&self) -> Option<Water> {
-        match (self.surface, self.shape) {
-            (Surface::Water, Shape::Box { half_extents }) => Some(Water { half_extents }),
+        match (self.surface, &self.shape) {
+            (Surface::Water, &Shape::Box { half_extents }) => Some(Water { half_extents }),
             _ => None,
         }
     }
@@ -221,6 +224,75 @@ fn stairs(pieces: &mut Vec<Piece>, name: &str, x: f32, z: f32, count: u32, rise:
 /// 7 u a double jump or flip, and 10 u a long jump.
 pub const GAP_WIDTHS: [f32; 3] = [4.0, 7.0, 10.0];
 
+/// The middle of the rail circuit, at its rails' height, so their tops are 1 u up: low
+/// enough for the games' rail search, which wants ground within 1 u under a rail.
+const CIRCUIT_CENTRE: Vec3 = Vec3::new(62.0, 0.92, -40.0);
+/// The outer lane's distance from the circuit's middle across its straights, and the gap
+/// to the inner lane. A switch jump looks 2–4.25 u to the side, and takes a rail within
+/// 0.9 u of that (`hero-controller.md`, "Grinding").
+const CIRCUIT_RADIUS: f32 = 13.0;
+const CIRCUIT_LANE_GAP: f32 = 3.0;
+/// The length of the circuit's straights, and how many segments make each bend.
+const CIRCUIT_STRAIGHT: f32 = 40.0;
+const CIRCUIT_BEND_SEGMENTS: usize = 16;
+
+/// One lane of the rail circuit: an oval of two straights along z joined by half circles
+/// of `radius`, running −z down its west straight, closed on itself. It starts and ends
+/// at the middle of its south bend, away from the straights where the lanes are switched.
+/// There UYA's hero drops off the rail's end and gets back on 8 ticks later, as the game
+/// has no rule for a rail running on into another; DL's rides on (`grind.chain`).
+fn circuit_lane(radius: f32) -> Vec<Vec3> {
+    let (centre, half) = (CIRCUIT_CENTRE, CIRCUIT_STRAIGHT / 2.0);
+    // Each bend from φ = 0 to π, its far point at π/2: the south one from the west
+    // straight's end to the east's start, the north one from the east's end to the west's
+    // start.
+    let south = |phi: f32| {
+        Vec3::new(
+            centre.x - radius * ops::cos(phi),
+            centre.y,
+            centre.z - half - radius * ops::sin(phi),
+        )
+    };
+    let north = |phi: f32| {
+        Vec3::new(
+            centre.x + radius * ops::cos(phi),
+            centre.y,
+            centre.z + half + radius * ops::sin(phi),
+        )
+    };
+    let phi = |i: usize| PI * i as f32 / CIRCUIT_BEND_SEGMENTS as f32;
+    let middle = CIRCUIT_BEND_SEGMENTS / 2;
+    let mut points: Vec<Vec3> = (middle..=CIRCUIT_BEND_SEGMENTS)
+        .map(|i| south(phi(i)))
+        .collect();
+    points.extend((0..=CIRCUIT_BEND_SEGMENTS).map(|i| north(phi(i))));
+    points.extend((0..=middle).map(|i| south(phi(i))));
+    points
+}
+
+/// Points spread evenly along a polyline, about `spacing` apart and the first half that
+/// from its start, so a loop's seam stays clear.
+fn evenly_along(points: &[Vec3], spacing: f32) -> Vec<Vec3> {
+    let lengths: Vec<f32> = points
+        .windows(2)
+        .map(|pair| pair[0].distance(pair[1]))
+        .collect();
+    let total: f32 = lengths.iter().sum();
+    let count = (total / spacing).round().max(1.0) as usize;
+    let mut at = Vec::with_capacity(count);
+    let (mut segment, mut before) = (0, 0.0);
+    for i in 0..count {
+        let distance = total * (i as f32 + 0.5) / count as f32;
+        while segment + 1 < lengths.len() && before + lengths[segment] < distance {
+            before += lengths[segment];
+            segment += 1;
+        }
+        let t = (distance - before) / lengths[segment].max(f32::EPSILON);
+        at.push(points[segment].lerp(points[segment + 1], t.min(1.0)));
+    }
+    at
+}
+
 /// Every piece of the greybox level.
 pub fn greybox_level() -> Vec<Piece> {
     let mut pieces = Vec::new();
@@ -301,8 +373,7 @@ pub fn greybox_level() -> Vec<Piece> {
         "zip line",
         Surface::ZipLine,
         Shape::Rail {
-            start: zip_start,
-            end: zip_end,
+            points: vec![zip_start, zip_end],
             radius: 0.05,
         },
         (zip_start + zip_end) / 2.0,
@@ -408,8 +479,7 @@ pub fn greybox_level() -> Vec<Piece> {
         "grind rail",
         Surface::GrindRail,
         Shape::Rail {
-            start: rail_start,
-            end: rail_end,
+            points: vec![rail_start, rail_end],
             radius: 0.08,
         },
         (rail_start + rail_end) / 2.0,
@@ -423,6 +493,34 @@ pub fn greybox_level() -> Vec<Piece> {
             at.z,
             Vec3::new(0.2, at.y - 0.1, 0.2),
         ));
+    }
+
+    // A rail circuit east of the grind rail: two lanes side by side round an oval, to
+    // switch between with a grind jump and the stick to the side (state 41).
+    for (lane, radius) in [
+        ("outer", CIRCUIT_RADIUS),
+        ("inner", CIRCUIT_RADIUS - CIRCUIT_LANE_GAP),
+    ] {
+        let points = circuit_lane(radius);
+        let posts = evenly_along(&points, 8.0);
+        pieces.push(Piece::new(
+            format!("rail circuit {lane} lane"),
+            Surface::GrindRail,
+            Shape::Rail {
+                points,
+                radius: 0.08,
+            },
+            CIRCUIT_CENTRE,
+        ));
+        for (i, at) in posts.into_iter().enumerate() {
+            pieces.push(Piece::block(
+                format!("rail circuit {lane} post {i}"),
+                Surface::Ground,
+                at.x,
+                at.z,
+                Vec3::new(0.2, at.y - 0.1, 0.2),
+            ));
+        }
     }
 
     // A raised pool to swim in: water 3.5 u deep inside walls 4 u high, with steps up to
@@ -815,6 +913,45 @@ mod tests {
         let joint =
             (platform.translation.x - half_x(platform)) - (right.translation.x + half_x(right));
         assert!(joint.abs() < 1e-4, "{joint}");
+    }
+
+    #[test]
+    fn the_rail_circuits_lanes_run_side_by_side_round_closed_loops() {
+        let pieces = greybox_level();
+        let lane = |name: &str| find(&pieces, name).rail().unwrap();
+        let (outer, inner) = (
+            lane("rail circuit outer lane"),
+            lane("rail circuit inner lane"),
+        );
+        for rail in [&outer, &inner] {
+            assert_eq!(rail.points.first(), rail.points.last());
+            assert!(rail.points.iter().all(|point| (point.y - 1.0).abs() < 1e-4));
+        }
+        // 3 u apart all the way round, both the same way.
+        for &point in &inner.points {
+            let (on_inner, on_outer) = (inner.nearest(0, point), outer.nearest(1, point));
+            let across = outer.position(on_outer).distance(point);
+            assert!((across - 3.0).abs() < 0.07, "{across} at {point}");
+            assert!(inner.direction(on_inner).dot(outer.direction(on_outer)) > 0.9);
+        }
+        // Down the west straight, along −z, the inner lane on the right.
+        let west = Vec3::new(49.0, 1.0, -40.0);
+        let on_outer = outer.nearest(1, west);
+        assert!(outer.position(on_outer).distance(west) < 1e-4);
+        assert_eq!(outer.direction(on_outer), Vec3::NEG_Z);
+        assert!(inner.position(inner.nearest(0, west)).x > west.x);
+        // Its posts stand under it.
+        let posts = pieces
+            .iter()
+            .filter(|piece| piece.name.starts_with("rail circuit outer post"))
+            .collect::<Vec<_>>();
+        assert!(posts.len() > 15);
+        for post in posts {
+            let top = Vec3::new(post.translation.x, post.top().unwrap(), post.translation.z);
+            let rail = outer.position(outer.nearest(1, top));
+            assert!(Vec2::new(rail.x - top.x, rail.z - top.z).length() < 1e-3);
+            assert!((rail.y - top.y - 0.18).abs() < 1e-4, "{}", rail.y - top.y);
+        }
     }
 
     #[test]

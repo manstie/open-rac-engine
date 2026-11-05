@@ -177,6 +177,124 @@ fn the_grind_rail_carries_the_hero_up_to_its_end() {
     assert_eq!(hero.state, HeroState::Fall);
 }
 
+/// A rail's index among the level's rails, as `level_world` and the demo list them.
+fn rail_index(name: &str) -> usize {
+    greybox_level()
+        .iter()
+        .filter(|piece| piece.rail().is_some())
+        .position(|piece| piece.name == name)
+        .unwrap_or_else(|| panic!("no rail named {name}"))
+}
+
+/// Jumps from the floor at `from` onto the rail above, facing −z.
+fn jump_onto_rail(from: Vec3, profile: &HeroProfile, world: &ParryWorld) -> HeroMotion {
+    let mut hero = HeroMotion::new(from, 0.0);
+    step(&mut hero, &input(None, &[], &[]), 0.0, profile, world);
+    step(
+        &mut hero,
+        &input(None, &[], &[Action::Jump]),
+        0.0,
+        profile,
+        world,
+    );
+    let held = input(None, &[Action::Jump], &[]);
+    for _ in 0..120 {
+        if hero.state == HeroState::Grind {
+            return hero;
+        }
+        step(&mut hero, &held, 0.0, profile, world);
+    }
+    panic!(
+        "never got on the rail: {:?} at {}",
+        hero.state, hero.position
+    );
+}
+
+#[test]
+fn the_rail_circuits_lanes_can_be_jumped_between() {
+    let world = level_world();
+    let outer = rail_index("rail circuit outer lane");
+    let inner = rail_index("rail circuit inner lane");
+    for profile in [HeroProfile::uya(), HeroProfile::dl()] {
+        // Under the outer lane at the top of the west straight, which runs along −z at
+        // x = 49 with its top 1 u up; the inner lane is 3 u to its right, at x = 52.
+        let mut hero = jump_onto_rail(Vec3::new(49.0, 0.0, -22.0), &profile, &world);
+        assert_eq!(hero.rail.map(|at| at.rail), Some(outer));
+        // Facing −z with the camera behind, the stick's right is +x.
+        for (stick, lane, x) in [([127, 0], inner, 52.0), ([-128, 0], outer, 49.0)] {
+            for _ in 0..10 {
+                step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+            }
+            step(
+                &mut hero,
+                &input(Some(stick), &[], &[Action::Jump]),
+                0.0,
+                &profile,
+                &world,
+            );
+            assert_eq!(hero.state, HeroState::Jump(JumpKind::GrindSwitch));
+            let mut ticks = 0;
+            while hero.state != HeroState::Grind {
+                step(&mut hero, &input(None, &[], &[]), 0.0, &profile, &world);
+                ticks += 1;
+                assert!(
+                    ticks < 90,
+                    "never landed: {:?} at {}",
+                    hero.state,
+                    hero.position
+                );
+            }
+            assert_eq!(hero.rail.map(|at| at.rail), Some(lane));
+            assert!((hero.position.x - x).abs() < 0.05, "{}", hero.position);
+            assert!((hero.position.y - 1.0).abs() < 0.05, "{}", hero.position);
+            // Still on the straight.
+            assert!(hero.position.z > -60.0, "{}", hero.position);
+        }
+    }
+}
+
+#[test]
+fn the_rail_circuit_goes_round_and_round() {
+    let world = level_world();
+    let inner = rail_index("rail circuit inner lane");
+    // The inner lane is 143 u round; two laps at 12 u/s, and DL's 14.
+    for (profile, lap_ticks) in [(HeroProfile::uya(), 715), (HeroProfile::dl(), 615)] {
+        let mut hero = jump_onto_rail(Vec3::new(52.0, 0.0, -22.0), &profile, &world);
+        assert_eq!(hero.rail.map(|at| at.rail), Some(inner));
+        let (mut seams, mut off_rail, mut last_segment) = (0, 0, 0);
+        for _ in 0..2 * lap_ticks + 120 {
+            // The camera follows behind him, so DL's hero never hops round.
+            let camera_yaw = hero.yaw;
+            step(
+                &mut hero,
+                &input(None, &[], &[]),
+                camera_yaw,
+                &profile,
+                &world,
+            );
+            match hero.rail {
+                Some(at) if hero.state == HeroState::Grind => {
+                    assert_eq!(at.rail, inner);
+                    seams += usize::from(at.segment < last_segment);
+                    last_segment = at.segment;
+                }
+                _ => off_rail += 1,
+            }
+            assert!(hero.position.y > 0.5, "fell off at {}", hero.position);
+        }
+        assert_eq!(seams, 2);
+        // UYA's hero drops off the rail's end and gets back on 8 ticks later; DL's rides
+        // straight on.
+        let dropped = if profile.grind.chain.is_some() {
+            0
+        } else {
+            2 * 8
+        };
+        assert_eq!(off_rail, dropped);
+        assert_eq!(hero.state, HeroState::Grind);
+    }
+}
+
 #[test]
 fn the_zip_line_carries_the_hero_down_from_the_high_platform() {
     let world = level_world();

@@ -718,7 +718,13 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     games aim; a settings file saved before keeps its bindings until Reset.
 - [x] **P1.4** Greybox level (`rac_demo`), as data tagged by purpose (`Surface`): ramps,
   stairs, ledge blocks, a wall-jump shaft to a high platform, a gap course, a moving
-  platform, a grind rail, a zip line, a pool, a melee yard, a hazard pad and checkpoints.
+  platform, a grind rail, a rail circuit of two lanes 3 u apart to switch between, a zip
+  line, a pool, a melee yard, a hazard pad and checkpoints.
+  - The circuit's lanes are closed loops (rails are polylines, `Shape::Rail { points }`).
+    At a lap's seam UYA's hero drops off the rail's end and gets back on 8 ticks later,
+    as the game has no rule for a rail running on into another; DL's rides on
+    (`grind.chain`). Tested in `greybox_moves.rs`, and seen in the app
+    (`kitdemo-circuit-switch.orin`).
 - [~] **P1.5** Kinematic hero controller (`rac_hero`), implementing the UYA/DL move set
   from RE.3.
   - **Design:** a pure step function over (state, input, camera yaw, profile, collision)
@@ -734,7 +740,8 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     double jump, glide, fall and air control, the fall's landings and lockout; moving
     platforms; the wall jump; ledges
     (grab, hang, shimmy, climb, let go); hits, hazards, death and checkpoints; DL's charge
-    boots; the ability flags; grinding, side on; swimming; zip lines; strafing and lock-on
+    boots; the ability flags; grinding, side on, with the grind jump and the switch jump
+    between rails (the demo's rail circuit); swimming; zip lines; strafing and lock-on
     (`lock_on.rs`); melee (P1.8); DL's own flips, ledges (traced) and hits, and its
     missing crouch, wall jump, zip lines, dive and lock-on (`strafe.landing_window`,
     `walk.crouches`, `wall_jump.enabled`, `zip_line.enabled`, `swim.dives`,
