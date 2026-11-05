@@ -30,7 +30,7 @@ session is working on the task now; notes on problems met stay with their task (
 ## 0. Status
 
 - **Phase 0** is done; CI passes on Windows and Linux (P0.7). `release.yml` packages the
-  game for both, not yet run (P7.1, P7.2).
+  game for both; no release has its packages yet (P7.1, P7.2).
 - **Phase 1** has the app flow, simulation core, input layer and greybox level (P1.1–P1.4).
   The hero (P1.5) has the whole UYA move set, DL's charge boots, and a movement profile
   per game (`uya.ron`, `dl.ron`; `--moves` or the menus), whose switches drop the moves
@@ -1806,11 +1806,13 @@ Mechanics come from Gladiator (RE.10). Netcode follows section 4.2.
     artifacts. Release builds open no console window (`windows_subsystem`) and attach to
     the terminal they were started from (`attach_parent_console` in `openrac`'s `main`),
     so a crash when started from Explorer shows nothing until P7.4's crash logs.
-  - Not done: it has never run. The packages lack the dependencies' licence notices,
-    which MIT and Apache-2.0 require with binaries (for example `cargo about`); add them
-    before publishing a release. The backend default waits on P1.14.
-  - Next step: push the workflow and run it by hand from the Actions tab, then try both
-    packages.
+  - Not done: no tag has published packages yet. The packages lack the dependencies'
+    licence notices, which MIT and Apache-2.0 require with binaries (for example `cargo
+    about`); add them before publishing a release. The backend default waits on P1.14.
+  - Tag `v0.1.0` built both packages, but the publish job failed: `download-artifact`
+    unpacks any zip, so the Windows package arrived as loose files. Fixed with
+    `skip-decompress: true`; the tag still points at the old workflow.
+  - Next step: try both packages, and attach them to the next tag's release.
 - [~] **P7.2** Linux package: tarball and AppImage or Flatpak, using Vulkan.
   - Done: `release.yml` (P7.1) makes a tarball, built on `ubuntu-22.04` so the binary
     needs only glibc 2.35. Not done: AppImage or Flatpak.

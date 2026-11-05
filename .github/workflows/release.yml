@@ -91,6 +91,9 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          # Keep each package as it was uploaded: without this the action unpacks any
+          # zip, so the Windows package would arrive as its loose files.
+          skip-decompress: true
       - name: Attach the packages to a draft release
         env:
           GH_TOKEN: ${{ github.token }}
