@@ -16,7 +16,7 @@ use rac_combat::{
     weapons::{FireMode, Shot, ShotKind, ShotPose, def::Agents},
 };
 use rac_hero::Hero;
-use rac_rig::{MobySkeleton, SequencePlayer};
+use rac_rig::{MobySkeleton, Sample, SequencePlayer};
 use rac_sim::SimTransform;
 
 use crate::DemoEntity;
@@ -246,13 +246,15 @@ pub struct ShotModel {
     pub skeleton: Option<ShotSkeleton>,
 }
 
-/// A shot's skeleton: drawn at `scale` of what the skeleton says, and for a turret, the
-/// joint that turns its barrel to its aim.
+/// A shot's skeleton: drawn at `scale` of what the skeleton says; for a turret, the joint
+/// that turns its barrel to its aim; and the joints its game's code scales beside the pose,
+/// each with its factor.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShotSkeleton {
     pub moby: Arc<MobySkeleton>,
     pub scale: f32,
     pub aim_joint: Option<usize>,
+    pub scaled: Vec<(usize, f32)>,
 }
 
 /// The shot models a game gives, by gun key, the kind of shot ([`ShotKind::name`]) and the
@@ -421,6 +423,7 @@ pub(crate) struct ShotRig {
     /// The pose it last went to, so it goes to each once.
     played: Option<ShotPose>,
     aim_joint: Option<usize>,
+    scaled: Vec<(usize, f32)>,
 }
 
 /// What a shot can be drawn as.
@@ -569,6 +572,7 @@ pub(crate) fn show_shots(
                         player: SequencePlayer::new(0),
                         played: None,
                         aim_joint: skeleton.aim_joint,
+                        scaled: skeleton.scaled.clone(),
                     });
                     (origin, joints, skeleton.moby.inverse_bindposes.clone())
                 });
@@ -776,9 +780,7 @@ pub(crate) fn play_shot_rigs(
         }
         rig.player.tick(clips);
         let pose = rig.player.pose(clips);
-        let mut local: Vec<Transform> = (0..rig.joints.len())
-            .map(|joint| rig.moby.local(pose.as_ref(), joint))
-            .collect();
+        let mut local = shot_joints(&rig.moby, pose.as_ref(), &rig.scaled);
         if let (ShotKind::Turret(state), Some(head)) = (&shot.kind, rig.aim_joint)
             && let Some(aim) = way(state.barrel)
             && let Some(parent) = rig.moby.parents.get(head).copied().flatten()
@@ -794,6 +796,24 @@ pub(crate) fn play_shot_rigs(
             }
         }
     }
+}
+
+/// Each of a shot's joints from its parent in `pose`, or at rest without one, with the
+/// joints in `scaled` scaled as its game's code scales them beside the pose.
+fn shot_joints(
+    moby: &MobySkeleton,
+    pose: Option<&Sample>,
+    scaled: &[(usize, f32)],
+) -> Vec<Transform> {
+    let mut local: Vec<Transform> = (0..moby.parents.len())
+        .map(|joint| moby.local(pose, joint))
+        .collect();
+    for &(joint, scale) in scaled {
+        if let Some(local) = local.get_mut(joint) {
+            local.scale *= scale;
+        }
+    }
+    local
 }
 
 /// Turns each shot's sprites a tick, and lays its streak along its way once it has flown
@@ -931,5 +951,32 @@ mod tests {
         );
         // Folding, a twentieth of its alpha less each tick (0x379CE0).
         assert_eq!(paint(None, Some((5, 20))).alpha, 0.8);
+    }
+
+    #[test]
+    fn the_joints_a_game_scales_beside_the_pose_take_its_factor_on_the_poses_own() {
+        let moby = MobySkeleton {
+            parents: vec![None, Some(0), Some(1)],
+            rest: vec![Transform::from_xyz(0.0, 0.5, 0.0); 3],
+            inverse_bindposes: Handle::default(),
+            clips: BTreeMap::new(),
+        };
+        let pose: Sample = (
+            vec![Quat::from_rotation_x(0.5); 3],
+            vec![Vec3::Y; 3],
+            vec![Vec3::ONE, Vec3::splat(2.0), Vec3::ONE],
+        );
+        let joints = shot_joints(&moby, Some(&pose), &[(1, 0.45), (5, 0.5)]);
+        // Only its scale changes, and a joint it hasn't is passed over.
+        assert_eq!(joints[0], moby.local(Some(&pose), 0));
+        assert_eq!(
+            joints[1],
+            moby.local(Some(&pose), 1).with_scale(Vec3::splat(0.9))
+        );
+        assert_eq!(joints.len(), 3);
+        // At rest too.
+        let rest = shot_joints(&moby, None, &[(2, 0.45)]);
+        assert_eq!(rest[2].scale, Vec3::splat(0.45));
+        assert_eq!(rest[2].translation, moby.rest[2].translation);
     }
 }

@@ -25,9 +25,9 @@ use crate::hero_model::{Builder, ImportError, ImportPaint, add_skinned, material
 /// What a gun sends out, as a class in Veldin's core: the gun's item, the kind of shot
 /// ([`rac_combat::weapons::ShotKind::name`]), the level it shows from (0 for V1), the class,
 /// its scale of the class's own as the gun's code sets it, the bangles it shows, the joint
-/// that aims it, the glow it adds, and its opacity if it isn't whole. With `across` it is
-/// rigid, its class's x lying across its way and its y back along it, that many times as
-/// long.
+/// that aims it, the joints its code scales beside its pose and by how much, the glow it
+/// adds, and its opacity if it isn't whole. With `across` it is rigid, its class's x lying
+/// across its way and its y back along it, that many times as long.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShotClass {
     pub item: u16,
@@ -37,6 +37,7 @@ pub struct ShotClass {
     pub scale: f32,
     pub bangles: u16,
     pub aim_joint: Option<usize>,
+    pub scaled: &'static [(usize, f32)],
     pub glow: Option<[u8; 3]>,
     pub opacity: Option<f32>,
     pub across: Option<f32>,
@@ -51,6 +52,7 @@ const fn shot(item: u16, kind: &'static str, level: u8, class: u32, scale: f32) 
         scale,
         bangles: 0,
         aim_joint: None,
+        scaled: &[],
         glow: None,
         opacity: None,
         across: None,
@@ -121,7 +123,13 @@ pub const UYA_SHOT_CLASSES: &[ShotClass] = &[
     shot(0x57, "pod", 0, 0x1853, 1.2),
     showing(shot(0x57, "agent", 0, 0x1ADA, 1.0), 0b0001),
     showing(shot(0x57, "agent", 1, 0x1ADA, 1.0), 0b1001),
-    showing(shot(0x57, "agent", 4, 0x1ADA, 1.0), 0b0101),
+    // From V5 its code scales the roots of its barrels' arms, joints 3 and 8, to 0.45
+    // through two animation layers each frame (0x3C0128's calls of 0x44B5C8), so the
+    // bangle's barrels show at half their modelled size.
+    ShotClass {
+        scaled: &[(3, 0.45), (8, 0.45)],
+        ..showing(shot(0x57, "agent", 4, 0x1ADA, 1.0), 0b0101)
+    },
     // The duck at 0.9, showing its bangles from V3 (0x3D2480); V4's another class with a
     // red glow (0x39C2F8's 0x438908 call, the moby's +0x3C); V5's at 0.7 (0x3D6578).
     shot(0x8F, "duck", 0, 0x1BC3, 0.9),
@@ -367,6 +375,7 @@ pub fn register_disc_shots(
             )),
             scale: row.scale,
             aim_joint: row.aim_joint,
+            scaled: row.scaled.to_vec(),
         });
         models.0.insert(
             (def.effects.clone(), row.kind.to_string(), row.level),
@@ -520,6 +529,77 @@ mod disc_tests {
             for sequence in sequences {
                 assert!(clips.contains_key(sequence), "{class:#x}: {sequence}");
             }
+        }
+    }
+
+    /// `effects.md`, "Its size on screen": the game's hovering agents at V5 measure 0.62–0.67
+    /// u tall and about 0.63 u across in `uyantsc-veldin-agents-v5-hover.p2s`'s screenshot.
+    #[test]
+    #[ignore = "needs game discs"]
+    fn the_agents_barrels_at_v5_show_at_the_size_its_code_scales_them_to() {
+        let folder = std::env::var("OPENRAC_SOURCE_DIR").expect("set OPENRAC_SOURCE_DIR");
+        let (_, mut disc) = crate::discs::find(
+            std::path::Path::new(&folder),
+            crate::discs::Release::UyaNtsc,
+        )
+        .expect("a UYA NTSC-U disc");
+        let core = Core::read_uya(&mut disc, crate::hero_anims::LEVEL).unwrap();
+        let row = UYA_SHOT_CLASSES
+            .iter()
+            .rfind(|row| row.kind == "agent")
+            .unwrap();
+        assert_eq!((row.level, row.scaled), (4, &[(3, 0.45), (8, 0.45)][..]));
+        let shot = read_shot(&core, row).unwrap();
+        let skeleton = shot.skeleton.unwrap();
+        // Its hover, sequence 9, at the keyframes the savestate's four were at.
+        let size = |scaled: &[(usize, f32)], keyframe: usize| {
+            let key = &skeleton.clips[&9].keyframes[keyframe];
+            let mut world: Vec<Mat4> = Vec::new();
+            for (joint, parent) in skeleton.parents.iter().enumerate() {
+                let by = scaled
+                    .iter()
+                    .find(|(scaled, _)| *scaled == joint)
+                    .map_or(1.0, |(_, by)| *by);
+                let local = Mat4::from_scale_rotation_translation(
+                    key.scales[joint] * by,
+                    key.rotations[joint],
+                    key.offsets[joint],
+                );
+                world.push(parent.map_or(local, |parent| world[parent] * local));
+            }
+            let (low, high) = shot
+                .surfaces
+                .iter()
+                .flat_map(|surface| {
+                    surface
+                        .positions
+                        .iter()
+                        .zip(&surface.joints)
+                        .zip(&surface.weights)
+                })
+                .map(|((position, joints), weights)| {
+                    joints
+                        .iter()
+                        .zip(weights)
+                        .map(|(&joint, &weight)| {
+                            let joint = usize::from(joint);
+                            let skin = world[joint] * skeleton.binds[joint].inverse();
+                            skin.transform_point3(*position) * weight
+                        })
+                        .sum::<Vec3>()
+                })
+                .fold((Vec3::MAX, Vec3::MIN), |(l, h), p| (l.min(p), h.max(p)));
+            high - low
+        };
+        // About 0.58 u across and 0.68–0.72 u tall; unscaled, 1.14 by 1.06–1.11.
+        for keyframe in [2, 3, 5] {
+            let whole = size(&[], keyframe);
+            let shown = size(row.scaled, keyframe);
+            assert!(whole.x > 1.1 && whole.y > 1.0, "{whole}");
+            assert!(
+                (0.5..0.7).contains(&shown.x) && (0.6..0.8).contains(&shown.y),
+                "{shown}"
+            );
         }
     }
 

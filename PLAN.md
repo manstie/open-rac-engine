@@ -60,8 +60,7 @@ plugins for game mash-ups, with a demo app around it.
    internet by join code, with the router's port mapping (D8). Nothing else is left in
    it.
 2. P1.9's review lists how far UYA's guns are from the game and the next to fix (the
-   agents' size on screen, measured in world units against the hero's; then their
-   jets). P3.18 and P1.10 have what is left in their tasks.
+   agents' jets, then their arms' pitch while walking). P3.18 and P1.10 have what is left in their tasks.
 3. P1.16, the kit in an unrelated Bevy app: the sandbox example, the dependency check in
    CI and the public API's documentation. Then DL's other six guns (P1.9).
 4. At lower priority: RE.3's moves read in code but untraced (lock-on first), the rest of
@@ -460,8 +459,9 @@ before adding it (CLAUDE.md).
     V3"): fourteen guns close and six partial (the Liquid Nitrogen Gun, Infecto-Bomb,
     Agents of Dread, Ultrashield, Rynocirator and Megaturret Glove); the table says what
     is left for each. Also open:
-    - The agents are drawn about twice the game's size against the hero, the cause not
-      found (`effects.md`, "Its size on screen"); their jets are dimmer than the game's.
+    - The agents' jets are dimmer than the game's; from V5 their arms' pitch while
+      walking or running isn't modelled, nor the gun's at V2–V4 (`effects.md`, "Its
+      barrels' arms at V5").
     - Not drawn: the Eruptor's dome of 23, masked discs of 71 and 72 and quads of 54; the
       Shock Cannon's charging sprites and glare; the N90's bullet model (0x1881), left out
       until its blend is read (`shot_models.rs`). Not seen on screen: the Ultrashield's
@@ -489,8 +489,11 @@ before adding it (CLAUDE.md).
     Magma Cannon (the `Cone` fire mode), The Arbiter and Fusion Rifle in `Armory::dl`.
     Not done: the other six, the mods in the kit, DL's sounds, looks and models, and its
     rules and hands (still UYA's).
-  - **Next step:** measure the kit's drawn agent and hero in world units, then the
-    agents' jets. For DL: the B6's blast at the end of 0x40F3E0's state 4, then
+  - The agents showed twice the game's size: from V5 their code scales the barrels'
+    arms (joints 3, 8) to 0.45 through joint layers, which the kit now applies
+    (`ShotSkeleton::scaled`). Found in the hover savestate's layers and checked on its own
+    screenshot (`effects.md`, "Its barrels' arms at V5").
+  - **Next step:** the agents' jets, then their arms' pitch while walking. For DL: the B6's blast at the end of 0x40F3E0's state 4, then
     `weapons.md`'s next steps 5.
 - [~] **P1.10** Pickups and economy (`rac_combat::pickups`, `assets/pickups.ron`), on
   UYA's rules (`weapons.md`, "Ammo pickups, crates and the vendor" and "In the kit"):

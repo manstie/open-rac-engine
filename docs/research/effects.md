@@ -1220,21 +1220,31 @@ the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05
     its agents walk out of it, as in the game.
   - Not done: an agent the pod lets out from V4 while a slot has come free walks
     instead of taking the slot (`agent_spawn` checks again).
-- **Its size on screen** [seen on UYA NTSC and in the kit, 2026-11-05]: against the hero,
-  the kit's agents are drawn about twice the game's. On a slot beside him (slot 0, V5):
-  - In the game's take at 7 s, the agent stands half his height, a barrel 0.17 of it
-    and its head 0.10.
-  - In the kit's `-agents-near` at V5, it stands his whole height, a barrel 0.40 and its
-    head 0.20.
-  - Measured against the slots' 2.39 u spacing, the game's agent is about 0.73 u tall
-    and its hero about 1.47 u; the kit's are about 1.19 u each.
-  - Ruled out:
-    - The class's scale. In `uyantsc-veldin-agents-v5-hover.p2s` the four mobys have
-      scale 0.09826, the class's own, which the kit's mesh uses (0.56 u tall at rest,
-      0.9 u with V5's bangles).
-    - The pose. Sequence 9 scales no joint, and the binds carry no scale.
-  - Not found: the cause. Next: measure the kit's drawn agent and hero in world units
-    (their joints' world positions against the rest mesh).
+- **Its barrels' arms at V5** [code, verified on UYA NTSC, 2026-11-05]: from V5,
+  `agent_tick` (0x3C0128), which the agent's update runs first every frame, scales
+  joints 3 and 8 to 0.45. Those are the roots of the arms that carry V5's barrels
+  (bangle 2; the class's points 4 and 5). It does so through two joint layers in its
+  pvars (+0x200, +0x280), handed each frame to `joint_layer_drive` (0x44B5C8).
+  - So the barrels show at 0.45 of their modelled size, beside its head rather than
+    above it. Hovering, the agent stands about 0.7 u tall and 0.58 u across, not 1.1 by
+    1.14.
+  - Walking (sequence 2) or running (3), the same layers also pitch both arms, to −80°
+    or −55° less the agent's own pitch (springs 0.01, 0.02).
+  - At V2–V4 one layer, on point 9, pitches its gun the same way, unscaled.
+  - **How it was found:** the kit's agents showed about twice the game's size against
+    the hero. In `uyantsc-veldin-agents-v5-hover.p2s` the four agents matched the kit
+    in every other way: sequence 9, the class's scale (0.09826), the kit's bangles
+    (+0x7C = 5), unscaled matrices, and the class's bounding sphere (moby +0x80, class
+    units). Each also had the two layers at moby +0x54, each scaling by 0.45.
+  - **How it was checked:** the savestate's own screenshot (PCSX2 keeps one in the
+    `.p2s`) shows the game's agents 0.62–0.67 u tall and about 0.63 u across. That was
+    measured through a projection fitted to their known places (fx 522 px, fy 696 px,
+    centre (320, 251) on its 640 × 480; the 16:9 view at 4:3). Drawn into that
+    screenshot with the arms at 0.45, the kit's agents lie on the game's; unscaled,
+    their barrels stand twice as large and high.
+  - **In the kit:** the V5 row in `openrac/src/shot_models.rs` names the joints and the
+    factor, and `rac_demo` applies them over the pose (`ShotSkeleton::scaled`). The
+    arms' pitch while walking isn't modelled.
 - **Compared with the game** (2026-10-31, `uyantsc-veldin-fxref.sh 8` against the kit's
   `-agents-near` drawn every tick, V3): both show the cyan landing ring, the throw and
   agents appearing at his hand in blue sparkles, which in the game add up to a brighter
@@ -1977,7 +1987,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Infector (Infecto-Bomb) | Partial. V5's blob, its smoke, globs and bubbles, gas and rings are from code (2026-11-01); the game's yellow-green spatter lands on enemies, the kit's blob bursts in the air off to the side | V3's wash is its gas clouds (0x34) on a grey floor |
 | Spitting Hydra (Tempest) | Close, the same at V3 (2026-11-03). The game's "violet domes" are the spit's two rings of 61, camera-facing up to 10.5 and 21 u across with the floor hiding their lower halves, and the kit draws them so; its "gold ground bolt" is the charge's crackles to the floor, grey and blue added on sand. Each spit's bolt 10 u ahead is now drawn too. The kit's violet and glows come out bluer and stronger | The kit adds colours in linear light ("Importing them", "Colours"); arcs aren't cut short at walls |
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
-| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. Their violet and gold lightning as they appear on his slots is the game's (2026-11-05: the appearing sparkles, lightning crackles at alpha 0xFF, round their models drawn added as they fade in), as are their spin, the pod's blue burst that the on-foot agents walk out of, and their end's sparkles and fade (2026-11-05) | Drawn about twice the game's size against the hero, cause not found ("Its size on screen") |
+| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. Their violet and gold lightning as they appear on his slots is the game's (2026-11-05: the appearing sparkles, lightning crackles at alpha 0xFF, round their models drawn added as they fade in), as are their spin, the pod's blue burst that the on-foot agents walk out of, and their end's sparkles and fade (2026-11-05). From V5 their barrels' arms are scaled to 0.45 as its code scales them, which puts them at the game's size ("Its barrels' arms at V5", 2026-11-05) | The arms' pitch while walking or running from V5, and the gun's at V2–V4; the jets dimmer than the game's |
 | Rift Inducer (Rift Ripper) | Close (2026-11-05, `review-rift-0x63` against `-rift-near`). In flight the game's small violet ball is its rings of 76 and glow, as the kit's; open, a bright violet star with faint rays in a dark smear, its lens, over stirring dust. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code. The kit's pale sphere round it, a placeholder, is gone: the rift's class is 0.05 units across at the scale its code leaves it (0x373738) | Not drawn: the smoke on a ring in the view's plane, the spray as it fires, its spirals of 71 and orbiting sparks; the lens copies only what is opaque |
 | Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5, the orange rings of a hit, the stars of 57 and the shield class's own faint shell with its grey rim, as the game's takes show it (2026-11-05, `-holo-near` at V3 and V5) | Paler than the game's (the colours' linear light, P1.9); its colour's swing through its last 4 s. Its fold, a fade and a blue flash, is the game's (2026-11-05) |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |

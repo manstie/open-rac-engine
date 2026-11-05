@@ -4967,7 +4967,7 @@ name = "agent_tick"
 address = 0x003C0128
 kind = "function"
 confidence = "high"
-note = "Target upkeep and search (30 u, 5 deg of level), claims 60 frames; V2-V4 bullets, V5 missiles; 1 when it ended."
+note = "Target upkeep and search (30 u, 5 deg of level), claims 60 frames; V2-V4 bullets, V5 missiles; 1 when it ended. Then from V5 it drives two joint layers (pvars +0x200, +0x280) on points 4 and 5, joints 3 and 8 (its barrels' arms), at scale 0.45; at V2-V4 one (+0x200) on point 9, unscaled; in sequences 2 and 3 each pitched to -80 or -55 deg less the moby's own pitch (joint_layer_drive, 0.01, 0.02)."
 
 [[symbol]]
 name = "agent_spawn"
@@ -5381,6 +5381,13 @@ address = 0x00436C90
 kind = "function"
 confidence = "high"
 note = "(moby, &layer): unlinks the layer from the moby and clears it."
+
+[[symbol]]
+name = "joint_layer_drive"
+address = 0x0044B5C8
+kind = "function"
+confidence = "high"
+note = "(gain, damping, moby, layer, point), each frame, on a 0x80-byte layer its caller keeps: springs the layer's angles (+0x40, rates +0x50) to its targets (+0x60) by spring_angle, makes its quaternion (+0x10) from them and takes its target scale (+0x70) as its scale (+0x20), hooked on point's joint (0x437350; listed from moby +0x54, the joint's scratchpad matrix at layer +0x4); then sets the targets back to 0 and 1.0. At rest it unhooks it (0x4373D8). Read 2026-11-05; the agents' layers seen in uyantsc-veldin-agents-v5-hover.p2s."
 
 [[symbol]]
 name = "moby_anim_layer_set"
