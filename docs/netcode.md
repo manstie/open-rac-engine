@@ -18,6 +18,13 @@ input wrong loads the snapshot of that tick and simulates forward again.
   (effects, shot models, sparks) skips them, because what it shows was already shown
   once and isn't part of the simulation. Presentation that reads the simulation's
   messages shows each once ("Presentation of resimulated ticks").
+- A tick is *confirmed* once every player's input up to it has arrived. Its checksum is
+  then final, and peers compare it. `ggrs` counts an input as confirmed as soon as it
+  arrives, even on a tick this peer sits out so the other can catch up, before the
+  rollback that corrects the saved states with it. So `Session::confirmed_tick` is
+  `ggrs`'s as of the last tick it advanced; read straight from `ggrs`, a confirmed
+  checksum could be one saved on a wrong guess of the other's input [code, `rac_net`'s
+  lossy-network test, 2026-11-05].
 
 ## What a snapshot holds (`rac_sim::rollback`)
 
@@ -140,7 +147,8 @@ input wrong loads the snapshot of that tick and simulates forward again.
   write again once, two alike in a tick both, and what only the rerun writes.
 - `rac_net`'s tests, on a small simulation that spawns, retires, draws random numbers and
   sends a message across ticks: a sync test; two peers on a memory network with 3 steps
-  of latency and 5% loss whose confirmed checksum matches a plain run's; a refused
+  of latency and 5% loss, each of whose confirmed checksums, read as soon as it is
+  confirmed, matches a plain run's; a refused
   handshake; a dropped peer. Leaving a component unregistered fails the sync test.
 - `rac_demo`'s `tests/rollback.rs`, on the whole demo as the app builds it (HUD, rig and
   effects included, without a window or a renderer), two heroes with different camera

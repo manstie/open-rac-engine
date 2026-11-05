@@ -132,10 +132,11 @@ fn scripted(world: &mut World, player: usize) -> PlayerInput {
     script(player, world.resource::<SimTick>().0)
 }
 
-/// The checksum after `ticks` ticks without a session, each player's input `delay` ticks
-/// late, as a session's input delay makes it.
-fn reference(ticks: u64, delay: u64) -> u128 {
+/// The checksums at the start of ticks 0 to `ticks` without a session, each player's input
+/// `delay` ticks late, as a session's input delay makes it.
+fn reference(ticks: u64, delay: u64) -> Vec<u128> {
     let mut app = app();
+    let mut checksums = vec![Snapshot::save(app.world_mut()).checksum()];
     for tick in 0..ticks {
         for player in 0..2 {
             app.world_mut().resource_mut::<PlayerInputs>().0[player] = match tick.checked_sub(delay)
@@ -145,8 +146,9 @@ fn reference(ticks: u64, delay: u64) -> u128 {
             };
         }
         app.world_mut().run_schedule(FixedMain);
+        checksums.push(Snapshot::save(app.world_mut()).checksum());
     }
-    Snapshot::save(app.world_mut()).checksum()
+    checksums
 }
 
 fn status(app: &App) -> Option<SessionStatus> {
@@ -170,7 +172,7 @@ fn a_sync_test_finds_every_tick_the_same_after_rollbacks() {
     let confirmed = session(&app).confirmed_tick().unwrap();
     assert_eq!(
         session(&app).confirmed_checksum(confirmed),
-        Some(reference(confirmed, 0))
+        reference(confirmed, 0).last().copied()
     );
     // Shots were fired and ran out, so retiring and the late message were exercised.
     let bumps: u32 = app
@@ -233,35 +235,45 @@ fn connected(net: &MemoryNet, settings: SessionSettings) -> (App, App) {
     (host_app, guest_app)
 }
 
-#[test]
-fn peers_on_a_slow_lossy_network_agree_with_a_plain_run() {
-    let net = MemoryNet::new(3, 0.05, 11);
-    let settings = SessionSettings::default();
-    let (mut host, mut guest) = connected(&net, settings);
-    let target = 300;
+/// Runs the host's and the guest's sessions on `net` until each has the checksums of ticks
+/// 0 to `target` confirmed, checking each against a plain run's as soon as it is: a
+/// session's confirmed checksum is final whenever it is asked for, even straight after a
+/// tick it sat out.
+fn play_to(net: &MemoryNet, mut peers: [&mut App; 2], target: u64, settings: SessionSettings) {
+    let expected = reference(target, settings.input_delay as u64);
+    // The next tick to check on each peer.
+    let mut next = [0; 2];
     let start = Instant::now();
-    loop {
+    while next.iter().any(|&tick| tick <= target) {
         assert!(start.elapsed() < Duration::from_secs(60), "too slow");
-        host.world_mut().run_schedule(FixedMain);
-        guest.world_mut().run_schedule(FixedMain);
+        for app in &mut peers {
+            app.world_mut().run_schedule(FixedMain);
+        }
         net.advance();
-        for app in [&host, &guest] {
+        for (app, next) in peers.iter().zip(&mut next) {
             assert!(
                 !matches!(status(app), Some(SessionStatus::Desynced { .. })),
                 "{:?}",
                 status(app)
             );
-        }
-        let confirmed = |app: &App| session(app).confirmed_tick().unwrap_or(0);
-        if confirmed(&host) >= target && confirmed(&guest) >= target {
-            break;
+            while *next <= target
+                && let Some(checksum) = session(app).confirmed_checksum(*next)
+            {
+                assert_eq!(checksum, expected[*next as usize], "tick {next}");
+                *next += 1;
+            }
         }
         // ggrs times its resends by the clock.
         std::thread::sleep(Duration::from_micros(200));
     }
-    let expected = reference(target, settings.input_delay as u64);
-    assert_eq!(session(&host).confirmed_checksum(target), Some(expected));
-    assert_eq!(session(&guest).confirmed_checksum(target), Some(expected));
+}
+
+#[test]
+fn peers_on_a_slow_lossy_network_agree_with_a_plain_run() {
+    let net = MemoryNet::new(3, 0.05, 11);
+    let settings = SessionSettings::default();
+    let (mut host, mut guest) = connected(&net, settings);
+    play_to(&net, [&mut host, &mut guest], 300, settings);
 }
 
 #[test]
@@ -422,28 +434,7 @@ fn peers_behind_nats_meet_by_swapping_join_codes_and_play() {
         .with_local_input(scripted);
     start_session(host_app.world_mut(), host_session);
     start_session(guest_app.world_mut(), guest_session);
-    let target = 120;
-    let start = Instant::now();
-    loop {
-        assert!(start.elapsed() < Duration::from_secs(60), "too slow");
-        host_app.world_mut().run_schedule(FixedMain);
-        guest_app.world_mut().run_schedule(FixedMain);
-        net.advance();
-        let confirmed = |app: &App| session(app).confirmed_tick().unwrap_or(0);
-        if confirmed(&host_app) >= target && confirmed(&guest_app) >= target {
-            break;
-        }
-        std::thread::sleep(Duration::from_micros(200));
-    }
-    let expected = reference(target, settings.input_delay as u64);
-    assert_eq!(
-        session(&host_app).confirmed_checksum(target),
-        Some(expected)
-    );
-    assert_eq!(
-        session(&guest_app).confirmed_checksum(target),
-        Some(expected)
-    );
+    play_to(&net, [&mut host_app, &mut guest_app], 120, settings);
 }
 
 #[test]

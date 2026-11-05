@@ -1386,6 +1386,10 @@ an ecosystem crate supports Bevy 0.20 before adding it (CLAUDE.md).
     the host with Ctrl+V), checking the host's log says its router forwards the port
     ("the router at … forwards UDP from … (UPnP)") and that leaving gives it back with no
     warning. Then the task is done.
+  - `ggrs` confirms the other peer's inputs on arrival, even on a tick sat out, before
+    the rollback that corrects the saved checksums, so a confirmed checksum could be
+    stale (a flaky lossy-network test on CI). `Session::confirmed_tick` now updates only
+    when a tick advances; the tests check every confirmed checksum (`docs/netcode.md`).
   - `bevy_ggrs` lags Bevy (0.22 is for Bevy 0.19), so `rac_net` drives `ggrs` itself by
     swapping Bevy's `FixedMainScheduleOrder`.
   - The code ordered entities by `Entity` for determinism, which differs between peers;

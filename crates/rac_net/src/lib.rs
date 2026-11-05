@@ -162,6 +162,9 @@ pub struct Session {
     /// The latest checksum saved for each recent tick. Those up to the confirmed tick are
     /// final, and peers' should match.
     checksums: BTreeMap<u64, u128>,
+    /// What [`Session::confirmed_tick`] gives: `ggrs`'s confirmed tick as of the last tick
+    /// it advanced.
+    confirmed: Option<u64>,
 }
 
 /// The device input, for the first local player.
@@ -231,6 +234,7 @@ impl Session {
             newest: 0,
             skip: 0,
             checksums: BTreeMap::new(),
+            confirmed: None,
         }
     }
 
@@ -247,6 +251,13 @@ impl Session {
 
     /// The newest tick whose inputs are all confirmed: it can no longer be rolled back.
     pub fn confirmed_tick(&self) -> Option<u64> {
+        self.confirmed
+    }
+
+    /// The confirmed tick as `ggrs` has it now. It counts the other peer's inputs as soon
+    /// as they arrive, even on a tick this peer sits out, before the rollback that uses
+    /// them has saved the corrected states and their checksums.
+    fn ggrs_confirmed_tick(&self) -> Option<u64> {
         let frame = match &self.kind {
             Kind::SyncTest(session) => session.current_frame() - session.check_distance() as i32,
             Kind::P2P { session, .. } => session.confirmed_frame(),
@@ -316,6 +327,7 @@ impl Session {
                 for request in requests {
                     self.fulfil(world, request);
                 }
+                self.confirmed = self.ggrs_confirmed_tick();
             }
             // Too far ahead of the other peer's inputs: wait for them.
             Err(GgrsError::PredictionThreshold | GgrsError::NotSynchronized) => {}
