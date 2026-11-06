@@ -766,14 +766,27 @@ fn play_clip(
         return false;
     };
     let ticks = animator.director.ticks;
-    let clip = current.and_then(|current| Some((current, animations.clips.get(&current)?)));
-    let sample = clip.and_then(|(current, clip)| {
-        if current.follows_attack_frame() {
-            clip.at_frame(hero.attack_frame())
+    // An attack shows its start frame while it blends in from the pose before it, and
+    // follows the controller's frame after.
+    let attacking = current.is_some_and(RigMove::follows_attack_frame);
+    let blend = hero.attack_blend().filter(|_| attacking);
+    if let Some(blend) = blend
+        && animator
+            .blend_from
+            .as_ref()
+            .is_none_or(|(serial, _)| *serial != blend.serial)
+    {
+        animator.blend_from = Some((blend.serial, animator.pose.clone()));
+    }
+    let frame = blend.map_or(hero.attack_frame(), |blend| blend.start_frame);
+    let at = |clip: &RigClip| {
+        if attacking {
+            clip.at_frame(frame)
         } else {
             clip.at_time(ticks)
         }
-    });
+    };
+    let sample = current.and_then(|current| at(animations.clips.get(&current)?));
     let playing = sample.is_some();
     if let Some((rotations, offsets, scales)) = sample {
         for (index, driven) in animations.driven.iter().enumerate() {
@@ -796,7 +809,7 @@ fn play_clip(
             if weight <= 0.0 {
                 continue;
             }
-            let follow = current.and_then(|m| holds.follow[side].get(&m)?.at_time(ticks));
+            let follow = current.and_then(|m| at(holds.follow[side].get(&m)?));
             let rest = holds.rest[side]
                 .as_ref()
                 .filter(|_| hold.resting > 0.0)
@@ -831,7 +844,26 @@ fn play_clip(
             }
         }
     }
+
+    // The blend, over every layer: the game blends the whole pose.
+    if let (Some(blend), Some((_, from)), true) = (blend, &animator.blend_from, playing) {
+        blend_in(target, from, &animations.driven, blend.weight);
+    }
     playing
+}
+
+/// Blends `target`'s driven joints in from `from`'s, `weight` of the way to `target`.
+fn blend_in(target: &mut Pose, from: &Pose, driven: &[bool], weight: f32) {
+    for (index, _) in driven.iter().enumerate().filter(|(_, driven)| **driven) {
+        let (Some(start), Some(end)) = (joint_of(from, None, index), joint_of(target, None, index))
+        else {
+            continue;
+        };
+        let (rotation, offset, scale) = mix_joint(start, end, weight);
+        target.rotations[index] = rotation;
+        target.offsets[index] = offset;
+        target.scales[index] = scale;
+    }
 }
 
 /// Joint `index` of `sample`, or of `target` where `sample` is `None` or lacks a scale.
@@ -1029,6 +1061,166 @@ mod tests {
                 target.rotations[index].angle_between(Quat::IDENTITY) < 1e-4,
                 "{index}"
             );
+        }
+    }
+
+    /// A clip from frame `from` to `to`, a keyframe of 2 ticks a frame, that turns every
+    /// joint `frame × 0.02` about `axis`, so a pose shows the frame it came from.
+    fn frame_clip(from: u32, to: u32, axis: Vec3) -> RigClip {
+        RigClip {
+            keyframes: (from..=to)
+                .map(|frame| RigKeyframe {
+                    ticks: 2.0,
+                    frame: frame as f32,
+                    rotations: vec![Quat::from_axis_angle(axis, frame as f32 * 0.02); joint::COUNT],
+                    offsets: vec![Vec3::ZERO; joint::COUNT],
+                    scales: vec![Vec3::ONE; joint::COUNT],
+                })
+                .collect(),
+            looping: false,
+            start: 0,
+        }
+    }
+
+    /// The same rotation, to within f32's rounding (an angle between nearly equal
+    /// rotations comes out of an acos, which rounds to about 1e-3).
+    fn same(a: Quat, b: Quat) -> bool {
+        a.abs_diff_eq(b, 1e-5) || a.abs_diff_eq(-b, 1e-5)
+    }
+
+    /// The UYA hero on a floor, swinging the wrench through the real controller.
+    struct Swinging {
+        hero: HeroMotion,
+        profile: rac_hero::HeroProfile,
+        world: rac_hero::ParryWorld,
+        animator: pose::Animator,
+    }
+
+    impl Swinging {
+        fn new() -> Self {
+            use rac_hero::{BodyPlacement, Collider, ParryWorld};
+            let floor = BodyPlacement::fixed(
+                Collider::Cuboid {
+                    half_extents: Vec3::new(100.0, 0.5, 100.0),
+                },
+                Vec3::new(0.0, -0.5, 0.0),
+                Quat::IDENTITY,
+            );
+            let mut swinging = Self {
+                hero: HeroMotion::new(Vec3::ZERO, 0.0),
+                profile: rac_hero::HeroProfile::uya(),
+                world: ParryWorld::new(&[floor]),
+                animator: pose::Animator::new(1),
+            };
+            swinging.tick(false);
+            swinging
+        }
+
+        /// One tick of the controller, with melee pressed or not.
+        fn tick(&mut self, melee: bool) {
+            let mut input = rac_input::PlayerInput::default();
+            if melee {
+                input.held.insert(rac_input::Action::Melee);
+                input.pressed.insert(rac_input::Action::Melee);
+            }
+            rac_hero::controller::step(&mut self.hero, &input, 0.0, &self.profile, &self.world);
+        }
+
+        /// The pose the rig shows after a frame of a tick.
+        fn shown(&mut self, animations: &RigAnimations) -> Pose {
+            let mut target = Pose::rest();
+            play_clip(
+                &mut self.animator,
+                Some(animations),
+                &self.hero,
+                None,
+                1.0 / 60.0,
+                &mut target,
+            );
+            target
+        }
+    }
+
+    #[test]
+    fn an_attack_blends_in_from_the_pose_before_to_its_start_frame_then_follows_its_frame() {
+        let x = |frame: f32| Quat::from_rotation_x(frame * 0.02);
+        let animations = RigAnimations {
+            clips: [
+                (RigMove::Combo(0), frame_clip(16, 40, Vec3::X)),
+                (RigMove::Combo(1), frame_clip(7, 30, Vec3::X)),
+            ]
+            .into(),
+            driven: vec![true; joint::COUNT],
+            ..default()
+        };
+        let mut swinging = Swinging::new();
+        // Swing 1 blends evenly from the pose before (rest) to frame 16 over its 5 ticks,
+        // while the controller's frame creeps from 16 to 16.8 ...
+        for t in 0..5 {
+            swinging.tick(t == 0);
+            let hand = swinging.shown(&animations).rotations[joint::HAND_R];
+            let want = Quat::IDENTITY.slerp(x(16.0), t as f32 / 5.0);
+            assert!(same(hand, want), "t = {t}: {hand} for {want}");
+        }
+        // ... then plays on from frame 16, half a frame a tick.
+        for t in 5..9 {
+            swinging.tick(false);
+            let hand = swinging.shown(&animations).rotations[joint::HAND_R];
+            let frame = 16.0 + (t - 5) as f32 * 0.5;
+            assert!(same(hand, x(frame)), "t = {t}: {hand} for frame {frame}");
+        }
+        // Swing 2 blends from whatever is shown as it starts.
+        let before = Quat::from_rotation_y(0.5);
+        swinging.animator.pose.rotations.fill(before);
+        while swinging.hero.state != rac_hero::HeroState::Combo(1) {
+            swinging.tick(true);
+        }
+        let hand = swinging.shown(&animations).rotations[joint::HAND_R];
+        assert!(same(hand, before), "{hand}");
+        swinging.tick(false);
+        let hand = swinging.shown(&animations).rotations[joint::HAND_R];
+        assert!(same(hand, before.slerp(x(7.0), 1.0 / 7.0)), "{hand}");
+    }
+
+    #[test]
+    fn the_arms_holding_a_gun_follow_the_attacks_frame_too() {
+        // The Plasma Whip's attacks keep the gun in hand, so its arm's hold plays over the
+        // swing, on the swing's frame.
+        let animations = RigAnimations {
+            clips: [(RigMove::Combo(0), frame_clip(16, 40, Vec3::X))].into(),
+            driven: vec![true; joint::COUNT],
+            hold: Some(HoldAnimations {
+                follow: [
+                    [(RigMove::Combo(0), frame_clip(16, 40, Vec3::Y))].into(),
+                    [(RigMove::Combo(0), frame_clip(16, 40, Vec3::Y))].into(),
+                ],
+                ..default()
+            }),
+            ..default()
+        };
+        let mut swinging = Swinging::new();
+        swinging.tick(true);
+        for _ in 0..8 {
+            swinging.tick(false);
+        }
+        assert_eq!(swinging.hero.attack_frame(), 17.5);
+        swinging.hero.gun = rac_hero::GunHand {
+            out: true,
+            item: Some(0x2F),
+            pose: rac_hero::GunPose {
+                hold: rac_hero::Hold::OneHand,
+                ..default()
+            },
+            ..default()
+        };
+        // The hold comes in at 0.25 a frame while the rig's own clock runs on.
+        let mut shown = Pose::rest();
+        for _ in 0..4 {
+            shown = swinging.shown(&animations);
+        }
+        let held = Quat::from_rotation_y(17.5 * 0.02);
+        for index in joint::ARM_R {
+            assert!(same(shown.rotations[index], held), "{index}");
         }
     }
 

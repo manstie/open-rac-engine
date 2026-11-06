@@ -435,6 +435,12 @@ before adding it (CLAUDE.md).
   walls, for UYA and DL, with hurtboxes, hit points, one hit per attack, knockback and
   flash; with a gun in hand he waits for the wrench (`wrench_draw_ticks`). The demo has a
   melee yard.
+  - The disc's attack animations played the frame's creep through each blend as clip
+    frames, then stepped back a frame, so chained swings didn't line up. The rig now
+    cross-fades from the pose it showed to the start frame, as `hero_anim_set` does
+    (`hero-controller.md`, "Animation frames"); not yet compared with footage. DL's
+    attacks don't creep, and whether DL cross-fades the pose isn't read, so they still
+    change pose by the rig's own ease.
   - Not modelled: DL's Scorpion Flail (state 145, read: `hero-controller.md`, "The
     Scorpion Flail"; with DL's guns), UYA's states 77 and 114, and the giant-Clank mode.
   - The grind attack's wrench line is computed from the disc's animations, as UYA's grind
@@ -493,6 +499,7 @@ before adding it (CLAUDE.md).
     arms (joints 3, 8) to 0.45 through joint layers, which the kit now applies
     (`ShotSkeleton::scaled`). Found in the hover savestate's layers and checked on its own
     screenshot (`effects.md`, "Its barrels' arms at V5").
+  - In progress (2026-11-06): the agents' jets, placed, sized and carried as 0x46AB08 has them.
   - **Next step:** the agents' jets, then their arms' pitch while walking. For DL: the B6's blast at the end of 0x40F3E0's state 4, then
     `weapons.md`'s next steps 5.
 - [~] **P1.10** Pickups and economy (`rac_combat::pickups`, `assets/pickups.ron`), on

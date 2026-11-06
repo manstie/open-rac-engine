@@ -774,6 +774,17 @@ the throw sends the wrench out and back (P1.8).
   0x1A57E4 is 1 / the current keyframe's length in ticks, so 0.5 means keyframes 2 ticks
   long, which most hero keyframes are.
 
+  **What shows during the blend [code, UYA NTSC, 2026-11-06]:** a cross-fade, not the
+  sequence. `hero_anim_set` (0x50BB98) keeps the pose he is in, fetches the new
+  sequence's start keyframe, and sets the keyframe time (moby + 0x44) to 0 and its rate
+  (0x1A57E4) to 1 / the blend ticks. `hero_anim_update` (0x50BF58) then moves the pose
+  evenly from the kept one to the start keyframe, and only when the time reaches 1 does
+  the sequence play on from its start keyframe. So the frame's creep is the blend's
+  progress, not a place in the sequence. A negative blend count takes its weights from a
+  curve table at 0x2F64A0 instead (−1 is 11 ticks, −2 16). In the kit,
+  `HeroMotion::attack_blend` reports the blend and `rac_rig` cross-fades from the pose it
+  showed as the attack started.
+
   | Attack | Start frame | Blend (frames) |
   |---|---|---|
   | Swing 1 | 16 | 5 |

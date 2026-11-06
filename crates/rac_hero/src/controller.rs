@@ -16,7 +16,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 mod melee;
 
-pub use melee::{Clank, Strike, StrikeShape, ThrownWrench, best_target, target_score};
+pub use melee::{AttackBlend, Clank, Strike, StrikeShape, ThrownWrench, best_target, target_score};
 
 use crate::{
     camera::CameraSetting,

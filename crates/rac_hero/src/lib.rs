@@ -44,8 +44,8 @@ use rac_sim::{
 pub use camera::{CameraSetting, CameraVolume, FollowCamera, UnzoomedFov};
 pub use collision::{BodyPlacement, Collider, CollisionWorld, Material, ParryWorld};
 pub use controller::{
-    Abilities, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide, Strike,
-    StrikeShape, ThrownWrench,
+    Abilities, AttackBlend, Clank, HeroMotion, HeroState, JumpKind, Ledge, Side, StrafeSide,
+    Strike, StrikeShape, ThrownWrench,
 };
 pub use gun::{GunArm, GunHand, GunPose, Hold, Shield, WhipHand, Zoom};
 pub use help::HelpMeasure;

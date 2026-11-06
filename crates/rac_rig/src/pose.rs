@@ -72,6 +72,9 @@ pub struct Animator {
     pub(crate) arms: crate::play::ArmLayer,
     /// The arms holding the gun, under that.
     pub(crate) hold: crate::play::HoldLayer,
+    /// The pose shown as the last attack started, which it blends in from, and which
+    /// attack that was ([`rac_hero::HeroMotion::attack_blend`]).
+    pub(crate) blend_from: Option<(u32, Pose)>,
 }
 
 impl Animator {
@@ -85,6 +88,7 @@ impl Animator {
             director: crate::play::Director::new(seed),
             arms: crate::play::ArmLayer::default(),
             hold: crate::play::HoldLayer::default(),
+            blend_from: None,
         }
     }
 

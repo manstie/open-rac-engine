@@ -172,6 +172,37 @@ fn the_second_swing_lunges_at_5_7_then_4_5_then_3_u_s() {
 }
 
 #[test]
+fn each_swing_blends_in_evenly_to_its_start_frame_while_its_frame_creeps() {
+    // `hero_anim_set` blends over the swing's blend ticks: swing 1's 5, swing 2's 7.
+    let mut rig = Rig::open();
+    rig.tick(&melee());
+    let first = rig.hero.attack_blend().expect("swing 1 blends in");
+    assert_eq!((first.start_frame, first.weight), (16.0, 0.0));
+    for t in 1..5 {
+        rig.tick(&idle());
+        let blend = rig.hero.attack_blend().expect("still blending");
+        assert_eq!(blend.serial, first.serial);
+        assert!(
+            close(blend.weight, t as f32 / 5.0, 1e-6),
+            "t = {t}: {blend:?}"
+        );
+        assert!(close(rig.hero.attack_frame(), 16.0 + t as f32 / 5.0, 1e-4));
+    }
+    rig.tick(&idle());
+    assert_eq!(rig.hero.attack_blend(), None);
+    assert_eq!(rig.hero.attack_frame(), 16.0);
+
+    rig.until(40, &melee(), |hero| hero.state == HeroState::Combo(1));
+    let second = rig.hero.attack_blend().expect("swing 2 blends in");
+    assert_ne!(second.serial, first.serial);
+    assert_eq!((second.start_frame, second.weight), (7.0, 0.0));
+    rig.ticks(6, &idle());
+    assert!(rig.hero.attack_blend().is_some());
+    rig.tick(&idle());
+    assert_eq!(rig.hero.attack_blend(), None);
+}
+
+#[test]
 fn melee_pressed_in_time_chains_the_three_swings_and_starts_over() {
     let mut rig = Rig::open();
     rig.tick(&melee());

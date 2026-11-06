@@ -169,10 +169,14 @@ impl ThrownWrench {
 pub(super) struct Attack {
     /// The combo swing, 0 to 2, or `JUMP_ATTACK` or `THROW` (the game's table rows).
     row: usize,
-    /// The animation's frame, its speed, and how many ticks it blends in.
+    /// The animation's frame, its speed, and how many ticks it blends in to `start`.
     frame: f32,
     rate: f32,
     blend: u32,
+    start: f32,
+    /// How far it has blended in, while it does: the frame's creep, which
+    /// [`HeroMotion::attack_blend`] reports.
+    blending_in: Option<f32>,
     serial: u32,
     /// The direction the attack goes: set by the stick (`locked`) or towards `target`.
     aim_yaw: f32,
@@ -204,6 +208,8 @@ impl Default for Attack {
             frame: 0.0,
             rate: 1.0,
             blend: 1,
+            start: 0.0,
+            blending_in: None,
             serial: 0,
             aim_yaw: 0.0,
             locked: false,
@@ -218,6 +224,17 @@ impl Default for Attack {
     }
 }
 
+/// An attack's animation blending in ([`HeroMotion::attack_blend`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AttackBlend {
+    /// Which attack it is: each blends from the pose shown as it started.
+    pub serial: u32,
+    /// The frame of the attack's animation it blends to.
+    pub start_frame: f32,
+    /// How far it has blended, from 0 towards 1.
+    pub weight: f32,
+}
+
 impl Attack {
     fn blending(&self, ticks: u32) -> bool {
         ticks < self.blend
@@ -228,6 +245,21 @@ impl HeroMotion {
     /// The animation frame of the attack under way, or of the last one.
     pub fn attack_frame(&self) -> f32 {
         self.attack.frame
+    }
+
+    /// How far the attack under way has blended in, while it does. The game blends an
+    /// attack's animation from the pose he was in to its start frame, evenly over its blend
+    /// ticks (`hero_anim_set`, 0x50BB98), and only then plays it on. Meanwhile
+    /// [`HeroMotion::attack_frame`] creeps on from the start frame by the blend's progress,
+    /// as the game's frame does, so the pose to show is the blend's, not that frame's.
+    pub fn attack_blend(&self) -> Option<AttackBlend> {
+        let attack = &self.attack;
+        let weight = attack.blending_in.filter(|_| self.state.is_attacking())?;
+        Some(AttackBlend {
+            serial: attack.serial,
+            start_frame: attack.start,
+            weight,
+        })
     }
 
     /// Which way the attack under way is going, if it has an aim.
@@ -446,6 +478,7 @@ fn start_attack(
         frame: current.start_frame,
         rate: 1.0,
         blend: current.blend_ticks,
+        start: current.start_frame,
         serial: hero.attack_serial,
         aim_yaw: hero.yaw,
         whip,
@@ -481,6 +514,7 @@ fn start_attack(
     if !melee.blend_creeps {
         straight_from_start(hero);
     }
+    hero.attack.blending_in = (hero.attack.blend > 0).then_some(0.0);
     hero.restart_state(state);
 }
 
@@ -615,6 +649,7 @@ fn start_grind_attack(hero: &mut HeroMotion, step: u8, profile: &HeroProfile) {
         frame: current.start_frame,
         rate: 1.0,
         blend: current.blend_ticks,
+        start: current.start_frame,
         serial: hero.attack_serial,
         aim_yaw: hero.yaw,
         ..default()
@@ -622,6 +657,7 @@ fn start_grind_attack(hero: &mut HeroMotion, step: u8, profile: &HeroProfile) {
     if !profile.melee.blend_creeps {
         straight_from_start(hero);
     }
+    hero.attack.blending_in = (hero.attack.blend > 0).then_some(0.0);
     hero.restart_state(HeroState::GrindAttack(step));
 }
 
@@ -727,9 +763,11 @@ pub(super) fn advance_frame(hero: &mut HeroMotion, profile: &HeroProfile) {
     let attack = &mut hero.attack;
     if attack.catch_due {
         attack.catch_due = false;
+        attack.blending_in = None;
         attack.frame = attack.frame.max(melee.thrown.catch_frame);
         return;
     }
+    attack.blending_in = (t < attack.blend).then(|| t as f32 / attack.blend as f32);
     attack.frame = if t == 0 || t == attack.blend {
         start
     } else if t < attack.blend {
