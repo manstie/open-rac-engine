@@ -1669,12 +1669,13 @@
                         // at 0.35-0.6, all added, which with its model added as it fades in
                         // (`guns.rs`, `painted`) make the game's burst of lightning; and its
                         // jets while it hovers (0x3C1D38): three of type 0x4A a tick from its
-                        // point 0, going down 3 to 4 u/s (0x46AB08). Then its end's sparkles.
+                        // point 0, 0.124 u behind it, ±0.025, going down 3 to 4 u/s and
+                        // shrinking (0x46AB08), kept in its frame. Then its end's sparkles.
                         3: (trail: Some([
                             (per_tick: 1.0, until: Some(31), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 0.95, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true, hovering: true),
-                            (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(0.0, 0.0, 1.992, 1.617)], end_colour: Some((0.0, 0.0, 1.617)), size: 0.286, end_size: 0.381, ticks: 5, ticks_to: 5, rise: (-4.0, -3.0), scatter: 0.025, keep: 0.98, above: 0.11, hovering: true),
-                            (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(1.992, 1.992, 0.0, 0.75)], end_colour: Some((1.0, 0.0, 0.0)), size: 0.286, end_size: 0.381, ticks: 6, ticks_to: 6, rise: (-4.0, -3.0), scatter: 0.025, keep: 0.98, above: 0.11, hovering: true),
-                            (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(0.617, 0.992, 1.992, 1.867)], end_colour: Some((0.0, 0.0, 1.992)), size: 0.095, end_size: 0.286, ticks: 4, ticks_to: 4, rise: (-4.0, -3.0), scatter: 0.025, keep: 0.98, above: 0.11, hovering: true),
+                            (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(0.0, 0.0, 1.992, 1.617)], end_colour: Some((0.0, 0.0, 1.617)), size: 0.381, end_size: 0.286, ticks: 5, ticks_to: 5, rise: (-4.0, -3.0), keep: 0.98, at: (0.0, 0.0, 0.124), jitter: 0.025, carried: true, hovering: true),
+                            (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(1.992, 1.992, 0.0, 0.75)], end_colour: Some((1.0, 0.0, 0.0)), size: 0.381, end_size: 0.286, ticks: 6, ticks_to: 6, rise: (-4.0, -3.0), keep: 0.98, at: (0.0, 0.0, 0.124), jitter: 0.025, carried: true, hovering: true),
+                            (per_tick: 1.0, textures: [Particle(0x4A, 0)], colours: [(0.617, 0.992, 1.992, 1.867)], end_colour: Some((0.0, 0.0, 1.992)), size: 0.286, end_size: 0.095, ticks: 4, ticks_to: 4, rise: (-4.0, -3.0), keep: 0.98, at: (0.0, 0.0, 0.124), jitter: 0.025, carried: true, hovering: true),
                             (per_tick: 0.75, after: Some(1971), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 1.25, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true),
                             (per_tick: 0.25, after: Some(1971), textures: [Particle(0x68, 0), Particle(0x68, 1), Particle(0x68, 2), Particle(0x68, 3)], colours: [(0.19, 0.31, 0.99, 1.992), (0.31, 0.5, 0.99, 1.992), (0.0, 0.125, 0.99, 1.992)], size: 1.25, end_size: 0.002, ticks: 20, ticks_to: 40, rise: (0.5, 1.5), scatter: 0.3, flash: true, blend: Alpha),
                         ])),

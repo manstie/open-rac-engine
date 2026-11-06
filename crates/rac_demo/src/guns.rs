@@ -404,7 +404,7 @@ fn modelled(kind: &ShotKind) -> bool {
 }
 
 /// The way a shot of a game's model faces, if it has one now.
-fn faces(kind: &ShotKind, velocity: Vec3) -> Option<Quat> {
+pub(crate) fn faces(kind: &ShotKind, velocity: Vec3) -> Option<Quat> {
     match kind {
         ShotKind::Agent(state) => Some(Quat::from_rotation_y(state.yaw)),
         ShotKind::Duck(state) => Some(Quat::from_rotation_y(state.yaw)),

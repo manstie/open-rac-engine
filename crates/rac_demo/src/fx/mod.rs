@@ -548,9 +548,18 @@ pub struct Trail {
     pub flash: bool,
     #[serde(default)]
     pub blend: Blend,
-    /// Laid this far above the shot's place.
+    /// Laid at this point of the shot rather than at its place, in its model's frame (x
+    /// right, y up, z back) turned the way it faces.
     #[serde(default)]
-    pub above: f32,
+    pub at: [f32; 3],
+    /// Laid up to this far from there either way along each axis.
+    #[serde(default)]
+    pub jitter: f32,
+    /// Kept in the shot's frame, as the game's type 0x4A keeps its particles in their
+    /// moby's (0x46AB08): each goes on from where it was laid at its own speed, turned
+    /// within that frame, as the shot moves and turns, and goes when the shot does.
+    #[serde(default)]
+    pub carried: bool,
     /// Laid only while an agent hovers on its jets (0x3C1D38).
     #[serde(default)]
     pub hovering: bool,
@@ -1061,6 +1070,16 @@ struct CoversView;
 /// frame that places it and the next.
 const VIEW_COVER: (f32, f32) = (1.0, 100.0);
 
+/// A particle kept in the frame of the shot that laid it ([`Trail::carried`]), whose
+/// velocity is in that frame too.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+struct Carried {
+    /// The shot's hero's player and its serial.
+    shot: (usize, u32),
+    /// Where it is from the shot's place, in the shot's frame.
+    offset: Vec3,
+}
+
 /// A sprite or particle living out its ticks.
 #[derive(Component, Debug, Clone)]
 struct Fx {
@@ -1112,10 +1131,23 @@ impl Fx {
     /// A particle of the game's pool starts a step on: its update runs after the mobys that
     /// make them and before they are drawn (0x4B5368), and frees one on the step that
     /// takes its life to nothing (0x40BAC0), so one of life L shows for L − 1 frames, none
-    /// of them at its start size.
+    /// of them at its start size. Type 0x4A's update (0x46AB08) takes its size and colour
+    /// from its life before the step, so it shows its start look first and goes a step
+    /// short of its end look.
     fn stepped_first(mut self, texture: Tex) -> Self {
-        if matches!(texture, Tex::Particle(..)) {
-            self.ticks_left -= 1;
+        match texture {
+            Tex::Particle(0x4A, _) if self.total > 1 => {
+                let step = 1.0 / self.total as f32;
+                self.end = self.end.lerp(self.size, step);
+                self.end_alpha += (self.alpha - self.end_alpha) * step;
+                if let Some((from, to)) = &mut self.fade {
+                    *to = to.lerp(*from, step);
+                }
+                self.total -= 1;
+                self.ticks_left = self.total;
+            }
+            Tex::Particle(..) => self.ticks_left -= 1,
+            Tex::Effect(_) => {}
         }
         self
     }
@@ -1454,9 +1486,63 @@ impl Spawner<'_, '_, '_> {
     /// One of `trail`'s particles at `at`, `scale` times its size, from something whose
     /// way over the last tick was `path`.
     fn trail(&mut self, trail: &Trail, at: Vec3, path: Vec3, scale: f32, rng: &mut FxRng) {
+        if let Some((at, billboard, fx)) = self.trail_fx(trail, at, path, scale, rng) {
+            self.spawn(at, billboard, fx, "trail");
+        }
+    }
+
+    /// One of `trail`'s particles laid by `shot` (its hero's player and serial) at `at`,
+    /// kept in its frame if the trail is `carried`: the shot is at `place`, turned `facing`.
+    #[allow(clippy::too_many_arguments)]
+    fn shot_trail(
+        &mut self,
+        trail: &Trail,
+        at: Vec3,
+        path: Vec3,
+        shot: (usize, u32),
+        (place, facing): (Vec3, Quat),
+        rng: &mut FxRng,
+    ) {
+        let Some((at, billboard, mut fx)) = self.trail_fx(trail, at, path, 1.0, rng) else {
+            return;
+        };
+        let carried = trail.carried.then(|| {
+            let back = facing.inverse();
+            fx.velocity = back * fx.velocity;
+            Carried {
+                shot,
+                offset: back * (at - place),
+            }
+        });
+        let entity = self.spawn(at, billboard, fx, "trail");
+        if let Some(carried) = carried {
+            self.commands.entity(entity).insert(carried);
+        }
+    }
+
+    /// What [`Spawner::trail`] spawns, and where.
+    fn trail_fx(
+        &mut self,
+        trail: &Trail,
+        at: Vec3,
+        path: Vec3,
+        scale: f32,
+        rng: &mut FxRng,
+    ) -> Option<(Vec3, Billboard, Fx)> {
         let (Some(&texture), Some(&colour)) = (rng.pick(&trail.textures), rng.pick(&trail.colours))
         else {
-            return;
+            return None;
+        };
+        // Drawn only where there is any, so other trails take the same draws as before.
+        let at = if trail.jitter > 0.0 {
+            let jitter = (-trail.jitter, trail.jitter);
+            at + Vec3::new(
+                rng.between(jitter),
+                rng.between(jitter),
+                rng.between(jitter),
+            )
+        } else {
+            at
         };
         let (shell, drawn_in) = match trail.shell {
             Some(shell) => {
@@ -1478,10 +1564,7 @@ impl Spawner<'_, '_, '_> {
             None => (Vec3::ZERO, Vec3::ZERO),
         };
         let at = match trail.ground {
-            Some(reach) => match on_ground(self.world, at, reach) {
-                Some(at) => at + shell,
-                None => return,
-            },
+            Some(reach) => on_ground(self.world, at, reach)? + shell,
             None => at + shell,
         };
         let life = rng.ticks(trail.ticks, trail.ticks_to);
@@ -1514,7 +1597,7 @@ impl Spawner<'_, '_, '_> {
                 self.material(texture, colour, trail.blend),
             )
         };
-        self.spawn(at, billboard, fx.stepped_first(texture), "trail");
+        Some((at, billboard, fx.stepped_first(texture)))
     }
 
     /// One of `glare`'s rays round `at`, the sprite laid along it from its head out.
@@ -2134,9 +2217,10 @@ fn emit_gun_fx(
     }
 }
 
-/// Where each shot with a trail was last tick, by its hero's player and its serial.
+/// Where each shot with a trail was last tick and the way it faced, by its hero's player
+/// and its serial.
 #[derive(Resource, Debug, Default)]
-struct TrailFrom(BTreeMap<(usize, u32), Vec3>);
+struct TrailFrom(BTreeMap<(usize, u32), (Vec3, Quat)>);
 
 /// Lays each shot's trail along the way it flew this tick.
 #[allow(clippy::too_many_arguments)]
@@ -2177,8 +2261,9 @@ fn emit_trails(
                 continue;
             }
             let id = (hero.player, shot.serial);
-            now.insert(id, shot.position);
-            let Some(&last) = from.0.get(&id) else {
+            let facing = crate::guns::faces(&shot.kind, shot.velocity).unwrap_or_default();
+            now.insert(id, (shot.position, facing));
+            let Some(&(last, _)) = from.0.get(&id) else {
                 continue;
             };
             spawner.beams(wake, last, shot.position, &mut rng);
@@ -2191,10 +2276,11 @@ fn emit_trails(
                     continue;
                 }
                 let count = trail.count(path.length(), rng.unit());
+                let point = facing * Vec3::from_array(trail.at);
                 for index in 0..count {
-                    let at =
-                        last + path * (index + 1) as f32 / count as f32 + Vec3::Y * trail.above;
-                    spawner.trail(trail, at, path, 1.0, &mut rng);
+                    let at = last + path * (index + 1) as f32 / count as f32 + point;
+                    let place = (shot.position, facing);
+                    spawner.shot_trail(trail, at, path, id, place, &mut rng);
                 }
             }
         }
@@ -2211,12 +2297,20 @@ fn step_fx(
         &mut Billboard,
         &mut SimTransform,
         &mut Transform,
+        Option<&mut Carried>,
     )>,
+    shots: Res<TrailFrom>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
     const TICK: f32 = 1.0 / 60.0;
-    for (entity, mut fx, mut billboard, mut place, mut transform) in &mut fx {
+    for (entity, mut fx, mut billboard, mut place, mut transform, carried) in &mut fx {
+        // The game frees a carried particle once its moby is gone (0x46AB08).
+        let shot = carried.as_ref().map(|carried| shots.0.get(&carried.shot));
+        if shot == Some(None) {
+            commands.entity(entity).despawn();
+            continue;
+        }
         // Drawn first as it is at its age: one of `ticks` ticks shows for that many, but for
         // the game's particles ([`Fx::stepped_first`]).
         if fx.wait > 0 {
@@ -2241,7 +2335,13 @@ fn step_fx(
         fx.velocity.y -= fx.gravity * TICK;
         let keep = fx.keep;
         fx.velocity *= keep;
-        place.translation += fx.velocity * TICK;
+        match (carried, shot.flatten()) {
+            (Some(mut carried), Some(&(at, facing))) => {
+                carried.offset += fx.velocity * TICK;
+                place.translation = at + facing * carried.offset;
+            }
+            _ => place.translation += fx.velocity * TICK,
+        }
         billboard.roll += fx.spin;
     }
 }
@@ -2331,9 +2431,90 @@ mod tests {
             (1, Vec2::splat(0.5))
         );
         assert_eq!(fx(1, Tex::Particle(0x35, 0)).ticks_left, 0);
+        // Type 0x4A shows its start look first: an agent's blue jet of life 5 at alphas
+        // 0xCF, 0xA5, 0x7C and 0x52, as its live particles in a savestate have them.
+        let mut jet = Fx::still(5, Vec2::ONE, Vec2::ZERO, 1.617, Handle::default())
+            .stepped_first(Tex::Particle(0x4A, 0));
+        let mut looks = Vec::new();
+        while jet.ticks_left > 0 {
+            looks.push(jet.look());
+            jet.ticks_left -= 1;
+        }
+        let expected = [(1.0, 0xCF), (0.8, 0xA5), (0.6, 0x7C), (0.4, 0x52)];
+        assert_eq!(looks.len(), expected.len());
+        for ((size, alpha), (want, byte)) in looks.into_iter().zip(expected) {
+            assert!((size.x - want).abs() < 1e-5);
+            assert!((alpha * 128.0 - f32::from(byte as u8)).abs() < 1.0);
+        }
         // What the game draws itself, in an effect's texture, shows whole for its ticks.
         let sprite = fx(1, Tex::Effect(49));
         assert_eq!((sprite.ticks_left, sprite.look().0), (1, Vec2::ONE));
+    }
+
+    #[test]
+    fn a_carried_particle_keeps_to_its_shot_as_it_moves_and_turns_and_goes_with_it() {
+        use bevy::ecs::system::RunSystemOnce;
+        let shot = (0, 7);
+        let mut world = World::new();
+        world.init_resource::<Assets<StandardMaterial>>();
+        let mut shots = TrailFrom::default();
+        shots
+            .0
+            .insert(shot, (Vec3::new(5.0, 1.0, 0.0), Quat::IDENTITY));
+        world.insert_resource(shots);
+        // Laid behind it, falling 3 u/s.
+        let particle = world
+            .spawn((
+                Fx {
+                    velocity: Vec3::new(0.0, -3.0, 0.0),
+                    ..Fx::still(5, Vec2::ONE, Vec2::ONE, 1.0, Handle::default())
+                },
+                Carried {
+                    shot,
+                    offset: Vec3::new(0.0, 0.0, 0.124),
+                },
+                Billboard {
+                    axis: None,
+                    roll: 0.0,
+                },
+                SimTransform::default(),
+                Transform::default(),
+            ))
+            .id();
+        let step = |world: &mut World, place: Option<(Vec3, Quat)>| {
+            let mut shots = world.resource_mut::<TrailFrom>();
+            match place {
+                Some(place) => shots.0.insert(shot, place),
+                None => shots.0.remove(&shot),
+            };
+            world
+                .run_system_once(step_fx)
+                .expect("a tick of the effects");
+            world
+                .get::<SimTransform>(particle)
+                .map(|place| place.translation)
+        };
+        let at = step(&mut world, Some((Vec3::new(5.0, 1.0, 0.0), Quat::IDENTITY)));
+        assert!(at.is_some_and(|at| at.abs_diff_eq(Vec3::new(5.0, 0.95, 0.124), 1e-5)));
+        // A quarter turn and a unit on: it falls on from behind the shot, which is now +x.
+        let turned = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let at = step(&mut world, Some((Vec3::new(6.0, 1.0, 0.0), turned)));
+        assert!(at.is_some_and(|at| at.abs_diff_eq(Vec3::new(6.124, 0.9, 0.0), 1e-5)));
+        // Gone with the shot.
+        step(&mut world, None);
+        assert!(world.get_entity(particle).is_err());
+        // The agents' jets from V4 (0x3C1D38): three a tick from 0.124 u behind, shrinking.
+        let recipes = FxRecipes::default();
+        let jets: Vec<_> = recipes
+            .trail("agents", 3, Some("agent"))
+            .iter()
+            .filter(|trail| trail.hovering && trail.textures == [Tex::Particle(0x4A, 0)])
+            .collect();
+        assert_eq!(jets.len(), 3);
+        assert!(jets.iter().all(|jet| jet.carried
+            && jet.at == [0.0, 0.0, 0.124]
+            && jet.jitter == 0.025
+            && jet.end_size < jet.size));
     }
 
     #[test]

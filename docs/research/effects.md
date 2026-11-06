@@ -64,8 +64,10 @@ and queues draw functions of its own each frame. Only some shots are mobys with 
   `particle_update_all`, so a particle a moby makes steps once before its first draw. Its
   life test (0x40BAC0) frees it on the step that takes its life to 0, so one of life L
   shows for L − 1 frames, the first a step from its start, and one of life 1 never shows.
-  The whip's life-2 sparkles show once, at half their start size. Effect textures aren't
-  drawn by this pool and show for their whole count.
+  The whip's life-2 sparkles show once, at half their start size. Type 0x4A's update
+  (0x46AB08) takes its look before its step, so it shows its start look first (Agents of
+  Doom, "Its jets"; 2026-11-06). Effect textures aren't drawn by this pool and show for
+  their whole count.
 - **How big it draws one** [verified on UYA NTSC, 2026-10-31]: its corners are the size
   from the middle (each a unit vector from the spin's table at scratchpad 0x3400 × size /
   depth [code]), so the size is half the diagonal and the half width size / √2.
@@ -1162,13 +1164,30 @@ the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05
     size 0.05–0.2 growing 500 / 210000 a frame, 0.5–1 u/s within 80° round a bearing and
     0–80° up, 30 frames, grey 0x7F fading from 0x7F, spin ±1–2).
 - **Its gun:** no flash where its bullet leaves (0x3C0128), only a sound [code, 2026-10-31].
-- **Its jets** (V4 and up; 0x3C1D38, while it hovers and while it lands): each frame three
-  type 0x4A particles (0x46A9C8, 0x4A's texture, added) at its point 0 (joint 54, 0.11 u up)
-  ±0.025, falling rand(30, 40) / 600 u a frame and keeping 0.98 of it, carried with it. From
-  the templates at 0x1DEC08, 0x1DEC18 and 0x1DEC28 [data]: blue at 0xCF fading to (0, 0,
-  0xCF) over 5 frames, half 30000 → 40000 (/ 210000); yellow (0xFF, 0xFF, 0) at 0x60 to
-  (0x80, 0, 0) over 6, the same size; (0x4F, 0x7F, 0xFF) at 0xEF to blue over 4, half 10000
-  → 30000.
+- **Its jets** (V4 and up; 0x3C1D38, while it hovers and while it lands) [code; verified on
+  UYA NTSC, 2026-11-06, on the 48 live jet particles in `uyantsc-veldin-agents-v5-hover.p2s`]:
+  - Each frame three type 0x4A particles (spawner 0x46A9C8, update 0x46AB08), added (render
+    byte 0x48; +9 is 0xA0), in particle texture 0 on Veldin (the type has no list of its
+    own, so it reads the table's first byte): a grey cloudy puff.
+  - Laid at its point 0 ±0.025 along each axis (0x448CD0): 0.124 u behind its origin (its
+    class's −x) at the origin's height. Each falls rand(30, 40) / 600 u a frame, keeping
+    0.98 of that each frame.
+  - **Kept in its frame:** the spawner stores the particle's offset from the agent turned
+    into the agent's frame (+0x30), and each frame the update adds the velocity to that
+    offset and places it by the agent's matrix. So the jets keep to the agent as it moves
+    and turns, and are freed once it is gone (its +0x20 at −2 or −3).
+  - **Templates** at 0x1DEC08, 0x1DEC18 and 0x1DEC28 [data], each {start RGBA, end RGBA,
+    i16 size change, i16 size, u32 life}:
+    - (0, 0, 0xFF) at 0xCF to (0, 0, 0xCF) at 0, size 40000 shrinking by 10000 (/ 210000)
+      over life 5;
+    - (0xFF, 0xFF, 0) at 0x60 to (0x80, 0, 0) at 0, the same sizes over 6;
+    - (0x4F, 0x7F, 0xFF) at 0xEF to (0, 0, 0xFF) at 0, 30000 shrinking by 20000 over 4.
+  - **Its look comes before its step:** the update sets the size to (change × (L − life) /
+    L + size) × 1000 in integers, and the colour by life / L from the end colour to the
+    start's, before the step that counts its life down. So, unlike the types whose update
+    steps first, it shows its start look on its first frame and goes a step short of its
+    end look. The live particles have alpha 0xCF, 0xA5, 0x7C and 0x52 at lives 4 to 1.
+    (Read before 2026-11-06 as growing, 30000 to 40000: the wrong way round.)
 - **Hovering, it faces** [code, verified on UYA NTSC]: with no target, its slot while it is
   0.1 u or more off it (0x445758, 0.0087 rad a frame², at most 0.524), else where its spring
   takes it; with one, its target. In `uyantsc-veldin-agents-v5-hover.p2s` the four stood on
@@ -1218,6 +1237,15 @@ the Nitro Eruptor, branching on whose they are. The comet's scale is set to 0.05
     through its last 30 ticks.
   - Seen at V5 on `kitdemo-arena-agents-near`: the second press's pod bursts blue and
     its agents walk out of it, as in the game.
+  - **The jets** (2026-11-06): laid at point 0 with its jitter (`Trail::at`, `jitter`),
+    kept in the agent's frame (`Trail::carried`), shrinking, and showing type 0x4A's start
+    look first (`Fx::stepped_first`). Before, they were laid 0.11 u up inside its body,
+    where the depth test hid most of them, and a step late, which cost about 30% of their
+    light. Seen at V5 on `kitdemo-arena-agents-near` with `--plain-colours`: they now hang
+    over the legs on the camera's side, as in the game's screenshot. The brightest pixels
+    are about (217, 210, 251) to the game's (251, 248, 255), and the bluest about the same
+    (120, 125, 235). They come out lavender where the game's have a white core and blue
+    edges, because the kit adds in linear light ("Importing them", "Colours").
   - Not done: an agent the pod lets out from V4 while a slot has come free walks
     instead of taking the slot (`agent_spawn` checks again).
 - **Its barrels' arms at V5** [code, verified on UYA NTSC, 2026-11-05]: from V5,
@@ -1987,7 +2015,7 @@ V3 (row 0xC0) and V5 (0xC2), so its V5 is judged from one frozen frame and its V
 | Infector (Infecto-Bomb) | Partial. V5's blob, its smoke, globs and bubbles, gas and rings are from code (2026-11-01); the game's yellow-green spatter lands on enemies, the kit's blob bursts in the air off to the side | V3's wash is its gas clouds (0x34) on a grey floor |
 | Spitting Hydra (Tempest) | Close, the same at V3 (2026-11-03). The game's "violet domes" are the spit's two rings of 61, camera-facing up to 10.5 and 21 u across with the floor hiding their lower halves, and the kit draws them so; its "gold ground bolt" is the charge's crackles to the floor, grey and blue added on sand. Each spit's bolt 10 u ahead is now drawn too. The kit's violet and glows come out bluer and stronger | The kit adds colours in linear light ("Importing them", "Colours"); arcs aren't cut short at walls |
 | Disc Blade Gun (Multi-Disc) | Close, at V3 too. The fireball in the game's takes is an enemy dying | |
-| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01), the jets dimmer than the game's; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. Their violet and gold lightning as they appear on his slots is the game's (2026-11-05: the appearing sparkles, lightning crackles at alpha 0xFF, round their models drawn added as they fade in), as are their spin, the pod's blue burst that the on-foot agents walk out of, and their end's sparkles and fade (2026-11-05). From V5 their barrels' arms are scaled to 0.45 as its code scales them, which puts them at the game's size ("Its barrels' arms at V5", 2026-11-05) | The arms' pitch while walking or running from V5, and the gun's at V2–V4; the jets dimmer than the game's |
+| Agents of Doom (Agents of Dread) | Partial. The Dread blast (below) and the jets are from code (2026-11-01); the jets are placed, sized and carried as the game's (2026-11-06, "In the kit"), lavender where the game's are white at the core; the agents stand on the game's slots and face his way, drawn there (logged 2026-11-01); the kit's take saw them 40° from behind, as its camera lagged his turn. Their violet and gold lightning as they appear on his slots is the game's (2026-11-05: the appearing sparkles, lightning crackles at alpha 0xFF, round their models drawn added as they fade in), as are their spin, the pod's blue burst that the on-foot agents walk out of, and their end's sparkles and fade (2026-11-05). From V5 their barrels' arms are scaled to 0.45 as its code scales them, which puts them at the game's size ("Its barrels' arms at V5", 2026-11-05) | The arms' pitch while walking or running from V5, and the gun's at V2–V4; the jets' colours (linear light) |
 | Rift Inducer (Rift Ripper) | Close (2026-11-05, `review-rift-0x63` against `-rift-near`). In flight the game's small violet ball is its rings of 76 and glow, as the kit's; open, a bright violet star with faint rays in a dark smear, its lens, over stirring dust. Its lens and rings are drawn (2026-11-04): what is round it is drawn in toward its middle, as the game's; and as it closes, its rays shorten and its rings narrow away from its code. The kit's pale sphere round it, a placeholder, is gone: the rift's class is 0.05 units across at the scale its code leaves it (0x373738) | Not drawn: the smoke on a ring in the view's plane, the spray as it fires, its spirals of 71 and orbiting sparks; the lens copies only what is opaque |
 | Holo Shield Glove (Ultrashield) | Partial. The game's a bright pink-white oval; nothing of it warps the frame, by its code (2026-11-04). The kit's now has V5's disc of 5, the orange rings of a hit, the stars of 57 and the shield class's own faint shell with its grey rim, as the game's takes show it (2026-11-05, `-holo-near` at V3 and V5) | Paler than the game's (the colours' linear light, P1.9); its colour's swing through its last 4 s. Its fold, a fade and a blue flash, is the game's (2026-11-05) |
 | Plasma Whip (Quantum Whip) | Close (below, "The Quantum Whip's cutting wave") | V5's hit sparks not read |

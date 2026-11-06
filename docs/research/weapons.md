@@ -1962,7 +1962,7 @@ as with the wrench, and the whip's object hits along its rope. (Earlier notes ca
     rad a frame², at most 0.524), else where its spring takes it; with one, its target.
   - **In the kit:** all of that but the spin and alpha as it appears, the 0.8 u with the
     camera, and its facing at its slot (it keeps its way). Its jets are drawn (`effects.md`,
-    "Agents of Doom").
+    "Agents of Doom"), kept in its frame as the game keeps them (2026-11-06).
 - **An agent** (class 0x1ADA; spawned by 0x3C0F78, its update 0x3BD298, about 1500
   lines, read in part):
   - **sight** (corrected 2026-10-22): as it comes out it takes anything with health
